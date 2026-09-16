@@ -41,5 +41,7 @@ open Image settings; NR and Frame generation open their respective tabs.
 Other Skyrim versions, native RTX 50-series, HDR and physical frame cadence
 need separate testing.
 
+ENB is not a startup requirement; setups without ENB have not been validated.
+
 See [LICENSE](LICENSE) and [third-party notices](THIRD-PARTY.md) for project and
 contribution terms. Vendor runtimes retain their own licenses.

@@ -24,7 +24,7 @@ separately: download the SR/FG files below, and the NR runtime if you want NR.
    Restart your PC if you changed it. Use **windowed or borderless mode** in Skyrim.
 5. Launch **SKSE through MO2**. Press **End** to open settings.
 
-The folders and license notices are already included. Use the `bin/x64` files
+The destination folders are included in the ZIP. Use the `bin/x64` files
 from the download, not its debug or development folders.
 
 ## Optional Neural Rendering (NR)
@@ -70,6 +70,8 @@ Visual C++ runtime and a compatible NVIDIA GPU/driver. DLSS-G-compatible hardwar
 is required even with frame generation switched off. AMD/Intel and ReShade
 integration are not supported.
 
+ENB is not a startup requirement; setups without ENB have not been validated.
+
 This is an early test release. The current build was tested with LoreRim/ENB
 and an RTX 4080 SUPER, including NR Before DLSS/one pass and x4 MFG. RTX 30-series,
 native RTX 50-series operation and HDR appearance are not verified for this build.
@@ -81,4 +83,5 @@ identity links to the exact matching source revision in the
 Logs are normally under `Documents/My Games/Skyrim Special Edition/SKSE/`.
 
 See `LICENSE` and `THIRD-PARTY.md` for project terms and attribution.
-NVIDIA files retain their accompanying terms.
+Notices for SDK code included in the renderer are consolidated in
+`THIRD-PARTY.md`. Separately downloaded NVIDIA files retain their accompanying terms.
