@@ -1,5 +1,5 @@
-set(ARP_RELEASE_VERSION "0.1.1")
-set(ARP_RELEASE_LABEL "${ARP_RELEASE_VERSION}-rc.2")
+set(ARP_RELEASE_VERSION "${PROJECT_VERSION}")
+set(ARP_RELEASE_LABEL "${ARP_RELEASE_VERSION}")
 string(REPLACE "." ", " ARP_RELEASE_NUMERIC "${ARP_RELEASE_VERSION}")
 
 # Keep diagnostic locations useful without embedding the build machine's paths.

@@ -1,4 +1,4 @@
-# Theo's Render Pipeline — full-feature package, 0.1.1-rc.2
+# Theo's Render Pipeline — full-feature package, 0.1.2
 
 DLSS/DLAA, frame generation, Neural Rendering and native-resolution UI for Skyrim.
 This package includes the full renderer, configuration and sharpening shader.
@@ -72,9 +72,11 @@ integration are not supported.
 
 ENB is not a startup requirement; setups without ENB have not been validated.
 
-This is an early test release. The current build was tested with LoreRim/ENB
+This is an early test release. The rendering code was tested with LoreRim/ENB
 and an RTX 4080 SUPER, including NR Before DLSS/one pass and x4 MFG. RTX 30-series,
 native RTX 50-series operation and HDR appearance are not verified for this build.
+
+Version 0.1.2 updates packaging and version metadata; rendering behavior is unchanged.
 
 Include `TRP-FULL-PACKAGE.txt`, your GPU/driver, game/mod versions, settings and
 `TheosRenderPipeline.log`/`skse64.log` when reporting a problem. The package
