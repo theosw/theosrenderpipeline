@@ -102,8 +102,8 @@ endif()
 
 add_subdirectory("${TRP_COMMONLIBSSE_NG_DIR}" CommonLibSSE EXCLUDE_FROM_ALL)
 
-if(ENABLE_SKYRIM_VR OR (ENABLE_SKYRIM_SE AND ENABLE_SKYRIM_AE))
-    message(FATAL_ERROR "Build separately for Skyrim 1.5.97 (SE) or 1.6.1170 (AE). Multi-runtime and VR builds are not supported.")
+if(ENABLE_SKYRIM_VR OR NOT ENABLE_SKYRIM_SE OR NOT ENABLE_SKYRIM_AE)
+    message(FATAL_ERROR "Enable both Skyrim SE and AE, with VR disabled, for the universal 1.5.97/1.6.1170 build.")
 endif()
 
 find_package(spdlog CONFIG REQUIRED)

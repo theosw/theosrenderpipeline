@@ -38,12 +38,13 @@ The tested environment is Skyrim 1.6.1170 with matching SKSE64/Address Library,
 LoreRim/ENB and RTX 4080 SUPER. The rc.2 menu build received a positive gameplay
 report with Before-DLSS NR/one pass and x4 MFG active. World, DLSS and Output
 open Image settings; NR and Frame generation open their respective tabs.
-The separate Skyrim 1.5.97 build is experimental: its engine hooks have been
-checked against that executable, but gameplay acceptance is pending. Native
-RTX 50-series, HDR and physical frame cadence need separate testing.
+The same DLL supports Skyrim 1.5.97 and 1.6.1170 and selects the matching engine
+hooks and layouts at startup. The universal build needs gameplay testing on both
+versions; 1.5.97 support is experimental. Native RTX 50-series, HDR and physical
+frame cadence need separate testing.
 
-Use the package matching your exact Skyrim executable version. The SE and AE
-builds have identical plugin filenames and must not be installed together.
+Use SKSE64 and Address Library matching your Skyrim executable. Full and Standard
+remain separate feature editions; each supports both game versions.
 
 ENB is not a startup requirement; setups without ENB have not been validated.
 

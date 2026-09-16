@@ -8,11 +8,12 @@ headers/import library. The validated dependency set uses CommonLibSSE-NG 3.6.0
 and Streamline 2.11.1 headers. CMake reads the other libraries from `vcpkg.json`.
 Runtime DLLs are not required to compile the plugin.
 
-`arp-nvidia` targets Skyrim 1.6.1170. For the experimental 1.5.97 port, use
-`arp-nvidia-se` for both configure and build commands below. It writes to
-`out/build/nvidia-se`. Each build supports exactly one game version; use matching
-SKSE64 and Address Library files when installing. The same NVIDIA runtimes and
-optional-feature build switch apply to both targets. SE gameplay testing is pending.
+`arp-nvidia` builds one DLL for Skyrim 1.5.97 and 1.6.1170, with both CommonLib
+SE and AE support enabled and VR disabled. The loader accepts only those two
+versions. Runtime-aware addresses and layout accessors select the appropriate
+engine integration. Use matching SKSE64 and Address Library files when installing.
+Both Full and Standard use this universal configuration. Gameplay testing of the
+universal build on both versions is pending.
 
 `TRP_ENABLE_OPTIONAL_FEATURES` selects the release variant. `OFF` builds the standard
 renderer without NR runtime integration, its shaders/UI, the Ada patch
