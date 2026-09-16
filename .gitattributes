@@ -1,0 +1,22 @@
+# Normalize authored text on future edits/checkouts; no bulk renormalization.
+* text=auto
+*.cpp text eol=lf
+*.h text eol=lf
+*.hpp text eol=lf
+*.hlsl text eol=lf
+*.cmake text eol=lf
+CMakeLists.txt text eol=lf
+*.md text eol=lf
+*.ps1 text eol=lf
+*.psm1 text eol=lf
+*.py text eol=lf
+*.json text eol=lf
+.clang-format text eol=lf
+.gitattributes text eol=lf
+*.dll binary
+*.lib binary
+*.pdb binary
+*.zip binary
+*.png binary
+.gitignore text eol=lf
+*.ini text eol=lf

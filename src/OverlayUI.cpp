@@ -1,0 +1,458 @@
+#include "OverlayUI.h"
+#include "OverlayFrameView.h"
+#include "RendererSettingsController.h"
+#include "OverlayUIStyle.h"
+#include "OverlayRenderTarget.h"
+
+#include <imgui_internal.h>
+
+#include <PCH.h>
+
+#include "RenderPipeline.h"
+#include "FrameGen/SourceFrameGeneration.h"
+#include "PerformanceTuning.h"
+#include "VideoMemoryTelemetry.h"
+#include "FrameGen/NvidiaHost.h"
+#include "FrameGen/SourceDLSSGBackend.h"
+
+#include <imgui.h>
+#include <imgui_impl_dx11.h>
+#include <imgui_impl_win32.h>
+
+using namespace TheosRenderPipeline::Overlay;
+
+namespace
+{
+	void AllowSkyrimTextInput(RE::ControlMap* a_controlMap, bool a_allow)
+	{
+		// ControlMap's runtime data moved in Skyrim 1.6.1130.  The CommonLib
+		// checkout used by TheosRenderPipeline predates that layout, so its member wrapper
+		// reads and writes the old textEntryCount offset on 1.6.1170.  Call the
+		// game's relocated implementation instead; it owns the active runtime
+		// layout and is the same path used by the other modern ImGui menus.
+		using Func = decltype(&AllowSkyrimTextInput);
+		static REL::Relocation<Func> func{ RELOCATION_ID(67252, 68552) };
+		func(a_controlMap, a_allow);
+	}
+
+}
+
+void OverlayUI::Init(IDXGISwapChain* a_swapChain, ID3D11Device* a_device, ID3D11DeviceContext* a_context)
+{
+	if (initialized) {
+		return;
+	}
+
+	swapChain = a_swapChain;
+	device = a_device;
+	context = a_context;
+
+	DXGI_SWAP_CHAIN_DESC desc{};
+	if (FAILED(swapChain->GetDesc(&desc)) || !desc.OutputWindow) {
+		logger::error("[Overlay] could not get swapchain output window");
+		return;
+	}
+	hwnd = desc.OutputWindow;
+
+	IMGUI_CHECKVERSION();
+	ImGui::CreateContext();
+	ImGuiIO& io = ImGui::GetIO();
+	io.IniFilename = nullptr;  // no imgui.ini clutter in the game directory
+	ImGui::StyleColorsDark();
+	ApplyRendererStyle();
+	ImGui_ImplWin32_Init(hwnd);
+	ImGui_ImplDX11_Init(device, context);
+	VideoMemoryTelemetry::GetSingleton()->Init(device);
+
+	// Window messages queue hotkeys; only Present changes ImGui or game controls.
+	if (const auto error = hotkeys.Install(hwnd,
+	        static_cast<UINT>(RenderPipeline::GetSingleton()->mToggleOverlayHotkey), WindowMessage)) {
+		util::report_and_fail(std::format("Theo's Render Pipeline: window hotkey observer failed (Win32 {}).", error));
+	}
+	logger::info("[Overlay Input] window-message observer installed (thread={})", GetWindowThreadProcessId(hwnd, nullptr));
+
+	LARGE_INTEGER freq{};
+	::QueryPerformanceFrequency(&freq);
+	qpcToMs = 1000.0 / static_cast<double>(freq.QuadPart);
+
+	initialized = true;
+	logger::info("[Overlay] initialized (hwnd={}, toggle hotkey vk=0x{:02X})", reinterpret_cast<void*>(hwnd), RenderPipeline::GetSingleton()->mToggleOverlayHotkey);
+}
+
+void OverlayUI::PollInput()
+{
+	// Mouse buttons and numeric editing retain their existing polling.
+	ImGuiIO& io = ImGui::GetIO();
+	static bool lastLeft = false;
+	static bool lastRight = false;
+	const auto foreground = ::GetForegroundWindow();
+	const bool focused = visible && foreground && (foreground == hwnd || ::IsChild(hwnd, foreground));
+	const bool left = focused && (::GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
+	const bool right = focused && (::GetAsyncKeyState(VK_RBUTTON) & 0x8000) != 0;
+	if (left != lastLeft) {
+		io.AddMouseButtonEvent(0, left);
+		lastLeft = left;
+	}
+	if (right != lastRight) {
+		io.AddMouseButtonEvent(1, right);
+		lastRight = right;
+	}
+	TheosRenderPipeline::Overlay::NumericInput::Keys keys{};
+	if (focused) {
+		for (unsigned vk = VK_BACK; vk < keys.size(); ++vk) {
+			keys[vk] = (::GetAsyncKeyState(static_cast<int>(vk)) & 0x8000) != 0;
+		}
+	}
+	numericInput.Update(io, keys, focused);
+	SetTextInputCapture(focused && io.WantTextInput);
+}
+
+void OverlayUI::SetTextInputCapture(bool a_capture)
+{
+	if (textInputCaptured == a_capture) { return; }
+	if (auto* controlMap = RE::ControlMap::GetSingleton()) {
+		// Pair only the ownership acquired by this overlay. Other menus may own
+		// independent claims on Skyrim's text-input counter.
+		AllowSkyrimTextInput(controlMap, a_capture);
+		logger::info("[Overlay Input] Skyrim native text capture {}",
+			a_capture ? "acquired" : "released");
+		textInputCaptured = a_capture;
+	}
+}
+
+void OverlayUI::SetVisible(bool a_visible)
+{
+	visible = a_visible;
+	if (initialized) {
+		auto& io = ImGui::GetIO();
+		io.MouseDrawCursor = visible;
+		if (!visible) {
+			numericInput.Update(io, {}, false);
+			// Hidden overlays do not run another ImGui frame, so a queued focus-loss
+			// event would never clear the active InputInt. Reset it synchronously or
+			// the next open can reacquire Skyrim text input before anything is focused.
+			ImGui::ClearActiveID();
+			ImGui::GetCurrentContext()->WantTextInputNextFrame = 0;
+			io.ClearInputKeys();
+			io.ClearEventsQueue();
+			io.WantTextInput = false;
+			SetTextInputCapture(false);
+		}
+	}
+
+	// Suppress game controls with paired ToggleControls calls and restore the
+	// remembered state on close (pattern proven by the SKSE_Template_Forms
+	// overlay; a bare ignoreKeyboardMouse write left input permanently dead).
+	auto controlMap = RE::ControlMap::GetSingleton();
+	if (!controlMap) {
+		logger::warn("[Overlay] ControlMap unavailable while toggling visibility");
+		return;
+	}
+
+	if (visible) {
+		if (!controlsSuppressed) {
+			fightingWasEnabled = controlMap->IsFightingControlsEnabled();
+			lookingWasEnabled = controlMap->IsLookingControlsEnabled();
+			controlMap->ToggleControls(RE::ControlMap::UEFlag::kFighting, false);
+			controlMap->ToggleControls(RE::ControlMap::UEFlag::kLooking, false);
+			controlsSuppressed = true;
+		}
+	} else if (controlsSuppressed) {
+		controlMap->ToggleControls(RE::ControlMap::UEFlag::kFighting, fightingWasEnabled);
+		controlMap->ToggleControls(RE::ControlMap::UEFlag::kLooking, lookingWasEnabled);
+		controlsSuppressed = false;
+	}
+}
+
+void OverlayUI::ApplyNeuralRenderingStateForSession(int state)
+{
+    auto result = TheosRenderPipeline::RendererSettingsController::Current().SetNeuralRenderingEnabled(state != 0);
+    actionMessage = std::move(result.message);
+    actionMessageIsError = result.error;
+    if (result.applied)
+    {
+        settingsDraft.sourceDLSSG.neuralEnabled = state != 0;
+    }
+}
+
+LRESULT CALLBACK OverlayUI::WindowMessage(int code, WPARAM wParam, LPARAM lParam)
+{
+	return GetSingleton()->hotkeys.ForwardMessage(code, wParam, lParam);
+}
+
+void OverlayUI::HandleHotkey()
+{
+	const auto toggleKey = static_cast<UINT>(RenderPipeline::GetSingleton()->mToggleOverlayHotkey);
+	for (const auto key : hotkeys.TakePending()) {
+		const auto actions = ActionsForHotkey(key, toggleKey, visible && ImGui::GetIO().WantTextInput);
+		if (actions.neuralState >= 0) { ApplyNeuralRenderingStateForSession(actions.neuralState); }
+		if (actions.toggle) {
+			SetVisible(!visible);
+			logger::info("[Overlay] hotkey vk=0x{:02X} {}", key, visible ? "opened" : "closed");
+		}
+	}
+}
+
+void OverlayUI::UpdateFrameStats()
+{
+	// Present stops while the game is loading, paused behind another window, or
+	// held for a screenshot. Those wall-clock gaps are not rendered frame time
+	// and must not contaminate the rolling graph or one-second FPS windows.
+	static constexpr double kFrameTimelineDiscontinuityMs = 250.0;
+
+	LARGE_INTEGER now{};
+	::QueryPerformanceCounter(&now);
+	++presentedFrameCount;
+	const auto upscaler = RenderPipeline::GetSingleton();
+	bool timelineDiscontinuity = false;
+
+	if (lastFrameQpc != 0) {
+		const auto dtMs = static_cast<float>((now.QuadPart - lastFrameQpc) * qpcToMs);
+		if (dtMs > 0.0f && dtMs <= kFrameTimelineDiscontinuityMs) {
+			frameTimesMs[frameTimeIndex] = dtMs;
+			frameTimeIndex = (frameTimeIndex + 1) % kFrameHistory;
+			frameTimeCount = frameTimeCount < kFrameHistory ? frameTimeCount + 1 : kFrameHistory;
+			PerformanceTuning::GetSingleton()->RecordGameFrameCadenceMs(dtMs);
+		} else {
+			timelineDiscontinuity = true;
+		}
+	}
+	lastFrameQpc = now.QuadPart;
+
+	// Refresh the rendered/presented FPS split once per second.
+	if (fpsWindowStartQpc == 0 || timelineDiscontinuity) {
+		presentedFps = renderedFps = 0.0f;
+		fpsWindowStartQpc = now.QuadPart;
+		fpsWindowPresentedStart = presentedFrameCount;
+		fpsWindowRenderedStart = upscaler->mRenderedFrameCount;
+	} else {
+		const auto windowMs = (now.QuadPart - fpsWindowStartQpc) * qpcToMs;
+		if (windowMs >= 1000.0) {
+			presentedFps = static_cast<float>((presentedFrameCount - fpsWindowPresentedStart) * 1000.0 / windowMs);
+			renderedFps = static_cast<float>((upscaler->mRenderedFrameCount - fpsWindowRenderedStart) * 1000.0 / windowMs);
+			fpsWindowStartQpc = now.QuadPart;
+			fpsWindowPresentedStart = presentedFrameCount;
+			fpsWindowRenderedStart = upscaler->mRenderedFrameCount;
+		}
+	}
+
+	// DLSS-G output is downstream of the game-facing Present. Read the source
+	// session's accumulated runtime deltas. Do not call slDLSSGGetState
+	// again from the menu because it consumes the delta.
+	TheosRenderPipeline::Telemetry::OutputCounter output{};
+
+		if (NvidiaHost::GetSingleton()->StartupConfigured()) {
+			const auto& source = TheosRenderPipeline::SourceDLSSG::Backend::Get();
+			const auto& session = source.Snapshot();
+			output = { TheosRenderPipeline::Telemetry::OutputSource::Streamline,
+				session.presentationEpoch, session.stateQueries, session.runtimePresentedFrames,
+				source.Ready() && session.stateQueries > 0 &&
+					session.stage != TheosRenderPipeline::SourceDLSSG::SessionStage::Stopped &&
+					session.stage != TheosRenderPipeline::SourceDLSSG::SessionStage::Faulted &&
+					session.state.status == sl::DLSSGStatus::eOk };
+		}
+
+	outputRate.Update(now.QuadPart * qpcToMs, output, timelineDiscontinuity);
+}
+
+void OverlayUI::CaptureSettingsDraft()
+{
+    settingsDraft = TheosRenderPipeline::RendererSettingsController::Current().Capture();
+}
+
+int OverlayUI::CountStagedChanges() const
+{
+    return TheosRenderPipeline::RendererSettingsController::Current().CountChanges(settingsDraft);
+}
+
+void OverlayUI::ApplySettingsDraft(bool save)
+{
+    if (!settingsDraft.valid)
+    {
+        return;
+    }
+    auto result = TheosRenderPipeline::RendererSettingsController::Current().Apply(settingsDraft, save);
+    actionMessage = std::move(result.message);
+    actionMessageIsError = result.error;
+    if (result.applied)
+    {
+        CaptureSettingsDraft();
+    }
+}
+
+void OverlayUI::BuildUI()
+{
+    const auto view = CaptureFrameView();
+    ImGui::SetNextWindowSize(ImVec2(1100.0f, 720.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowPos(ImVec2(40.0f, 40.0f), ImGuiCond_FirstUseEver);
+    // Keep the useful minimum, but let the current display be the natural upper
+    // bound. The old 1250x1050 cap forced tall diagnostic tabs to scroll even on
+    // the native 5120x1440 target and made window resizing appear ineffective.
+    const auto displaySize = ImGui::GetIO().DisplaySize;
+    const ImVec2 maximumWindowSize{(std::max)(780.0f, displaySize.x), (std::max)(560.0f, displaySize.y)};
+    ImGui::SetNextWindowSizeConstraints(ImVec2(780.0f, 560.0f), maximumWindowSize);
+    if (!ImGui::Begin(Plugin::DISPLAY_NAME.data(), nullptr, ImGuiWindowFlags_NoCollapse))
+    {
+        ImGui::End();
+        return;
+    }
+
+    DrawPipelineSummary(view);
+    const auto& layoutStyle = ImGui::GetStyle();
+    const float reservedActionHeight = ImGui::GetFrameHeightWithSpacing() + ImGui::GetFrameHeight() +
+                                       ImGui::GetTextLineHeightWithSpacing() +
+                                       layoutStyle.CellPadding.y * 2.0f + layoutStyle.ItemSpacing.y * 2.0f + 1.0f;
+    const float tabCardHeight = (std::max)(220.0f, ImGui::GetContentRegionAvail().y - reservedActionHeight);
+    const float nestedCardHeight = (std::max)(190.0f, tabCardHeight - ImGui::GetFrameHeightWithSpacing());
+    const float advancedCardHeight = (std::max)(160.0f, nestedCardHeight - 2.0f * ImGui::GetFrameHeightWithSpacing());
+
+    if (ImGui::BeginTabBar("##theosrenderpipelineTabs", ImGuiTabBarFlags_None))
+    {
+        DrawImagePanel(tabCardHeight, nestedCardHeight, view);
+
+#if !defined(TRP_BASE_RENDERER)
+        DrawNeuralRenderingPanel(tabCardHeight);
+#endif
+
+        DrawFrameGenerationPanel(tabCardHeight, nestedCardHeight,
+                                 {view.sourceDLSSGActive, view.frameGenerationRuntimeActive,
+                                  view.activeDisplayMultiplier, view.outputLabel, view.outputText, view.sourceNeural});
+
+        DrawAdvancedPanel(advancedCardHeight, view);
+        ImGui::EndTabBar();
+    }
+
+    DrawSettingsActions();
+
+    ImGui::End();
+}
+
+void OverlayUI::OnPresent()
+{
+	if (!initialized) {
+		return;
+	}
+
+	UpdateFrameStats();
+	HandleHotkey();
+
+	if (!visible) {
+		return;
+	}
+
+	ImGui_ImplDX11_NewFrame();
+	ImGui_ImplWin32_NewFrame();
+	PollInput();
+	auto* nvidiaHost = NvidiaHost::GetSingleton();
+	if (nvidiaHost->ProxyActive()) {
+		// Source Present preparation also provides a native target on frames
+		// without a world/Mist UI handoff. Legacy fallback keeps its old extent.
+		const bool nativeUI = (nvidiaHost->NativePresentReady() || nvidiaHost->NativeUIPassActive()) && nvidiaHost->NativePresentationTexture();
+		ImGui::GetIO().DisplaySize = ImVec2(
+			static_cast<float>(nativeUI ? nvidiaHost->OutputWidth() : nvidiaHost->RenderWidth()),
+			static_cast<float>(nativeUI ? nvidiaHost->OutputHeight() : nvidiaHost->RenderHeight()));
+	}
+	ImGui::NewFrame();
+
+	BuildUI();
+
+	ImGui::Render();
+	ID3D11RenderTargetView* overlayTarget = nullptr;
+	ID3D11Texture2D* finalFrame = nullptr;
+	Microsoft::WRL::ComPtr<ID3D11Texture2D> fallbackBuffer;
+	if (nvidiaHost->ProxyActive()) {
+		finalFrame = nvidiaHost->NativeUIPassActive() ?
+			nvidiaHost->NativeUIRenderTexture() : nvidiaHost->GameFacingTexture();
+		if (nvidiaHost->NativePresentReady()) {
+			finalFrame = nvidiaHost->NativeUIDrawnThisFrame() ? nvidiaHost->NativeUIRenderTexture() : nvidiaHost->NativePresentationTexture();
+		}
+		if (!finalFrame) {
+			static std::atomic_bool loggedUnavailable{ false };
+			if (!loggedUnavailable.exchange(true)) {
+				logger::error("[Overlay] NVIDIA host render target is unavailable");
+			}
+			return;
+		}
+		if (nvidiaHost->NativePresentReady()) {
+			// Borrow the host's view. Retaining an inner swapchain buffer here
+			// would prevent resize when this overlay is subsequently hidden.
+			overlayTarget = nvidiaHost->NativeUIDrawnThisFrame() ? nvidiaHost->NativeUIRenderRTV() : nvidiaHost->NativePresentationRTV();
+		}
+	} else {
+		const auto result = swapChain->GetBuffer(0, IID_PPV_ARGS(&fallbackBuffer));
+		if (FAILED(result)) {
+			logger::error("[Overlay] backbuffer unavailable hr=0x{:08X}", static_cast<std::uint32_t>(result));
+			return;
+		}
+		finalFrame = fallbackBuffer.Get();
+	}
+	const auto result = DrawWithRenderTarget(device, finalFrame, overlayTarget, [&](ID3D11RenderTargetView* target) {
+		context->OMSetRenderTargets(1, &target, nullptr);
+		ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+	});
+	if (FAILED(result)) {
+		logger::error("[Overlay] render target view creation failed hr=0x{:08X}", static_cast<std::uint32_t>(result));
+	}
+}
+
+void OverlayUI::DrawSettingsActions()
+{
+    ImGui::Separator();
+    const int stagedChanges = CountStagedChanges();
+    if (ImGui::BeginTable("##actionBar", 2, ImGuiTableFlags_SizingStretchProp))
+    {
+        ImGui::TableSetupColumn("##actionStatus", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+        ImGui::TableSetupColumn("##actions", ImGuiTableColumnFlags_WidthFixed, 520.0f);
+        ImGui::TableNextColumn();
+        if (stagedChanges > 0)
+        {
+            ImGui::TextColored(kAmber, "%d staged change%s", stagedChanges, stagedChanges == 1 ? "" : "s");
+        }
+        else if (!actionMessage.empty())
+        {
+            ImGui::TextColored(actionMessageIsError ? kRust : kSage, "%s", actionMessage.c_str());
+        }
+        else
+        {
+            ImGui::TextDisabled("No staged changes | toggle overlay: END");
+        }
+        ImGui::TableNextColumn();
+        ImGui::BeginDisabled(stagedChanges == 0);
+        if (ImGui::Button("Discard changes", ImVec2(150.0f, 0.0f)))
+        {
+            CaptureSettingsDraft();
+            actionMessage = "Unapplied edits discarded.";
+            actionMessageIsError = false;
+        }
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        {
+            ImGui::SetTooltip("Discard edits you have not applied. Applied settings and saved defaults stay as they are.");
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Apply now", ImVec2(140.0f, 0.0f)))
+        {
+            ApplySettingsDraft(false);
+        }
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        {
+            ImGui::SetTooltip("Apply live settings for this session. Saved defaults stay unchanged.\nMode and render scale changes require Save and restart.");
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.08f, 0.07f, 0.04f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_Button, kAmber);
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, kOchre);
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, kAmberDim);
+        if (ImGui::Button("Save as default", ImVec2(200.0f, 0.0f)))
+        {
+            ApplySettingsDraft(true);
+        }
+        ImGui::PopStyleColor(4);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        {
+            ImGui::SetTooltip("Apply live settings and save your choices for future launches.\nMode and render scale changes take effect after restarting.");
+        }
+        ImGui::EndTable();
+    }
+    ImGui::TextDisabled("Discard: unapplied edits | Apply: this session | Save: also keep for next launch");
+}

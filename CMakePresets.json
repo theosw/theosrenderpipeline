@@ -1,0 +1,35 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 21,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "arp-nvidia",
+      "displayName": "Theo's Render Pipeline NVIDIA plugin",
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
+      "binaryDir": "${sourceDir}/out/build/nvidia",
+      "cacheVariables": {
+        "ENABLE_SKYRIM_AE": "ON",
+        "ENABLE_SKYRIM_SE": "OFF",
+        "ENABLE_SKYRIM_VR": "OFF",
+        "CMAKE_MSVC_RUNTIME_LIBRARY": "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL",
+        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+        "VCPKG_TARGET_TRIPLET": "x64-windows-static-md"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "arp-nvidia",
+      "configurePreset": "arp-nvidia",
+      "configuration": "Release",
+      "targets": [
+        "ARPBaseline"
+      ]
+    }
+  ]
+}

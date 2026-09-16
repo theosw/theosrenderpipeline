@@ -1,0 +1,23 @@
+#include "SourceDLSSGMFG.h"
+#include <spdlog/spdlog.h>
+
+namespace TheosRenderPipeline::SourceDLSSG
+{
+    // Both variants read the setting; only the full renderer applies the unlock.
+    void MFGUnlock::Configure(bool)
+    {
+        state_.requested = false;
+    }
+
+    void MFGUnlock::Prepare(ID3D12Device*, const std::filesystem::path&)
+    {
+        if (started_) { return; }
+        started_ = true;
+        state_.route = MFGRoute::Native;
+        state_.status = "base renderer; native NVIDIA capabilities; Ada unlock not included";
+        spdlog::info("[SourceDLSSG MFG] startup path: {}; runtime capabilities remain authoritative", state_.status);
+    }
+
+    void MFGUnlock::BindWrapper(const void*) {}
+    void MFGUnlock::Tick() {}
+}

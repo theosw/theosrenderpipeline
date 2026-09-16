@@ -1,0 +1,14 @@
+out/
+.dependencies/
+CMakeUserPresets.json
+.vs/
+*.user
+*.dll
+*.exe
+*.pdb
+*.idb
+*.zip
+__pycache__/
+/AGENTS.md
+/.agents/
+/.codex/

@@ -1,0 +1,32 @@
+#include <winres.h>
+
+1 VERSIONINFO
+	FILEVERSION @ARP_RELEASE_NUMERIC@, 0
+	PRODUCTVERSION @ARP_RELEASE_NUMERIC@, 0
+	FILEFLAGSMASK 0x17L
+#ifdef _DEBUG
+	FILEFLAGS 0x1L
+#else
+	FILEFLAGS 0x0L
+#endif
+	FILEOS 0x4L
+	FILETYPE VFT_DLL
+	FILESUBTYPE 0x0L
+BEGIN
+	BLOCK "StringFileInfo"
+	BEGIN
+		BLOCK "040904b0"
+		BEGIN
+			VALUE "FileDescription", "Theo's Render Pipeline"
+			VALUE "FileVersion", "@ARP_RELEASE_VERSION@.0"
+			VALUE "InternalName", "@PROJECT_NAME@"
+			VALUE "LegalCopyright", "GPL-3.0 with modding exceptions"
+			VALUE "ProductName", "Theo's Render Pipeline"
+			VALUE "ProductVersion", "@ARP_RELEASE_LABEL@"
+		END
+	END
+	BLOCK "VarFileInfo"
+	BEGIN
+		VALUE "Translation", 0x409, 1200
+	END
+END
