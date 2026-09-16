@@ -20,12 +20,30 @@
         "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
         "VCPKG_TARGET_TRIPLET": "x64-windows-static-md"
       }
+    },
+    {
+      "name": "arp-nvidia-se",
+      "displayName": "Theo's Render Pipeline for Skyrim 1.5.97",
+      "inherits": "arp-nvidia",
+      "binaryDir": "${sourceDir}/out/build/nvidia-se",
+      "cacheVariables": {
+        "ENABLE_SKYRIM_AE": "OFF",
+        "ENABLE_SKYRIM_SE": "ON"
+      }
     }
   ],
   "buildPresets": [
     {
       "name": "arp-nvidia",
       "configurePreset": "arp-nvidia",
+      "configuration": "Release",
+      "targets": [
+        "ARPBaseline"
+      ]
+    },
+    {
+      "name": "arp-nvidia-se",
+      "configurePreset": "arp-nvidia-se",
       "configuration": "Release",
       "targets": [
         "ARPBaseline"

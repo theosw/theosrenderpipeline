@@ -22,6 +22,14 @@
 
 namespace
 {
+#if defined(ENABLE_SKYRIM_SE) && !defined(ENABLE_SKYRIM_AE) && !defined(ENABLE_SKYRIM_VR)
+	constexpr REL::Version kTargetRuntime{ 1, 5, 97, 0 };
+#elif defined(ENABLE_SKYRIM_AE) && !defined(ENABLE_SKYRIM_SE) && !defined(ENABLE_SKYRIM_VR)
+	constexpr REL::Version kTargetRuntime{ 1, 6, 1170, 0 };
+#else
+#error Build for exactly one supported Skyrim runtime.
+#endif
+
 	void InitializeLog()
 	{
 		std::vector<spdlog::sink_ptr> sinks;
@@ -141,8 +149,12 @@ extern "C" DLLEXPORT const SolFGLateOverlayAPI::BridgeV1* __cdecl SolFG_GetLateO
 
 extern "C" DLLEXPORT bool SKSEAPI SKSEPlugin_Load(const SKSE::LoadInterface* a_skse)
 {
+	if (a_skse->IsEditor() || a_skse->RuntimeVersion() != kTargetRuntime) {
+		util::report_and_fail(std::format("Theo's Render Pipeline: this DLL requires Skyrim {}. Install the package matching your game executable.", kTargetRuntime.string()));
+	}
 	InitializeLog();
 	logger::info("{} v{} loading", Plugin::NAME, Plugin::VERSION_STRING);
+	logger::info("[Runtime] Skyrim {}", kTargetRuntime.string());
 	SKSE::Init(a_skse);
 
 	CSimpleIniA baselineIni;
@@ -192,15 +204,18 @@ extern "C" DLLEXPORT constinit auto SKSEPlugin_Version = []() noexcept {
 	SKSE::PluginVersionData v;
 	v.PluginName(Plugin::NAME.data());
 	v.PluginVersion(Plugin::VERSION);
-	v.UsesAddressLibrary(true);
-	v.HasNoStructUse();
+	// Address Library resolves our hooks, but engine layouts still target one runtime.
+	v.CompatibleVersions({ kTargetRuntime });
+#if defined(ENABLE_SKYRIM_AE)
+	v.UsesStructsPost629();
+#endif
 	return v;
 }();
 
-extern "C" DLLEXPORT bool SKSEAPI SKSEPlugin_Query(const SKSE::QueryInterface*, SKSE::PluginInfo* pluginInfo)
+extern "C" DLLEXPORT bool SKSEAPI SKSEPlugin_Query(const SKSE::QueryInterface* a_skse, SKSE::PluginInfo* pluginInfo)
 {
 	pluginInfo->name = SKSEPlugin_Version.pluginName;
 	pluginInfo->infoVersion = SKSE::PluginInfo::kVersion;
 	pluginInfo->version = SKSEPlugin_Version.pluginVersion;
-	return true;
+	return !a_skse->IsEditor() && a_skse->RuntimeVersion() == kTargetRuntime;
 }

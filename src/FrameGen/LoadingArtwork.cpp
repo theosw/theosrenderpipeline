@@ -28,6 +28,7 @@ namespace TheosRenderPipeline::LoadingArtwork
                 const auto callerRVA = gameCaller ? caller - REL::Module::get().base() : 0;
                 const bool ready = worldReady.load(std::memory_order_relaxed);
                 const auto effective = Suppression(
+                    REL::Relocate(kSECallers, kAECallers),
                     RenderPipeline::GetSingleton()->mRequestLoadingArtwork.load(std::memory_order_relaxed),
                     ready, gameCaller, callerRVA, show, suppress, immediate);
                 if (effective != suppress) {
@@ -52,10 +53,7 @@ namespace TheosRenderPipeline::LoadingArtwork
 
     void Install()
     {
-        if (REL::Module::get().version() != REL::Version(1, 6, 1170, 0)) {
-            util::report_and_fail("Loading artwork integration requires Skyrim 1.6.1170.");
-        }
-        const auto target = REL::Module::get().base() + 0x1A1150;
+        const auto target = REL::RelocationID(13214, 13363).address();
         constexpr std::array<std::uint8_t, 19> prologue{
             0x40,0x57,0x41,0x56,0x41,0x57,0x48,0x83,0xEC,0x40,0x48,0xC7,0x44,0x24,0x38,0xFE,0xFF,0xFF,0xFF};
         if (std::memcmp(reinterpret_cast<const void*>(target), prologue.data(), prologue.size()) != 0) {
