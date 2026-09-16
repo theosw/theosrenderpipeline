@@ -38,7 +38,7 @@ namespace
 		}
 	}
 
-	void DrawSourceNeuralControls(TheosRenderPipeline::SourceDLSSG::Preferences& draft, int upscaleType)
+	void DrawSourceNeuralControls(TheosRenderPipeline::SourceDLSSG::Preferences& draft, int upscaleType, bool nrRuntimePresent)
 	{
 		auto& backend = TheosRenderPipeline::SourceDLSSG::Backend::Get();
 		const auto state = backend.NeuralState();
@@ -47,6 +47,8 @@ namespace
 		const char* unavailableReason = nullptr;
 		if (frameGen->settings.neuralRenderingRuntimePath.empty()) {
 			unavailableReason = "NR runtime path is empty. Configure NeuralRenderingRuntimePath in TheosRenderPipeline.ini and restart Skyrim.";
+		} else if (!nrRuntimePresent) {
+			unavailableReason = "NR runtime DLL not found. Install the optional nvngx_dlssnr.dll at the path below and restart Skyrim.";
 		} else if (!backend.Ready()) {
 			unavailableReason = "The NVIDIA host is not ready. Check runtime status and restart Skyrim.";
 		} else if (state.failed) {
@@ -86,9 +88,11 @@ namespace
 		}
 		ImGui::EndDisabled();
 		ImGui::TextColored(state.failed ? kRust : state.active ? kSage : kMuted, "%s",
-			state.failed ? "NR failed" : state.active ? "NR active" : draft.neuralEnabled ? "NR waiting for a world frame" : "Standard DLSS active");
+			state.failed ? "NR failed" : state.active ? "NR active" : unavailable ? "NR unavailable" :
+			draft.neuralEnabled ? "NR waiting for a world frame" : "Standard DLSS active");
 		if (unavailable) {
 			ImGui::TextWrapped("%s", unavailableReason);
+			ImGui::TextWrapped("NR runtime path: %s", frameGen->settings.neuralRenderingRuntimePath.c_str());
 		}
 		if (ImGui::CollapsingHeader("NR runtime details##sourceNR")) {
 			ImGui::TextWrapped("%s", state.status.c_str());
@@ -103,7 +107,7 @@ void OverlayUI::DrawNeuralRenderingPanel(float tabCardHeight)
 {
 	if (ImGui::BeginTabItem("Neural Rendering", nullptr, requestedPage == SettingsPage::NeuralRendering ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None)) {
 		ImGui::BeginChild("##neuralRenderingPage", ImVec2(0.0f, tabCardHeight), false);
-		DrawSourceNeuralControls(settingsDraft.sourceDLSSG, settingsDraft.upscaleType);
+		DrawSourceNeuralControls(settingsDraft.sourceDLSSG, settingsDraft.upscaleType, nrRuntimePresent);
 		ImGui::EndChild();
 		ImGui::EndTabItem();
 	}

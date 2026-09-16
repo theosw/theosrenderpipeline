@@ -14,7 +14,7 @@ RendererSettingsController RendererSettingsController::Current()
             *PerformanceTuning::GetSingleton(), *TextureProviderBridge::GetSingleton()};
 }
 
-RendererSettingsDraft RendererSettingsController::Capture(bool readTextures) const
+RendererSettingsDraft RendererSettingsController::Capture([[maybe_unused]] bool nrRuntimePresent, bool readTextures) const
 {
     RendererSettingsDraft settingsDraft;
     settingsDraft.valid = true;
@@ -43,17 +43,21 @@ RendererSettingsDraft RendererSettingsController::Capture(bool readTextures) con
     settingsDraft.directRCASOutput = performanceSettings.directRCASOutput;
     settingsDraft.directDLSSOutput = performanceSettings.directDLSSOutput;
     settingsDraft.sourceDLSSG = frameGen_.settings.sourceDLSSG;
+#if !defined(TRP_BASE_RENDERER)
+    // A saved NR request must not strand unrelated settings behind disabled controls.
+    settingsDraft.sourceDLSSG.neuralEnabled &= nrRuntimePresent;
+#endif
     settingsDraft.textureProviderConnected = readTextures && textures_.Read(settingsDraft.textureProviderSettings);
     return settingsDraft;
 }
 
-int RendererSettingsController::CountChanges(const RendererSettingsDraft& draft) const
+int RendererSettingsController::CountChanges(const RendererSettingsDraft& draft, bool nrRuntimePresent) const
 {
     if (!draft.valid)
     {
         return 0;
     }
-    auto current = Capture(draft.textureProviderConnected);
+    auto current = Capture(nrRuntimePresent, draft.textureProviderConnected);
     if (host_.StartupConfigured())
     {
         const auto& requested = host_.SourceUpscalerSettings().Requested();
@@ -76,9 +80,11 @@ RendererSettingsResult RendererSettingsController::Apply(const RendererSettingsD
     std::string actionMessage;
     bool actionMessageIsError = false;
     const bool sourceUpscaler = host_.StartupConfigured();
-    const RendererSettingsCapabilities capabilities{sourceUpscaler,
-                                                    !frameGen_.settings.neuralRenderingRuntimePath.empty(),
-                                                    host_.DedicatedUITextureMode()};
+    RendererSettingsCapabilities capabilities{sourceUpscaler, false, host_.DedicatedUITextureMode()};
+#if !defined(TRP_BASE_RENDERER)
+    capabilities.neuralRuntime =
+        TheosRenderPipeline::SourceDLSSG::NeuralRuntimePresent(frameGen_.settings.neuralRenderingRuntimePath);
+#endif
     if (const char* error = ValidateRendererSettings(settingsDraft, capabilities))
     {
         return {error, true};
@@ -185,8 +191,12 @@ RendererSettingsResult RendererSettingsController::SetNeuralRenderingEnabled(boo
         auto options = backend.NeuralConfiguration();
         options.runtimePath = frameGen_.settings.neuralRenderingRuntimePath;
         options.enabled = enabled;
-        if (options.enabled && (options.runtimePath.empty() || !backend.Ready() || upscaler_.mUpscaleType != DLSS ||
-                                !host_.DedicatedUITextureMode()))
+        if (enabled && !TheosRenderPipeline::SourceDLSSG::NeuralRuntimePresent(options.runtimePath))
+        {
+            return {"NR runtime DLL not found. Install nvngx_dlssnr.dll at the configured path and restart Skyrim.",
+                    true};
+        }
+        if (options.enabled && (!backend.Ready() || upscaler_.mUpscaleType != DLSS || !host_.DedicatedUITextureMode()))
         {
             actionMessage = "Source NR requires DLSS, dedicated UI Texture mode, and a configured NR runtime.";
             actionMessageIsError = true;

@@ -7,9 +7,12 @@ namespace TheosRenderPipeline::SourceDLSSG
 {
 	void Backend::ConfigureNeuralRendering(NeuralOptions a_options)
 	{
-		a_options.tuning = NeuralRendering::SanitizeBuild14Tuning(a_options.tuning);
-		a_options.passes = std::clamp(a_options.passes, 1, 2);
-		a_options.reconstruction = NeuralRendering::SanitizeReconstruction(a_options.reconstruction);
+		const bool requested = a_options.enabled;
+		a_options = SanitizeNeuralOptions(std::move(a_options));
+		if (requested && !a_options.enabled) {
+			logger::warn("[SourceDLSSG NR] optional runtime not found at {}; NR disabled, standard DLSS continues",
+				a_options.runtimePath.string());
+		}
 		std::scoped_lock lock(neuralMutex_);
 		neuralOptions_ = std::move(a_options);
 	}
