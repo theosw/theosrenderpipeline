@@ -110,7 +110,14 @@ namespace TheosRenderPipeline::SourceDLSSG
 	{
 		const std::string_view message = a_message ? a_message : "";
 		Backend::Get().runtimeDiagnostics_.Record(message);
-		logger::info("[SourceDLSSG/SL {}] {}", static_cast<int>(a_type), message);
+		switch (a_type) {
+		case sl::LogType::eError:
+			logger::error("[SourceDLSSG/SL {}] {}", static_cast<int>(a_type), message); break;
+		case sl::LogType::eWarn:
+			logger::warn("[SourceDLSSG/SL {}] {}", static_cast<int>(a_type), message); break;
+		default:
+			logger::info("[SourceDLSSG/SL {}] {}", static_cast<int>(a_type), message); break;
+		}
 	}
 	HRESULT Backend::CreateSwapChain(IDXGIFactory* a_factory, ID3D11Device* a_device,
 		const DXGI_SWAP_CHAIN_DESC& a_desc, const std::filesystem::path& a_directory, IDXGISwapChain** a_result)

@@ -1,5 +1,6 @@
 #include <PCH.h>
 #include "PluginPaths.h"
+#include "LoggingPolicy.h"
 #include "SkyrimRuntime.h"
 
 #include "DRS.h"
@@ -47,9 +48,10 @@ namespace
 
 		auto log = std::make_shared<spdlog::logger>("global log"s, sinks.begin(), sinks.end());
 		log->set_level(level);
-		log->flush_on(spdlog::level::info);
+		TheosRenderPipeline::Logging::ConfigureFlush(*log);
 
 		spdlog::set_default_logger(std::move(log));
+		spdlog::flush_every(std::chrono::seconds(1));
 		spdlog::set_pattern("[%H:%M:%S.%e] [%l] %v"s);
 	}
 
