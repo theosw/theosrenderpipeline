@@ -64,10 +64,12 @@ namespace TheosRenderPipeline::SourceDLSSG
 			if (d.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D || d.DepthOrArraySize != 1 || d.MipLevels != 1 ||
 				d.SampleDesc.Count != 1 || !d.Width || !d.Height || d.Width > UINT_MAX) { return E_INVALIDARG; }
 		}
+		std::array<D3D12_RESOURCE_BARRIER, 4> barriers{};
+		UINT barrierCount = 0;
 		auto transition = [&](ID3D12Resource* resource, D3D12_RESOURCE_STATES before, D3D12_RESOURCE_STATES after) {
 			D3D12_RESOURCE_BARRIER barrier{}; barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
 			barrier.Transition = { resource, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES, before, after };
-			list->ResourceBarrier(1, &barrier);
+			barriers[barrierCount++] = barrier;
 		};
 		std::array<ID3D12Resource*, 3> inputs{ a, b, original };
 		for (unsigned i = 0; i < inputs.size(); ++i) {
@@ -89,6 +91,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 		uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
 		device->CreateUnorderedAccessView(output, nullptr, &uav, cpu);
 		transition(output, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		list->ResourceBarrier(barrierCount, barriers.data());
+		barrierCount = 0;
 		list->SetDescriptorHeaps(1, &heap); list->SetComputeRootSignature(root_.Get());
 		list->SetPipelineState(pipelines_[unsigned(kernel)].Get());
 		list->SetComputeRoot32BitConstants(0, sizeof(constants) / 4, &constants, 0);
@@ -100,6 +104,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 				transition(inputs[i], D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COMMON);
 			}
 		}
+		list->ResourceBarrier(barrierCount, barriers.data());
 		return S_OK;
 	}
 }

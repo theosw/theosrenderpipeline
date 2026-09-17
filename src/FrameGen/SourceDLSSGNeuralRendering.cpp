@@ -322,15 +322,21 @@ RWTexture2D<float4> output : register(u0);
 				constants.mode = 1; constants.targetWidth = constants.sourceWidth; constants.targetHeight = constants.sourceHeight;
 				if (!dispatch(3, ResolveKernel::Ratio, featureColor, featureOutput, hudless, corrected_.Get())) { return false; }
 			}
-			for (auto* resource : { motion, depth, ui, hudless, composed }) { Transition(list, resource, D3D12_RESOURCE_STATE_COMMON, read); }
-			Transition(list, corrected_.Get(), D3D12_RESOURCE_STATE_COMMON, read);
+			// The early path returns these resources to D3D11 in COMMON. Only
+			// after-DLSS composition consumes them again on this command list.
+			if (!options.beforeUpscaling) {
+				for (auto* resource : { motion, depth, ui, hudless, composed }) { Transition(list, resource, D3D12_RESOURCE_STATE_COMMON, read); }
+				Transition(list, corrected_.Get(), D3D12_RESOURCE_STATE_COMMON, read);
+			}
 		} else {
-			Transition(list, corrected_.Get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS, read);
+			Transition(list, corrected_.Get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+				options.beforeUpscaling ? D3D12_RESOURCE_STATE_COMMON : read);
 		}
 
 		if (options.beforeUpscaling) {
-			Transition(list, corrected_.Get(), read, D3D12_RESOURCE_STATE_COMMON);
-			for (auto* texture : { motion, depth, hudless }) { Transition(list, texture, read, D3D12_RESOURCE_STATE_COMMON); }
+			if (!resolving) {
+				for (auto* texture : { motion, depth, hudless }) { Transition(list, texture, read, D3D12_RESOURCE_STATE_COMMON); }
+			}
 			status_ = std::format("NR before DLSS {}x{} -> {}x{}; {} pass(es); world only; UI correction unused",
 				constants.workWidth, constants.workHeight, constants.sourceWidth, constants.sourceHeight, options.passes);
 			return true;
