@@ -771,7 +771,8 @@ AdapterKind QueryAdapterKind(const LUID& activeLuid, const CudaDeviceAPI& api,
         return AdapterKind::Unavailable;
     major = matchedMajor;
     minor = matchedMinor;
-    return major == 8 && minor == 9 ? AdapterKind::Ada : AdapterKind::Other;
+    if (major == 8 && minor == 9) return AdapterKind::Ada;
+    return major == 8 && minor == 6 ? AdapterKind::Ampere : AdapterKind::Other;
 }
 
 AdapterKind IdentifyAdapter(const LUID& activeLuid, int& major, int& minor) noexcept
@@ -800,6 +801,56 @@ void SetFailure(Failure failure) noexcept
 void SetLogCallback(LogCallback callback) noexcept
 {
     gLogCallback.store(callback, std::memory_order_release);
+}
+
+bool BuildAmpereTemporalClone(HMODULE module, AmpereTemporalClone& output) noexcept
+{
+    output = {};
+    uint32_t imageSize = 0;
+    if (!ImageSize(module, imageSize)) return false;
+    const auto base = reinterpret_cast<uintptr_t>(module);
+    if (base > UINTPTR_MAX - imageSize) return false;
+    const auto source = FindDescriptorEntry(module, imageSize);
+    if (!source.entry || !source.profile) return false;
+    const auto& profile = *source.profile;
+    uintptr_t descriptor = 0, originalFatbin = 0;
+    std::array<uint8_t, kDescriptorBytes> original{};
+    if (!SafeRead(source.entry, descriptor) || descriptor < base || descriptor > base + imageSize - kDescriptorBytes ||
+        !SafeCopy(original.data(), reinterpret_cast<void*>(descriptor), original.size())) return false;
+    std::memcpy(&originalFatbin, original.data() + 8, sizeof(originalFatbin));
+    if (originalFatbin < base || profile.sourceFatbinBytes > imageSize || originalFatbin > base + imageSize - profile.sourceFatbinBytes) return false;
+    const size_t bytes = kDescriptorBytes + kOutputCapacity + kScratchCapacity;
+    auto* allocation = static_cast<uint8_t*>(VirtualAlloc(nullptr, bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    if (!allocation) return false;
+    const auto fail = [&]() { VirtualFree(allocation, 0, MEM_RELEASE); return false; };
+    auto* fatbin = allocation + kDescriptorBytes;
+    auto* scratch = fatbin + kOutputCapacity;
+    if (!SafeCopy(fatbin, reinterpret_cast<void*>(originalFatbin), profile.sourceFatbinBytes) ||
+        !Sha256Equals(fatbin, profile.sourceFatbinBytes, profile.sourceFatbinSha256)) return fail();
+    uint32_t outputBytes{}; Failure failure{};
+    if (!BuildTemporalFatbin(fatbin, scratch, profile, outputBytes, failure) ||
+        !Sha256Equals(fatbin, outputBytes, profile.outputFatbinSha256)) return fail();
+    // The accepted Ada output is immutable evidence for the interpolation
+    // correction. Change only its target, before exposing the clone anywhere.
+    const size_t entry = 16 + profile.sm120EntryBytes;
+    constexpr char target[] = ".target sm_89";
+    constexpr size_t headerBytes = 104;
+    const size_t payload = entry + headerBytes;
+    if (payload > outputBytes || ReadU32(fatbin + entry + 28) != 89 ||
+        ReadU64(fatbin + entry + 40) != 0x41) return fail();
+    const auto targetAt = FindUniqueBytes(fatbin + payload, outputBytes - payload, target, sizeof(target) - 1);
+    if (targetAt == SIZE_MAX) return fail();
+    fatbin[payload + targetAt + sizeof(target) - 2] = '6';
+    const uint32_t sm86 = 86;
+    std::memcpy(fatbin + entry + 28, &sm86, sizeof(sm86));
+    std::memcpy(allocation, original.data(), original.size());
+    const auto replacementFatbin = reinterpret_cast<uintptr_t>(fatbin);
+    std::memcpy(allocation + 8, &replacementFatbin, sizeof(replacementFatbin));
+    std::memcpy(allocation + 16, &outputBytes, sizeof(outputBytes));
+    DWORD previous{};
+    if (!VirtualProtect(allocation, bytes, PAGE_READONLY, &previous)) return fail();
+    output = {allocation, source.entry, descriptor, reinterpret_cast<uintptr_t>(allocation), outputBytes};
+    return true;
 }
 
 AdapterKind ObserveD3D12Adapter(void* device) noexcept

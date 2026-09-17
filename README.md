@@ -6,7 +6,7 @@ provide inference and generated-frame presentation.
 
 This source archive builds `TheosRenderPipeline.dll`, including external ImGui integration.
 Install packages are supplied separately and link their matching Git revision.
-The full-feature package contains NR integration and the Ada MFG unlock, with
+The full-feature package contains NR integration and Ada/Ampere MFG compatibility, with
 all NVIDIA runtimes supplied separately. It needs no other renderer package.
 See the installation guide for exact runtime download paths.
 
@@ -14,7 +14,7 @@ See the installation guide for exact runtime download paths.
 
 - DLSS Super Resolution, DLAA, model presets and sharpening.
 - Frame generation and native MFG capabilities. The full-feature build selects
-  its unlock using the rendering GPU; the existing Ada opt-out remains available.
+  its compatibility path using the rendering GPU; the existing opt-out remains available.
 - Full-feature build: NR before or after DLSS, one or two passes, input scaling and tuning.
 - Spatial scaling for loading-screen backgrounds and an optional request for
   transition artwork, enabled by default under Advanced. Skyrim chooses the art.
@@ -34,19 +34,21 @@ in Git.
 The plugin and SKSE identity are `TheosRenderPipeline`. Published `SolFG_*`
 companion exports retain their names and layouts in `TheosRenderPipeline.dll`.
 
-The previous release's tested environment is Skyrim 1.6.1170 with matching
-SKSE64/Address Library, LoreRim/ENB and RTX 4080 SUPER. Its universal Full build
-received a positive gameplay report with x4 MFG and the optional NR DLL absent. Earlier builds were
-tested with Before-DLSS NR/one pass; that NR path was not repeated in this run.
-World, DLSS and Output open Image settings; NR and Frame generation open their
-respective tabs.
-This branch adds Steam Skyrim 1.7.104 to the universal DLL alongside 1.5.97,
-1.6.640 and 1.6.1170, selecting exact engine hooks and layouts at startup.
+Version **0.1.3** combines experimental RTX 30-series (SM86) compatibility
+with support for four exact Steam Skyrim versions. Full selects the Ampere
+compatibility path on RTX 30-series, the Ada unlock on RTX 40-series, and native
+capabilities on RTX 50-series. Standard excludes NR and both compatibility paths.
+
 **Skyrim 1.5.97, 1.6.640 and 1.7.104 are experimental and untested in-game.**
-This port's new DLLs have not yet been tested in-game on any runtime.
-See the [1.7.104 port status](docs/SKYRIM_1_7_104.md) for verification and remaining work,
-and the preceding [1.6.640 port](docs/SKYRIM_1_6_640.md) for its original evidence.
-Native RTX 50-series, HDR and physical frame cadence need separate testing.
+RTX 30-series execution is also experimental and unverified. Both component
+candidates received scoped Skyrim 1.6.1170/LoreRim/ENB regression tests on an
+RTX 4080 SUPER, including Full x4/NR and Standard End closure during editing.
+The final combined build has not had a separate game run. Native RTX 50-series,
+HDR appearance and physical frame cadence remain unverified.
+
+See the [1.7.104 port notes](docs/SKYRIM_1_7_104.md) and
+[1.6.640 port notes](docs/SKYRIM_1_6_640.md). World, DLSS and Output open Image
+settings; NR and Frame generation open their respective tabs.
 
 Use SKSE64 and Address Library matching your Skyrim executable. Full and Standard
 remain separate feature editions; each supports all four game versions.

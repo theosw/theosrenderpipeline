@@ -18,7 +18,7 @@ flowchart LR
 ```
 
 This diagram describes the full renderer. The standard build omits both
-NR stages and the Ada unlock at compile time; it retains the same DLSS, native
+NR stages and Ada/Ampere compatibility at compile time; it retains the same DLSS, native
 UI, HDR and presentation path. Shared settings keep optional preferences for
 switching between the two builds. The standard menu omits NR controls and its
 pipeline diagram runs directly from World to DLSS.
@@ -106,18 +106,18 @@ in the integration; an active native input host bypasses that mouse remapping.
 
 ## MFG startup selection
 
-The saved `SourceDLSSGMFGUnlock` flag allows the Ada patch. It is separate from
+The saved `SourceDLSSGMFGUnlock` flag allows Ada/Ampere compatibility. It is separate from
 the effective `MFGRoute`. At D3D12 device creation, the existing CUDA query
 matches that device's adapter LUID and identifies its architecture. With the
-flag enabled, identified Ada uses the verified unlock; other identified NVIDIA
-architectures use the native runtime. A failed or ambiguous query stops startup.
+flag enabled, SM89 uses the Ada unlock and SM86 uses the experimental Ampere
+bridge; other identified NVIDIA architectures use the native runtime.
+A failed or ambiguous query stops startup.
 An explicit false keeps the unmodified runtime without requiring this CUDA query.
 
-Only the selected Ada route installs or verifies patches. The UI and session
-use `UsesAdaUnlock()` for readiness checks. Native MFG
+Only the selected compatibility route installs or verifies patches. The UI and session
+use `UsesCompatibilityUnlock()` for readiness checks. Native MFG
 uses reported runtime capabilities directly, even with the default flag true.
-This does not invent support for older GPUs or unsupported drivers, change
-saved requests, or reselect a route during Present or resize.
+Selection does not change saved requests or reselect a route during Present or resize.
 
 For the Ada route, MFG retains the configured modules and locates patch targets
 by their instruction and temporal-program structure. Whole-DLL hashes and
@@ -125,6 +125,20 @@ file-version allowlists do not decide compatibility. The legacy and named
 temporal programs retain source/output checks around the transformation;
 missing, ambiguous or unsupported targets fail visibly. The loader still
 checks required exports and keeps one owner for the configured module paths.
+
+The Ampere route prepares the configured provider before `slInit`. It builds
+an immutable SM86 temporal clone from the existing validated transform, plans
+the remaining PTX changes and architecture instructions, then publishes them.
+The host intercepts `GetProcAddress` only in its `sl.common` and `sl.dlss_g`
+modules. The bridge forwards NGX calls and confines NVAPI architecture exposure
+to startup/FG scopes for the actual rendering adapter. Other features and
+driver/OS failures keep their original results. No ReShade or global resolver
+hook is required. Provider allocations, imports and module references remain
+resident until process exit; preparation cannot run after feature creation.
+
+Standard compiles out the Ampere bridge together with Ada/NR code. The Ampere
+candidate requires real RTX 30-series gameplay validation; preparation tests
+and successful forwarding on Ada do not establish Ampere rendering support.
 
 ## HDR
 

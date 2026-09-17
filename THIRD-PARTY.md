@@ -34,6 +34,13 @@ runtimes retain the license files accompanying their downloads.
 - **RTX40MFG-Unlock** — Michael Robles, MIT; Ada temporal patch and provider
   helpers, revision 4ab7b5e16941e065f81c665b6d7fe2c2e2ec843f.
   https://github.com/dashdogy/RTX40MFG-Unlock
+- **MFGAmpereUnlock-RenoDx** — ImDreamt, mavismmg and nefh, MIT; SM86 PTX
+  preparation, provider architecture policy and scoped NGX/NVAPI compatibility
+  techniques, adapted from revision dd349cdbbae6525188e71fbf2e6d3c648be40db9.
+  https://github.com/nefh/MFGAmpereUnlock-RenoDx
+- **NVAPI** — NVIDIA, MIT; minimal public architecture-query ABI declarations,
+  revision 87dca625e83fd89a983e19b904e5f3a580da90d2.
+  https://github.com/NVIDIA/nvapi
 
 ## Libraries and SDKs
 
@@ -406,6 +413,57 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
+
+### MFGAmpereUnlock-RenoDx
+
+MIT License
+
+Copyright (c) 2026 ImDreamt
+Copyright (c) 2026 mavismmg
+Copyright (c) 2026 nefh
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+### NVAPI public architecture-query ABI
+
+MIT License
+
+Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 ### CommonLibSSE-NG 8.1.0 exceptions
 
 The upstream README identifies Skyrim and proprietary hardware drivers/SDKs

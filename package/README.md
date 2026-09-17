@@ -1,4 +1,9 @@
-# Theo's Render Pipeline — full-feature package, 0.1.2
+# Theo's Render Pipeline — Full, 0.1.3 experimental release
+
+Adds experimental RTX 30-series (SM86) frame generation and Steam Skyrim
+1.5.97/1.6.640/1.7.104 support alongside 1.6.1170. Those additional game versions
+and actual RTX 30 execution are untested in-game. Component candidates were
+tested on 1.6.1170/RTX 4080 SUPER; the combined build has no separate game run.
 
 DLSS/DLAA, frame generation, Neural Rendering and native-resolution UI for Skyrim.
 This package includes the full renderer, configuration and sharpening shader.
@@ -55,8 +60,10 @@ and render scale changes take effect after restarting Skyrim.
 
 - DLSS starts at 67%, preset K, with sharpening enabled.
 - Frame generation starts on at x2. Choose x4 or another supported multiplier
-  in End. RTX 40-series uses the Ada unlock; other supported NVIDIA hardware
-  uses native capabilities. The FG toggle leaves the rendering host active.
+  in End. RTX 30-series uses experimental Ampere compatibility, RTX 40-series
+  uses the Ada unlock, and RTX 50-series uses native capabilities. The FG toggle
+  leaves the rendering host active. The saved `SourceDLSSGMFGUnlock` setting
+  controls both compatibility paths; leave it enabled for the RTX 30 test.
 - NR starts off. After supplying its DLL, enable it with Before DLSS/one pass
   as the default placement. After DLSS, two passes, input scaling and tuning
   are also available.
@@ -77,12 +84,11 @@ integration are not supported.
 
 ENB is not a startup requirement; setups without ENB have not been validated.
 
-This is an early test release. The previous universal Full release was tested on Skyrim
-1.6.1170 with LoreRim/ENB and an RTX 4080 SUPER, including x4 MFG and operation
-without the optional NR DLL. Earlier builds were tested with Before-DLSS NR/one
-pass; normal NR rendering was not repeated in this run. RTX 30-series, native
-RTX 50-series operation and HDR appearance are not verified. The new DLLs adding
-1.7.104 support have not yet been tested in-game on any runtime.
+Both component candidates received scoped Skyrim 1.6.1170/LoreRim/ENB tests
+on an RTX 4080 SUPER, including Full x4 frame generation and Before-DLSS NR.
+Standard End closure during numeric editing was also verified. The final
+combined 0.1.3 build has not had a separate game run. RTX 30-series execution,
+native RTX 50-series operation and HDR appearance remain unverified.
 
 **Skyrim 1.5.97, 1.6.640 and 1.7.104 are experimental and untested in-game.** Build and offline
 compatibility checks passed. Use matching SKSE64 and Address Library, and please
@@ -92,7 +98,7 @@ SE-specific versions of those mods need their own compatibility checks.
 
 Include `TRP-FULL-PACKAGE.txt`, your GPU/driver, game/mod versions, settings and
 `TheosRenderPipeline.log`/`skse64.log` when reporting a problem. The package
-identity links to the exact matching source revision in the
+identity links to the matching source revision in the
 [source repository](https://github.com/theosw/theosrenderpipeline).
 Logs are normally under `Documents/My Games/Skyrim Special Edition/SKSE/`.
 

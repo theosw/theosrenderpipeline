@@ -70,6 +70,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 				return Check(E_UNEXPECTED, std::format("{} already loaded by another owner", std::filesystem::path(name).string()).c_str());
 			}
 		}
+		mfgUnlock_.BeforeStreamline(device12_.Get(), directory_);
 		interposer_ = ::LoadLibraryExW((directory_ / L"sl.interposer.dll").c_str(), nullptr,
 			LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
 		if (!interposer_) { return Check(HRESULT_FROM_WIN32(::GetLastError()), "load interposer"); }
@@ -132,7 +133,6 @@ namespace TheosRenderPipeline::SourceDLSSG
 			Check(DXGI_ERROR_UNSUPPORTED, "Streamline immediate presentation requires tearing support");
 			return fault_;
 		}
-		if (!Load(a_directory)) { return fault_; }
 		device11_ = a_device;
 		device11_->GetImmediateContext(&context11_);
 		ComPtr<IDXGIDevice> dxgiDevice;
@@ -140,6 +140,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (!Check(device11_.As(&dxgiDevice), "D3D11 DXGI device") ||
 			!Check(dxgiDevice->GetAdapter(&adapter), "D3D11 adapter") ||
 			!Check(D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(&device12_)), "D3D12 device")) { return fault_; }
+		MFGUnlock::StartupScope startupScope(mfgUnlock_);
+		if (!Load(a_directory)) { return fault_; }
 		void* upgraded = device12_.Get();
 		mfgUnlock_.Prepare(device12_.Get(), directory_);
 		device12_->AddRef();
@@ -212,7 +214,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		session_.RequestOutputFPSLimit(outputFPSLimit_.load(std::memory_order_relaxed));
 		if (!CheckSession(session_.Start(api_, 1))) { return fault_; }
 		mfgUnlock_.Tick();
-		session_.SetMFGUnlockState(mfgUnlock_.Snapshot().UsesAdaUnlock(), mfgUnlock_.Snapshot().Ready());
+		session_.SetMFGUnlockState(mfgUnlock_.Snapshot().UsesCompatibilityUnlock(), mfgUnlock_.Snapshot().Ready());
 		session_.RequestGeneration(GenerationConfiguration());
 		auto* wrapper = new (std::nothrow) SwapChain(native.Get(), *this, a_desc.BufferDesc.Format);
 		if (!wrapper) { return E_OUTOFMEMORY; }
@@ -348,7 +350,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		const auto oldGeneration = session_.Snapshot().generationRequested;
 		const auto oldLimited = session_.Snapshot().generationLimited;
 		mfgUnlock_.Tick();
-		session_.SetMFGUnlockState(mfgUnlock_.Snapshot().UsesAdaUnlock(), mfgUnlock_.Snapshot().Ready());
+		session_.SetMFGUnlockState(mfgUnlock_.Snapshot().UsesCompatibilityUnlock(), mfgUnlock_.Snapshot().Ready());
 		session_.RequestGeneration(GenerationConfiguration());
 		session_.RequestReflexMode(ReflexConfiguration());
 		session_.RequestOutputFPSLimit(outputFPSLimit_.load(std::memory_order_relaxed));

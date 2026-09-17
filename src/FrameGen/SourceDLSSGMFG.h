@@ -7,7 +7,7 @@
 struct ID3D12Device;
 namespace TheosRenderPipeline::SourceDLSSG
 {
-	enum class MFGRoute { Unselected, Native, AdaUnlock };
+	enum class MFGRoute { Unselected, Native, AdaUnlock, AmpereUnlock };
 	struct MFGSnapshot
 	{
 		// requested is the saved permission; route is the effective startup choice.
@@ -19,12 +19,15 @@ namespace TheosRenderPipeline::SourceDLSSG
 		bool SelectRoute(midpoint_fix::AdapterKind adapter)
 		{
 			if (requested && adapter == midpoint_fix::AdapterKind::Unavailable) { return false; }
-			adapterVerified = adapter == midpoint_fix::AdapterKind::Ada;
-			route = requested && adapterVerified ? MFGRoute::AdaUnlock : MFGRoute::Native;
+			adapterVerified = adapter == midpoint_fix::AdapterKind::Ada || adapter == midpoint_fix::AdapterKind::Ampere;
+			route = !requested || !adapterVerified ? MFGRoute::Native :
+				adapter == midpoint_fix::AdapterKind::Ampere ? MFGRoute::AmpereUnlock : MFGRoute::AdaUnlock;
 			return true;
 		}
 		bool UsesAdaUnlock() const { return route == MFGRoute::AdaUnlock; }
-		bool Ready() const { return UsesAdaUnlock() && !failed && !unsafeMemory && adapterVerified && wrapperPatched && providerPatched && temporalReady && wrapperBound; }
+		bool UsesAmpereUnlock() const { return route == MFGRoute::AmpereUnlock; }
+		bool UsesCompatibilityUnlock() const { return UsesAdaUnlock() || UsesAmpereUnlock(); }
+		bool Ready() const { return UsesCompatibilityUnlock() && !failed && !unsafeMemory && adapterVerified && wrapperPatched && providerPatched && temporalReady && wrapperBound; }
 	};
 	// Used only by the single source-owned Streamline instance. All mutations run
 	// on its initialization/render thread. Modules and published allocations stay resident.
@@ -32,6 +35,15 @@ namespace TheosRenderPipeline::SourceDLSSG
 	{
 	public:
 		void Configure(bool requested);
+		void BeforeStreamline(ID3D12Device* device, const std::filesystem::path& directory);
+		void EnterStartupScope() noexcept;
+		void LeaveStartupScope() noexcept;
+		struct StartupScope {
+			MFGUnlock& owner;
+			explicit StartupScope(MFGUnlock& value) : owner(value) { owner.EnterStartupScope(); }
+			~StartupScope() { owner.LeaveStartupScope(); }
+			StartupScope(const StartupScope&) = delete;
+		};
 		void Prepare(ID3D12Device* device, const std::filesystem::path& directory);
 		void BindWrapper(const void* setOptions);
 		void Tick();

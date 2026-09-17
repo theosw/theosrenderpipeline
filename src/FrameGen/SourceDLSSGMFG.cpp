@@ -4,6 +4,7 @@
 #include "SourceDLSSGMFGPatch.h"
 #include "../../extern/RTX40MFG/midpoint_fix.h"
 #include "../../extern/RTX40MFG/dlssg_provider_policy.h"
+#include "../../extern/MFGAmpere/runtime.hpp"
 #include <d3d12.h>
 #include <cstring>
 #include <spdlog/spdlog.h>
@@ -37,11 +38,12 @@ namespace TheosRenderPipeline::SourceDLSSG
 			"Set SourceDLSSGMFGUnlock=false in SKSE/Plugins/TheosRenderPipeline.ini to use the unmodified NVIDIA runtime.\n"
 			"See TheosRenderPipeline.log for details. Skyrim will close after this message.", reason, state_.temporalFailure, state_.attempts));
 	}
-	void MFGUnlock::Prepare(ID3D12Device* device, const std::filesystem::path& directory)
+	void MFGUnlock::EnterStartupScope() noexcept { trp::ampere::EnterStartupScope(); }
+	void MFGUnlock::LeaveStartupScope() noexcept { trp::ampere::LeaveStartupScope(); }
+	void MFGUnlock::BeforeStreamline(ID3D12Device* device, const std::filesystem::path& directory)
 	{
-		if (started_) { return; }
-		started_ = true;
-		state_.status = "selecting native or Ada MFG path";
+		if (state_.route != MFGRoute::Unselected) { Fail("MFG startup adapter selection was repeated"); }
+		state_.status = "selecting NVIDIA MFG path";
 		midpoint_fix::SetLogCallback([](const wchar_t* text) {
 			// Upstream callback is noexcept; diagnostics must not terminate the game.
 			try { spdlog::info("[SourceDLSSG MFG] {}", std::filesystem::path(text).string()); } catch (...) {}
@@ -50,6 +52,29 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (!state_.SelectRoute(adapter)) {
 			state_.temporalFailure = midpoint_fix::FailureCode();
 			Fail("active rendering adapter could not be identified; no patches applied");
+		}
+		if (state_.UsesAmpereUnlock()) {
+			if (!trp::ampere::Start(device, directory, [](const char* message) { spdlog::info("[SourceDLSSG Ampere] {}", message); })) {
+				const auto snapshot = trp::ampere::Snapshot();
+				Fail(snapshot.error ? snapshot.error : "Ampere startup preparation failed");
+			}
+			spdlog::info("[SourceDLSSG Ampere] prepared {} fatbin containers before slInit", trp::ampere::Snapshot().fatbins);
+		}
+	}
+	void MFGUnlock::Prepare(ID3D12Device*, const std::filesystem::path& directory)
+	{
+		if (started_) { return; }
+		started_ = true;
+		if (state_.route == MFGRoute::Unselected) { Fail("MFG adapter was not selected before Streamline initialization"); }
+		if (state_.UsesAmpereUnlock()) {
+			wrapper_ = RetainConfiguredModule(directory, L"sl.dlss_g.dll");
+			provider_ = RetainConfiguredModule(directory, L"nvngx_dlssg.dll");
+			if (!wrapper_ || !provider_) { Fail("prepared Ampere modules changed during Streamline initialization"); }
+			const auto snapshot = trp::ampere::Snapshot();
+			state_.wrapperPatched = state_.providerPatched = state_.temporalReady = snapshot.prepared && snapshot.bridgeInstalled;
+			state_.status = "experimental Ampere MFG; provider and temporal program prepared";
+			Tick();
+			return;
 		}
 		if (!state_.UsesAdaUnlock()) {
 			state_.status = state_.requested ? "native NVIDIA runtime; Ada unlock not applicable" : "native NVIDIA runtime; Ada unlock disabled by configuration";
@@ -83,7 +108,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 	}
 	void MFGUnlock::BindWrapper(const void* setOptions)
 	{
-		if (!state_.UsesAdaUnlock() || state_.failed) { return; }
+		if (!state_.UsesCompatibilityUnlock() || state_.failed) { return; }
 		MEMORY_BASIC_INFORMATION memory{};
 		state_.wrapperBound = setOptions && VirtualQuery(setOptions, &memory, sizeof(memory)) == sizeof(memory) && memory.AllocationBase == wrapper_;
 		if (!state_.wrapperBound) { Fail("slDLSSGSetOptions does not belong to patched wrapper"); return; }
@@ -91,6 +116,14 @@ namespace TheosRenderPipeline::SourceDLSSG
 	}
 	void MFGUnlock::Tick()
 	{
+		if (state_.UsesAmpereUnlock()) {
+			const auto snapshot = trp::ampere::Snapshot();
+			if (!trp::ampere::Verify() || snapshot.failed) { Fail(snapshot.error ? snapshot.error : "Ampere publication verification failed"); }
+			if (state_.wrapperBound && (!snapshot.requirementsCalls || !snapshot.capabilityCalls || !(snapshot.resolverMask & 8))) {
+				Fail("Streamline bypassed the required Ampere NGX startup functions");
+			}
+			return;
+		}
 		if (!state_.UsesAdaUnlock() || state_.failed || !state_.providerPatched) { return; }
 		if (state_.temporalReady) {
 			// Cheap pointer/protection verification, no rescans or allocations once ready.

@@ -23,9 +23,9 @@ git -C .dependencies/CommonLibSSE-NG checkout 3c0f5a87c3b166c9a6712d5c3bd180e9ac
 SE and AE support enabled and VR disabled. The loader accepts only those four
 versions. Runtime-aware addresses and layout accessors select the appropriate
 engine integration. Use matching SKSE64 and Address Library files when installing.
-Both Full and Standard use this universal configuration. The previous Full
-release has scoped game evidence on 1.6.1170; this port's DLLs have not been
-tested in-game. **1.5.97, 1.6.640 and 1.7.104 are experimental and
+Both Full and Standard use this universal configuration. The component candidates have scoped Full/Standard
+game evidence on 1.6.1170; the combined 0.1.3 build has not had a separate
+game run. **1.5.97, 1.6.640 and 1.7.104 are experimental and
 untested in-game**; the [1.7.104 port status](SKYRIM_1_7_104.md) records current evidence.
 
 To run the optional checks in a configured build directory:
@@ -43,9 +43,9 @@ graphics/control layouts and the linked format-1/2/5 Address Library loader;
 they do not execute game hooks or load NVIDIA runtimes.
 
 `TRP_ENABLE_OPTIONAL_FEATURES` selects the release variant. `OFF` builds the standard
-renderer without NR runtime integration, its shaders/UI, the Ada patch
+renderer without NR runtime integration, its shaders/UI, Ada/Ampere compatibility
 implementation or its static library. `ON` (the default) builds the
-full-feature renderer with NR and the Ada unlock. Both variants preserve native
+full-feature renderer with NR and Ada/Ampere compatibility. Both variants preserve native
 NVIDIA capabilities and the same plugin identity. The standard build keeps NR
 preferences in settings files for later use by the full build, but cannot load NR.
 Build each configuration separately. The full-feature package requires

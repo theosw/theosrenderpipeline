@@ -19,5 +19,7 @@ updated dependency and decoder notices are in [THIRD-PARTY.md](../THIRD-PARTY.md
 Full and Standard builds pass. Each edition passes five offline checks covering
 runtime admission, artwork caller isolation, graphics/input layouts and linked
 Address Library loading. These checks do not execute game hooks or establish
-visual/input acceptance. The port's DLLs remain untested in-game on all four
-versions; earlier 1.6.1170 release results do not transfer to this build.
+visual/input acceptance. The compatibility candidate received scoped Full and
+Standard regression checks on 1.6.1170. Skyrim 1.5.97, 1.6.640 and 1.7.104 remain
+experimental and untested in-game; the final combined 0.1.3 build has not had a
+separate game run.

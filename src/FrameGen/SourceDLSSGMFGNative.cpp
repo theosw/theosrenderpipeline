@@ -3,6 +3,9 @@
 
 namespace TheosRenderPipeline::SourceDLSSG
 {
+    void MFGUnlock::BeforeStreamline(ID3D12Device*, const std::filesystem::path&) {}
+    void MFGUnlock::EnterStartupScope() noexcept {}
+    void MFGUnlock::LeaveStartupScope() noexcept {}
     // Both variants read the setting; only the full renderer applies the unlock.
     void MFGUnlock::Configure(bool)
     {

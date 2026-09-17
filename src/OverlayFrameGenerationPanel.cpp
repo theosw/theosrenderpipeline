@@ -26,10 +26,10 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, float nestedCardHe
         const auto& sourceState = sourceBackend.Snapshot();
         const auto& unlock = sourceBackend.MFGState();
         const auto usableMaximum = TheosRenderPipeline::SourceDLSSG::MFGContract::Maximum(
-            unlock.UsesAdaUnlock(), unlock.Ready(), sourceState.state.numFramesToGenerateMax);
+            unlock.UsesCompatibilityUnlock(), unlock.Ready(), sourceState.state.numFramesToGenerateMax);
         const bool supportsDynamic =
             TheosRenderPipeline::SourceDLSSG::MFGContract::Dynamic(
-                unlock.UsesAdaUnlock(), unlock.Ready(), sourceState.state.bIsDynamicMFGSupported == sl::eTrue) &&
+                unlock.UsesCompatibilityUnlock(), unlock.Ready(), sourceState.state.bIsDynamicMFGSupported == sl::eTrue) &&
             sourceState.state.numFramesToGenerateMax > 1;
         ImGui::BeginChild("##frameGenerationPage", ImVec2(0.0f, tabCardHeight), false);
         ImGui::SeparatorText("CONTROLS AND STATUS");
@@ -55,7 +55,7 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, float nestedCardHe
             if (sourceDLSSGActive)
             {
                 ImGui::SeparatorText("SUPPORT");
-                ImGui::Text("Path: %s", unlock.UsesAdaUnlock() ? "Ada MFG unlock" : "Native NVIDIA runtime");
+                ImGui::Text("Path: %s", unlock.UsesAmpereUnlock() ? "Ampere MFG (experimental)" : unlock.UsesAdaUnlock() ? "Ada MFG unlock" : "Native NVIDIA runtime");
                 if (usableMaximum > 1)
                 {
                     ImGui::Text("Available multipliers: x2 to x%u", usableMaximum + 1);
@@ -69,7 +69,7 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, float nestedCardHe
                     ImGui::TextDisabled("Available multipliers: waiting for runtime support");
                 }
                 ImGui::Text("Dynamic multiplier: %s", supportsDynamic ? "supported" : "unavailable");
-                if (unlock.UsesAdaUnlock() && !unlock.Ready())
+                if (unlock.UsesCompatibilityUnlock() && !unlock.Ready())
                 {
                     ImGui::TextWrapped("%s", unlock.status);
                 }
