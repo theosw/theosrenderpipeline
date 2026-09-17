@@ -67,5 +67,6 @@ namespace TheosRenderPipeline::SourceDLSSG
 		bool telemetryAttempted_{};
 		NeuralTelemetryTracker telemetry_;
 		std::string status_;
+		std::string successStatus_;
 	};
 }

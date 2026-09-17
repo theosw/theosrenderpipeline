@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 3.21)
+project(TRPFormattingTests LANGUAGES CXX)
+enable_testing()
+add_executable(FormattingTests FormattingTests.cpp)
+target_compile_features(FormattingTests PRIVATE cxx_std_20)
+target_include_directories(FormattingTests PRIVATE ../../src)
+add_test(NAME NRParameterNames COMMAND FormattingTests)
