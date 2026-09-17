@@ -12,8 +12,9 @@ Runtime DLLs are not required to compile the plugin.
 SE and AE support enabled and VR disabled. The loader accepts only those two
 versions. Runtime-aware addresses and layout accessors select the appropriate
 engine integration. Use matching SKSE64 and Address Library files when installing.
-Both Full and Standard use this universal configuration. Gameplay testing of the
-universal build on both versions is pending.
+Both Full and Standard use this universal configuration. The Full build has
+been tested in-game on 1.6.1170. **1.5.97 is experimental and untested in-game**;
+its build and offline compatibility checks passed.
 
 `TRP_ENABLE_OPTIONAL_FEATURES` selects the release variant. `OFF` builds the standard
 renderer without NR runtime integration, its shaders/UI, the Ada patch

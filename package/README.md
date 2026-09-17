@@ -77,12 +77,15 @@ integration are not supported.
 
 ENB is not a startup requirement; setups without ENB have not been validated.
 
-This is an early test release. The rendering code was tested with LoreRim/ENB
-and an RTX 4080 SUPER, including NR Before DLSS/one pass and x4 MFG. RTX 30-series,
-native RTX 50-series operation and HDR appearance are not verified for this build.
+This is an early test release. The universal Full build was tested on Skyrim
+1.6.1170 with LoreRim/ENB and an RTX 4080 SUPER, including x4 MFG and operation
+without the optional NR DLL. Earlier builds were tested with Before-DLSS NR/one
+pass; normal NR rendering was not repeated in this run. RTX 30-series, native
+RTX 50-series operation and HDR appearance are not verified for this build.
 
-The universal build uses verified hooks for both versions; gameplay testing of
-this build on both versions is pending.
+**Skyrim 1.5.97 is experimental and untested in-game.** Build and offline
+compatibility checks passed. Use matching SKSE64 and Address Library, and please
+report your results with the game/mod versions and renderer log.
 Third-party ImGui integration covers the listed producer builds; older or
 SE-specific versions of those mods need their own compatibility checks.
 
