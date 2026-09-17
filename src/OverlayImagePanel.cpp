@@ -6,6 +6,7 @@
 #include "FrameGen/NvidiaHost.h"
 #include "DLSSPreset.h"
 #include "VideoMemoryTelemetry.h"
+#include "CommunityShaderIntegration.h"
 
 using namespace TheosRenderPipeline::Overlay;
 
@@ -81,7 +82,8 @@ void OverlayUI::DrawImagePanel(float tabCardHeight, float nestedCardHeight, cons
             ImGui::BeginChild("##runtimeCard", ImVec2(0.0f, nestedCardHeight), true);
             ImGui::TextUnformatted("RUNTIME");
             ImGui::Separator();
-            ImGui::Text("%s%s", ModeName(upscaler->mUpscaleType), upscaler->IsEnabled() ? "" : " (inactive)");
+            ImGui::Text("%s%s", TheosRenderPipeline::CommunityShaders::Active() ? "Community Shaders" : ModeName(upscaler->mUpscaleType),
+                TheosRenderPipeline::CommunityShaders::Active() || upscaler->IsEnabled() ? "" : " (inactive)");
             ImGui::TextDisabled("%d x %d  ->  %d x %d", upscaler->mRenderSizeX, upscaler->mRenderSizeY,
                                 view.nativeWidth, view.nativeHeight);
             ImGui::Spacing();
@@ -113,6 +115,11 @@ void OverlayUI::DrawImagePanel(float tabCardHeight, float nestedCardHeight, cons
             ImGui::BeginChild("##graphicsCard", ImVec2(0.0f, nestedCardHeight), true);
             ImGui::TextUnformatted("GRAPHICS");
             ImGui::Separator();
+            if (TheosRenderPipeline::CommunityShaders::Active()) {
+                ImGui::TextWrapped("Community Shaders controls upscaling, render scale, model preset, sharpening and camera jitter. Change those settings in its menu.");
+                ImGui::Spacing();
+                ImGui::TextWrapped("Use this menu for NVIDIA frame generation and Neural Rendering. Leave Community Shaders' own frame generation and Reflex disabled.");
+            } else {
             const char* typeNames[] = {"DLSS", "DLAA"};
             int typeIndex = settingsDraft.upscaleType == DLAA ? 1 : 0;
             ImGui::TextDisabled("Mode");
@@ -241,6 +248,7 @@ void OverlayUI::DrawImagePanel(float tabCardHeight, float nestedCardHeight, cons
             }
             ImGui::Checkbox("Auto exposure", &settingsDraft.autoExposure);
             ImGui::Checkbox("Camera jitter", &settingsDraft.enableJitter);
+            }
             ImGui::EndChild();
             ImGui::EndTable();
         }

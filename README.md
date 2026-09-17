@@ -1,5 +1,10 @@
 # Theo's Render Pipeline
 
+This development branch contains an **untested Community Shaders adapter**.
+CS keeps its shading, upscaling and UI; TRP supplies frame generation and optional
+world-only NR. CS frame generation and Reflex must be off for the combined test.
+See [the adapter contract and test limits](docs/COMMUNITY_SHADERS.md).
+
 NVIDIA rendering integration for Skyrim: DLSS/DLAA, multi-frame generation,
 optional Neural Rendering and native-resolution menus and HUD. NVIDIA runtimes
 provide inference and generated-frame presentation.

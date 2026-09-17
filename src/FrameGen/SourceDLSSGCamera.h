@@ -34,4 +34,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 	};
 	bool CaptureCameraConstants(BSGraphics::State* state, unsigned width, unsigned height,
 		float jitterX, float jitterY, bool reset, bool jittered, sl::Constants& result, bool commit = true);
+	// External producers can build a candidate before restoring their camera
+	// state, then retain that history only when its completed frame is accepted.
+	bool CaptureCameraCandidate(BSGraphics::State* state, unsigned width, unsigned height,
+		float jitterX, float jitterY, bool reset, bool jittered, sl::Constants& result, CameraHistory& candidate);
 }

@@ -44,6 +44,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 		bool EvaluateNeuralBeforeUpscaling(const NeuralOptions& options, const sl::Constants* camera,
 			bool eligible, ID3D11Texture2D* color, ID3D11Texture2D* motion, ID3D11Texture2D* depth,
 			FrameExtent renderExtent, bool& reset);
+		bool EvaluateNeuralWorld(const NeuralOptions& options, const sl::Constants* camera,
+			bool eligible, ID3D11Texture2D* color, ID3D11Texture2D* motion, ID3D11Texture2D* depth,
+			FrameExtent guideExtent, FrameExtent colorExtent, bool& reset);
 		NeuralOptions NeuralConfiguration() const;
 		NeuralSnapshot NeuralState() const;
 		bool ConfigureReflex(sl::ReflexMode a_mode)

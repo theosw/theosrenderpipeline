@@ -1,5 +1,6 @@
 #include "SourceDLSSGBackend.h"
 #include <PCH.h>
+#include "CommunityShaderIntegration.h"
 #include "SourceDLSSGSwapChain.h"
 #include "../PluginPaths.h"
 #include <d3dcompiler.h>
@@ -66,7 +67,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 		directory_ = Normalize(a_directory);
 		// Keep one owner for the configured modules. Versions do not gate loading.
 		for (const auto* name : kStreamlineModules) {
-			if (::GetModuleHandleW(name)) {
+			const auto configuredOwner = RetainLoadedModule(directory_ / name);
+			if (configuredOwner) { ::FreeLibrary(configuredOwner); }
+			if (configuredOwner || (!CommunityShaders::Active() && ::GetModuleHandleW(name))) {
 				return Check(E_UNEXPECTED, std::format("{} already loaded by another owner", std::filesystem::path(name).string()).c_str());
 			}
 		}
@@ -280,12 +283,13 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (a_ui && !EnsureGuide(a_ui, ui_)) { return false; }
 		uiSource_ = a_ui;
 		frameConstants_ = a_constants;
-		const bool eligible = a_neuralEligible && !TransitionBlocked() && a_ui && a_hudless;
+		const bool eligible = a_neuralEligible && !TransitionBlocked() && a_hudless &&
+			(a_ui || (neuralEvaluatedEarly_ && frameNeuralOptions_.worldOnly));
 		// The game host freezes settings before DLSS. Standalone callers that
 		// only Prepare retain the late-stage contract and never run early NR here.
 		if (!neuralFrameBegun_) {
 			frameNeuralOptions_ = NeuralConfiguration();
-			neuralEligible_ = eligible && !frameNeuralOptions_.beforeUpscaling;
+			neuralEligible_ = eligible && !frameNeuralOptions_.WorldOnly();
 			frameNeuralReset_ = neuralHistory_.ResetFor(frameNeuralOptions_, neuralEligible_, a_constants.reset == sl::eTrue);
 		} else {
 			neuralEligible_ = neuralEligible_ && eligible;
@@ -336,8 +340,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 #if !defined(TRP_BASE_RENDERER)
 		const auto options = prepared ? frameNeuralOptions_ : NeuralConfiguration();
 		const bool eligible = prepared && neuralEligible_;
-		const bool active = options.enabled && eligible && (!options.beforeUpscaling || neuralEvaluatedEarly_);
-		const bool lateActive = active && !options.beforeUpscaling;
+		const bool active = options.enabled && eligible && (!options.WorldOnly() || neuralEvaluatedEarly_);
+		const bool lateActive = active && !options.WorldOnly();
 		const bool reset = prepared ? frameNeuralReset_ : neuralHistory_.ResetFor(options, false, false);
 		if (lateActive && !RecreateNeuralIfNeeded(options)) { return fault_; }
 #endif

@@ -6,6 +6,7 @@
 #include "FrameGen/NvidiaHost.h"
 #include "FrameGen/SourceDLSSGBackend.h"
 #include "DLSSBackend.h"
+#include "CommunityShaderIntegration.h"
 
 using namespace TheosRenderPipeline::Overlay;
 
@@ -44,7 +45,7 @@ void OverlayUI::DrawUIStatusPanel(float advancedCardHeight)
         ImGui::BeginChild("##compatibilityCard", ImVec2(0.0f, advancedCardHeight), true);
         ImGui::TextUnformatted("UI COMPOSITION");
         ImGui::Separator();
-        if (showDeveloperControls)
+        if (showDeveloperControls && !TheosRenderPipeline::CommunityShaders::Active())
         {
             ImGui::Checkbox("Native-resolution Skyrim UI", &settingsDraft.nativeUI);
             ImGui::Checkbox("Startup overlays at native resolution", &settingsDraft.lateOverlayBridge);
@@ -60,17 +61,19 @@ void OverlayUI::DrawUIStatusPanel(float advancedCardHeight)
             ImGui::TableNextColumn();
             ImGui::TextUnformatted("Skyrim / Scaleform");
             ImGui::TableNextColumn();
-            DrawStatusLabel(upscaler->mNativeUI ? "NATIVE COMPOSITION" : "RENDER-SPACE UI",
+            DrawStatusLabel(TheosRenderPipeline::CommunityShaders::Active() ? "COMMUNITY SHADERS" : upscaler->mNativeUI ? "NATIVE COMPOSITION" : "RENDER-SPACE UI",
                             upscaler->mNativeUI ? UIHealth::kHealthy : UIHealth::kIdle);
             ImGui::TableNextColumn();
             ImGui::TextUnformatted("External ImGui overlays");
             ImGui::TableNextColumn();
-            DrawStatusLabel(nvidiaHost->StartupConfigured() ? "NATIVE HOST / STARTUP FOREGROUND" : "HOST UNAVAILABLE",
+            DrawStatusLabel(TheosRenderPipeline::CommunityShaders::Active() ? "COMMUNITY SHADERS UI" : nvidiaHost->StartupConfigured() ? "NATIVE HOST / STARTUP FOREGROUND" : "HOST UNAVAILABLE",
                             nvidiaHost->StartupConfigured() ? UIHealth::kHealthy : UIHealth::kIdle);
             ImGui::EndTable();
         }
         ImGui::Spacing();
-        ImGui::TextWrapped("Supported startup overlays use a native-resolution foreground target. "
+        ImGui::TextWrapped(TheosRenderPipeline::CommunityShaders::Active() ?
+                           "Community Shaders owns the UI render targets. External menus retain their original draw paths." :
+                           "Supported startup overlays use a native-resolution foreground target. "
                            "Their original render state is restored after each draw.");
         ImGui::EndChild();
         ImGui::EndTabItem();
@@ -87,20 +90,23 @@ void OverlayUI::DrawRuntimePanel(float advancedCardHeight, const FrameView& view
         ImGui::TextUnformatted("RENDERER TELEMETRY");
         ImGui::Separator();
         ImGui::Text("Host Present calls: %.1f FPS | %s: %s", presentedFps, view.outputLabel, view.outputText.c_str());
-        ImGui::Text("Active path: %s%s", view.activeUpscaleStage, upscaler->IsEnabled() ? "" : " (inactive)");
+        ImGui::Text("Active path: %s%s", view.activeUpscaleStage,
+                    TheosRenderPipeline::CommunityShaders::Active() || upscaler->IsEnabled() ? "" : " (inactive)");
         ImGui::Text("Render %d x %d -> Native %d x %d (%.1f%%)", upscaler->mRenderSizeX, upscaler->mRenderSizeY,
                     view.nativeWidth, view.nativeHeight,
                     view.nativeWidth > 0
                         ? static_cast<float>(upscaler->mRenderSizeX) / static_cast<float>(view.nativeWidth) * 100.0f
                         : 100.0f);
-        ImGui::Text("Jitter: (%.4f, %.4f) | phases: %d", upscaler->mJitterOffsets[0], upscaler->mJitterOffsets[1],
-                    backend->GetJitterPhaseCount());
-        ImGui::Text("Mip LOD bias: %.3f", upscaler->mMipLodBias);
-        ImGui::Text("NGX evals ok/failed: %llu / %llu | last 0x%08X",
-                    static_cast<unsigned long long>(backend->EvalSuccessCount()),
-                    static_cast<unsigned long long>(backend->EvalFailCount()), backend->LastEvalResult());
-        ImGui::Text("Feature: %s | formats in/out: %d / %d | HDR: %s", backend->HasFeature() ? "created" : "none",
-                    backend->InputFormat(), backend->OutputFormat(), backend->IsHDRInput() ? "yes" : "no");
+        if (!TheosRenderPipeline::CommunityShaders::Active()) {
+            ImGui::Text("Jitter: (%.4f, %.4f) | phases: %d", upscaler->mJitterOffsets[0], upscaler->mJitterOffsets[1],
+                        backend->GetJitterPhaseCount());
+            ImGui::Text("Mip LOD bias: %.3f", upscaler->mMipLodBias);
+            ImGui::Text("NGX evals ok/failed: %llu / %llu | last 0x%08X",
+                        static_cast<unsigned long long>(backend->EvalSuccessCount()),
+                        static_cast<unsigned long long>(backend->EvalFailCount()), backend->LastEvalResult());
+            ImGui::Text("Feature: %s | formats in/out: %d / %d | HDR: %s", backend->HasFeature() ? "created" : "none",
+                        backend->InputFormat(), backend->OutputFormat(), backend->IsHDRInput() ? "yes" : "no");
+        }
         if (upscaler->mGraphicsState)
         {
             auto& runtimeData = upscaler->mGraphicsState->GetRuntimeData();
@@ -134,7 +140,7 @@ void OverlayUI::DrawRuntimePanel(float advancedCardHeight, const FrameView& view
             ImGui::Text("Output limit submitted interval: %u us", sourceBackend.Snapshot().frameLimitSubmittedUs);
             ImGui::TextWrapped("MFG: %s", sourceBackend.MFGState().status);
         }
-        if (showDeveloperControls)
+        if (showDeveloperControls && !TheosRenderPipeline::CommunityShaders::Active())
         {
             ImGui::Spacing();
             ImGui::TextColored(kRust, "These controls deliberately break or instrument the normal render path.");

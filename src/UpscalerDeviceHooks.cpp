@@ -11,6 +11,7 @@
 #include "FrameGen/SourceHostBoundary.h"
 #include "OverlayUI.h"
 #include "PerformanceTuning.h"
+#include "CommunityShaderIntegration.h"
 
 decltype(&D3D11CreateDeviceAndSwapChain) ptrD3D11CreateDeviceAndSwapChain;
 decltype(&IDXGIFactory::CreateSwapChain) ptrFactoryCreateSwapChain;
@@ -39,6 +40,11 @@ void BeforeGameSwapChainPresent(IDXGISwapChain* a_swapChain)
     lastPresent = now;
 
     auto* nvidiaHost = NvidiaHost::GetSingleton();
+    if (TheosRenderPipeline::CommunityShaders::Active()) {
+        nvidiaHost->PrepareCommunityFrameForPresent();
+        PerformanceTuning::GetSingleton()->EndD3D11Frame(RenderPipeline::GetSingleton()->mContext);
+        return;
+    }
     if (nvidiaHost->ProxyActive() && nvidiaHost->StartupConfigured())
     {
         nvidiaHost->PrepareSourceFrameForPresent(a_swapChain);
@@ -100,6 +106,7 @@ HRESULT WINAPI hk_D3D11CreateDeviceAndSwapChain(IDXGIAdapter* pAdapter, D3D_DRIV
                                                 ID3D11DeviceContext** ppImmediateContext)
 {
     logger::info("Calling original D3D11CreateDeviceAndSwapChain");
+    TheosRenderPipeline::CommunityShaders::InstallEngineHooks();
 
     // DLSS and native UI require the host's stable game-facing buffer, including
     // sessions that start with interpolation off. Install before device creation.
@@ -190,7 +197,11 @@ HRESULT WINAPI hk_D3D11CreateDeviceAndSwapChain(IDXGIAdapter* pAdapter, D3D_DRIV
     // stable outer swapchain, so pointer identity is not reliable here. The
     // active source proxy always reaches our outer Present and owns this work.
     logger::info("[NvidiaHost] outer game-facing swapchain owns the Present lifecycle");
-    InstallUpscalerContextHooks(device, deviceContext);
+    if (TheosRenderPipeline::CommunityShaders::Active()) {
+        TheosRenderPipeline::CommunityShaders::InstallDeviceHooks(deviceContext, swapChain);
+    } else {
+        InstallUpscalerContextHooks(device, deviceContext);
+    }
 
     return hr;
 }

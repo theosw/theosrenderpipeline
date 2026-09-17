@@ -11,4 +11,9 @@ namespace TheosRenderPipeline::SourceDLSSG
     {
         return Ready();
     }
+    bool Backend::EvaluateNeuralWorld(const NeuralOptions&, const sl::Constants*, bool,
+        ID3D11Texture2D*, ID3D11Texture2D*, ID3D11Texture2D*, FrameExtent, FrameExtent, bool&)
+    {
+        return Ready();
+    }
 }

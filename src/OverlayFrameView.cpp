@@ -6,6 +6,7 @@
 #include "FrameGen/SourceFrameGeneration.h"
 #include "FrameGen/NvidiaHost.h"
 #include "DLSSPreset.h"
+#include "CommunityShaderIntegration.h"
 #include "VideoMemoryTelemetry.h"
 #include "FrameGen/SourceDLSSGBackend.h"
 
@@ -77,7 +78,7 @@ OverlayUI::FrameView OverlayUI::CaptureFrameView()
     view.worldHealth =
         upscaler->mRenderSizeX > 0 && upscaler->mRenderSizeY > 0 ? UIHealth::kHealthy : UIHealth::kWarning;
     view.nativeUIHealth =
-        upscaler->mNativeUI && view.nativeWidth > 0 && view.nativeHeight > 0 ? UIHealth::kHealthy : UIHealth::kIdle;
+        (TheosRenderPipeline::CommunityShaders::Active() || upscaler->mNativeUI) && view.nativeWidth > 0 && view.nativeHeight > 0 ? UIHealth::kHealthy : UIHealth::kIdle;
     view.presentHealth =
         view.nvidiaHostActive && nvidiaHost->EvaluationCount() > 0 ? UIHealth::kHealthy : UIHealth::kWarning;
     view.pipelineHealth = UIHealth::kHealthy;
@@ -109,6 +110,10 @@ OverlayUI::FrameView OverlayUI::CaptureFrameView()
         std::snprintf(view.upscaleDetail, sizeof(view.upscaleDetail), "Unavailable | Preset %s", presetShort);
     }
     std::snprintf(view.nativeDetail, sizeof(view.nativeDetail), "%d x %d", view.nativeWidth, view.nativeHeight);
+    if (TheosRenderPipeline::CommunityShaders::Active()) {
+        view.upscaleTitle = "CS upscaling";
+        std::snprintf(view.upscaleDetail, sizeof(view.upscaleDetail), "%.0f%%", view.proxyScale * 100.0f);
+    }
     const auto neural = TheosRenderPipeline::SourceDLSSG::Backend::Get().NeuralConfiguration();
     view.neuralEnabled = neural.enabled;
     view.neuralBeforeUpscaling = neural.beforeUpscaling;
@@ -118,13 +123,13 @@ OverlayUI::FrameView OverlayUI::CaptureFrameView()
     }
     else if (!view.sourceNeural.active)
     {
-        std::snprintf(view.neuralDetail, sizeof(view.neuralDetail), "%s DLSS | waiting",
-                      neural.beforeUpscaling ? "Before" : "After");
+        std::snprintf(view.neuralDetail, sizeof(view.neuralDetail), "%s %s | waiting",
+                      neural.beforeUpscaling ? "Before" : "After", TheosRenderPipeline::CommunityShaders::Active() ? "CS" : "DLSS");
     }
     else
     {
-        std::snprintf(view.neuralDetail, sizeof(view.neuralDetail), "%s DLSS | %d %s",
-                      neural.beforeUpscaling ? "Before" : "After", neural.passes,
+        std::snprintf(view.neuralDetail, sizeof(view.neuralDetail), "%s %s | %d %s",
+                      neural.beforeUpscaling ? "Before" : "After", TheosRenderPipeline::CommunityShaders::Active() ? "CS" : "DLSS", neural.passes,
                       neural.passes == 1 ? "pass" : "passes");
     }
     if (view.frameGenerationRuntimeActive)
@@ -141,6 +146,9 @@ OverlayUI::FrameView OverlayUI::CaptureFrameView()
     view.outputLabel = "Runtime output";
     view.activeUpscaleStage = view.sourceDLSSGActive ? (view.sourceNeural.active ? "TRP DLSS NR" : "TRP DLSS")
                                                      : "NVIDIA host unavailable";
+    if (TheosRenderPipeline::CommunityShaders::Active()) {
+        view.activeUpscaleStage = view.sourceNeural.active ? "CS upscaling + TRP NR" : "CS upscaling";
+    }
 
     return view;
 }
@@ -151,13 +159,14 @@ void OverlayUI::DrawPipelineSummary(const FrameView& view)
     const auto neuralTooltip = view.sourceNeural.status + "\nClick to open Neural Rendering settings.";
 #endif
     PipelineDiagram diagram{
-        {{{"World", view.renderDetail, "Game-rendered scene, including ENB effects.\nClick to open Image settings.",
+        {{{"World", view.renderDetail, "Game-rendered scene.\nClick to open Image settings.",
            SettingsPage::Image},
 #if !defined(TRP_BASE_RENDERER)
           {"Neural Rendering", view.neuralDetail, neuralTooltip.c_str(), SettingsPage::NeuralRendering,
            !view.neuralEnabled},
 #endif
           {view.upscaleTitle, view.upscaleDetail,
+           TheosRenderPipeline::CommunityShaders::Active() ? "Upscaling is controlled in the Community Shaders menu.\nClick to open Image status." :
            "DLSS reconstruction or native-resolution DLAA.\nClick to open Image settings.", SettingsPage::Image},
           {"Frame generation", view.generationTitle,
            "Adds generated frames between game-rendered frames.\nClick to open Frame generation settings.",

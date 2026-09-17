@@ -9,6 +9,7 @@
 using namespace TheosRenderPipeline::Overlay;
 
 #include "RenderPipeline.h"
+#include "CommunityShaderIntegration.h"
 
 namespace
 {
@@ -53,20 +54,24 @@ namespace
 			unavailableReason = "The NVIDIA host is not ready. Check runtime status and restart Skyrim.";
 		} else if (state.failed) {
 			unavailableReason = "NR failed. Open NR runtime details below for the reported error.";
-		} else if (upscaleType != DLSS) {
+		} else if (!TheosRenderPipeline::CommunityShaders::Active() && upscaleType != DLSS) {
 			unavailableReason = "NR currently requires DLSS mode. Select DLSS in startup settings and restart Skyrim.";
-		} else if (!NvidiaHost::GetSingleton()->DedicatedUITextureMode()) {
+		} else if (!TheosRenderPipeline::CommunityShaders::Active() && !NvidiaHost::GetSingleton()->DedicatedUITextureMode()) {
 			unavailableReason = "NR requires dedicated native UI composition. Enable Native UI in startup settings and restart Skyrim.";
 		}
 		const bool unavailable = unavailableReason != nullptr;
 		ImGui::BeginDisabled(unavailable);
 		ImGui::Checkbox("Neural Rendering##sourceNR", &draft.neuralEnabled);
 		int placement = draft.neuralBeforeUpscaling ? 0 : 1;
-		const char* placements[]{ "Before DLSS", "After DLSS" };
+		const char* placements[]{ "Before upscaling", "After upscaling" };
 		if (ImGui::Combo("Placement##sourceNR", &placement, placements, IM_ARRAYSIZE(placements))) {
 			draft.neuralBeforeUpscaling = placement == 0;
 		}
-		if (draft.neuralBeforeUpscaling) { ImGui::TextWrapped("NR processes the world before DLSS. UI correction is unused; native UI is added later."); }
+		if (TheosRenderPipeline::CommunityShaders::Active()) {
+			ImGui::TextWrapped("NR processes the CS scene before tone mapping. CS draws UI afterward in both placements.");
+		} else if (draft.neuralBeforeUpscaling) {
+			ImGui::TextWrapped("NR processes the world before DLSS. UI correction is unused; native UI is added later.");
+		}
 		int passChoice = draft.neuralPasses - 1;
 		const char* passes[]{ "One", "Two" };
 		if (ImGui::Combo("Passes##sourceNR", &passChoice, passes, IM_ARRAYSIZE(passes))) { draft.neuralPasses = passChoice + 1; }
@@ -81,7 +86,11 @@ namespace
 			ImGui::SliderFloat("Skin structure##sourceNR", &draft.neuralTuning.skinStructureStrength, -1, 2);
 			ImGui::Checkbox("Automatic skin mask##sourceNR", &draft.neuralTuning.useAutoSkinMask);
 			ImGui::BeginDisabled(draft.neuralBeforeUpscaling);
-			ImGui::Checkbox("UI correction##sourceNR", &draft.neuralTuning.uiCorrection);
+			if (TheosRenderPipeline::CommunityShaders::Active()) {
+				ImGui::TextWrapped("CS draws UI after NR in both placements.");
+			} else {
+				ImGui::Checkbox("UI correction##sourceNR", &draft.neuralTuning.uiCorrection);
+			}
 			ImGui::EndDisabled();
 			ImGui::TextDisabled("Skin -1 follows local structure. Ctrl-click a slider to type.");
 			ImGui::TreePop();

@@ -11,9 +11,18 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// Early NR needs camera discontinuities before DLSS without consuming
 		// history if reconstruction fails. The normal post-DLSS call commits it.
 		auto candidate = history;
+		const auto resultValid = CaptureCameraCandidate(state, width, height, jitterX, jitterY,
+			reset, jittered, result, candidate);
+		if (commit) { history = candidate; }
+		return resultValid;
+	}
+
+	bool CaptureCameraCandidate(BSGraphics::State* state, unsigned width, unsigned height,
+		float jitterX, float jitterY, bool reset, bool jittered, sl::Constants& result, CameraHistory& candidate)
+	{
 		static std::string lastStatus;
 		auto unavailable = [&](const char* reason) {
-			if (commit) { history.Reset(); }
+			candidate.Reset();
 			if (lastStatus != reason) { lastStatus = reason; logger::warn("[SourceDLSSG] camera unavailable: {}", reason); }
 			return false;
 		};
@@ -48,7 +57,6 @@ namespace TheosRenderPipeline::SourceDLSSG
 			camera->viewFrustum.fNear, camera->viewFrustum.fFar, jitterX, jitterY,
 			reinterpret_cast<std::uintptr_t>(camera), state->GetFrameCount(), reset, result);
 		if (!built) { return unavailable("invalid camera constants"); }
-		if (commit) { history = candidate; }
 		if (lastStatus != "ready") {
 			lastStatus = "ready";
 			logger::info("[SourceDLSSG] player camera ready jittered={} near={} far={} fov={} aspect={}",

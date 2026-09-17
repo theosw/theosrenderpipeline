@@ -3,10 +3,11 @@
 #include "SourceDLSSGBackend.h"
 #include "DLSSBackend.h"
 #include "RenderPipeline.h"
+#include "CommunityShaderIntegration.h"
 
 void NvidiaHost::AdoptEffectiveSourceUpscalerSettings() const
 {
-    if (!StartupConfigured()) { return; }
+    if (!StartupConfigured() || TheosRenderPipeline::CommunityShaders::Active()) { return; }
     const auto& effective = sourceUpscalerSettings_.Effective();
     auto* settings = RenderPipeline::GetSingleton();
     settings->mUpscaleType = effective.mode;
@@ -18,7 +19,7 @@ void NvidiaHost::AdoptEffectiveSourceUpscalerSettings() const
 
 void NvidiaHost::RequestSourceUpscalerSettings(TheosRenderPipeline::Upscaler::Creation request)
 {
-    if (!StartupConfigured()) { return; }
+    if (!StartupConfigured() || TheosRenderPipeline::CommunityShaders::Active()) { return; }
     sourceUpscalerSettings_.Request(request);
     // Pipeline fields describe this session, never a pending allocation.
     AdoptEffectiveSourceUpscalerSettings();

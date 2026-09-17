@@ -58,18 +58,25 @@ namespace TheosRenderPipeline::SourceDLSSG
         bool eligible, ID3D11Texture2D* color, ID3D11Texture2D* motion, ID3D11Texture2D* depth,
         FrameExtent renderExtent, bool& reset)
     {
+        return EvaluateNeuralWorld(options, camera, eligible, color, motion, depth, renderExtent, renderExtent, reset);
+    }
+
+    bool Backend::EvaluateNeuralWorld(const NeuralOptions& options, const sl::Constants* camera,
+        bool eligible, ID3D11Texture2D* color, ID3D11Texture2D* motion, ID3D11Texture2D* depth,
+        FrameExtent renderExtent, FrameExtent colorExtent, bool& reset)
+    {
         if (!Ready()) { return false; }
         frameNeuralOptions_ = options;
         // Preserve the saved after-DLSS preference while enforcing a world-only
         // input contract for the early stage. There are no UI pixels to correct.
-        if (frameNeuralOptions_.beforeUpscaling) { frameNeuralOptions_.tuning.uiCorrection = false; }
+        if (frameNeuralOptions_.WorldOnly()) { frameNeuralOptions_.tuning.uiCorrection = false; }
         neuralFrameBegun_ = true;
         neuralEvaluatedEarly_ = false;
-        neuralEligible_ = eligible && !TransitionBlocked() && (!options.beforeUpscaling || camera);
+        neuralEligible_ = eligible && !TransitionBlocked() && (!options.WorldOnly() || camera);
         frameNeuralReset_ = neuralHistory_.ResetFor(frameNeuralOptions_, neuralEligible_,
             reset || (camera && camera->reset == sl::eTrue));
         reset |= frameNeuralReset_;
-        if (!options.enabled || !options.beforeUpscaling || !neuralEligible_) { return true; }
+        if (!options.enabled || !options.WorldOnly() || !neuralEligible_) { return true; }
 
         auto* timing = PerformanceTuning::GetSingleton();
         const bool measure = timing->TimingEnabled();
@@ -81,10 +88,10 @@ namespace TheosRenderPipeline::SourceDLSSG
         if (!renderExtent.width || !renderExtent.height ||
             !EnsureGuide(motion, motion_, DXGI_FORMAT_UNKNOWN, renderExtent) ||
             !EnsureGuide(depth, depth_, DXGI_FORMAT_R32_FLOAT, renderExtent) ||
-            !EnsureGuide(color, earlyNeuralColor_, DXGI_FORMAT_UNKNOWN, renderExtent) ||
+            !EnsureGuide(color, earlyNeuralColor_, DXGI_FORMAT_UNKNOWN, colorExtent) ||
             !RecreateNeuralIfNeeded(frameNeuralOptions_)) { return false; }
         if (!CopyDepth(depth) || !Check(interop_.CopyInputRegion(motion, motion_, renderExtent), "early NR motion copy") ||
-            !Check(interop_.CopyInputRegion(color, earlyNeuralColor_, renderExtent), "early NR world copy") ||
+            !Check(interop_.CopyInputRegion(color, earlyNeuralColor_, colorExtent), "early NR world copy") ||
             !Check(interop_.SignalD3D11(Work::Upscaling), "early NR inputs ready")) { return false; }
         ID3D12GraphicsCommandList* list = nullptr;
         if (!Check(interop_.Begin(Work::Upscaling, &list, measure ? &allocatorWait : nullptr), "begin NR before DLSS")) { return false; }
@@ -99,7 +106,7 @@ namespace TheosRenderPipeline::SourceDLSSG
             !Check(interop_.WaitD3D11(Work::Upscaling), "DLSS waits for NR")) { return false; }
         // This copy and the subsequent NGX D3D11 call follow the GPU wait on
         // the same immediate context. No CPU-wide flush/drain on each frame.
-        if (!Check(D3D11FrameCopy::Color(context11_.Get(), earlyNeuralColor_.texture11.Get(), color, renderExtent),
+        if (!Check(D3D11FrameCopy::Color(context11_.Get(), earlyNeuralColor_.texture11.Get(), color, colorExtent),
             "early NR return copy")) { return false; }
         neuralEvaluatedEarly_ = true;
         if (measure) {
