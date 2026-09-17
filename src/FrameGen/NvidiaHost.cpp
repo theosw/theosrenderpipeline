@@ -174,8 +174,6 @@ bool NvidiaHost::CreateNativeUIExtractionResources(const D3D11_TEXTURE2D_DESC& d
 
 bool NvidiaHost::ExtractNativeUIColorAndAlpha() { return nativeUI_.Extract(context_.Get(), presentation_.Texture()); }
 
-bool NvidiaHost::CaptureAndComposeDedicatedNativeUI() { return nativeUI_.Compose(context_.Get(), presentation_.Texture()); }
-
 void NvidiaHost::EndNativeUIPass() { nativeUIPass_.End(context_.Get()); }
 
 bool NvidiaHost::FinishNativeUIPassForPresent()
