@@ -23,8 +23,8 @@ class RendererSettingsController
 {
   public:
     static RendererSettingsController Current();
-    RendererSettingsDraft Capture(bool readTextures = true) const;
-    int CountChanges(const RendererSettingsDraft& draft) const;
+    RendererSettingsDraft Capture(bool nrRuntimePresent, bool readTextures = true) const;
+    int CountChanges(const RendererSettingsDraft& draft, bool nrRuntimePresent) const;
     RendererSettingsResult Apply(const RendererSettingsDraft& draft, bool save);
     RendererSettingsResult SetNeuralRenderingEnabled(bool enabled);
 

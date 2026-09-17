@@ -53,6 +53,7 @@ private:
 	void SetTextInputCapture(bool a_capture);
 	void SetVisible(bool a_visible);
 	void CaptureSettingsDraft();
+    void RefreshNeuralRuntimeAvailability();
 	int CountStagedChanges() const;
 	void ApplySettingsDraft(bool a_saveAsDefault);
 	void ApplyNeuralRenderingStateForSession(int a_state);
@@ -75,6 +76,7 @@ private:
 	bool showDeveloperControls{ false };
     TheosRenderPipeline::Overlay::SettingsPage requestedPage{TheosRenderPipeline::Overlay::SettingsPage::None};
 	TheosRenderPipeline::RendererSettingsDraft settingsDraft{};
+    bool nrRuntimePresent{false};
 	std::string actionMessage;
 	bool actionMessageIsError{ false };
 

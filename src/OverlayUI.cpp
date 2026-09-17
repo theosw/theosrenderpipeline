@@ -123,6 +123,9 @@ void OverlayUI::SetTextInputCapture(bool a_capture)
 void OverlayUI::SetVisible(bool a_visible)
 {
 	visible = a_visible;
+    if (visible && settingsDraft.valid) {
+        RefreshNeuralRuntimeAvailability();
+    }
 	if (initialized) {
 		auto& io = ImGui::GetIO();
 		io.MouseDrawCursor = visible;
@@ -255,14 +258,25 @@ void OverlayUI::UpdateFrameStats()
 	outputRate.Update(now.QuadPart * qpcToMs, output, timelineDiscontinuity);
 }
 
+void OverlayUI::RefreshNeuralRuntimeAvailability()
+{
+#if !defined(TRP_BASE_RENDERER)
+    // Refresh on menu open/settings actions, not on every rendered frame.
+    nrRuntimePresent = TheosRenderPipeline::SourceDLSSG::NeuralRuntimePresent(
+        SourceFrameGeneration::GetSingleton()->settings.neuralRenderingRuntimePath);
+    settingsDraft.sourceDLSSG.neuralEnabled &= nrRuntimePresent;
+#endif
+}
+
 void OverlayUI::CaptureSettingsDraft()
 {
-    settingsDraft = TheosRenderPipeline::RendererSettingsController::Current().Capture();
+    RefreshNeuralRuntimeAvailability();
+    settingsDraft = TheosRenderPipeline::RendererSettingsController::Current().Capture(nrRuntimePresent);
 }
 
 int OverlayUI::CountStagedChanges() const
 {
-    return TheosRenderPipeline::RendererSettingsController::Current().CountChanges(settingsDraft);
+    return TheosRenderPipeline::RendererSettingsController::Current().CountChanges(settingsDraft, nrRuntimePresent);
 }
 
 void OverlayUI::ApplySettingsDraft(bool save)

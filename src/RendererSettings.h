@@ -86,8 +86,11 @@ inline const char* ValidateRendererSettings(const RendererSettingsDraft& draft,
         return "Dynamic target output FPS must be 0 or between 61 and 1000.";
     }
 #if !defined(TRP_BASE_RENDERER)
-    if (draft.sourceDLSSG.neuralEnabled &&
-        (draft.upscaleType != DLSS || !capabilities.neuralRuntime || !capabilities.dedicatedUI))
+    if (draft.sourceDLSSG.neuralEnabled && !capabilities.neuralRuntime)
+    {
+        return "NR runtime DLL not found. Install nvngx_dlssnr.dll at the configured path and restart Skyrim.";
+    }
+    if (draft.sourceDLSSG.neuralEnabled && (draft.upscaleType != DLSS || !capabilities.dedicatedUI))
     {
         return "Source NR requires DLSS, dedicated UI Texture mode, and a configured NR runtime.";
     }

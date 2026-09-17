@@ -40,6 +40,10 @@ choose **Old files → DLSS5 reshade**, version 1, uploaded **31 August 2026**
 Then enable **Neural Rendering** in the End menu. Leave it off if you skip this
 download. You do not need ReShade or the other files from that archive.
 
+NR controls are unavailable until its optional DLL is installed. If saved
+settings enable NR but the DLL is missing, Skyrim starts with NR off and keeps
+DLSS/frame generation available. Install the DLL and restart to use NR.
+
 These downloads are the tested set: SR/FG 310.9.1, Streamline 2.14.1 and NR 310.8.
 Newer runtimes use the same filenames and folders; compatibility may vary.
 

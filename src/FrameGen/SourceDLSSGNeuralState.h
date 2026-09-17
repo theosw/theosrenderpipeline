@@ -3,6 +3,7 @@
 #include "NeuralRenderingReconstruction.h"
 #include "NeuralRenderingTuning.h"
 #include "SourceDLSSGNeuralTelemetry.h"
+#include <algorithm>
 #include <filesystem>
 #include <string>
 
@@ -18,6 +19,23 @@ namespace TheosRenderPipeline::SourceDLSSG
 		NeuralRendering::Reconstruction reconstruction{};
 		bool operator==(const NeuralOptions&) const = default;
 	};
+
+	inline bool NeuralRuntimePresent(const std::filesystem::path& path)
+	{
+		std::error_code error;
+		return !path.empty() && std::filesystem::is_regular_file(path, error) && !error;
+	}
+
+	inline NeuralOptions SanitizeNeuralOptions(NeuralOptions options)
+	{
+		options.tuning = NeuralRendering::SanitizeBuild14Tuning(options.tuning);
+		options.passes = std::clamp(options.passes, 1, 2);
+		options.reconstruction = NeuralRendering::SanitizeReconstruction(options.reconstruction);
+		// Reject a missing optional runtime before any GPU work is recorded.
+		// Runtime identity and initialization checks still belong to the session.
+		options.enabled = options.enabled && NeuralRuntimePresent(options.runtimePath);
+		return options;
+	}
 
 	struct NeuralSnapshot
 	{
