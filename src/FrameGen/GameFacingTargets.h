@@ -47,8 +47,9 @@ namespace TheosRenderPipeline
 
         static D3D11_TEXTURE2D_DESC UpscaleOutputDesc(const D3D11_TEXTURE2D_DESC& output)
         {
-            // DLSS uses its own UAV output and copies to this plain SRV/RTV.
-            return UpscaleInputDesc(output, output.Width, output.Height);
+            auto desc = UpscaleInputDesc(output, output.Width, output.Height);
+            desc.BindFlags |= D3D11_BIND_UNORDERED_ACCESS;
+            return desc;
         }
 
         HRESULT CreateGameFacingAfterRetirement(ID3D11Device* device,
@@ -72,7 +73,21 @@ namespace TheosRenderPipeline
         {
             if (!device) { return E_INVALIDARG; }
             const auto desc = UpscaleOutputDesc(output);
-            return device->CreateTexture2D(&desc, nullptr, upscaleOutput_.ReleaseAndGetAddressOf());
+            UINT support{};
+            if (SUCCEEDED(device->CheckFormatSupport(desc.Format, &support)) &&
+                (support & D3D11_FORMAT_SUPPORT_TYPED_UNORDERED_ACCESS_VIEW)) {
+                Microsoft::WRL::ComPtr<ID3D11Texture2D> candidate;
+                Microsoft::WRL::ComPtr<ID3D11UnorderedAccessView> view;
+                if (SUCCEEDED(device->CreateTexture2D(&desc, nullptr, &candidate)) &&
+                    SUCCEEDED(device->CreateUnorderedAccessView(candidate.Get(), nullptr, &view))) {
+                    upscaleOutput_ = candidate;
+                    return S_OK;
+                }
+            }
+            // Keep the existing copy route when allocation/view support is
+            // unavailable. DLSSBackend reports this destination as ineligible.
+            const auto fallback = UpscaleInputDesc(output, output.Width, output.Height);
+            return device->CreateTexture2D(&fallback, nullptr, upscaleOutput_.ReleaseAndGetAddressOf());
         }
 
         void ResetGameFacingAfterRetirement() { gameFacing_.Reset(); }
