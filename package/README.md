@@ -65,7 +65,8 @@ the packaged configuration; `RCAS.hlsl` is the runtime sharpening shader.
 
 ## Requirements and reports
 
-Requires Skyrim 1.6.1170, matching SKSE64 and Address Library, the x64 Microsoft
+The same renderer DLL supports Skyrim 1.6.1170 and experimental 1.5.97.
+Install SKSE64 and Address Library matching your game, the x64 Microsoft
 Visual C++ runtime and a compatible NVIDIA GPU/driver. DLSS-G-compatible hardware
 is required even with frame generation switched off. AMD/Intel and ReShade
 integration are not supported.
@@ -76,7 +77,10 @@ This is an early test release. The rendering code was tested with LoreRim/ENB
 and an RTX 4080 SUPER, including NR Before DLSS/one pass and x4 MFG. RTX 30-series,
 native RTX 50-series operation and HDR appearance are not verified for this build.
 
-Version 0.1.2 updates packaging and version metadata; rendering behavior is unchanged.
+The universal build uses verified hooks for both versions; gameplay testing of
+this build on both versions is pending.
+Third-party ImGui integration covers the listed producer builds; older or
+SE-specific versions of those mods need their own compatibility checks.
 
 Include `TRP-FULL-PACKAGE.txt`, your GPU/driver, game/mod versions, settings and
 `TheosRenderPipeline.log`/`skse64.log` when reporting a problem. The package

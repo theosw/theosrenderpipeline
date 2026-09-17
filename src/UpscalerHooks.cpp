@@ -831,9 +831,9 @@ struct UpscalerHooks
 	// The alternative completion boundary runs after the loading background.
 	struct MistMenuPostDisplayBackground
 	{
-		static void thunk()
+		static void thunk(std::uint64_t a1, std::uint32_t a2, std::uint32_t a3, std::uint32_t a4)
 		{
-			func();
+			func(a1, a2, a3, a4);
 			NvidiaHost::GetSingleton()->OnBackgroundReady(
 				TheosRenderPipeline::BackgroundBoundary::Mist, MainOrLoadingMenuOpen());
 		}
@@ -972,12 +972,7 @@ struct UpscalerHooks
 		auto moduleBase = (uintptr_t)GetModuleHandleW(nullptr);
 		TheosRenderPipeline::InstallUpscalerDeviceHooks(moduleBase);
 		*(FARPROC*)&ptrGetClientRect = GetProcAddress(GetModuleHandleA("user32.dll"), "GetClientRect");
-		// Steam AE 1.6.1170 uses 0x18B; later GOG AE builds use 0x1DC.
-		// The SE offset is
-		// retained for the source contract even though this build is AE-only.
-		const auto clientRectOffset = REL::Module::get().version() > REL::Version(1, 6, 1170, 0) ?
-		                                  0x1DC :
-		                                  REL::Relocate(0x192, 0x18B);
+		const auto clientRectOffset = REL::Relocate(0x192, 0x18B);
 		stl::write_thunk_call<BSGraphics_Renderer_GetClientRect, 6>(
 			REL::RelocationID(75460, 77245).address() + clientRectOffset);
 		Detours::IATHook(moduleBase, "user32.dll", "GetClientRect", (uintptr_t)hk_GetClientRect);

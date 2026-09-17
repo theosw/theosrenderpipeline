@@ -22,6 +22,17 @@
 
 namespace
 {
+#if !defined(ENABLE_SKYRIM_SE) || !defined(ENABLE_SKYRIM_AE) || defined(ENABLE_SKYRIM_VR)
+#error Build with both Skyrim SE and AE enabled, and VR disabled.
+#endif
+	constexpr REL::Version kRuntimeSE{ 1, 5, 97, 0 };
+	constexpr REL::Version kRuntimeAE{ 1, 6, 1170, 0 };
+
+	constexpr bool SupportedRuntime(REL::Version runtime) noexcept
+	{
+		return runtime == kRuntimeSE || runtime == kRuntimeAE;
+	}
+
 	void InitializeLog()
 	{
 		std::vector<spdlog::sink_ptr> sinks;
@@ -141,8 +152,12 @@ extern "C" DLLEXPORT const SolFGLateOverlayAPI::BridgeV1* __cdecl SolFG_GetLateO
 
 extern "C" DLLEXPORT bool SKSEAPI SKSEPlugin_Load(const SKSE::LoadInterface* a_skse)
 {
+	if (a_skse->IsEditor() || !SupportedRuntime(a_skse->RuntimeVersion())) {
+		util::report_and_fail("Theo's Render Pipeline requires Skyrim 1.5.97 or 1.6.1170.");
+	}
 	InitializeLog();
 	logger::info("{} v{} loading", Plugin::NAME, Plugin::VERSION_STRING);
+	logger::info("[Runtime] Skyrim {}", a_skse->RuntimeVersion().string());
 	SKSE::Init(a_skse);
 
 	CSimpleIniA baselineIni;
@@ -192,15 +207,16 @@ extern "C" DLLEXPORT constinit auto SKSEPlugin_Version = []() noexcept {
 	SKSE::PluginVersionData v;
 	v.PluginName(Plugin::NAME.data());
 	v.PluginVersion(Plugin::VERSION);
-	v.UsesAddressLibrary(true);
+	v.CompatibleVersions({ kRuntimeSE, kRuntimeAE });
+	// CommonLib and our graphics wrapper select the engine layout at runtime.
 	v.HasNoStructUse();
 	return v;
 }();
 
-extern "C" DLLEXPORT bool SKSEAPI SKSEPlugin_Query(const SKSE::QueryInterface*, SKSE::PluginInfo* pluginInfo)
+extern "C" DLLEXPORT bool SKSEAPI SKSEPlugin_Query(const SKSE::QueryInterface* a_skse, SKSE::PluginInfo* pluginInfo)
 {
 	pluginInfo->name = SKSEPlugin_Version.pluginName;
 	pluginInfo->infoVersion = SKSE::PluginInfo::kVersion;
 	pluginInfo->version = SKSEPlugin_Version.pluginVersion;
-	return true;
+	return !a_skse->IsEditor() && SupportedRuntime(a_skse->RuntimeVersion());
 }

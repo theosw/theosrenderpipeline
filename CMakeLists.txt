@@ -102,6 +102,10 @@ endif()
 
 add_subdirectory("${TRP_COMMONLIBSSE_NG_DIR}" CommonLibSSE EXCLUDE_FROM_ALL)
 
+if(ENABLE_SKYRIM_VR OR NOT ENABLE_SKYRIM_SE OR NOT ENABLE_SKYRIM_AE)
+    message(FATAL_ERROR "Enable both Skyrim SE and AE, with VR disabled, for the universal 1.5.97/1.6.1170 build.")
+endif()
+
 find_package(spdlog CONFIG REQUIRED)
 find_package(imgui CONFIG REQUIRED)
 
