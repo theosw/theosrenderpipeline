@@ -8,13 +8,19 @@ headers/import library. The validated dependency set uses CommonLibSSE-NG 3.6.0
 and Streamline 2.11.1 headers. CMake reads the other libraries from `vcpkg.json`.
 Runtime DLLs are not required to compile the plugin.
 
-`arp-nvidia` builds one DLL for Skyrim 1.5.97 and 1.6.1170, with both CommonLib
-SE and AE support enabled and VR disabled. The loader accepts only those two
+`arp-nvidia` builds one DLL for Skyrim 1.5.97, 1.6.640 and 1.6.1170, with both CommonLib
+SE and AE support enabled and VR disabled. The loader accepts only those three
 versions. Runtime-aware addresses and layout accessors select the appropriate
 engine integration. Use matching SKSE64 and Address Library files when installing.
-Both Full and Standard use this universal configuration. The Full build has
-been tested in-game on 1.6.1170. **1.5.97 is experimental and untested in-game**;
-its build and offline compatibility checks passed.
+Both Full and Standard use this universal configuration. The previous Full
+release has scoped game evidence on 1.6.1170; this port's DLLs have not been
+tested in-game. **1.5.97 and 1.6.640 are experimental and
+untested in-game**; the [port status](SKYRIM_1_6_640.md) records current evidence.
+
+Set `TRP_BUILD_COMPATIBILITY_TESTS=ON` to build `TRPRuntimeProfileTests`, then
+run `ctest --test-dir <build-directory> -C Release --output-on-failure`.
+These offline checks cover exact version admission and artwork caller isolation;
+they do not execute game hooks or load NVIDIA runtimes.
 
 `TRP_ENABLE_OPTIONAL_FEATURES` selects the release variant. `OFF` builds the standard
 renderer without NR runtime integration, its shaders/UI, the Ada patch

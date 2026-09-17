@@ -56,6 +56,7 @@ set(ARP_BASELINE_SOURCES
     src/RenderPipeline.h
     src/SettingsFile.h
     src/PluginPaths.h
+    src/SkyrimRuntime.h
     src/UpscaleType.h
     src/FrameGen/NeuralRenderingFeatureSession.h
     src/FrameGen/NeuralRenderingCreationContext.h

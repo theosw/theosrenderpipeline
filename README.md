@@ -34,19 +34,21 @@ in Git.
 The plugin and SKSE identity are `TheosRenderPipeline`. Published `SolFG_*`
 companion exports retain their names and layouts in `TheosRenderPipeline.dll`.
 
-The tested environment is Skyrim 1.6.1170 with matching SKSE64/Address Library,
-LoreRim/ENB and RTX 4080 SUPER. The universal Full build received a positive
-gameplay report with x4 MFG and the optional NR DLL absent. Earlier builds were
+The previous release's tested environment is Skyrim 1.6.1170 with matching
+SKSE64/Address Library, LoreRim/ENB and RTX 4080 SUPER. Its universal Full build
+received a positive gameplay report with x4 MFG and the optional NR DLL absent. Earlier builds were
 tested with Before-DLSS NR/one pass; that NR path was not repeated in this run.
 World, DLSS and Output open Image settings; NR and Frame generation open their
 respective tabs.
-The same DLL supports Skyrim 1.5.97 and 1.6.1170 and selects the matching engine
-hooks and layouts at startup. **Skyrim 1.5.97 is experimental and untested in-game.**
-Build and offline compatibility checks passed; community testing is welcome.
+This branch adds Steam Skyrim 1.6.640 to the universal DLL alongside 1.5.97 and
+1.6.1170, selecting the matching engine hooks and layouts at startup.
+**Skyrim 1.5.97 and 1.6.640 are experimental and untested in-game.**
+This port's new DLLs have not yet been tested in-game on any runtime.
+See the [1.6.640 port status](docs/SKYRIM_1_6_640.md) for verification and remaining work.
 Native RTX 50-series, HDR and physical frame cadence need separate testing.
 
 Use SKSE64 and Address Library matching your Skyrim executable. Full and Standard
-remain separate feature editions; each supports both game versions.
+remain separate feature editions; each supports all three game versions.
 
 ENB is not a startup requirement; setups without ENB have not been validated.
 
