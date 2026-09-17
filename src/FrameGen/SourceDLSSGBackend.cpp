@@ -156,10 +156,10 @@ namespace TheosRenderPipeline::SourceDLSSG
 		for (const auto feature : { sl::kFeatureReflex, sl::kFeaturePCL, sl::kFeatureDLSS_G }) {
 			if (!Check(supported_(feature, info), std::format("feature support {}", feature).c_str())) { return fault_; }
 		}
-		for (const auto* name : kStreamlineModules) {
-			const auto loaded = GetModuleHandleW(name);
-			if (!loaded || !TheosRenderPipeline::PluginPaths::EqualPath(
-				TheosRenderPipeline::PluginPaths::ModulePath(loaded), directory_ / name)) {
+		for (std::size_t index = 0; index < kStreamlineModules.size(); ++index) {
+			const auto* name = kStreamlineModules[index];
+			runtimeModules_[index] = TheosRenderPipeline::PluginPaths::RetainLoadedModule(directory_ / name);
+			if (!runtimeModules_[index]) {
 				Check(E_FAIL, std::format("{} was not loaded from the configured Streamline directory", std::filesystem::path(name).string()).c_str());
 				return fault_;
 			}

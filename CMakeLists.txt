@@ -198,6 +198,26 @@ add_custom_target(ARPBaseline DEPENDS TheosRenderPipeline)
 option(TRP_BUILD_COMPATIBILITY_TESTS "Build offline runtime and frame contract checks" OFF)
 if(TRP_BUILD_COMPATIBILITY_TESTS)
     enable_testing()
+    foreach(module IN ITEMS 1 2)
+        add_library(TRPModuleIdentityFixture${module} SHARED tests/ModuleIdentityFixture.cpp)
+        target_compile_definitions(TRPModuleIdentityFixture${module} PRIVATE TRP_TEST_MODULE_ID=${module})
+        set_target_properties(TRPModuleIdentityFixture${module} PROPERTIES
+            OUTPUT_NAME "TRPModuleIdentityFixture"
+            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/module-fixtures/${module}"
+            ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/module-fixtures/${module}")
+    endforeach()
+    add_executable(TRPPluginPathsTests tests/PluginPathsTests.cpp)
+    target_compile_features(TRPPluginPathsTests PRIVATE cxx_std_23)
+    target_compile_definitions(TRPPluginPathsTests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    target_include_directories(TRPPluginPathsTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_link_libraries(TRPPluginPathsTests PRIVATE ARPDetours)
+    add_dependencies(TRPPluginPathsTests TRPModuleIdentityFixture1 TRPModuleIdentityFixture2)
+    foreach(order IN ITEMS a-first b-first)
+        add_test(NAME PluginPaths-${order} COMMAND TRPPluginPathsTests
+            $<TARGET_FILE:TRPModuleIdentityFixture1> $<TARGET_FILE:TRPModuleIdentityFixture2> ${order} direct)
+        add_test(NAME PluginPaths-virtual-${order} COMMAND TRPPluginPathsTests
+            $<TARGET_FILE:TRPModuleIdentityFixture1> $<TARGET_FILE:TRPModuleIdentityFixture2> ${order} virtual)
+    endforeach()
     add_executable(TRPD3D11FrameCopyTests tests/D3D11FrameCopyTests.cpp)
     target_compile_features(TRPD3D11FrameCopyTests PRIVATE cxx_std_23)
     target_compile_definitions(TRPD3D11FrameCopyTests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)

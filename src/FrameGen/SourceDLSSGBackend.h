@@ -16,6 +16,7 @@
 #endif
 #include <dxgi1_5.h>
 #include <filesystem>
+#include <array>
 #include <string>
 #include <mutex>
 #include <atomic>
@@ -105,6 +106,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		void ResetPresentationFeedback();
 		static void StreamlineLogCallback(sl::LogType a_type, const char* a_message);
 		HMODULE interposer_{};
+		std::array<HMODULE, 6> runtimeModules_{}; // Retained with this process-resident owner.
 		PFun_slInit* init_{};
 		PFun_slSetFeatureLoaded* loadFeature_{};
 		PFun_slSetD3DDevice* setDevice_{};
