@@ -199,11 +199,12 @@ namespace TheosRenderPipeline
 {
 void InstallUpscalerDeviceHooks(std::uintptr_t moduleBase)
 {
-    auto dllD3D11 = GetModuleHandleA("d3d11.dll");
-    *(FARPROC*)&ptrD3D11CreateDeviceAndSwapChain = GetProcAddress(dllD3D11, "D3D11CreateDeviceAndSwapChain");
-    if (!ptrD3D11CreateDeviceAndSwapChain ||
-        !Detours::IATHook(moduleBase, "d3d11.dll", "D3D11CreateDeviceAndSwapChain",
-                         (uintptr_t)hk_D3D11CreateDeviceAndSwapChain))
+    // Continue through the previous import target so an earlier renderer's
+    // device setup still runs before control returns to our completion boundary.
+    ptrD3D11CreateDeviceAndSwapChain = reinterpret_cast<decltype(ptrD3D11CreateDeviceAndSwapChain)>(
+        Detours::IATHook(moduleBase, "d3d11.dll", "D3D11CreateDeviceAndSwapChain",
+                         reinterpret_cast<uintptr_t>(hk_D3D11CreateDeviceAndSwapChain)));
+    if (!ptrD3D11CreateDeviceAndSwapChain)
     {
         util::report_and_fail("Theo's Render Pipeline could not hook D3D11 device creation for its required NVIDIA host.");
     }
