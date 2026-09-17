@@ -24,6 +24,7 @@ set(ARP_BASELINE_SOURCES
     src/FrameGen/NativeUIPass.h
     src/FrameGen/SourceFrameCoordinator.h
     src/FrameGen/SourceNvidiaFrameEvaluator.h
+    src/FrameGen/SourceNvidiaFramePreparation.h
     src/FrameGen/SourceNvidiaEvaluation.cpp
     src/FrameGen/LoadingArtwork.cpp
     src/FrameGen/LoadingArtwork.h

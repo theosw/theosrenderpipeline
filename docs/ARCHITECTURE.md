@@ -43,6 +43,14 @@ presentation path. Display refresh is reported without choosing another host.
 
 ## Resource boundaries
 
+`SourceNvidiaFramePreparation` accepts borrowed guides and camera inputs after
+the frame producer succeeds. It advances camera history, prepares downstream
+inputs and publishes the generation decision without invoking an upscaler.
+The native evaluator calls it only after successful reconstruction; NR or DLSS
+failure skips preparation. Resource validation, synchronization and retirement
+remain the host's responsibility. This internal boundary does not install an
+external renderer adapter.
+
 `GameSwapChain` returns a stable render-size texture to Skyrim. The inner
 `SourceDLSSG::SwapChain` manages shared D3D11/D3D12 presentation textures and the
 rotating native swapchain. They have different buffer identities and lifetimes.

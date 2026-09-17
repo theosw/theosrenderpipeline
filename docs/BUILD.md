@@ -32,15 +32,17 @@ To run the optional checks in a configured build directory:
 
 ```powershell
 cmake -S . -B <build-directory> -DTRP_BUILD_COMPATIBILITY_TESTS=ON
-cmake --build <build-directory> --config Release --target TRPRuntimeProfileTests TRPRuntimeLayoutTests
+cmake --build <build-directory> --config Release --target TRPRuntimeProfileTests TRPRuntimeLayoutTests TRPSourceNvidiaFrameEvaluatorTests
 ctest --test-dir <build-directory> -C Release --output-on-failure
 ```
 
 The `arp-nvidia` build preset builds only the renderer, so build the test targets
 explicitly before running CTest.
 These offline checks cover exact version admission, artwork caller isolation,
-graphics/control layouts and the linked format-1/2/5 Address Library loader;
-they do not execute game hooks or load NVIDIA runtimes.
+graphics/control layouts and the linked format-1/2/5 Address Library loader.
+The frame evaluator check uses D3D11 WARP to verify native reconstruction ordering,
+failure/reset handling and preparation of an already-completed frame without a
+second upscale. These tests do not execute game hooks or load NVIDIA runtimes.
 
 `TRP_ENABLE_OPTIONAL_FEATURES` selects the release variant. `OFF` builds the standard
 renderer without NR runtime integration, its shaders/UI, Ada/Ampere compatibility

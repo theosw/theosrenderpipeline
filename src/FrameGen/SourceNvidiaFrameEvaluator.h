@@ -1,24 +1,17 @@
 #pragma once
 
-#include <d3d11.h>
+#include "SourceNvidiaFramePreparation.h"
 
 namespace TheosRenderPipeline
 {
-    // Borrowed for this evaluation only. The host validates guide extents and
-    // readiness, owns all resources, and consumes history only after copying the
-    // completed output to the presentation buffer.
-    struct SourceNvidiaFrameInputs
+    // Snapshot used by TRP's reconstruction stage. The host retains resource
+    // ownership; per-frame NR reset changes stay local to the evaluation copy.
+    struct SourceNvidiaFrameInputs : SourceNvidiaFrameGuides
     {
         ID3D11Texture2D* color{};
         ID3D11Texture2D* input{};
         ID3D11Texture2D* output{};
-        ID3D11Texture2D* motion{};
-        ID3D11Texture2D* depth{};
-        ID3D11Texture2D* uiColorAndAlpha{};
-        ID3D11Texture2D* hudLessColor{};
-        UINT renderWidth{}, renderHeight{}, outputWidth{}, outputHeight{};
-        float sharpness{}, jitterX{}, jitterY{}, motionScaleX{}, motionScaleY{};
-        bool reset{}, jitterEnabled{};
+        float sharpness{}, motionScaleX{}, motionScaleY{};
     };
 
     struct SourceNvidiaFrameResult
@@ -41,12 +34,8 @@ namespace TheosRenderPipeline
             if (!operations.EvaluateDLSS(frame)) { return {}; }
             operations.UpscaleSucceeded();
 
-            // Camera history must advance after successful DLSS only. Prepare
-            // still runs with FG disabled: source NR uses these same inputs.
-            const bool cameraValid = operations.CaptureCamera(frame);
-            const bool prepared = cameraValid && operations.Prepare(frame);
-            operations.PublishGeneration(prepared);
-            return {true, cameraValid, prepared};
+            const auto preparation = SourceNvidiaFramePreparation::PrepareCompletedFrame(frame, operations);
+            return {true, preparation.cameraValid, preparation.prepared};
         }
     };
 }
