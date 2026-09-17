@@ -19,6 +19,7 @@
 #include "NativeInputThunks.h"
 #include "OverlayUI.h"
 #include "PerformanceTuning.h"
+#include "SkyrimRuntime.h"
 
 #include <d3d11.h>
 #include <dxgi1_6.h>
@@ -90,7 +91,7 @@ namespace
 		ScopedRenderDimensions()
 		{
 			auto* host = NvidiaHost::GetSingleton();
-			auto* rendererData = RE::BSGraphics::Renderer::GetRendererData();
+			auto* rendererData = RE::BSGraphics::Renderer::GetRendererDataSingleton();
 			if (!host->ProxyActive() || !host->UpscalerReady() ||
 				!host->RenderWidth() || !host->RenderHeight() || !rendererData) {
 				return;
@@ -114,7 +115,7 @@ namespace
 			if (--renderDimensionsScope.depth != 0) {
 				return;
 			}
-			if (auto* rendererData = RE::BSGraphics::Renderer::GetRendererData()) {
+			if (auto* rendererData = RE::BSGraphics::Renderer::GetRendererDataSingleton()) {
 				rendererData->renderWindows[0].windowWidth = renderDimensionsScope.savedWindowWidth;
 				rendererData->renderWindows[0].windowHeight = renderDimensionsScope.savedWindowHeight;
 			}
@@ -637,8 +638,8 @@ namespace
 		Microsoft::WRL::ComPtr<ID3D11Resource> backgroundDepth;
 		if (auto* view = host->NativeUIBackgroundDepth()) { view->GetResource(&backgroundDepth); }
 		auto* guide = RenderPipeline::GetSingleton()->mDepthBuffer.mImage;
-		auto* renderer = RE::BSGraphics::Renderer::GetRendererData();
-		auto* declaredMain = renderer ? renderer->depthStencils[RE::RENDER_TARGET_DEPTHSTENCIL::kMAIN].texture : nullptr;
+		auto* renderer = RE::BSGraphics::Renderer::GetSingleton();
+		auto* declaredMain = renderer ? renderer->GetDepthStencilData().depthStencils[RE::RENDER_TARGET_DEPTHSTENCIL::kMAIN].texture : nullptr;
 		const auto result = host->PreviewDraw().Draw(context, host->NativeUIRenderRTV(), original,
 			{&host->UIAttachments(), guide, backgroundDepth.Get()});
 		static unsigned depthLogged = 0;
@@ -924,13 +925,18 @@ struct UpscalerHooks
 
 	static void Install()
 	{
+		const auto* profile = TheosRenderPipeline::SkyrimRuntime::Find(REL::Module::get().version());
+		if (!profile) {
+			util::report_and_fail("No verified hook profile for this Skyrim runtime.");
+		}
+		const auto& offsets = profile->hooks;
 		{
 			// Validate all sites before publishing
 			// any patch; retain the original calling convention through a tail jump.
 			const auto mouseSite = REL::RelocationID(50604, 51498).address() + 0xB;
 			const auto screenSite = REL::RelocationID(75590, 77397).address() + 0x102;
 			const auto dimensionsSite = REL::RelocationID(99938, 106583).address() + REL::Relocate(0x8E, 0x84);
-			const auto mistSite = REL::RelocationID(51855, 52727).address() + REL::Relocate(0x7A1, 0x7A4);
+			const auto mistSite = REL::RelocationID(51855, 52727).address() + offsets.mistBackground;
 			const auto worldSite = REL::RelocationID(79947, 82084).address() + REL::Relocate(0x16F, 0x17A);
 			if (*reinterpret_cast<const std::uint8_t*>(mouseSite) != 0xE8 ||
 				*reinterpret_cast<const std::uint8_t*>(screenSite) != 0xE8 ||
@@ -972,23 +978,23 @@ struct UpscalerHooks
 		auto moduleBase = (uintptr_t)GetModuleHandleW(nullptr);
 		TheosRenderPipeline::InstallUpscalerDeviceHooks(moduleBase);
 		*(FARPROC*)&ptrGetClientRect = GetProcAddress(GetModuleHandleA("user32.dll"), "GetClientRect");
-		const auto clientRectOffset = REL::Relocate(0x192, 0x18B);
+		const auto clientRectOffset = offsets.rendererClientRect;
 		stl::write_thunk_call<BSGraphics_Renderer_GetClientRect, 6>(
 			REL::RelocationID(75460, 77245).address() + clientRectOffset);
 		Detours::IATHook(moduleBase, "user32.dll", "GetClientRect", (uintptr_t)hk_GetClientRect);
 
 		// Setup our own jitters
-		stl::write_thunk_call<BSGraphics_Renderer_Begin_UpdateJitter>(REL::RelocationID(75460, 77245).address() + REL::Relocate(0xE5, 0xE2, 0x104));  // D6A0C0 (D6A1A5), DA5A00 (DA5AE2)
+		stl::write_thunk_call<BSGraphics_Renderer_Begin_UpdateJitter>(REL::RelocationID(75460, 77245).address() + offsets.updateJitter);
 		// Always enable TAA jitters, even without TAA
 		static REL::Relocation<uintptr_t> updateJitterHook{ REL::RelocationID(75709, 77518) };          // D7CFB0, DB96E0
 		static REL::Relocation<uintptr_t> buildCameraStateDataHook{ REL::RelocationID(75711, 77520) };  // D7D130, DB9850
 		uint8_t                           patch1[] = { 0x90, 0x90, 0x90, 0x90, 0x90, 0x90 };
 		uint8_t                           patch2[] = { 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90 };
 		REL::safe_write<uint8_t>(updateJitterHook.address() + REL::Relocate(0xE, 0x11), patch1);
-		REL::safe_write<uint8_t>(buildCameraStateDataHook.address() + REL::Relocate(0x1D5, 0x1D5), patch2);
+		REL::safe_write<uint8_t>(buildCameraStateDataHook.address() + offsets.cameraBranch, patch2);
 
 		// Frame generation input capture points.
-		stl::write_thunk_call<Main_RenderWorld>(REL::RelocationID(35560, 36559).address() + REL::Relocate(0x831, 0x841, 0x791));
+		stl::write_thunk_call<Main_RenderWorld>(REL::RelocationID(35560, 36559).address() + offsets.renderWorld);
 		stl::detour_thunk<MenuManagerDrawInterfaceStart>(REL::RelocationID(79947, 82084));
 		stl::detour_thunk<Inventory3DManagerRender>(REL::RelocationID(50882, 51755));
 		TheosRenderPipeline::LoadingArtwork::Install();

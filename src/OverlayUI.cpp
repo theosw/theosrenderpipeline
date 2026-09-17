@@ -25,11 +25,8 @@ namespace
 {
 	void AllowSkyrimTextInput(RE::ControlMap* a_controlMap, bool a_allow)
 	{
-		// ControlMap's runtime data moved in Skyrim 1.6.1130.  The CommonLib
-		// checkout used by TheosRenderPipeline predates that layout, so its member wrapper
-		// reads and writes the old textEntryCount offset on 1.6.1170.  Call the
-		// game's relocated implementation instead; it owns the active runtime
-		// layout and is the same path used by the other modern ImGui menus.
+		// Use the verified engine implementation: textEntryCount is at +0x120
+		// on 1.5.97/1.6.640 and +0x128 on 1.6.1170/1.7.104.
 		using Func = decltype(&AllowSkyrimTextInput);
 		static REL::Relocation<Func> func{ RELOCATION_ID(67252, 68552) };
 		func(a_controlMap, a_allow);
@@ -156,13 +153,15 @@ void OverlayUI::SetVisible(bool a_visible)
 		if (!controlsSuppressed) {
 			fightingWasEnabled = controlMap->IsFightingControlsEnabled();
 			lookingWasEnabled = controlMap->IsLookingControlsEnabled();
-			controlMap->ToggleControls(RE::ControlMap::UEFlag::kFighting, false);
-			controlMap->ToggleControls(RE::ControlMap::UEFlag::kLooking, false);
+			// Updating stored controls preserves the previous CommonLib wrapper's
+			// behavior. The engine owns the version-specific member offsets.
+			controlMap->ToggleControls(RE::ControlMap::UEFlag::kFighting, false, true);
+			controlMap->ToggleControls(RE::ControlMap::UEFlag::kLooking, false, true);
 			controlsSuppressed = true;
 		}
 	} else if (controlsSuppressed) {
-		controlMap->ToggleControls(RE::ControlMap::UEFlag::kFighting, fightingWasEnabled);
-		controlMap->ToggleControls(RE::ControlMap::UEFlag::kLooking, lookingWasEnabled);
+		controlMap->ToggleControls(RE::ControlMap::UEFlag::kFighting, fightingWasEnabled, true);
+		controlMap->ToggleControls(RE::ControlMap::UEFlag::kLooking, lookingWasEnabled, true);
 		controlsSuppressed = false;
 	}
 }

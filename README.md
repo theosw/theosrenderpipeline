@@ -40,17 +40,16 @@ received a positive gameplay report with x4 MFG and the optional NR DLL absent. 
 tested with Before-DLSS NR/one pass; that NR path was not repeated in this run.
 World, DLSS and Output open Image settings; NR and Frame generation open their
 respective tabs.
-This branch adds Steam Skyrim 1.6.640 to the universal DLL alongside 1.5.97 and
-1.6.1170, selecting the matching engine hooks and layouts at startup.
-**Skyrim 1.5.97 and 1.6.640 are experimental and untested in-game.**
+This branch adds Steam Skyrim 1.7.104 to the universal DLL alongside 1.5.97,
+1.6.640 and 1.6.1170, selecting exact engine hooks and layouts at startup.
+**Skyrim 1.5.97, 1.6.640 and 1.7.104 are experimental and untested in-game.**
 This port's new DLLs have not yet been tested in-game on any runtime.
-See the [1.6.640 port status](docs/SKYRIM_1_6_640.md) for verification and remaining work.
-The [Steam 1.7.104 port](docs/SKYRIM_1_7_104.md) is being prepared separately.
-This draft includes offline address-table tooling; **1.7.104 is not enabled**.
+See the [1.7.104 port status](docs/SKYRIM_1_7_104.md) for verification and remaining work,
+and the preceding [1.6.640 port](docs/SKYRIM_1_6_640.md) for its original evidence.
 Native RTX 50-series, HDR and physical frame cadence need separate testing.
 
 Use SKSE64 and Address Library matching your Skyrim executable. Full and Standard
-remain separate feature editions; each supports all three game versions.
+remain separate feature editions; each supports all four game versions.
 
 ENB is not a startup requirement; setups without ENB have not been validated.
 

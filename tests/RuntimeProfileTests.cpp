@@ -23,8 +23,10 @@ int main()
     const auto* se = SkyrimRuntime::Find(REL::Version{ 1, 5, 97, 0 });
     const auto* ae640 = SkyrimRuntime::Find(REL::Version{ 1, 6, 640, 0 });
     const auto* ae = SkyrimRuntime::Find(REL::Version{ 1, 6, 1170, 0 });
-    Require(se && ae640 && ae && se != ae640 && ae640 != ae && se != ae,
-        "three admitted runtimes select distinct profiles");
+    const auto* ae17104 = SkyrimRuntime::Find(REL::Version{ 1, 7, 104, 0 });
+    Require(se && ae640 && ae && ae17104 && se != ae640 && ae640 != ae && se != ae &&
+        ae17104 != se && ae17104 != ae640 && ae17104 != ae,
+        "four admitted runtimes select distinct profiles");
 
     // Neither family membership nor version ordering admits an unverified game.
     for (const auto version : {
@@ -33,11 +35,13 @@ int main()
              REL::Version{ 1, 6, 640, 1 }, REL::Version{ 1, 6, 641, 0 },
              REL::Version{ 1, 6, 659, 0 }, REL::Version{ 1, 6, 1130, 0 },
              REL::Version{ 1, 6, 1170, 1 }, REL::Version{ 1, 6, 1179, 0 },
-             REL::Version{ 1, 7, 104, 0 }, REL::Version{ 1, 4, 15, 0 } }) {
+             REL::Version{ 1, 7, 99, 0 }, REL::Version{ 1, 7, 103, 0 },
+             REL::Version{ 1, 7, 104, 1 }, REL::Version{ 1, 7, 105, 0 },
+             REL::Version{ 1, 4, 15, 0 } }) {
         Require(!SkyrimRuntime::Find(version), "unverified runtime has no profile");
     }
 
-    for (const auto* profile : { se, ae640, ae }) {
+    for (const auto* profile : { se, ae640, ae, ae17104 }) {
         const auto callers = profile->loadingArtwork;
         for (const auto caller : { callers.exterior, callers.interior }) {
             for (unsigned flags = 0; flags < 64; ++flags) {
@@ -56,7 +60,7 @@ int main()
                 Require(LoadingArtwork::Suppression(callers, true, true, true, foreign, 1, 1, 1) == 1,
                     "adjacent callers preserve suppression");
             }
-            for (const auto* other : { se, ae640, ae }) {
+            for (const auto* other : { se, ae640, ae, ae17104 }) {
                 if (other == profile) { continue; }
                 for (const auto foreign : { other->loadingArtwork.exterior, other->loadingArtwork.interior }) {
                     Require(LoadingArtwork::Suppression(callers, true, true, true, foreign, 1, 1, 1) == 1,

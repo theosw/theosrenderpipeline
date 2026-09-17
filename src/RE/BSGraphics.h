@@ -1,5 +1,6 @@
 #pragma once
 #include "DirectXMath.h"
+#include "SkyrimRuntime.h"
 
 namespace BSGraphics
 {
@@ -33,6 +34,7 @@ namespace BSGraphics
 		char          _pad0[0x8];
 	};
 	static_assert(sizeof(CameraStateData) == 0x290);
+	static_assert(offsetof(CameraStateData, UseJitter) == 0x284);
 
 	struct State
 	{
@@ -44,17 +46,8 @@ namespace BSGraphics
 		float                              unknown[2];
 		float                              jitter[2];
 
-		// Camera history reads uiFrameCount; preserve the surrounding engine layout.
-		uint32_t                           uiFrameCount;
-		bool                               bInsideFrame;
-		bool                               bLetterbox;
-		bool                               bUnknown1;
-		bool                               bCompiledShaderThisFrame;
-		bool                               bUseEarlyZ;
-		// ...
-
-		// somewhere in the middle of this struct, there are bytes in AE that are not present in SE
-		// therefore use GetRuntimeData to get the rest
+		// 1.7 inserts separate UI projection scales at 0x4C/0x50 and moves
+		// the frame counter/runtime data. Keep these fields behind accessors.
 
 		struct RUNTIME_DATA
 		{
@@ -85,13 +78,29 @@ namespace BSGraphics
 
 		[[nodiscard]] RUNTIME_DATA& GetRuntimeData() noexcept
 		{
-			return REL::RelocateMemberIfNewer<RUNTIME_DATA>(SKSE::RUNTIME_SSE_1_6_317, this, 0x58, 0x60);
+			return REL::RelocateMember<RUNTIME_DATA>(this, GetLayout().runtimeData);
 		}
 
 		[[nodiscard]] inline const RUNTIME_DATA& GetRuntimeData() const noexcept
 		{
-			return REL::RelocateMemberIfNewer<RUNTIME_DATA>(SKSE::RUNTIME_SSE_1_6_317, this, 0x58, 0x60);
+			return REL::RelocateMember<RUNTIME_DATA>(this, GetLayout().runtimeData);
+		}
+
+		[[nodiscard]] std::uint32_t GetFrameCount() const noexcept
+		{
+			return REL::RelocateMember<std::uint32_t>(this, GetLayout().frameCounter);
+		}
+
+	private:
+		[[nodiscard]] static const TheosRenderPipeline::SkyrimRuntime::GraphicsLayout& GetLayout() noexcept
+		{
+			const auto* profile = TheosRenderPipeline::SkyrimRuntime::Find(REL::Module::get().version());
+			if (!profile) {
+				SKSE::stl::report_and_fail("No verified graphics layout for this Skyrim runtime.");
+			}
+			return profile->graphics;
 		}
 	};
+	static_assert(offsetof(State, jitter) == 0x44);
 
 }

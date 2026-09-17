@@ -69,7 +69,7 @@ the packaged configuration; `RCAS.hlsl` is the runtime sharpening shader.
 
 ## Requirements and reports
 
-The same renderer DLL targets Skyrim 1.6.1170 and experimental 1.5.97/1.6.640.
+The same renderer DLL targets Skyrim 1.6.1170 and experimental 1.5.97/1.6.640/1.7.104.
 Install SKSE64 and Address Library matching your game, the x64 Microsoft
 Visual C++ runtime and a compatible NVIDIA GPU/driver. DLSS-G-compatible hardware
 is required even with frame generation switched off. AMD/Intel and ReShade
@@ -82,9 +82,9 @@ This is an early test release. The previous universal Full release was tested on
 without the optional NR DLL. Earlier builds were tested with Before-DLSS NR/one
 pass; normal NR rendering was not repeated in this run. RTX 30-series, native
 RTX 50-series operation and HDR appearance are not verified. The new DLLs adding
-1.6.640 support have not yet been tested in-game on any runtime.
+1.7.104 support have not yet been tested in-game on any runtime.
 
-**Skyrim 1.5.97 and 1.6.640 are experimental and untested in-game.** Build and offline
+**Skyrim 1.5.97, 1.6.640 and 1.7.104 are experimental and untested in-game.** Build and offline
 compatibility checks passed. Use matching SKSE64 and Address Library, and please
 report your results with the game/mod versions and renderer log.
 Third-party ImGui integration covers the listed producer builds; older or
