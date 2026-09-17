@@ -232,7 +232,7 @@ void RenderPipeline::InitUpscaler()
 		mMipLodBias = nvidiaHost->OptimalMipmapBias();
 	}
 	SetGameTAA(false);
-	if (auto rendererData = RE::BSGraphics::Renderer::GetRendererData()) {
+	if (auto rendererData = RE::BSGraphics::Renderer::GetRendererDataSingleton()) {
 		// Keep the actual borderless-window authority native between render
 		// calls. UpscalerHooks scopes this cache down to the render extent only
 		// while Skyrim is calculating world/UI layout. Leaving it reduced here

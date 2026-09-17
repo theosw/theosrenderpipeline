@@ -11,7 +11,9 @@ namespace TheosRenderPipeline::LoadingArtwork
     };
 
     inline constexpr TransitionCallers kSECallers{ 0x69C9A5, 0x69C9DD };
+    inline constexpr TransitionCallers kAE640Callers{ 0x6D6AE0, 0x6D6B19 };
     inline constexpr TransitionCallers kAECallers{ 0x7309F0, 0x730A29 };
+    inline constexpr TransitionCallers kAE17104Callers{ 0x743590, 0x7435C9 };
 
     constexpr std::uint8_t Suppression(TransitionCallers callers, bool enabled, bool ready, bool gameCaller,
         std::uintptr_t callerRVA, std::uint8_t show, std::uint8_t suppress,

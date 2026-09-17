@@ -3,6 +3,7 @@
 #include "LoadingArtworkPolicy.h"
 #include "LoadingScreenState.h"
 #include "RenderPipeline.h"
+#include "SkyrimRuntime.h"
 #include <atomic>
 #include <cstring>
 #include <intrin.h>
@@ -28,7 +29,7 @@ namespace TheosRenderPipeline::LoadingArtwork
                 const auto callerRVA = gameCaller ? caller - REL::Module::get().base() : 0;
                 const bool ready = worldReady.load(std::memory_order_relaxed);
                 const auto effective = Suppression(
-                    REL::Relocate(kSECallers, kAECallers),
+                    callers,
                     RenderPipeline::GetSingleton()->mRequestLoadingArtwork.load(std::memory_order_relaxed),
                     ready, gameCaller, callerRVA, show, suppress, immediate);
                 if (effective != suppress) {
@@ -37,6 +38,7 @@ namespace TheosRenderPipeline::LoadingArtwork
                 return original(show, location, effective, immediate);
             }
             static inline REL::Relocation<decltype(thunk)> original;
+            static inline TransitionCallers callers{};
         };
     }
 
@@ -53,12 +55,19 @@ namespace TheosRenderPipeline::LoadingArtwork
 
     void Install()
     {
+        const auto* profile = SkyrimRuntime::Find(REL::Module::get().version());
+        if (!profile) {
+            util::report_and_fail("No verified loading artwork profile exists for this Skyrim runtime.");
+        }
         const auto target = REL::RelocationID(13214, 13363).address();
         constexpr std::array<std::uint8_t, 19> prologue{
             0x40,0x57,0x41,0x56,0x41,0x57,0x48,0x83,0xEC,0x40,0x48,0xC7,0x44,0x24,0x38,0xFE,0xFF,0xFF,0xFF};
         if (std::memcmp(reinterpret_cast<const void*>(target), prologue.data(), prologue.size()) != 0) {
             util::report_and_fail("Loading artwork hook does not match the engine transition sender.");
         }
+        // Select before publishing the detour. Other AE versions must not inherit
+        // 1.6.1170's raw return addresses just because they share relocation IDs.
+        Transition::callers = profile->loadingArtwork;
         Transition::original = Detours::X64::DetourFunction(target, reinterpret_cast<std::uintptr_t>(&Transition::thunk));
         if (!Transition::original.address()) {
             util::report_and_fail("Could not install the loading artwork transition hook.");

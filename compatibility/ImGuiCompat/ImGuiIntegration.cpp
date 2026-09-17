@@ -699,7 +699,7 @@ namespace
 		const auto* cursor = RE::MenuCursor::GetSingleton();
 		const bool cursorMenu = ui && ui->IsMenuOpen(RE::CursorMenu::MENU_NAME);
 		const auto screen = RE::BSGraphics::Renderer::GetScreenSize();
-		const auto* renderer = RE::BSGraphics::Renderer::GetRendererData();
+		const auto* renderer = RE::BSGraphics::Renderer::GetRendererDataSingleton();
 		const auto window = renderer ? reinterpret_cast<HWND>(renderer->renderWindows[0].hWnd) : nullptr;
 		RECT client{};
 		const bool clientValid = window && ::GetClientRect(window, &client);
@@ -816,7 +816,7 @@ namespace
 			bridgeExtent = { frame.width, frame.height };
 		}
 		if (!bridgeExtent.Valid()) {
-			const auto* rendererData = RE::BSGraphics::Renderer::GetRendererData();
+			const auto* rendererData = RE::BSGraphics::Renderer::GetRendererDataSingleton();
 			const auto window = rendererData ? reinterpret_cast<HWND>(rendererData->renderWindows[0].hWnd) : nullptr;
 			RECT client{};
 			if (window && ::GetClientRect(window, &client) && client.right > client.left && client.bottom > client.top) {

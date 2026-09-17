@@ -3,6 +3,8 @@
   "name": "theosrenderpipeline",
   "license": "GPL-3.0-only",
   "dependencies": [
+    "directxmath",
+    "directxtk",
     "fmt",
     "rapidcsv",
     "spdlog",

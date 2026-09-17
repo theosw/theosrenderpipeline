@@ -34,25 +34,24 @@ in Git.
 The plugin and SKSE identity are `TheosRenderPipeline`. Published `SolFG_*`
 companion exports retain their names and layouts in `TheosRenderPipeline.dll`.
 
-This branch builds the **0.1.3 experimental Ampere candidate**, not the released
-0.1.2 build. RTX 30-series (SM86) uses a startup compatibility bridge in Full;
-RTX 40-series retains its Ada path and RTX 50-series uses native capabilities.
-Standard excludes both compatibility paths and Neural Rendering.
+Version **0.1.3** combines experimental RTX 30-series (SM86) compatibility
+with support for four exact Steam Skyrim versions. Full selects the Ampere
+compatibility path on RTX 30-series, the Ada unlock on RTX 40-series, and native
+capabilities on RTX 50-series. Standard excludes NR and both compatibility paths.
 
-The preceding 0.1.2 Full release was tested on Skyrim 1.6.1170 with matching
-SKSE64/Address Library, LoreRim/ENB and RTX 4080 SUPER at x4 with the NR DLL absent.
-**The 0.1.3 candidate has not been tested in Skyrim or on an RTX 30-series card.**
-Standalone preparation and forwarding checks do not establish visual quality,
-performance, or generated-frame cadence.
-World, DLSS and Output open Image settings; NR and Frame generation open their
-respective tabs.
-The same DLL supports Skyrim 1.5.97 and 1.6.1170 and selects the matching engine
-hooks and layouts at startup. **Skyrim 1.5.97 is experimental and untested in-game.**
-Build and offline compatibility checks passed; community testing is welcome.
-Native RTX 50-series, HDR and physical frame cadence need separate testing.
+**Skyrim 1.5.97, 1.6.640 and 1.7.104 are experimental and untested in-game.**
+RTX 30-series execution is also experimental and unverified. Both component
+candidates received scoped Skyrim 1.6.1170/LoreRim/ENB regression tests on an
+RTX 4080 SUPER, including Full x4/NR and Standard End closure during editing.
+The final combined build has not had a separate game run. Native RTX 50-series,
+HDR appearance and physical frame cadence remain unverified.
+
+See the [1.7.104 port notes](docs/SKYRIM_1_7_104.md) and
+[1.6.640 port notes](docs/SKYRIM_1_6_640.md). World, DLSS and Output open Image
+settings; NR and Frame generation open their respective tabs.
 
 Use SKSE64 and Address Library matching your Skyrim executable. Full and Standard
-remain separate feature editions; each supports both game versions.
+remain separate feature editions; each supports all four game versions.
 
 ENB is not a startup requirement; setups without ENB have not been validated.
 

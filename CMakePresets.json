@@ -8,7 +8,7 @@
   "configurePresets": [
     {
       "name": "arp-nvidia",
-      "displayName": "Theo's Render Pipeline for Skyrim 1.5.97 and 1.6.1170",
+      "displayName": "Theo's Render Pipeline for Skyrim 1.5.97, 1.6.640, 1.6.1170 and 1.7.104",
       "generator": "Visual Studio 17 2022",
       "architecture": "x64",
       "binaryDir": "${sourceDir}/out/build/nvidia",

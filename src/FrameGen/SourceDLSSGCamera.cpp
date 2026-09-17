@@ -46,7 +46,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		}
 		const bool built = candidate.Build(projection, view, { position.x, position.y, position.z },
 			camera->viewFrustum.fNear, camera->viewFrustum.fFar, jitterX, jitterY,
-			reinterpret_cast<std::uintptr_t>(camera), state->uiFrameCount, reset, result);
+			reinterpret_cast<std::uintptr_t>(camera), state->GetFrameCount(), reset, result);
 		if (!built) { return unavailable("invalid camera constants"); }
 		if (commit) { history = candidate; }
 		if (lastStatus != "ready") {

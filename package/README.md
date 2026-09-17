@@ -75,7 +75,7 @@ the packaged configuration; `RCAS.hlsl` is the runtime sharpening shader.
 
 ## Requirements and reports
 
-The same renderer DLL supports Skyrim 1.6.1170 and experimental 1.5.97.
+The same renderer DLL targets Skyrim 1.6.1170 and experimental 1.5.97/1.6.640/1.7.104.
 Install SKSE64 and Address Library matching your game, the x64 Microsoft
 Visual C++ runtime and a compatible NVIDIA GPU/driver. DLSS-G-compatible hardware
 is required even with frame generation switched off. AMD/Intel and ReShade
@@ -83,13 +83,13 @@ integration are not supported.
 
 ENB is not a startup requirement; setups without ENB have not been validated.
 
-The preceding 0.1.2 Full release was tested on Skyrim
-1.6.1170 with LoreRim/ENB and an RTX 4080 SUPER, including x4 MFG and operation
-without the optional NR DLL. Earlier builds were tested with Before-DLSS NR/one
-pass. This 0.1.3 candidate needs a fresh gameplay check. RTX 30-series, native
-RTX 50-series operation and HDR appearance remain unverified.
+Both component candidates received scoped Skyrim 1.6.1170/LoreRim/ENB tests
+on an RTX 4080 SUPER, including Full x4 frame generation and Before-DLSS NR.
+Standard End closure during numeric editing was also verified. The final
+combined 0.1.3 build has not had a separate game run. RTX 30-series execution,
+native RTX 50-series operation and HDR appearance remain unverified.
 
-**Skyrim 1.5.97 is experimental and untested in-game.** Build and offline
+**Skyrim 1.5.97, 1.6.640 and 1.7.104 are experimental and untested in-game.** Build and offline
 compatibility checks passed. Use matching SKSE64 and Address Library, and please
 report your results with the game/mod versions and renderer log.
 Third-party ImGui integration covers the listed producer builds; older or
@@ -97,8 +97,8 @@ SE-specific versions of those mods need their own compatibility checks.
 
 Include `TRP-FULL-PACKAGE.txt`, your GPU/driver, game/mod versions, settings and
 `TheosRenderPipeline.log`/`skse64.log` when reporting a problem. The package
-identity records the exact local source revision. The experimental branch is
-not yet published to the [source repository](https://github.com/theosw/theosrenderpipeline).
+identity links to the matching source revision in the
+[source repository](https://github.com/theosw/theosrenderpipeline).
 Logs are normally under `Documents/My Games/Skyrim Special Edition/SKSE/`.
 
 See `LICENSE` and `THIRD-PARTY.md` for project terms and attribution.
