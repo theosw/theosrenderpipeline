@@ -37,7 +37,16 @@ runtimes retain the license files accompanying their downloads.
 
 ## Libraries and SDKs
 
-CommonLibSSE-NG, Dear ImGui, SimpleIni, spdlog, fmt, DirectXMath and
+CommonLibSSE-NG 8.1.0 (`3c0f5a87c3b166c9a6712d5c3bd180e9ac5ad0fd`) uses
+GPL-3.0-or-later with its Modding Exception and Linking Exception with
+Corresponding Source. It is statically linked from the
+[alandtse fork](https://github.com/alandtse/CommonLibSSE-NG/tree/3c0f5a87c3b166c9a6712d5c3bd180e9ac5ad0fd).
+Its original MIT attribution is retained for the historical portions; the
+library as a whole is no longer MIT-licensed. Its HDE64 patch diagnostics use
+the BSD-2-Clause decoder from MinHook v1.3.4. Exact exception/decoder terms
+appear below; the full GPL v3 text is included in [LICENSE](LICENSE).
+
+Dear ImGui, SimpleIni, spdlog, fmt, DirectXMath, DirectXTK and
 the Detours wrapper use MIT licenses. rapidcsv and xbyak use BSD-3-Clause.
 Streamline public headers use NVIDIA's MIT license. See [Notices](#notices)
 for their copyright holders and full permissions.
@@ -117,7 +126,7 @@ SOFTWARE.
 The following copyright notices use the MIT permission and warranty text below:
 
 - vrperfkit: Copyright (c) 2022 Holger Frydrych
-- CommonLibSSE-NG: Copyright (c) 2018 Ryan-rsm-McKenzie
+- Original MIT portions of CommonLibSSE-NG: Copyright (c) 2018 Ryan-rsm-McKenzie
 - Dear ImGui: Copyright (c) 2014-2024 Omar Cornut
 - SimpleIni: Copyright (c) 2006-2022 Brodie Thiesfield
 - spdlog: Copyright (c) 2016 Gabi Melman
@@ -125,6 +134,7 @@ The following copyright notices use the MIT permission and warranty text below:
 - Zydis (bundled in Detours): Copyright (c) 2014-2019 Florian Bernd; Copyright (c) 2014-2019 Joel Höner
 - Zycore (bundled in Detours): Copyright (c) 2018-2019 Florian Bernd; Copyright (c) 2018-2019 Joel Höner
 - DirectXMath: Copyright (c) Microsoft Corporation
+- DirectXTK: Copyright (c) Microsoft Corporation
 - RenoDX: Copyright (c) 2025 Carlos Lopez Jr.
 - AMD FidelityFX RCAS source used through RCAS for ReShade: Copyright (C) 2023 Advanced Micro Devices, Inc.
 - Streamline 2.11.1 public headers: Copyright (c) 2022-2023 NVIDIA CORPORATION. All rights reserved.
@@ -395,3 +405,53 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+### CommonLibSSE-NG 8.1.0 exceptions
+
+The upstream README identifies Skyrim and proprietary hardware drivers/SDKs
+as Modded Code, and SKSE and Windows as Modding Libraries. The following is
+the pinned dependency's unmodified EXCEPTIONS.md text.
+
+This Program is intended to be used with and modify existing code (the "Modded Code") and to build a robust modding community with open source principles. The purpose of this exception is to address issues when an open source modding community interacts with potentially proprietary code. In addition, the modding community often uses libraries (the "Modding Libraries") under licenses that may be incompatible with the GPL ("Modding Library Licenses").
+
+===
+
+Modding Exception
+
+In addition, as a special exception, the authors give You the additional right to link the code of this Program with the existing code that this Program is intended to be used with or modify and to distribute linked combinations including the two, subject to the limitations in this paragraph. Modded Code permitted under this exception may link to the code of this Program without causing the Modded Code and portion of the combined work corresponding to the Modded Code to be covered by the GNU General Public License. You must obey the GNU General Public License in all respects for all of the Program code and other code used in conjunction with the Program except the Modded Code covered by this exception. If you modify this file, you may extend this exception to your version of the file, but you are not obligated to do so. If you do not wish to provide this exception without modification, you must delete this exception statement from your version and license this file solely under the GPL without exception.
+
+===
+
+GPL-3.0 Linking Exception (with Corresponding Source)
+
+Additional permission under GNU GPL version 3 section 7
+
+If you modify this Program, or any covered work, by linking or combining it with Modding Libraries (or a modified version thereof), containing parts covered by the terms of Modding Library Licenses, the licensors of this Program grant you additional permission to convey the resulting work. Corresponding Source for a non-source form of such a combination shall include the source code for the parts of Modding Libraries used as well as that of the covered work.
+
+### HDE64 (from MinHook v1.3.4)
+
+Hacker Disassembler Engine 64 C
+Copyright (c) 2008-2009, Vyacheslav Patkov.
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions
+are met:
+
+ 1. Redistributions of source code must retain the above copyright
+    notice, this list of conditions and the following disclaimer.
+ 2. Redistributions in binary form must reproduce the above copyright
+    notice, this list of conditions and the following disclaimer in the
+    documentation and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
+TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
+PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE REGENTS OR
+CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
