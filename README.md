@@ -45,6 +45,8 @@ This branch adds Steam Skyrim 1.6.640 to the universal DLL alongside 1.5.97 and
 **Skyrim 1.5.97 and 1.6.640 are experimental and untested in-game.**
 This port's new DLLs have not yet been tested in-game on any runtime.
 See the [1.6.640 port status](docs/SKYRIM_1_6_640.md) for verification and remaining work.
+The [Steam 1.7.104 port](docs/SKYRIM_1_7_104.md) is being prepared separately.
+This draft includes offline address-table tooling; **1.7.104 is not enabled**.
 Native RTX 50-series, HDR and physical frame cadence need separate testing.
 
 Use SKSE64 and Address Library matching your Skyrim executable. Full and Standard
