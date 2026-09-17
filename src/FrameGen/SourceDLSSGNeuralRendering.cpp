@@ -301,13 +301,18 @@ RWTexture2D<float4> output : register(u0);
 		}
 		if (options.passes == 2) {
 			Transition(list, featureOutput, read, D3D12_RESOURCE_STATE_COMMON);
-			Transition(list, secondOutput_.Get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
-			// Keep the existing resolve/composition endpoint stable. Resolve runs
-			// once, comparing the original input with the final NR result.
-			if (FAILED(Interop::RecordCopy(list, secondOutput_.Get(), featureOutput))) {
-				status_ = "NR second-pass result copy rejected"; return false;
+			if (resolving) {
+				// Resolve reads the final result directly. Both temporal features keep
+				// their own histories, and corrected_ remains the stable endpoint.
+				featureOutput = secondOutput_.Get();
+			} else {
+				// Native-size Auto has no resolve to populate corrected_.
+				Transition(list, secondOutput_.Get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
+				if (FAILED(Interop::RecordCopy(list, secondOutput_.Get(), featureOutput))) {
+					status_ = "NR second-pass result copy rejected"; return false;
+				}
+				Transition(list, featureOutput, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			}
-			Transition(list, featureOutput, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		}
 		if (resolving) {
 			Transition(list, featureOutput, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
