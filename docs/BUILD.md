@@ -17,8 +17,16 @@ release has scoped game evidence on 1.6.1170; this port's DLLs have not been
 tested in-game. **1.5.97 and 1.6.640 are experimental and
 untested in-game**; the [port status](SKYRIM_1_6_640.md) records current evidence.
 
-Set `TRP_BUILD_COMPATIBILITY_TESTS=ON` to build `TRPRuntimeProfileTests`, then
-run `ctest --test-dir <build-directory> -C Release --output-on-failure`.
+To run the optional checks in a configured build directory:
+
+```powershell
+cmake -S . -B <build-directory> -DTRP_BUILD_COMPATIBILITY_TESTS=ON
+cmake --build <build-directory> --config Release --target TRPRuntimeProfileTests
+ctest --test-dir <build-directory> -C Release --output-on-failure
+```
+
+The `arp-nvidia` build preset builds only the renderer, so build the test target
+explicitly before running CTest.
 These offline checks cover exact version admission and artwork caller isolation;
 they do not execute game hooks or load NVIDIA runtimes.
 
