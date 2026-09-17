@@ -55,7 +55,8 @@ namespace TheosRenderPipeline::SourceDLSSG
     }
 
     bool Backend::EvaluateNeuralBeforeUpscaling(const NeuralOptions& options, const sl::Constants* camera,
-        bool eligible, ID3D11Texture2D* color, ID3D11Texture2D* motion, ID3D11Texture2D* depth, bool& reset)
+        bool eligible, ID3D11Texture2D* color, ID3D11Texture2D* motion, ID3D11Texture2D* depth,
+        FrameExtent renderExtent, bool& reset)
     {
         if (!Ready()) { return false; }
         frameNeuralOptions_ = options;
@@ -77,10 +78,13 @@ namespace TheosRenderPipeline::SourceDLSSG
         // the return copy. This is elapsed GPU time, including scheduling gaps.
         ScopedD3D11PerformanceStage gpuTimer{context11_.Get(), PerformanceTuning::D3D11Stage::kNeuralEarlyRoundTrip};
         AllocatorWaitTiming allocatorWait{};
-        if (!EnsureGuide(motion, motion_) || !EnsureGuide(depth, depth_, DXGI_FORMAT_R32_FLOAT) ||
-            !EnsureGuide(color, earlyNeuralColor_) || !RecreateNeuralIfNeeded(frameNeuralOptions_)) { return false; }
-        if (!CopyDepth(depth) || !Check(interop_.CopyInput(motion, motion_), "early NR motion copy") ||
-            !Check(interop_.CopyInput(color, earlyNeuralColor_), "early NR world copy") ||
+        if (!renderExtent.width || !renderExtent.height ||
+            !EnsureGuide(motion, motion_, DXGI_FORMAT_UNKNOWN, renderExtent) ||
+            !EnsureGuide(depth, depth_, DXGI_FORMAT_R32_FLOAT, renderExtent) ||
+            !EnsureGuide(color, earlyNeuralColor_, DXGI_FORMAT_UNKNOWN, renderExtent) ||
+            !RecreateNeuralIfNeeded(frameNeuralOptions_)) { return false; }
+        if (!CopyDepth(depth) || !Check(interop_.CopyInputRegion(motion, motion_, renderExtent), "early NR motion copy") ||
+            !Check(interop_.CopyInputRegion(color, earlyNeuralColor_, renderExtent), "early NR world copy") ||
             !Check(interop_.SignalD3D11(Work::Upscaling), "early NR inputs ready")) { return false; }
         ID3D12GraphicsCommandList* list = nullptr;
         if (!Check(interop_.Begin(Work::Upscaling, &list, measure ? &allocatorWait : nullptr), "begin NR before DLSS")) { return false; }
@@ -95,7 +99,8 @@ namespace TheosRenderPipeline::SourceDLSSG
             !Check(interop_.WaitD3D11(Work::Upscaling), "DLSS waits for NR")) { return false; }
         // This copy and the subsequent NGX D3D11 call follow the GPU wait on
         // the same immediate context. No CPU-wide flush/drain on each frame.
-        context11_->CopyResource(color, earlyNeuralColor_.texture11.Get());
+        if (!Check(D3D11FrameCopy::Color(context11_.Get(), earlyNeuralColor_.texture11.Get(), color, renderExtent),
+            "early NR return copy")) { return false; }
         neuralEvaluatedEarly_ = true;
         if (measure) {
             timing->RecordNeuralEarlyCPU(static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(

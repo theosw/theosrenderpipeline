@@ -1,6 +1,7 @@
 #pragma once
 
 #include "SourceDLSSGInterop.h"
+#include "D3D11FrameCopy.h"
 #include "SourceDLSSGSession.h"
 #include "SourceDLSSGNeuralState.h"
 #if !defined(TRP_BASE_RENDERER)
@@ -35,12 +36,13 @@ namespace TheosRenderPipeline::SourceDLSSG
 			IDXGISwapChain** a_result);
 		bool Prepare(const sl::Constants& a_constants, ID3D11Texture2D* a_motion,
 			ID3D11Texture2D* a_depth, ID3D11Texture2D* a_ui, ID3D11Texture2D* a_hudless,
-			UINT a_displayWidth, UINT a_displayHeight, bool a_neuralEligible = true);
+			FrameExtent a_renderExtent, UINT a_displayWidth, UINT a_displayHeight, bool a_neuralEligible = true);
 		void ConfigureNeuralRendering(NeuralOptions a_options);
 		// Freeze NR settings before DLSS, optionally replace its D3D11 input, and
 		// return a shared history reset. A null camera skips the early NR stage.
 		bool EvaluateNeuralBeforeUpscaling(const NeuralOptions& options, const sl::Constants* camera,
-			bool eligible, ID3D11Texture2D* color, ID3D11Texture2D* motion, ID3D11Texture2D* depth, bool& reset);
+			bool eligible, ID3D11Texture2D* color, ID3D11Texture2D* motion, ID3D11Texture2D* depth,
+			FrameExtent renderExtent, bool& reset);
 		NeuralOptions NeuralConfiguration() const;
 		NeuralSnapshot NeuralState() const;
 		bool ConfigureReflex(sl::ReflexMode a_mode)
@@ -92,7 +94,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 		bool Check(sl::Result a_result, const char* a_operation);
 		bool Check(HRESULT a_result, const char* a_operation);
 		bool CheckSession(bool a_result);
-		bool EnsureGuide(ID3D11Texture2D* a_source, SharedTexture& a_pair, DXGI_FORMAT a_format = DXGI_FORMAT_UNKNOWN);
+		bool EnsureGuide(ID3D11Texture2D* a_source, SharedTexture& a_pair,
+			DXGI_FORMAT a_format = DXGI_FORMAT_UNKNOWN, FrameExtent a_extent = {});
 		bool CopyDepth(ID3D11Texture2D* a_depth);
 		void ReleaseGuides();
 		bool RecreateNeuralIfNeeded(const NeuralOptions& options);
@@ -146,10 +149,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 		bool neuralEligible_{};
 		bool frameNeuralReset_{};
 		bool neuralFrameBegun_{}, neuralEvaluatedEarly_{};
-		Microsoft::WRL::ComPtr<ID3D11Texture2D> uiSource_, depthSource_;
-		Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> depthSRV_;
-		Microsoft::WRL::ComPtr<ID3D11UnorderedAccessView> depthUAV_;
-		Microsoft::WRL::ComPtr<ID3D11ComputeShader> depthCopy_;
+		Microsoft::WRL::ComPtr<ID3D11Texture2D> uiSource_;
+		D3D11FrameCopy::Depth depthCopy_;
 		std::filesystem::path directory_;
 		static constexpr std::uint32_t TransitionWarmupPresents = 3;
 		std::atomic_bool transitionBlocked_{ true };

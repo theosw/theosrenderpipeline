@@ -34,7 +34,7 @@ struct NvidiaHost::SourceNvidiaEvaluationOperations
                 frame.renderWidth, frame.renderHeight, frame.jitterX, frame.jitterY,
                 frame.reset, frame.jitterEnabled, preview, false);
         return backend.EvaluateNeuralBeforeUpscaling(options, cameraValid ? &preview : nullptr,
-            eligible, frame.input, frame.motion, frame.depth, frame.reset);
+            eligible, frame.input, frame.motion, frame.depth, {frame.renderWidth, frame.renderHeight}, frame.reset);
 #else
         (void)frame;
         return true;
@@ -87,7 +87,8 @@ struct NvidiaHost::SourceNvidiaEvaluationOperations
     {
         ScopedD3D11PerformanceStage timer{host.context_.Get(), PerformanceTuning::D3D11Stage::kFrameGenInputs};
         return TheosRenderPipeline::SourceDLSSG::Backend::Get().Prepare(constants, frame.motion, frame.depth,
-            frame.uiColorAndAlpha, frame.hudLessColor, frame.outputWidth, frame.outputHeight, NeuralEligible(frame));
+            frame.uiColorAndAlpha, frame.hudLessColor, {frame.renderWidth, frame.renderHeight},
+            frame.outputWidth, frame.outputHeight, NeuralEligible(frame));
     }
     void PublishGeneration(bool prepared)
     {
