@@ -50,6 +50,9 @@ Native RTX 50-series, HDR and physical frame cadence need separate testing.
 Use SKSE64 and Address Library matching your Skyrim executable. Full and Standard
 remain separate feature editions; each supports all three game versions.
 
+[GOG 1.6.1179 support is in preparation](docs/SKYRIM_GOG_1_6_1179.md).
+GOG remains unsupported until its executable-specific hooks and layouts are verified.
+
 ENB is not a startup requirement; setups without ENB have not been validated.
 
 See [LICENSE](LICENSE) and [third-party notices](THIRD-PARTY.md) for project and
