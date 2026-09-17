@@ -14,5 +14,6 @@ Full retains Neural Rendering and the Ada MFG unlock. Standard retains native
 NVIDIA capabilities. Settings and public companion APIs are unchanged.
 
 Full and Standard builds and offline profile/artwork checks pass. These checks
-do not execute game hooks. The port's DLLs remain untested in-game; earlier
-1.6.1170 release results do not establish acceptance for this build or 1.6.640.
+do not execute game hooks. The compatibility candidate received scoped Full
+and Standard regression checks on 1.6.1170. Skyrim 1.6.640 remains experimental
+and untested in-game; the final combined 0.1.3 build has no separate game run.

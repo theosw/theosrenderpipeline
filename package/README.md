@@ -1,8 +1,9 @@
-# Theo's Render Pipeline — Full, 0.1.3 experimental Ampere candidate
+# Theo's Render Pipeline — Full, 0.1.3 experimental release
 
-This candidate adds RTX 30-series (SM86) frame-generation compatibility.
-It has not been tested in Skyrim or on an RTX 30-series card. Keep your working
-0.1.2 mod available so you can switch back. This is a test package, not a stable release.
+Adds experimental RTX 30-series (SM86) frame generation and Steam Skyrim
+1.5.97/1.6.640/1.7.104 support alongside 1.6.1170. Those additional game versions
+and actual RTX 30 execution are untested in-game. Component candidates were
+tested on 1.6.1170/RTX 4080 SUPER; the combined build has no separate game run.
 
 DLSS/DLAA, frame generation, Neural Rendering and native-resolution UI for Skyrim.
 This package includes the full renderer, configuration and sharpening shader.
