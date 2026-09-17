@@ -179,4 +179,7 @@ class NvidiaHost
     std::uint32_t runtimeMinWidthOrHeight_{0};
     std::uint32_t runtimeMaxGeneratedFrames_{0};
     std::string status_{"not requested"};
+    std::string sourceSuccessStatus_;
+    bool sourceSuccessValid_{};
+    std::int32_t sourceSuccessWarmup_{};
 };

@@ -331,8 +331,9 @@ RWTexture2D<float4> output : register(u0);
 		if (options.beforeUpscaling) {
 			Transition(list, corrected_.Get(), read, D3D12_RESOURCE_STATE_COMMON);
 			for (auto* texture : { motion, depth, hudless }) { Transition(list, texture, read, D3D12_RESOURCE_STATE_COMMON); }
-			status_ = std::format("NR before DLSS {}x{} -> {}x{}; {} pass(es); world only; UI correction unused",
-				constants.workWidth, constants.workHeight, constants.sourceWidth, constants.sourceHeight, options.passes);
+			if (successStatus_.empty()) { successStatus_ = std::format("NR before DLSS {}x{} -> {}x{}; {} pass(es); world only; UI correction unused",
+				constants.workWidth, constants.workHeight, constants.sourceWidth, constants.sourceHeight, options.passes); }
+			if (status_ != successStatus_) { status_ = successStatus_; }
 			return true;
 		}
 
@@ -360,10 +361,11 @@ RWTexture2D<float4> output : register(u0);
 		// Preserve the HUD-less tag identity already registered with Streamline.
 		// Both its generated frames and our real-frame composition use corrected_.
 		if (FAILED(Interop::RecordCopy(list, corrected_.Get(), hudless))) { status_ = "NR HUD-less copy rejected"; return false; }
-		status_ = std::format("source NR after DLSS {}x{} -> {}x{}; {} pass(es); {} resolve; native UI after NR; NR feeds real output and HUD-less FG tag",
+		if (successStatus_.empty()) { successStatus_ = std::format("source NR after DLSS {}x{} -> {}x{}; {} pass(es); {} resolve; native UI after NR; NR feeds real output and HUD-less FG tag",
 			constants.workWidth, constants.workHeight, constants.sourceWidth, constants.sourceHeight,
 			options.passes,
-			method == NeuralRendering::ResolveMethod::Ratio ? "ratio" : method == NeuralRendering::ResolveMethod::Residual ? "residual" : "direct");
+			method == NeuralRendering::ResolveMethod::Ratio ? "ratio" : method == NeuralRendering::ResolveMethod::Residual ? "residual" : "direct"); }
+		if (status_ != successStatus_) { status_ = successStatus_; }
 		return true;
 	}
 }
