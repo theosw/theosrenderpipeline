@@ -1,5 +1,6 @@
 #include <PCH.h>
 #include "PluginPaths.h"
+#include "SkyrimRuntime.h"
 
 #include "DRS.h"
 #include "RenderPipeline.h"
@@ -25,14 +26,6 @@ namespace
 #if !defined(ENABLE_SKYRIM_SE) || !defined(ENABLE_SKYRIM_AE) || defined(ENABLE_SKYRIM_VR)
 #error Build with both Skyrim SE and AE enabled, and VR disabled.
 #endif
-	constexpr REL::Version kRuntimeSE{ 1, 5, 97, 0 };
-	constexpr REL::Version kRuntimeAE{ 1, 6, 1170, 0 };
-
-	constexpr bool SupportedRuntime(REL::Version runtime) noexcept
-	{
-		return runtime == kRuntimeSE || runtime == kRuntimeAE;
-	}
-
 	void InitializeLog()
 	{
 		std::vector<spdlog::sink_ptr> sinks;
@@ -152,8 +145,8 @@ extern "C" DLLEXPORT const SolFGLateOverlayAPI::BridgeV1* __cdecl SolFG_GetLateO
 
 extern "C" DLLEXPORT bool SKSEAPI SKSEPlugin_Load(const SKSE::LoadInterface* a_skse)
 {
-	if (a_skse->IsEditor() || !SupportedRuntime(a_skse->RuntimeVersion())) {
-		util::report_and_fail("Theo's Render Pipeline requires Skyrim 1.5.97 or 1.6.1170.");
+	if (a_skse->IsEditor() || !TheosRenderPipeline::SkyrimRuntime::Find(a_skse->RuntimeVersion())) {
+		util::report_and_fail("Theo's Render Pipeline requires Skyrim 1.5.97, 1.6.640 or 1.6.1170.");
 	}
 	InitializeLog();
 	logger::info("{} v{} loading", Plugin::NAME, Plugin::VERSION_STRING);
@@ -207,7 +200,11 @@ extern "C" DLLEXPORT constinit auto SKSEPlugin_Version = []() noexcept {
 	SKSE::PluginVersionData v;
 	v.PluginName(Plugin::NAME.data());
 	v.PluginVersion(Plugin::VERSION);
-	v.CompatibleVersions({ kRuntimeSE, kRuntimeAE });
+	// The admission check, metadata and artwork hook use the same exact profiles.
+	static_assert(TheosRenderPipeline::SkyrimRuntime::kProfiles.size() < std::size(v.compatibleVersions));
+	for (std::size_t i = 0; i < TheosRenderPipeline::SkyrimRuntime::kProfiles.size(); ++i) {
+		v.compatibleVersions[i] = TheosRenderPipeline::SkyrimRuntime::kProfiles[i].version.pack();
+	}
 	// CommonLib and our graphics wrapper select the engine layout at runtime.
 	v.HasNoStructUse();
 	return v;
@@ -218,5 +215,5 @@ extern "C" DLLEXPORT bool SKSEAPI SKSEPlugin_Query(const SKSE::QueryInterface* a
 	pluginInfo->name = SKSEPlugin_Version.pluginName;
 	pluginInfo->infoVersion = SKSE::PluginInfo::kVersion;
 	pluginInfo->version = SKSEPlugin_Version.pluginVersion;
-	return !a_skse->IsEditor() && SupportedRuntime(a_skse->RuntimeVersion());
+	return !a_skse->IsEditor() && TheosRenderPipeline::SkyrimRuntime::Find(a_skse->RuntimeVersion());
 }

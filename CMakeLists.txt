@@ -103,7 +103,7 @@ endif()
 add_subdirectory("${TRP_COMMONLIBSSE_NG_DIR}" CommonLibSSE EXCLUDE_FROM_ALL)
 
 if(ENABLE_SKYRIM_VR OR NOT ENABLE_SKYRIM_SE OR NOT ENABLE_SKYRIM_AE)
-    message(FATAL_ERROR "Enable both Skyrim SE and AE, with VR disabled, for the universal 1.5.97/1.6.1170 build.")
+    message(FATAL_ERROR "Enable both Skyrim SE and AE, with VR disabled, for the universal 1.5.97/1.6.640/1.6.1170 build.")
 endif()
 
 find_package(spdlog CONFIG REQUIRED)
@@ -185,3 +185,14 @@ find_package(xbyak CONFIG REQUIRED)
 
 # Build the plugin without packaging, deployment or game launch.
 add_custom_target(ARPBaseline DEPENDS TheosRenderPipeline)
+
+option(TRP_BUILD_COMPATIBILITY_TESTS "Build offline runtime profile checks" OFF)
+if(TRP_BUILD_COMPATIBILITY_TESTS)
+    enable_testing()
+    add_executable(TRPRuntimeProfileTests tests/RuntimeProfileTests.cpp)
+    target_compile_features(TRPRuntimeProfileTests PRIVATE cxx_std_23)
+    target_compile_definitions(TRPRuntimeProfileTests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    target_include_directories(TRPRuntimeProfileTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_link_libraries(TRPRuntimeProfileTests PRIVATE CommonLibSSE::CommonLibSSE)
+    add_test(NAME RuntimeProfiles COMMAND TRPRuntimeProfileTests)
+endif()
