@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.21)
 
 project(
 	TheosRenderPipeline
-	VERSION 0.1.2
+	VERSION 0.1.3
 	LANGUAGES C CXX
 )
 
@@ -34,11 +34,12 @@ include(cmake/Detours.cmake)
 include(cmake/BaselineSources.cmake)
 target_sources(${PROJECT_NAME} PRIVATE ${ARP_BASELINE_SOURCES})
 
-option(TRP_ENABLE_OPTIONAL_FEATURES "Include Neural Rendering and the optional Ada MFG unlock" ON)
+option(TRP_ENABLE_OPTIONAL_FEATURES "Include Neural Rendering and optional Ada/Ampere MFG compatibility" ON)
 if(TRP_ENABLE_OPTIONAL_FEATURES)
     target_sources(TheosRenderPipeline PRIVATE src/FrameGen/SourceDLSSGMFG.cpp ${ARP_OPTIONAL_SOURCES})
     add_library(TheosRenderPipelineRTX40MFG STATIC
-        extern/RTX40MFG/midpoint_fix.cpp extern/RTX40MFG/dlssg_provider_policy.cpp)
+        extern/RTX40MFG/midpoint_fix.cpp extern/RTX40MFG/dlssg_provider_policy.cpp
+        extern/MFGAmpere/runtime.cpp)
     target_compile_features(TheosRenderPipelineRTX40MFG PRIVATE cxx_std_23)
     target_compile_definitions(TheosRenderPipelineRTX40MFG PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
     target_link_libraries(TheosRenderPipelineRTX40MFG PUBLIC bcrypt version d3d12)
@@ -122,6 +123,10 @@ if(NOT EXISTS "${TRP_NGX_SDK_DIR}/include/nvsdk_ngx.h")
 		"NGX SDK headers were not found under '${TRP_NGX_SDK_DIR}/include'. "
 		"Install the NGX SDK or configure with -D TRP_NGX_SDK_DIR=<path>."
 	)
+endif()
+
+if(TRP_ENABLE_OPTIONAL_FEATURES)
+    target_include_directories(TheosRenderPipelineRTX40MFG PRIVATE "${TRP_NGX_SDK_DIR}/include")
 endif()
 
 set(TRP_DEFAULT_NGX_LIB_DIR "${TRP_NGX_SDK_DIR}/lib/Windows_x86_64")

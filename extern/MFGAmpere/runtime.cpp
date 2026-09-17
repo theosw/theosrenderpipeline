@@ -1,0 +1,338 @@
+#include "runtime.hpp"
+#include "module_patch.hpp"
+#include "ptx_retarget.hpp"
+#include "../RTX40MFG/midpoint_fix.h"
+#include "../RTX40MFG/dlssg_provider_policy.h"
+#include "../../src/FrameGen/SourceDLSSGMFGPatch.h"
+#include <nvsdk_ngx.h>
+#include <dxgi.h>
+#include <array>
+#include <atomic>
+#include <mutex>
+#include <string>
+
+namespace trp::ampere {
+namespace {
+// Minimal public NVAPI ABI from NVIDIA/nvapi 87dca625e83fd89a983e19b904e5f3a580da90d2.
+// NV_GPU_ARCH_INFO V1/V2 have the same four 32-bit fields. Query IDs and the
+// capability policy follow MFGAmpereUnlock-RenoDx; see LICENSE and THIRD-PARTY.
+struct ArchInfo { std::uint32_t version, architecture, implementation, revision; };
+static_assert(sizeof(ArchInfo) == 16);
+using Query = void* (__cdecl*)(std::uint32_t);
+using GetArch = int (__cdecl*)(void*, ArchInfo*);
+using EnumGPUs = int (__cdecl*)(void**, std::uint32_t*);
+using GetLuid = int (__cdecl*)(void*, void*);
+using Initialize = int (__cdecl*)();
+using Resolver = FARPROC (WINAPI*)(HMODULE, LPCSTR);
+using Requirements = decltype(&NVSDK_NGX_D3D12_GetFeatureRequirements);
+using Parameters = decltype(&NVSDK_NGX_D3D12_GetCapabilityParameters);
+using Create = decltype(&NVSDK_NGX_D3D12_CreateFeature);
+constexpr std::uint32_t kAmpere = 0x170, kAda = 0x190;
+struct Owner {
+    std::atomic_bool started{}, prepared{}, installed{}, failed{}, createSeen{};
+    std::atomic<const char*> error{};
+    std::atomic_uint32_t mask{}, requirementsCalls{}, capabilityCalls{}, createCalls{};
+    std::uint32_t fatbins{};
+    Log log{};
+    LUID luid{};
+    void* gpu{};
+    HMODULE provider{}, common{}, wrapper{}, nvapi{}, core{};
+    Query query{}; GetArch arch{};
+    std::array<Resolver, 2> resolvers{};
+    std::array<void**, 2> importSlots{};
+    std::atomic<Requirements> requirements{};
+    std::array<std::atomic<Parameters>, 2> parameters{};
+    std::atomic<Create> create{};
+    std::mutex resolverMutex;
+    memory::Transaction data, imports;
+    midpoint_fix::AmpereTemporalClone temporal;
+    std::uint8_t* minimumArch{};
+};
+Owner& State() { static auto* state = new Owner; return *state; }
+thread_local unsigned startupScope{};
+thread_local bool suppressExposure{};
+void Message(const char* text) noexcept { try { if (State().log) State().log(text); } catch (...) {} }
+bool Fail(const char* reason) noexcept {
+    auto& s = State(); const char* empty{};
+    s.error.compare_exchange_strong(empty, reason); s.failed.store(true);
+    Message(reason); return false;
+}
+struct ExposureScope {
+    bool previous;
+    explicit ExposureScope(bool expose) : previous(suppressExposure) { suppressExposure = !expose; ++startupScope; }
+    ~ExposureScope() { --startupScope; suppressExposure = previous; }
+};
+bool SameAdapter(IDXGIAdapter* adapter) noexcept {
+    DXGI_ADAPTER_DESC desc{};
+    return adapter && SUCCEEDED(adapter->GetDesc(&desc)) && desc.VendorId == 0x10de &&
+        std::memcmp(&desc.AdapterLuid, &State().luid, sizeof(LUID)) == 0;
+}
+bool Prepared() noexcept { auto& s = State(); return s.prepared.load() && s.installed.load() && !s.failed.load(); }
+int __cdecl Architecture(void* gpu, ArchInfo* info) {
+    auto& s = State();
+    const int result = s.arch(gpu, info);
+    if (result == 0 && info && (info->version == 0x10010 || info->version == 0x20010) &&
+        startupScope && !suppressExposure && gpu == s.gpu && Prepared()) info->architecture = kAda;
+    return result;
+}
+void* __cdecl QueryInterface(std::uint32_t id) {
+    auto& s = State(); auto* result = s.query(id);
+    if (id == 0xd8265d24 && result == reinterpret_cast<void*>(s.arch)) return reinterpret_cast<void*>(Architecture);
+    return result;
+}
+NVSDK_NGX_Result NVSDK_CONV GetRequirements(IDXGIAdapter* adapter,
+    const NVSDK_NGX_FeatureDiscoveryInfo* discovery, NVSDK_NGX_FeatureRequirement* output) {
+    auto& s = State(); const auto real = s.requirements.load();
+    if (!real) return NVSDK_NGX_Result_FAIL_InvalidParameter;
+    const bool fg = discovery && discovery->FeatureID == NVSDK_NGX_Feature_FrameGeneration;
+    const bool bound = fg && SameAdapter(adapter);
+    ExposureScope scope(bound);
+    const auto result = real(adapter, discovery, output);
+    if (!fg) return result;
+    ++s.requirementsCalls;
+    // Preserve driver/OS/other flags and the original call failure. This is
+    // limited to this prepared provider on the host's actual rendering adapter.
+    if (bound && Prepared() && result == NVSDK_NGX_Result_Success && output) {
+        const auto flags = static_cast<std::uint32_t>(output->FeatureSupported);
+        if ((flags == 0 || flags == 4) && (output->MinHWArchitecture == kAda || (flags == 4 && output->MinHWArchitecture == kAmpere))) {
+            output->MinHWArchitecture = kAmpere;
+            output->FeatureSupported = static_cast<NVSDK_NGX_Feature_Support_Result>(0);
+        }
+    }
+    return result;
+}
+void UpdateCapabilities(NVSDK_NGX_Parameter* parameters) {
+    if (!parameters || !Prepared()) return;
+    int available{}, maximum{};
+    const auto haveAvailable = parameters->Get("FrameGeneration.Available", &available);
+    const auto haveMaximum = parameters->Get("DLSSG.MultiFrameCountMax", &maximum);
+    if (haveAvailable == NVSDK_NGX_Result_Success && available == 0) {
+        int needsDriver = 1; unsigned featureResult = NVSDK_NGX_Result_Success;
+        const auto driver = parameters->Get("FrameGeneration.NeedsUpdatedDriver", &needsDriver);
+        const auto init = parameters->Get("FrameGeneration.FeatureInitResult", &featureResult);
+        const bool initOk = init != NVSDK_NGX_Result_Success || featureResult == NVSDK_NGX_Result_Success || featureResult == NVSDK_NGX_Result_FAIL_FeatureNotSupported;
+        if (driver == NVSDK_NGX_Result_Success && needsDriver == 0 && initOk) {
+            parameters->Set("FrameGeneration.Available", 1);
+            if (parameters->Get("FrameGeneration.Available", &available) != NVSDK_NGX_Result_Success || available != 1) Fail("NGX did not retain Ampere availability");
+        }
+    }
+    if (haveAvailable == NVSDK_NGX_Result_Success && available > 0 && haveMaximum == NVSDK_NGX_Result_Success && maximum >= 0 && maximum < 5) {
+        parameters->Set("DLSSG.MultiFrameCountMax", 5);
+        if (parameters->Get("DLSSG.MultiFrameCountMax", &maximum) != NVSDK_NGX_Result_Success || maximum != 5) Fail("NGX did not retain Ampere MFG capacity");
+    }
+}
+template<unsigned I> NVSDK_NGX_Result NVSDK_CONV GetParameters(NVSDK_NGX_Parameter** output) {
+    auto& s = State(); const auto real = s.parameters[I].load();
+    if (!real) return NVSDK_NGX_Result_FAIL_InvalidParameter;
+    ExposureScope scope(true);
+    const auto result = real(output); ++s.capabilityCalls;
+    if (result == NVSDK_NGX_Result_Success && output) UpdateCapabilities(*output);
+    return result;
+}
+NVSDK_NGX_Result NVSDK_CONV CreateFeature(ID3D12GraphicsCommandList* commands, NVSDK_NGX_Feature feature,
+    NVSDK_NGX_Parameter* parameters, NVSDK_NGX_Handle** handle) {
+    auto& s = State(); const auto real = s.create.load();
+    if (!real) return NVSDK_NGX_Result_FAIL_InvalidParameter;
+    const bool fg = feature == NVSDK_NGX_Feature_FrameGeneration;
+    ExposureScope scope(fg);
+    if (fg) {
+        // Preparation is immutable from this point, before the vendor can
+        // register/cache/submit anything that references the transformed data.
+        s.createSeen.store(true); ++s.createCalls;
+        if (!Verify()) { if (handle) *handle = nullptr; return NVSDK_NGX_Result_FAIL_FeatureNotSupported; }
+    }
+    const auto result = real(commands, feature, parameters, handle);
+    if (fg) Message(result == NVSDK_NGX_Result_Success ? "Ampere NGX frame-generation feature created" : "Ampere NGX frame-generation creation failed");
+    return result;
+}
+static_assert(std::is_same_v<decltype(&CreateFeature), Create>);
+bool IsCore(HMODULE module, FARPROC address) {
+    wchar_t path[32768]{};
+    const auto count = GetModuleFileNameW(module, path, 32768);
+    if (!count || count >= 32768) return false;
+    const auto name = std::filesystem::path(path).filename().wstring();
+    if (_wcsicmp(name.c_str(), L"_nvngx.dll") && _wcsicmp(name.c_str(), L"nvngx.dll")) return false;
+    memory::Image image;
+    return image.Open(module) && image.OwnCode(reinterpret_cast<void*>(address));
+}
+template<class T> bool Bind(std::atomic<T>& storage, FARPROC address) {
+    const auto typed = reinterpret_cast<T>(address); T empty{};
+    return storage.compare_exchange_strong(empty, typed) || empty == typed;
+}
+template<unsigned I> FARPROC WINAPI Resolve(HMODULE module, LPCSTR name) {
+    auto& s = State(); auto result = s.resolvers[I](module, name);
+    if (!result || reinterpret_cast<std::uintptr_t>(name) <= 65535) return result;
+    try {
+        if (module == s.nvapi && std::strcmp(name, "nvapi_QueryInterface") == 0 && reinterpret_cast<void*>(result) == reinterpret_cast<void*>(s.query)) {
+            s.mask.fetch_or(1u << (4 + I*5)); return reinterpret_cast<FARPROC>(QueryInterface);
+        }
+        if constexpr (I != 0) return result;
+        constexpr const char* names[]{"NVSDK_NGX_D3D12_GetFeatureRequirements", "NVSDK_NGX_D3D12_GetCapabilityParameters", "NVSDK_NGX_D3D12_GetParameters", "NVSDK_NGX_D3D12_CreateFeature"};
+        unsigned index = 4;
+        for (unsigned n = 0; n < 4; ++n) if (std::strcmp(name, names[n]) == 0) { index=n; break; }
+        if (index == 4) return result;
+        std::lock_guard lock(s.resolverMutex);
+        if (!IsCore(module, result) || (s.core && s.core != module)) { Fail("NGX resolver changed module identity"); return result; }
+        if (!s.core && !GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, reinterpret_cast<LPCWSTR>(module), &s.core)) { Fail("cannot retain the NGX core"); return result; }
+        bool bound{}; FARPROC replacement{};
+        switch (index) {
+        case 0: bound=Bind(s.requirements,result); replacement=reinterpret_cast<FARPROC>(GetRequirements); break;
+        case 1: bound=Bind(s.parameters[0],result); replacement=reinterpret_cast<FARPROC>(GetParameters<0>); break;
+        case 2: bound=Bind(s.parameters[1],result); replacement=reinterpret_cast<FARPROC>(GetParameters<1>); break;
+        case 3: bound=Bind(s.create,result); replacement=reinterpret_cast<FARPROC>(CreateFeature); break;
+        }
+        if (!bound) { Fail("NGX resolver changed an already bound function"); return result; }
+        s.mask.fetch_or(1u << index); return replacement;
+    } catch (...) { Fail("Ampere resolver preparation failed"); return result; }
+}
+HMODULE Load(const std::filesystem::path& directory, const wchar_t* name) {
+    if (GetModuleHandleW(name)) { Fail("Ampere runtime was already loaded by another owner"); return nullptr; }
+    const auto expected = (directory / name).lexically_normal();
+    auto module = LoadLibraryExW(expected.c_str(), nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
+    wchar_t path[32768]{};
+    const auto count = module ? GetModuleFileNameW(module, path, 32768) : 0;
+    if (!count || count >= 32768 || _wcsicmp(std::filesystem::path(path).lexically_normal().c_str(), expected.c_str())) {
+        Fail("Ampere runtime did not load from its configured path"); return nullptr;
+    }
+    return module;
+}
+bool BindAdapter(ID3D12Device* device) {
+    auto& s=State(); s.luid=device->GetAdapterLuid();
+    s.nvapi=LoadLibraryExW(L"nvapi64.dll",nullptr,LOAD_LIBRARY_SEARCH_SYSTEM32);
+    if (!s.nvapi) return Fail("NVAPI could not be loaded");
+    s.query=reinterpret_cast<Query>(GetProcAddress(s.nvapi,"nvapi_QueryInterface"));
+    if (!s.query) return Fail("NVAPI query interface is missing");
+    const auto init=reinterpret_cast<Initialize>(s.query(0x0150e828));
+    const auto enumerate=reinterpret_cast<EnumGPUs>(s.query(0xe5ac921f));
+    const auto getLuid=reinterpret_cast<GetLuid>(s.query(0x0ff07fde));
+    s.arch=reinterpret_cast<GetArch>(s.query(0xd8265d24));
+    if (!init || !enumerate || !getLuid || !s.arch || init()!=0) return Fail("NVAPI adapter functions are unavailable");
+    std::array<void*,64> gpus{}; std::uint32_t count{};
+    if (enumerate(gpus.data(),&count)!=0 || count==0 || count>gpus.size()) return Fail("NVAPI GPU enumeration failed");
+    for (std::uint32_t i=0;i<count;++i) {
+        LUID luid{};
+        if (getLuid(gpus[i],&luid)!=0 || std::memcmp(&luid,&s.luid,sizeof(luid))) continue;
+        if (s.gpu) return Fail("rendering adapter has ambiguous NVAPI identity");
+        s.gpu=gpus[i];
+    }
+    ArchInfo arch{0x20010,0,0,0};
+    if (!s.gpu || s.arch(s.gpu,&arch)!=0 || arch.architecture!=kAmpere) return Fail("NVAPI does not identify the rendering adapter as Ampere");
+    return true;
+}
+bool PlanProvider() {
+    auto& s=State(); memory::Image image;
+    if (!image.Open(s.provider) || !dlssg_provider_policy::IsDlssgImplementationModule(s.provider)) return Fail("Ampere provider ABI is unsupported");
+    s.minimumArch=reinterpret_cast<std::uint8_t*>(GetProcAddress(s.provider,"NVSDK_NGX_GetGPUArchitecture"));
+    const auto populate=reinterpret_cast<void*>(GetProcAddress(s.provider,"NVSDK_NGX_D3D12_PopulateDeviceParameters_Impl"));
+    constexpr std::array<std::uint8_t,6> gate{0xb8,0x90,1,0,0,0xc3};
+    if (!image.OwnCode(s.minimumArch,gate.size()) || !image.OwnCode(populate) || !memory::Equal(s.minimumArch,gate)) return Fail("Ampere provider minimum-architecture instruction is unsupported");
+    if (!midpoint_fix::BuildAmpereTemporalClone(s.provider,s.temporal)) return Fail("Ampere temporal clone could not be built from the original program");
+    std::size_t total{};
+    for (const auto& section:image.sections) {
+        if (!(section.Characteristics&IMAGE_SCN_MEM_READ) || (section.Characteristics&IMAGE_SCN_MEM_EXECUTE)) continue;
+        auto* begin=image.base+section.VirtualAddress; const auto size=section.Misc.VirtualSize;
+        for (std::size_t p=0;p+16<=size;) {
+            std::array<std::uint8_t,16> header{};
+            if (!memory::Copy(header.data(),begin+p,header.size())) return Fail("Ampere provider data is unreadable");
+            if (fatbin::ReadU32(header.data())!=fatbin::kMagic) { ++p;continue; }
+            const auto payload=fatbin::ReadU64(header.data()+8);
+            if (payload>size-p-16 || payload>fatbin::kMaxFatbinBytes-16) return Fail("Ampere provider fatbin bounds changed");
+            const auto bytes=16+static_cast<std::size_t>(payload);
+            std::vector<std::uint8_t> original(bytes);
+            if (!memory::Copy(original.data(),begin+p,bytes)) return Fail("Ampere provider fatbin is unreadable");
+            Plan plan; std::string reason; const auto result=Retarget(original.data(),original.size(),plan,reason);
+            if (result==trp::ampere::Status::Rejected) { Message(reason.c_str()); return Fail("Ampere provider program cannot be retargeted"); }
+            if (result==trp::ampere::Status::Retargeted) {
+                if (++s.fatbins>512 || bytes>64*1024*1024-total) return Fail("Ampere provider preparation exceeds its bounds");
+                total+=bytes;
+                // Each changed byte lies in one protection region. Keep original
+                // and replacement bytes owned even if a later rollback fails.
+                for (std::size_t j=0;j<bytes;++j) if (original[j]!=plan.replacement[j]) s.data.Add(begin+p+j,{original.data()+j,1},{plan.replacement.data()+j,1});
+            }
+            p+=bytes;
+        }
+    }
+    if (!s.fatbins) return Fail("Ampere provider has no retargetable programs");
+    using namespace TheosRenderPipeline::SourceDLSSG;
+    // Two independent MFG architecture decisions, qualified by surrounding
+    // instructions. Unlike a bare immediate scan, unrelated 0x1b0 data is ignored.
+    constexpr std::array<std::uint8_t,8> first{0x81,0xfd,0xb0,1,0,0,0x0f,0x8c};
+    constexpr std::array<std::uint8_t,5> countFive{0xbf,5,0,0,0};
+    constexpr std::array<std::uint8_t,11> second{0x3d,0xb0,1,0,0,0x0f,0x93,0xc0,0x88,0x47,0x28};
+    const auto firstSite=MFGPatch::FindExecutable(s.provider,17,[&](auto b){
+        return std::equal(first.begin(),first.end(),b.begin()) && std::equal(countFive.begin(),countFive.end(),b.begin()+12);
+    });
+    const auto secondSite=MFGPatch::FindExecutable(s.provider,second.size(),[&](auto b){return std::equal(second.begin(),second.end(),b.begin());});
+    if (!firstSite || !secondSite) return Fail("Ampere MFG architecture instruction contracts changed");
+    DWORD64 base{};
+    const auto* function=RtlLookupFunctionEntry(reinterpret_cast<DWORD64>(firstSite),&base,nullptr);
+    std::int32_t displacement{};
+    if (!function || base!=reinterpret_cast<DWORD64>(s.provider) ||
+        !memory::Read(firstSite+8,displacement)) return Fail("Ampere MFG branch function is unsupported");
+    const auto rva=reinterpret_cast<DWORD64>(firstSite)-base;
+    const auto destination=static_cast<std::int64_t>(rva)+12+displacement;
+    if (rva<function->BeginAddress || rva+17>function->EndAddress ||
+        destination<function->BeginAddress || destination>=function->EndAddress) return Fail("Ampere MFG branch leaves its function");
+    const std::uint8_t before=0xb0,after=0x70;
+    s.data.Add(firstSite+2,{&before,1},{&after,1}); s.data.Add(secondSite+1,{&before,1},{&after,1});
+    const auto clamp=MFGPatch::FindExecutable(s.wrapper,MFGContract::wrapperPattern.size(),MFGContract::MatchesWrapper);
+    if (!clamp) return Fail("Ampere wrapper capacity instruction contract changed");
+    constexpr std::array<std::uint8_t,3> nops{0x90,0x90,0x90};
+    s.data.Add(clamp+7,std::span(MFGContract::wrapperPattern).subspan(7,3),nops);
+    // Publish the fully composed temporal clone before admitting the provider.
+    s.data.Add(reinterpret_cast<void*>(s.temporal.slot),
+        {reinterpret_cast<std::uint8_t*>(&s.temporal.originalDescriptor),sizeof(void*)},
+        {reinterpret_cast<std::uint8_t*>(&s.temporal.replacementDescriptor),sizeof(void*)});
+    const std::uint8_t minimumBefore=0x90;
+    s.data.Add(s.minimumArch+1,{&minimumBefore,1},{&after,1});
+    return true;
+}
+} // namespace
+
+bool Start(ID3D12Device* device,const std::filesystem::path& directory,Log log) noexcept {
+    auto& s=State();
+    if (s.started.exchange(true)) return Fail("Ampere startup cannot be repeated");
+    s.log=log;
+    try {
+        if (!device || !directory.is_absolute() || midpoint_fix::ObserveD3D12Adapter(device)!=midpoint_fix::AdapterKind::Ampere) return Fail("Ampere preparation requires the actual SM86 rendering adapter");
+        if (!BindAdapter(device)) return false;
+        s.provider=Load(directory,L"nvngx_dlssg.dll");
+        s.common=Load(directory,L"sl.common.dll");
+        s.wrapper=Load(directory,L"sl.dlss_g.dll");
+        if (!s.provider || !s.common || !s.wrapper) return false;
+        if (!PlanProvider()) return false;
+        const std::array<HMODULE,2> modules{s.common,s.wrapper};
+        const std::array<Resolver,2> replacements{Resolve<0>,Resolve<1>};
+        for (std::size_t i=0;i<modules.size();++i) {
+            memory::Image image;
+            if (!image.Open(modules[i]) || !(s.importSlots[i]=image.Import("GetProcAddress")) ||
+                !memory::Read(s.importSlots[i],s.resolvers[i]) || !s.resolvers[i]) return Fail("Ampere resolver import is missing or ambiguous");
+            s.imports.Add(s.importSlots[i],{reinterpret_cast<std::uint8_t*>(&s.resolvers[i]),sizeof(void*)},
+                {reinterpret_cast<const std::uint8_t*>(&replacements[i]),sizeof(void*)});
+        }
+        if (!s.data.Commit()) return Fail(s.data.Unsafe() ? "Ampere provider rollback failed; restart required" : "Ampere provider preparation rolled back");
+        s.prepared.store(true);
+        if (!s.imports.Commit()) return Fail(s.imports.Unsafe() ? "Ampere resolver rollback failed; restart required" : "Ampere resolver installation failed; restart required");
+        s.installed.store(true);
+        Message("Ampere provider and temporal program prepared before Streamline initialization");
+        return true;
+    } catch (...) { return Fail("Ampere startup preparation raised an exception; restart required"); }
+}
+RuntimeStatus Snapshot() noexcept {
+    auto& s=State(); return {s.prepared.load(),s.installed.load(),s.failed.load(),s.createSeen.load(),s.fatbins,s.mask.load(),s.requirementsCalls.load(),s.capabilityCalls.load(),s.createCalls.load(),s.error.load()};
+}
+bool Verify() noexcept {
+    auto& s=State(); if (!Prepared()) return false;
+    std::uintptr_t descriptor{};
+    if (!memory::Read(reinterpret_cast<void*>(s.temporal.slot),descriptor) || descriptor!=s.temporal.replacementDescriptor ||
+        !s.minimumArch || s.minimumArch[1]!=0x70) return Fail("Ampere provider publication changed; restart required");
+    const std::array<Resolver,2> expected{Resolve<0>,Resolve<1>};
+    for (std::size_t i=0;i<expected.size();++i) {
+        Resolver observed{};
+        if (!memory::Read(s.importSlots[i],observed) || observed!=expected[i]) return Fail("Ampere resolver publication changed; restart required");
+    }
+    return true;
+}
+void EnterStartupScope() noexcept { ++startupScope; }
+void LeaveStartupScope() noexcept { if (startupScope) --startupScope; }
+} // namespace trp::ampere

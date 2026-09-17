@@ -17,9 +17,9 @@ been tested in-game on 1.6.1170. **1.5.97 is experimental and untested in-game**
 its build and offline compatibility checks passed.
 
 `TRP_ENABLE_OPTIONAL_FEATURES` selects the release variant. `OFF` builds the standard
-renderer without NR runtime integration, its shaders/UI, the Ada patch
+renderer without NR runtime integration, its shaders/UI, Ada/Ampere compatibility
 implementation or its static library. `ON` (the default) builds the
-full-feature renderer with NR and the Ada unlock. Both variants preserve native
+full-feature renderer with NR and Ada/Ampere compatibility. Both variants preserve native
 NVIDIA capabilities and the same plugin identity. The standard build keeps NR
 preferences in settings files for later use by the full build, but cannot load NR.
 Build each configuration separately. The full-feature package requires

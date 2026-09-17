@@ -6,7 +6,7 @@ provide inference and generated-frame presentation.
 
 This source archive builds `TheosRenderPipeline.dll`, including external ImGui integration.
 Install packages are supplied separately and link their matching Git revision.
-The full-feature package contains NR integration and the Ada MFG unlock, with
+The full-feature package contains NR integration and Ada/Ampere MFG compatibility, with
 all NVIDIA runtimes supplied separately. It needs no other renderer package.
 See the installation guide for exact runtime download paths.
 
@@ -14,7 +14,7 @@ See the installation guide for exact runtime download paths.
 
 - DLSS Super Resolution, DLAA, model presets and sharpening.
 - Frame generation and native MFG capabilities. The full-feature build selects
-  its unlock using the rendering GPU; the existing Ada opt-out remains available.
+  its compatibility path using the rendering GPU; the existing opt-out remains available.
 - Full-feature build: NR before or after DLSS, one or two passes, input scaling and tuning.
 - Spatial scaling for loading-screen backgrounds and an optional request for
   transition artwork, enabled by default under Advanced. Skyrim chooses the art.
@@ -34,10 +34,16 @@ in Git.
 The plugin and SKSE identity are `TheosRenderPipeline`. Published `SolFG_*`
 companion exports retain their names and layouts in `TheosRenderPipeline.dll`.
 
-The tested environment is Skyrim 1.6.1170 with matching SKSE64/Address Library,
-LoreRim/ENB and RTX 4080 SUPER. The universal Full build received a positive
-gameplay report with x4 MFG and the optional NR DLL absent. Earlier builds were
-tested with Before-DLSS NR/one pass; that NR path was not repeated in this run.
+This branch builds the **0.1.3 experimental Ampere candidate**, not the released
+0.1.2 build. RTX 30-series (SM86) uses a startup compatibility bridge in Full;
+RTX 40-series retains its Ada path and RTX 50-series uses native capabilities.
+Standard excludes both compatibility paths and Neural Rendering.
+
+The preceding 0.1.2 Full release was tested on Skyrim 1.6.1170 with matching
+SKSE64/Address Library, LoreRim/ENB and RTX 4080 SUPER at x4 with the NR DLL absent.
+**The 0.1.3 candidate has not been tested in Skyrim or on an RTX 30-series card.**
+Standalone preparation and forwarding checks do not establish visual quality,
+performance, or generated-frame cadence.
 World, DLSS and Output open Image settings; NR and Frame generation open their
 respective tabs.
 The same DLL supports Skyrim 1.5.97 and 1.6.1170 and selects the matching engine
