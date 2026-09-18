@@ -43,7 +43,7 @@ namespace TheosRenderPipeline::CommunityShaders
             // Do not mistake nested imagespace calls for another frame boundary.
             worldBoundary = false;
             auto& adapter = NvidiaHost::GetSingleton()->CommunityFrame();
-            const bool ready = capture && adapter.AfterUpscaling(World());
+            const bool ready = capture && adapter.AfterUpscaling();
             engineOriginal(manager, effect, target, arg, flag);
             if (ready) { adapter.CompleteWorld(Framebuffer().Get()); }
             worldBoundary = capture;

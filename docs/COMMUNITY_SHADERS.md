@@ -1,7 +1,9 @@
 # Community Shaders adapter prototype
 
-This branch has no combined Skyrim acceptance. Initial validation targets
-Skyrim 1.6.1170 with Community Shaders in the UltraCS profile. Support for other
+The initial prototype received scoped x4 gameplay confirmation, but NR caused
+colored sky artifacts in both placements. This candidate changes the later NR
+boundary; its visual result is untested. Validation targets Skyrim 1.6.1170
+with Community Shaders in the UltraCS profile. Support for other
 CS revisions, lighting modes and Skyrim versions is not established by building
 the plugin or by the existing runtime-profile tests.
 
@@ -12,10 +14,14 @@ run; leave CS upscaling enabled. No replacement CS DLL is required.
 
 The adapter wraps the engine postprocessing call while preserving the earlier
 renderer hook. It snapshots motion, depth and camera before CS rewrites them.
-Before-upscale NR runs there; after-upscale NR runs at the preserved engine
-callee, after CS reconstruction and before engine postprocessing. Both stages
-exclude UI and retain passes, input scaling and reconstruction settings. A float
-texture alone does not determine the correct HDR reconstruction setting.
+Before-upscale NR still runs there on unfinished world color. After-upscale NR
+now waits until the preserved engine postprocessing callee returns and operates
+on the actual framebuffer RTV's scene, before CS restores any framebuffer
+redirection and before UI rendering. The corrected scene is then captured for
+FG. Previously both placements evaluated before tone mapping. The early path
+remains unvalidated and is not part of this correction. Both retain passes,
+input scaling and reconstruction settings. A float texture alone does not
+determine the correct HDR reconstruction setting; HDR appearance remains untested.
 
 The completed scene is captured before UI. Where CS uses a separate UI
 compositor, the adapter replays its observed single-output compute dispatch
@@ -39,8 +45,8 @@ NR contract tests cover world-only placements, history resets and settings
 validation. They do not execute CS's engine hooks, NR inference or generated
 frame presentation.
 
-For the first combined game test, verify startup and both menus, x4 MFG with NR
-off, NR before and after CS upscaling, one/two passes, End closure while editing,
-F12/Wheeler alignment, and one cell transition. Preserve the CS-only baseline and
-record the exact package and live settings. Do not infer visual acceptance from
-Present counts or offline test results.
+For the next test, use the same bright sky with NR off, then after-upscaling NR
+at one pass and Auto/100%, leaving x4 unchanged. Confirm the logged input is the
+post-processing scene, check that UI stays untouched, and verify one transition.
+Preserve the CS-only baseline and record the exact package and live settings.
+Do not infer visual acceptance from Present counts or offline test results.

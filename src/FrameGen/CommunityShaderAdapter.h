@@ -26,7 +26,7 @@ namespace TheosRenderPipeline
         };
 
         bool BeginWorld(const Input& input);
-        bool AfterUpscaling(ID3D11Texture2D* world);
+        bool AfterUpscaling();
         bool CompleteWorld(ID3D11Texture2D* scene);
         HRESULT CaptureDisplayTransform(ID3D11DeviceContext* context, UINT x, UINT y, UINT z,
             CommunityShaderFrame::Dispatch dispatch);
@@ -47,6 +47,7 @@ namespace TheosRenderPipeline
         sl::Constants camera_{};
         Microsoft::WRL::ComPtr<ID3D11DeviceContext> context_;
         bool cameraValid_{}, eligible_{}, reset_{}, worldBegun_{}, upscalingCompleted_{}, worldCompleted_{}, prepared_{};
+        bool neuralBoundaryReported_{};
         const char* status_{"Waiting for a CS world frame"};
     };
 }

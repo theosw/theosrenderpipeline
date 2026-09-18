@@ -18,12 +18,15 @@ namespace TheosRenderPipeline
         candidate_ = history_;
         cameraValid_ = SourceDLSSG::CaptureCameraCandidate(input.graphics, input.render.width,
             input.render.height, input.jitterX, input.jitterY, reset_, input.jittered, camera_, candidate_);
-        options_ = SourceDLSSG::Backend::Get().NeuralConfiguration();
-        options_.worldOnly = true;
-        options_.tuning.uiCorrection = false;
-        // Both placements precede tone mapping. Preserve the explicit HDR
-        // reconstruction preference: a float texture does not establish the
-        // producer's color space or justify changing the user's transfer rule.
+        auto options = SourceDLSSG::Backend::Get().NeuralConfiguration();
+        options.worldOnly = true;
+        options.tuning.uiCorrection = false;
+        if (options != options_) { neuralBoundaryReported_ = false; }
+        options_ = std::move(options);
+        // The early placement still uses pre-tone-map world color. The late
+        // placement waits for the completed post-processed scene. Neither a
+        // float allocation nor the placement alone specifies a transfer function;
+        // preserve the user's reconstruction settings for the comparison.
         worldBegun_ = true;
         if (options_.beforeUpscaling && !EvaluateWorld(input.world, input.render)) {
             worldBegun_ = false; return false;
@@ -39,16 +42,24 @@ namespace TheosRenderPipeline
             cameraValid_ ? &camera_ : nullptr, eligible_, color, resources_.Motion(), resources_.Depth(),
             resources_.RenderExtent(), extent, reset_);
         if (!result) { status_ = "CS world NR stage failed"; }
+        if (result && options_.enabled && eligible_ && cameraValid_ && color && !neuralBoundaryReported_) {
+            D3D11_TEXTURE2D_DESC desc{}; color->GetDesc(&desc);
+            logger::info("[CS Adapter] NR input={} allocation={}x{} active={}x{} format={} passes={} inputScale={} resolve={} HDR={}; UI excluded",
+                options_.beforeUpscaling ? "pre-upscale world" : "post-processing scene",
+                desc.Width, desc.Height, extent.width, extent.height, static_cast<unsigned>(desc.Format),
+                options_.passes, options_.reconstruction.inputScale, static_cast<unsigned>(options_.reconstruction.method),
+                options_.reconstruction.colorIsHDR);
+            neuralBoundaryReported_ = true;
+        }
         if (reset_) { camera_.reset = sl::eTrue; }
         return result;
     }
 
-    bool CommunityShaderAdapter::AfterUpscaling(ID3D11Texture2D* world)
+    bool CommunityShaderAdapter::AfterUpscaling()
     {
         if (!worldBegun_ || upscalingCompleted_ || worldCompleted_) { return false; }
-        if (!options_.beforeUpscaling && !EvaluateWorld(world, resources_.OutputExtent())) {
-            worldBegun_ = false; return false;
-        }
+        // This boundary is before engine post-processing. kMAIN still contains
+        // unfinished scene color here, even though CS has already upscaled it.
         upscalingCompleted_ = true;
         return true;
     }
@@ -56,6 +67,13 @@ namespace TheosRenderPipeline
     bool CommunityShaderAdapter::CompleteWorld(ID3D11Texture2D* scene)
     {
         if (!worldBegun_ || !upscalingCompleted_ || worldCompleted_) { return false; }
+        // The engine call has returned, but CS has not restored its framebuffer
+        // redirection or entered UI rendering. Evaluate on that completed scene,
+        // then snapshot the corrected pixels for frame generation. In particular,
+        // do not feed direct NR output back through CS's exposure and tone mapping.
+        if (!options_.beforeUpscaling && !EvaluateWorld(scene, resources_.OutputExtent())) {
+            worldBegun_ = false; return false;
+        }
         worldCompleted_ = SUCCEEDED(resources_.CaptureScene(context_.Get(), scene));
         status_ = worldCompleted_ ? "CS world captured before UI" : "CS completed world unavailable";
         return worldCompleted_;
@@ -105,6 +123,7 @@ namespace TheosRenderPipeline
         resources_.ResetAfterRetirement(); context_.Reset();
         history_.Reset(); candidate_.Reset();
         worldBegun_ = upscalingCompleted_ = worldCompleted_ = prepared_ = cameraValid_ = false;
+        neuralBoundaryReported_ = false;
         status_ = "Waiting for a CS world frame";
     }
 }
