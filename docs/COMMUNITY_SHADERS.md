@@ -50,11 +50,15 @@ were visually accepted. A later Ratio test confirmed that lowering the maximum
 luma ratio darkens the scene and zero effect restores its colour. Separate CS
 and TRP menu keys were also accepted. These observations do not accept other CS
 builds, HDR appearance, native RTX 50 operation or physical frame cadence.
-The combined 0.1.4 Standard and Full candidates now have overall positive
+The combined 0.1.4 Standard and Full builds have overall positive
 reports on that setup, with logged native x2 in Standard, Ada x4 in Full, both
 NR placements and later Full x6. Full recorded zero NR/host failure counters
 alongside two recurring Streamline RSYNC errors. These reports do not separately
-verify every UI/transition check. The 0.1.4 ENB regression run is still pending.
+verify every UI/transition check. Both editions also received positive Cabbage
+ENB regression reports with native x2 in Standard, Ada x4 in Full, and both NR
+placements. Full's final ENB log has no renderer error entries or NR/host failure
+counters; Standard ENB retains two recurring RSYNC entries. ENB/KiLoader loaded
+and generated the ENB cache on the first launch without an extra restart.
 
 CS's "D3D12 Swap Chain: Inactive" footer describes its own disabled frame-generation
 proxy. TRP owns a separate Streamline swapchain, so this status is expected here.
