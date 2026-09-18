@@ -24,7 +24,7 @@ struct PipelineStage
 
 struct PipelineDiagram
 {
-#if defined(TRP_BASE_RENDERER)
+#if defined(TRP_NO_NEURAL_RENDERING)
     static constexpr std::size_t StageCount = 4;
 #else
     static constexpr std::size_t StageCount = 5;

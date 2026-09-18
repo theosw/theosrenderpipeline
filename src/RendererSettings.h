@@ -85,7 +85,7 @@ inline const char* ValidateRendererSettings(const RendererSettingsDraft& draft,
     {
         return "Dynamic target output FPS must be 0 or between 61 and 1000.";
     }
-#if !defined(TRP_BASE_RENDERER)
+#if !defined(TRP_NO_NEURAL_RENDERING)
     if (draft.sourceDLSSG.neuralEnabled && !capabilities.neuralRuntime)
     {
         return "NR runtime DLL not found. Install nvngx_dlssnr.dll at the configured path and restart Skyrim.";

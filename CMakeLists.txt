@@ -34,9 +34,16 @@ include(cmake/Detours.cmake)
 include(cmake/BaselineSources.cmake)
 target_sources(${PROJECT_NAME} PRIVATE ${ARP_BASELINE_SOURCES})
 
-option(TRP_ENABLE_OPTIONAL_FEATURES "Include Neural Rendering and optional Ada/Ampere MFG compatibility" ON)
+option(TRP_ENABLE_NEURAL_RENDERING "Include Neural Rendering integration and controls" ON)
+option(TRP_ENABLE_OPTIONAL_FEATURES "Include optional Ada/Ampere MFG compatibility" ON)
+if(TRP_ENABLE_NEURAL_RENDERING)
+    target_sources(TheosRenderPipeline PRIVATE ${ARP_NEURAL_SOURCES})
+else()
+    target_compile_definitions(TheosRenderPipeline PRIVATE TRP_NO_NEURAL_RENDERING)
+    target_sources(TheosRenderPipeline PRIVATE src/FrameGen/SourceDLSSGNeuralDisabled.cpp)
+endif()
 if(TRP_ENABLE_OPTIONAL_FEATURES)
-    target_sources(TheosRenderPipeline PRIVATE src/FrameGen/SourceDLSSGMFG.cpp ${ARP_OPTIONAL_SOURCES})
+    target_sources(TheosRenderPipeline PRIVATE src/FrameGen/SourceDLSSGMFG.cpp)
     add_library(TheosRenderPipelineRTX40MFG STATIC
         extern/RTX40MFG/midpoint_fix.cpp extern/RTX40MFG/dlssg_provider_policy.cpp
         extern/MFGAmpere/runtime.cpp)
@@ -45,9 +52,7 @@ if(TRP_ENABLE_OPTIONAL_FEATURES)
     target_link_libraries(TheosRenderPipelineRTX40MFG PUBLIC bcrypt version d3d12)
     target_link_libraries(TheosRenderPipeline PRIVATE TheosRenderPipelineRTX40MFG)
 else()
-    target_compile_definitions(TheosRenderPipeline PRIVATE TRP_BASE_RENDERER)
-    target_sources(TheosRenderPipeline PRIVATE src/FrameGen/SourceDLSSGMFGNative.cpp
-        src/FrameGen/SourceDLSSGNeuralDisabled.cpp)
+    target_sources(TheosRenderPipeline PRIVATE src/FrameGen/SourceDLSSGMFGNative.cpp)
 endif()
 
 configure_file(

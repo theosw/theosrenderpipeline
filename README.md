@@ -13,14 +13,16 @@ This source archive builds `TheosRenderPipeline.dll`, including external ImGui i
 Install packages are supplied separately and link their matching Git revision.
 The full-feature package contains NR integration and Ada/Ampere MFG compatibility, with
 all NVIDIA runtimes supplied separately. It needs no other renderer package.
-See the installation guide for exact runtime download paths.
+Standard includes the SR/FG and NR runtimes, with NR off by default. Full can
+also use Standard's runtimes when installed after it in MO2.
+See the installation guides for each edition.
 
 ## Features
 
 - DLSS Super Resolution, DLAA, model presets and sharpening.
 - Frame generation and native MFG capabilities. The full-feature build selects
   its compatibility path using the rendering GPU; the existing opt-out remains available.
-- Full-feature build: NR before or after DLSS, one or two passes, input scaling and tuning.
+- Both editions: NR before or after DLSS, one or two passes, input scaling and tuning.
 - Spatial scaling for loading-screen backgrounds and an optional request for
   transition artwork, enabled by default under Advanced. Skyrim chooses the art.
 - Native UI composition, inventory/spell previews, startup overlays, external
@@ -42,7 +44,7 @@ companion exports retain their names and layouts in `TheosRenderPipeline.dll`.
 Version **0.1.3** combines experimental RTX 30-series (SM86) compatibility
 with support for four exact Steam Skyrim versions. Full selects the Ampere
 compatibility path on RTX 30-series, the Ada unlock on RTX 40-series, and native
-capabilities on RTX 50-series. Standard excludes NR and both compatibility paths.
+capabilities on RTX 50-series. Standard includes NR and excludes both compatibility paths.
 
 **Skyrim 1.5.97, 1.6.640 and 1.7.104 are experimental and untested in-game.**
 RTX 30-series execution is also experimental and unverified. Both component

@@ -259,7 +259,7 @@ void OverlayUI::UpdateFrameStats()
 
 void OverlayUI::RefreshNeuralRuntimeAvailability()
 {
-#if !defined(TRP_BASE_RENDERER)
+#if !defined(TRP_NO_NEURAL_RENDERING)
     // Refresh on menu open/settings actions, not on every rendered frame.
     nrRuntimePresent = TheosRenderPipeline::SourceDLSSG::NeuralRuntimePresent(
         SourceFrameGeneration::GetSingleton()->settings.neuralRenderingRuntimePath);
@@ -323,7 +323,7 @@ void OverlayUI::BuildUI()
     {
         DrawImagePanel(tabCardHeight, nestedCardHeight, view);
 
-#if !defined(TRP_BASE_RENDERER)
+#if !defined(TRP_NO_NEURAL_RENDERING)
         DrawNeuralRenderingPanel(tabCardHeight);
 #endif
 
