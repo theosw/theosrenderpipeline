@@ -2,6 +2,7 @@
 #include <d3d11.h>
 #include <wrl/client.h>
 #include <cstdint>
+#include "NativeUIBlend.h"
 
 namespace TheosRenderPipeline
 {
@@ -33,6 +34,7 @@ namespace TheosRenderPipeline
         bool ComposeLayer(ID3D11DeviceContext* context, ID3D11Texture2D* presentation,
             ID3D11ShaderResourceView* layer);
         bool Matches(ID3D11Texture2D* texture) const;
+        NativeUIBlend blend_;
         UINT outputWidth_{}, outputHeight_{};
         DXGI_FORMAT format_{DXGI_FORMAT_UNKNOWN};
         bool nativeUIExtractionAvailable_{}, nativeUITextureMode_{};

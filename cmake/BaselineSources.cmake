@@ -23,6 +23,8 @@ set(ARP_BASELINE_SOURCES
     src/FrameGen/PresentationTargets.h
     src/FrameGen/GameFacingTargets.h
     src/FrameGen/NativeUIComposition.h
+    src/FrameGen/NativeUIBlend.h
+    src/FrameGen/NativeUIBlend.cpp
     src/FrameGen/NativeUIPass.h
     src/FrameGen/SourceFrameCoordinator.h
     src/FrameGen/SourceNvidiaFrameEvaluator.h
