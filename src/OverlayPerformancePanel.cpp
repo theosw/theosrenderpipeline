@@ -68,7 +68,7 @@ void OverlayUI::DrawPerformancePanel(float advancedCardHeight, const TheosRender
 			ImGui::SeparatorText("TIMINGS");
 			const auto& timings = performance->GetTimingSnapshot();
 
-#if !defined(TRP_BASE_RENDERER)
+#if !defined(TRP_NO_NEURAL_RENDERING)
 				ImGui::TextWrapped("NVIDIA generation GPU cost is unavailable. NR timing covers its evaluation sequence, including inter-pass work. It excludes input downsampling, final resolve/copies, UI composition and the D3D11/D3D12 handoff.");
 				const auto& nrTiming = sourceNeural.telemetry;
 				if (nrTiming.gpuSamples) {

@@ -132,8 +132,8 @@ set(ARP_BASELINE_SOURCES
     src/XSEPlugin.cpp
 )
 
-# Optional runtime integration and its UI are never linked into the base.
-set(ARP_OPTIONAL_SOURCES
+# Neural Rendering is available independently of MFG compatibility.
+set(ARP_NEURAL_SOURCES
     src/FrameGen/NeuralRenderingFeatureSession.cpp
     src/FrameGen/NeuralRenderingModulePathHook.cpp
     src/FrameGen/NeuralRenderingRuntimeIdentity.cpp

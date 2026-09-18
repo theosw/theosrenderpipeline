@@ -3,7 +3,7 @@
 #include "SourceDLSSGInterop.h"
 #include "SourceDLSSGSession.h"
 #include "SourceDLSSGNeuralState.h"
-#if !defined(TRP_BASE_RENDERER)
+#if !defined(TRP_NO_NEURAL_RENDERING)
 #include "SourceDLSSGNeuralRendering.h"
 #endif
 #include "SourceDLSSGHDR.h"
@@ -133,7 +133,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		Microsoft::WRL::ComPtr<ID3D12CommandQueue> queue_;
 		Microsoft::WRL::ComPtr<IDXGISwapChain> retainedNative_;
 		SharedTexture motion_, depth_, ui_, hudless_, earlyNeuralColor_;
-#if !defined(TRP_BASE_RENDERER)
+#if !defined(TRP_NO_NEURAL_RENDERING)
 		std::unique_ptr<NeuralPass> neuralPass_;
 #endif
 		std::unique_ptr<HDRPass> hdrPass_;

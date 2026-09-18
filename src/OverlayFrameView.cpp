@@ -147,13 +147,13 @@ OverlayUI::FrameView OverlayUI::CaptureFrameView()
 
 void OverlayUI::DrawPipelineSummary(const FrameView& view)
 {
-#if !defined(TRP_BASE_RENDERER)
+#if !defined(TRP_NO_NEURAL_RENDERING)
     const auto neuralTooltip = view.sourceNeural.status + "\nClick to open Neural Rendering settings.";
 #endif
     PipelineDiagram diagram{
         {{{"World", view.renderDetail, "Game-rendered scene, including ENB effects.\nClick to open Image settings.",
            SettingsPage::Image},
-#if !defined(TRP_BASE_RENDERER)
+#if !defined(TRP_NO_NEURAL_RENDERING)
           {"Neural Rendering", view.neuralDetail, neuralTooltip.c_str(), SettingsPage::NeuralRendering,
            !view.neuralEnabled},
 #endif
@@ -168,7 +168,7 @@ void OverlayUI::DrawPipelineSummary(const FrameView& view)
         view.nativeUIHealth == UIHealth::kHealthy,
         view.pipelineLabel,
         HealthColor(view.pipelineHealth)};
-#if !defined(TRP_BASE_RENDERER)
+#if !defined(TRP_NO_NEURAL_RENDERING)
     if (!view.neuralBeforeUpscaling)
     {
         std::swap(diagram.stages[1], diagram.stages[2]);
