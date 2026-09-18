@@ -203,6 +203,16 @@ add_custom_target(ARPBaseline DEPENDS TheosRenderPipeline)
 option(TRP_BUILD_COMPATIBILITY_TESTS "Build offline runtime and frame contract checks" OFF)
 if(TRP_BUILD_COMPATIBILITY_TESTS)
     enable_testing()
+    add_subdirectory(tests/direct-output)
+    add_executable(TRPSourceTimingTests tests/SourceTimingTests.cpp
+        src/PerformanceTuning.cpp src/FrameTrace.cpp src/VideoMemoryTelemetry.cpp)
+    target_compile_features(TRPSourceTimingTests PRIVATE cxx_std_23)
+    target_precompile_headers(TRPSourceTimingTests PRIVATE include/PCH.h)
+    target_include_directories(TRPSourceTimingTests PRIVATE include src
+        "${CMAKE_CURRENT_BINARY_DIR}/cmake" "${TRP_STREAMLINE_INCLUDE_DIR}" "${TRP_SIMPLEINI_INCLUDE_DIR}")
+    target_link_libraries(TRPSourceTimingTests PRIVATE CommonLibSSE::CommonLibSSE ARPDetours
+        spdlog::spdlog d3d11 dxgi dxguid)
+    add_test(NAME SourceTiming COMMAND TRPSourceTimingTests)
     foreach(module IN ITEMS 1 2)
         add_library(TRPModuleIdentityFixture${module} SHARED tests/ModuleIdentityFixture.cpp)
         target_compile_definitions(TRPModuleIdentityFixture${module} PRIVATE TRP_TEST_MODULE_ID=${module})

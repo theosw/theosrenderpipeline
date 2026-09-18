@@ -7,3 +7,10 @@ target_compile_definitions(DirectOutputTests PRIVATE NOMINMAX WIN32_LEAN_AND_MEA
 target_include_directories(DirectOutputTests PRIVATE ../../src)
 target_link_libraries(DirectOutputTests PRIVATE d3d11 dxgi)
 add_test(NAME DirectOutput COMMAND DirectOutputTests)
+add_executable(DirectRCASTests DirectRCASTests.cpp)
+target_compile_features(DirectRCASTests PRIVATE cxx_std_20)
+target_compile_definitions(DirectRCASTests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+target_include_directories(DirectRCASTests PRIVATE ../../src)
+target_link_libraries(DirectRCASTests PRIVATE d3d11 d3dcompiler dxgi)
+add_test(NAME DirectRCAS COMMAND DirectRCASTests
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../package/SKSE/Plugins/TheosRenderPipeline/RCAS.hlsl")

@@ -47,12 +47,13 @@ public:
 		kMaskEncode,
 		kDLSS,
 		kRCAS,
-		kOutputCopy,
+		kOutputCopy, // Backend intermediate -> host handoff (absent for direct output).
 		kHUDLessCopy,
 		// Append IDs to preserve existing trace stage numbering.
 		kNativeUIComposition,
 		kStartupOverlayComposition,
 		kNeuralEarlyRoundTrip,
+		kPresentationCopy, // Host handoff -> presentation; distinct from kOutputCopy.
 		kCount
 	};
 

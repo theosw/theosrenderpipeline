@@ -103,7 +103,8 @@ void OverlayUI::DrawPerformancePanel(float advancedCardHeight, const TheosRender
 					return TheosRenderPipeline::Telemetry::Milliseconds(d11[i], timings.d3d11Available[i]);
 				};
 				ImGui::Text("D3D11 frame %s | DLSS %s | RCAS %s", d11ms(PerformanceTuning::D3D11Stage::kFrame).c_str(), d11ms(PerformanceTuning::D3D11Stage::kDLSS).c_str(), d11ms(PerformanceTuning::D3D11Stage::kRCAS).c_str());
-				ImGui::Text("Input %s | mask %s | output %s", d11ms(PerformanceTuning::D3D11Stage::kInputColorCopy).c_str(), d11ms(PerformanceTuning::D3D11Stage::kMaskEncode).c_str(), d11ms(PerformanceTuning::D3D11Stage::kOutputCopy).c_str());
+				ImGui::Text("Input %s | mask %s", d11ms(PerformanceTuning::D3D11Stage::kInputColorCopy).c_str(), d11ms(PerformanceTuning::D3D11Stage::kMaskEncode).c_str());
+				ImGui::Text("Output copy %s | presentation copy %s", d11ms(PerformanceTuning::D3D11Stage::kOutputCopy).c_str(), d11ms(PerformanceTuning::D3D11Stage::kPresentationCopy).c_str());
 				ImGui::Text("FG inputs %s | HUD-less %s", d11ms(PerformanceTuning::D3D11Stage::kFrameGenInputs).c_str(), d11ms(PerformanceTuning::D3D11Stage::kHUDLessCopy).c_str());
 				ImGui::Text("Native UI composition %s | startup foreground %s", d11ms(PerformanceTuning::D3D11Stage::kNativeUIComposition).c_str(), d11ms(PerformanceTuning::D3D11Stage::kStartupOverlayComposition).c_str());
 				const auto& sourcePresent = timings.sourcePresentCpu;
