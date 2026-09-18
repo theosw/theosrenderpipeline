@@ -21,12 +21,12 @@ namespace TheosRenderPipeline
         auto options = SourceDLSSG::Backend::Get().NeuralConfiguration();
         options.worldOnly = true;
         options.tuning.uiCorrection = false;
+        options.reconstruction.producerColor = options.beforeUpscaling;
         if (options != options_) { neuralBoundaryReported_ = false; }
         options_ = std::move(options);
-        // The early placement still uses pre-tone-map world color. The late
-        // placement waits for the completed post-processed scene. Neither a
-        // float allocation nor the placement alone specifies a transfer function;
-        // preserve the user's reconstruction settings for the comparison.
+        // Early CS color is unfinished producer RGB, not a display-ready image.
+        // The paired proxy transfers only NR's changes back to the retained scene.
+        // Late NR keeps the user's completed-scene reconstruction configuration.
         worldBegun_ = true;
         if (options_.beforeUpscaling && !EvaluateWorld(input.world, input.render)) {
             worldBegun_ = false; return false;
@@ -44,11 +44,11 @@ namespace TheosRenderPipeline
         if (!result) { status_ = "CS world NR stage failed"; }
         if (result && options_.enabled && eligible_ && cameraValid_ && color && !neuralBoundaryReported_) {
             D3D11_TEXTURE2D_DESC desc{}; color->GetDesc(&desc);
-            logger::info("[CS Adapter] NR input={} allocation={}x{} active={}x{} format={} passes={} inputScale={} resolve={} HDR={}; UI excluded",
+            logger::info("[CS Adapter] NR input={} allocation={}x{} active={}x{} format={} passes={} inputScale={} resolve={} HDR={} producerColor={}; UI excluded",
                 options_.beforeUpscaling ? "pre-upscale world" : "post-processing scene",
                 desc.Width, desc.Height, extent.width, extent.height, static_cast<unsigned>(desc.Format),
                 options_.passes, options_.reconstruction.inputScale, static_cast<unsigned>(options_.reconstruction.method),
-                options_.reconstruction.colorIsHDR);
+                options_.reconstruction.colorIsHDR, options_.reconstruction.producerColor);
             neuralBoundaryReported_ = true;
         }
         if (reset_) { camera_.reset = sl::eTrue; }

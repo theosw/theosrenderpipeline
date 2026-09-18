@@ -13,28 +13,35 @@ using namespace TheosRenderPipeline::Overlay;
 
 namespace
 {
-	void DrawNRReconstructionControls(TheosRenderPipeline::NeuralRendering::Reconstruction& value)
+	void DrawNRReconstructionControls(TheosRenderPipeline::NeuralRendering::Reconstruction& value, bool producerColor)
 	{
 		const char* presets[]{ "Default", "Shipping" };
 		ImGui::Combo("NR network preset", &value.preset, presets, IM_ARRAYSIZE(presets));
 		const char* methods[]{ "Auto | Direct at 100%, residual below", "Residual | Add NR changes to native scene", "Ratio | Transfer lighting and colour" };
 		int method = static_cast<int>(value.method);
+		ImGui::BeginDisabled(producerColor);
 		if (ImGui::Combo("Reconstruction", &method, methods, IM_ARRAYSIZE(methods))) {
 			value.method = static_cast<TheosRenderPipeline::NeuralRendering::ResolveMethod>(method);
 		}
+		ImGui::EndDisabled();
+		if (producerColor) { ImGui::TextWrapped("CS restores scene colour automatically before DLSS."); }
 		float percent = value.inputScale * 100;
 		if (ImGui::SliderFloat("NR input resolution", &percent, 25, 100, "%.1f%%")) { value.inputScale = percent / 100; }
 		ImGui::TextWrapped("Relative to the selected stage: render resolution before DLSS, output resolution after DLSS. Lower values reduce NR's working resolution; game and UI sizes stay unchanged.");
-		ImGui::TextWrapped("Residual clamps colour to 0..1 like the reference. Use Ratio for linear HDR input.");
+		if (!producerColor) { ImGui::TextWrapped("Residual clamps colour to 0..1 like the reference. Use Ratio for linear HDR input."); }
 		if (ImGui::TreeNode("Advanced reconstruction")) {
-			ImGui::BeginDisabled(value.method != TheosRenderPipeline::NeuralRendering::ResolveMethod::Ratio);
-			ImGui::SliderFloat("Ratio effect strength", &value.transferStrength, 0, 2);
-			ImGui::SliderFloat("Ratio colour strength", &value.colourStrength, 0, 2);
-			ImGui::SliderFloat("Maximum luma ratio", &value.maxRatio, 0.01f, 16);
-			ImGui::InputFloat("HDR encode white point", &value.whitePoint, 0, 0, "%.4f");
+			ImGui::BeginDisabled(!producerColor && value.method != TheosRenderPipeline::NeuralRendering::ResolveMethod::Ratio);
+			ImGui::SliderFloat(producerColor ? "Effect strength" : "Ratio effect strength", &value.transferStrength, 0, 2);
+			ImGui::SliderFloat(producerColor ? "Colour strength" : "Ratio colour strength", &value.colourStrength, 0, 2);
+			ImGui::SliderFloat(producerColor ? "Maximum scene gain" : "Maximum luma ratio", &value.maxRatio, producerColor ? 1.0f : 0.01f, 16);
+			ImGui::InputFloat(producerColor ? "Scene normalization" : "HDR encode white point", &value.whitePoint, 0, 0, "%.4f");
+			ImGui::BeginDisabled(producerColor);
 			ImGui::Checkbox("Input colour is linear HDR", &value.colorIsHDR);
 			ImGui::EndDisabled();
-			ImGui::TextWrapped("HDR input is used by Ratio reconstruction; it does not change the display HDR mode. Preset or resolution changes retire and recreate NR and may stall briefly. Ctrl-click sliders to type.");
+			ImGui::EndDisabled();
+			if (producerColor) { ImGui::TextWrapped("Scene normalization sets the brightness range NR sees. Changes restart its history and may stall briefly."); }
+			else { ImGui::TextWrapped("HDR input is used by Ratio reconstruction; it does not change the display HDR mode."); }
+			ImGui::TextWrapped("Preset or resolution changes recreate NR and may stall briefly. Ctrl-click sliders to type.");
 			ImGui::TreePop();
 		}
 	}
@@ -68,7 +75,9 @@ namespace
 			draft.neuralBeforeUpscaling = placement == 0;
 		}
 		if (TheosRenderPipeline::CommunityShaders::Active()) {
-			ImGui::TextWrapped("NR processes the CS scene before tone mapping. CS draws UI afterward in both placements.");
+			ImGui::TextWrapped(draft.neuralBeforeUpscaling ?
+				"NR processes the CS scene before DLSS and preserves its brightness range. CS draws UI afterward." :
+				"NR processes the final CS image after post-processing. CS draws UI afterward.");
 		} else if (draft.neuralBeforeUpscaling) {
 			ImGui::TextWrapped("NR processes the world before DLSS. UI correction is unused; native UI is added later.");
 		}
@@ -76,7 +85,7 @@ namespace
 		const char* passes[]{ "One", "Two" };
 		if (ImGui::Combo("Passes##sourceNR", &passChoice, passes, IM_ARRAYSIZE(passes))) { draft.neuralPasses = passChoice + 1; }
 		if (draft.neuralPasses == 2) { ImGui::TextWrapped("The second pass processes the first result with separate history. It adds GPU time and memory; stronger processing may also amplify artifacts."); }
-		DrawNRReconstructionControls(draft.neuralReconstruction);
+		DrawNRReconstructionControls(draft.neuralReconstruction, TheosRenderPipeline::CommunityShaders::Active() && draft.neuralBeforeUpscaling);
 		if (ImGui::TreeNode("Image tuning##sourceNR")) {
 			const char* styles[]{ "Style 0", "Style 1", "Style 2", "Style 3", "Style 4", "Style 5", "Style 6", "Style 7" };
 			ImGui::Combo("Style##sourceNR", &draft.neuralTuning.style, styles, IM_ARRAYSIZE(styles));

@@ -12,6 +12,9 @@ namespace TheosRenderPipeline::NeuralRendering
 		ResolveMethod method{ ResolveMethod::Auto };
 		float inputScale{ 1 }, transferStrength{ 1 }, colourStrength{ 1 }, maxRatio{ 2 }, whitePoint{ 1 };
 		bool colorIsHDR{};
+		// Adapter-owned input contract, never loaded from or written to an INI.
+		// Preserve the producer's RGB domain instead of assuming linear/sRGB.
+		bool producerColor{};
 		bool operator==(const Reconstruction&) const = default;
 	};
 	inline float NormalizeInputScale(float value)
@@ -35,7 +38,7 @@ namespace TheosRenderPipeline::NeuralRendering
 	{
 		// Explicit Ratio always resolves; Auto/Residual at native
 		// resolution both use the direct output, with no extra round trip.
-		return value.method == ResolveMethod::Ratio ? ResolveMethod::Ratio :
+		return value.producerColor || value.method == ResolveMethod::Ratio ? ResolveMethod::Ratio :
 			NormalizeInputScale(value.inputScale) < 1 ? ResolveMethod::Residual : ResolveMethod::Auto;
 	}
 	inline std::uint32_t WorkExtent(std::uint32_t extent, float scale)
@@ -45,7 +48,9 @@ namespace TheosRenderPipeline::NeuralRendering
 	inline bool SameReconstructionResources(const Reconstruction& a, const Reconstruction& b)
 	{
 		return a.preset == b.preset && NormalizeInputScale(a.inputScale) == NormalizeInputScale(b.inputScale) &&
-			EffectiveResolve(a) == EffectiveResolve(b) && a.colorIsHDR == b.colorIsHDR;
+			EffectiveResolve(a) == EffectiveResolve(b) && a.colorIsHDR == b.colorIsHDR && a.producerColor == b.producerColor &&
+			// Changing the proxy normalization changes the temporal model's input.
+			(!a.producerColor || a.whitePoint == b.whitePoint);
 	}
 	template<class Ini> Reconstruction LoadReconstruction(const Ini& ini, const char* section)
 	{

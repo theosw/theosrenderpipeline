@@ -9,7 +9,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 	struct ResolveConstants
 	{
 		UINT sourceWidth{}, sourceHeight{}, targetWidth{}, targetHeight{};
-		UINT sourceIsBGRA{}, mode{}, passthrough{ 1 }, pad{};
+		UINT sourceIsBGRA{}, mode{}, passthrough{ 1 }, producerColor{};
 		UINT workWidth{}, workHeight{};
 		float transferStrength{ 1 }, colourStrength{ 1 }, maxRatio{ 2 }, whitePoint{ 1 };
 	};

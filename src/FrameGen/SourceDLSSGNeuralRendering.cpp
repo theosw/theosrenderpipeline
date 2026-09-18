@@ -144,7 +144,7 @@ RWTexture2D<float4> output : register(u0);
 					auto residualDesc = workDesc; residualDesc.Width = sceneDesc.Width;
 					residualDesc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
 					if (!create(residualDesc, residual_)) { return false; }
-				} else if (reconstruction.colorIsHDR && !create(sceneDesc, encoded_)) { return false; }
+				} else if ((reconstruction.colorIsHDR || reconstruction.producerColor) && !create(sceneDesc, encoded_)) { return false; }
 			}
 			if (!options.WorldOnly()) {
 				D3D12_DESCRIPTOR_RANGE ranges[2]{};
@@ -219,6 +219,7 @@ RWTexture2D<float4> output : register(u0);
 		constants.targetWidth = static_cast<UINT>(featureOutput->GetDesc().Width); constants.targetHeight = featureOutput->GetDesc().Height;
 		constants.workWidth = constants.targetWidth; constants.workHeight = constants.targetHeight;
 		constants.passthrough = !reconstruction.colorIsHDR;
+		constants.producerColor = reconstruction.producerColor;
 		constants.transferStrength = reconstruction.transferStrength; constants.colourStrength = reconstruction.colourStrength;
 		constants.maxRatio = reconstruction.maxRatio; constants.whitePoint = reconstruction.whitePoint;
 		auto dispatch = [&](unsigned stage, ResolveKernel kernel, ID3D12Resource* a, ID3D12Resource* b,
@@ -332,9 +333,10 @@ RWTexture2D<float4> output : register(u0);
 		if (options.WorldOnly()) {
 			Transition(list, corrected_.Get(), read, D3D12_RESOURCE_STATE_COMMON);
 			for (auto* texture : { motion, depth, hudless }) { Transition(list, texture, read, D3D12_RESOURCE_STATE_COMMON); }
-			status_ = std::format("NR {} upscaling {}x{} -> {}x{}; {} pass(es); world only; UI correction unused",
+			status_ = std::format("NR {} upscaling {}x{} -> {}x{}; {} pass(es); {}; world only; UI correction unused",
 				options.beforeUpscaling ? "before" : "after", constants.workWidth, constants.workHeight,
-				constants.sourceWidth, constants.sourceHeight, options.passes);
+				constants.sourceWidth, constants.sourceHeight, options.passes,
+				reconstruction.producerColor ? "producer RGB reconstruction" : "user reconstruction");
 			return true;
 		}
 

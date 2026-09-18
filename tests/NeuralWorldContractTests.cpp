@@ -34,6 +34,25 @@ int main()
     external.beforeUpscaling = false; external.worldOnly = false;
     Require(history.ResetFor(external, true, false), "return to native composition resets history");
 
+    using namespace TheosRenderPipeline::NeuralRendering;
+    Reconstruction original;
+    Require(EffectiveResolve(original) == ResolveMethod::Auto, "normal native-resolution Auto remains direct");
+    auto producer = original;
+    producer.producerColor = true;
+    Require(EffectiveResolve(producer) == ResolveMethod::Ratio, "producer input always restores scene colour even with Auto");
+    Require(!SameReconstructionResources(original, producer), "switching colour contract recreates the temporal feature");
+    auto renormalized = producer;
+    renormalized.whitePoint = 16;
+    Require(!SameReconstructionResources(producer, renormalized), "normalization changes require retirement and recreation");
+    auto strengthOnly = producer;
+    strengthOnly.transferStrength = 0.5f;
+    Require(SameReconstructionResources(producer, strengthOnly), "resolve strength does not change feature allocations");
+    producer.method = ResolveMethod::Residual; producer.inputScale = 0.5f;
+    Require(EffectiveResolve(producer) == ResolveMethod::Ratio, "reduced producer input cannot select clamping residual output");
+    external.reconstruction = producer;
+    Require(history.ResetFor(external, true, false), "producer colour contract resets temporal history");
+    Require(!history.ResetFor(external, true, false), "stable producer contract retains history");
+
     RendererSettingsDraft draft;
     draft.valid = true; draft.sourceDLSSG.neuralEnabled = true;
     RendererSettingsCapabilities capabilities{true, true, false, true};
