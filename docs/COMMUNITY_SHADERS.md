@@ -13,8 +13,9 @@ if F8 is already used by FrameView or another tool. TRP does not rebind CS for y
 
 The adapter preserves the engine postprocessing chain and snapshots motion,
 depth and camera before CS rewrites them. Before-upscaling NR runs on CS producer
-colour with a bounded linear-to-display working conversion and restoration to
-the producer's linear range before CS continues. After-upscaling NR runs on the
+colour with a bounded working-range conversion and restoration to the producer's
+original RGB range before CS continues. No gamma, gamut or exposure is inferred
+from the texture format. After-upscaling NR runs on the
 completed postprocessing scene, before UI. The final scene is captured for FG.
 Both placements retain pass count, input scaling and reconstruction controls.
 
