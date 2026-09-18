@@ -15,7 +15,7 @@ namespace TheosRenderPipeline::Overlay
     inline HotkeyActions ActionsForHotkey(UINT key, UINT toggleKey, bool editing)
     {
         HotkeyActions actions;
-#if !defined(TRP_BASE_RENDERER)
+#if !defined(TRP_NO_NEURAL_RENDERING)
         if (!editing && key == VK_OEM_4) { actions.neuralState = 0; }
         if (!editing && key == VK_OEM_6) { actions.neuralState = 1; }
 #endif

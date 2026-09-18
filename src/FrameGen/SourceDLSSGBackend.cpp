@@ -182,7 +182,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
 		if (!Check(device12_->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&queue_)), "presenting queue") ||
 			!Check(interop_.Initialize(device11_.Get(), device12_.Get(), queue_.Get()), "shared interop")) { return fault_; }
-#if !defined(TRP_BASE_RENDERER)
+#if !defined(TRP_NO_NEURAL_RENDERING)
 		if (FAILED(queue_->GetTimestampFrequency(&neuralTimestampFrequency_)) || !neuralTimestampFrequency_) {
 			neuralTimestampFrequency_ = 0;
 			logger::warn("[DLSSNR Source] presenting queue does not expose GPU timestamp frequency; CPU boundary timing remains available");
@@ -317,7 +317,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			frameNeuralReset_ |= a_constants.reset == sl::eTrue;
 			if (!neuralEligible_) { neuralHistory_.Invalidate(); }
 		}
-#if !defined(TRP_BASE_RENDERER)
+#if !defined(TRP_NO_NEURAL_RENDERING)
 		if (frameNeuralOptions_.enabled && neuralEligible_ && neuralPass_ &&
 			neuralPass_->NeedsRecreation(frameNeuralOptions_, motion_.desc.Width, motion_.desc.Height)) { frameNeuralReset_ = true; }
 #endif
@@ -358,7 +358,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (prepared) {
 			if (uiSource_ && !Check(interop_.CopyInput(uiSource_.Get(), ui_), "late UI copy")) { return fault_; }
 		}
-#if !defined(TRP_BASE_RENDERER)
+#if !defined(TRP_NO_NEURAL_RENDERING)
 		const auto options = prepared ? frameNeuralOptions_ : NeuralConfiguration();
 		const bool eligible = prepared && neuralEligible_;
 		const bool active = options.enabled && eligible && (!options.beforeUpscaling || neuralEvaluatedEarly_);
@@ -370,7 +370,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (!Check(interop_.SignalD3D11(Work::SwapChain), "native D3D11 output ready") ||
 			!Check(interop_.Begin(Work::SwapChain, &list), "begin native output copy")) { return fault_; }
 		auto* realSource = a_source;
-#if !defined(TRP_BASE_RENDERER)
+#if !defined(TRP_NO_NEURAL_RENDERING)
 		if (lateActive) {
 			if (!neuralPass_) { neuralPass_ = std::make_unique<NeuralPass>(); }
 			if (!neuralPass_->Record(device12_.Get(), list, interop_.CurrentSlot(Work::SwapChain), options,
@@ -411,7 +411,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 				s.generationRequested.generatedFrames, s.generationRequested.dynamic, s.generationRequested.dynamicTargetFPS,
 				s.options.numFramesToGenerate, static_cast<int>(s.options.mode), s.state.numFramesToGenerateMax, s.generationLimited);
 		}
-#if !defined(TRP_BASE_RENDERER)
+#if !defined(TRP_NO_NEURAL_RENDERING)
 		{
 			std::scoped_lock lock(neuralMutex_);
 			const bool changed = neuralSnapshot_.active != active;
@@ -535,7 +535,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (!Check(interop_.SignalD3D11(Work::SwapChain), "last D3D11 work before resize") ||
 			!Check(interop_.Drain(), "retire before resize")) { return false; }
 		ReleaseGuides();
-#if !defined(TRP_BASE_RENDERER)
+#if !defined(TRP_NO_NEURAL_RENDERING)
 		if (neuralPass_) {
 			neuralPass_->RetireTelemetry();
 			std::scoped_lock lock(neuralMutex_);

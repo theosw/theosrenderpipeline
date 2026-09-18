@@ -24,7 +24,7 @@ struct NvidiaHost::SourceNvidiaEvaluationOperations
 
     bool EvaluateNeuralBeforeDLSS(TheosRenderPipeline::SourceNvidiaFrameInputs& frame)
     {
-#if !defined(TRP_BASE_RENDERER)
+#if !defined(TRP_NO_NEURAL_RENDERING)
         auto& backend = TheosRenderPipeline::SourceDLSSG::Backend::Get();
         const auto options = backend.NeuralConfiguration();
         sl::Constants preview{};

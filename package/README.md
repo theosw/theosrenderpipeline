@@ -9,6 +9,9 @@ DLSS/DLAA, frame generation, Neural Rendering and native-resolution UI for Skyri
 This package includes the full renderer, configuration and sharpening shader.
 It requires no other Theo's Render Pipeline package. NVIDIA DLLs are supplied
 separately: download the SR/FG files below, and the NR runtime if you want NR.
+Alternatively, install Standard first and Full after it in MO2; the NR-enabled
+Standard download supplies all eight runtimes, including NR. In that setup,
+skip the runtime downloads below.
 
 ## Install
 

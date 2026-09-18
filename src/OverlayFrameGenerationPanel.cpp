@@ -108,7 +108,7 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, float nestedCardHe
                 ImGui::TextDisabled("Waiting for the current GPU frame to retire...");
             }
 
-#if !defined(TRP_BASE_RENDERER)
+#if !defined(TRP_NO_NEURAL_RENDERING)
             ImGui::TextWrapped("Multiplier and Neural Rendering are independent settings.");
 #endif
             if (!sourceDLSSGActive)

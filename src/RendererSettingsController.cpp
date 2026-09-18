@@ -43,7 +43,7 @@ RendererSettingsDraft RendererSettingsController::Capture([[maybe_unused]] bool 
     settingsDraft.directRCASOutput = performanceSettings.directRCASOutput;
     settingsDraft.directDLSSOutput = performanceSettings.directDLSSOutput;
     settingsDraft.sourceDLSSG = frameGen_.settings.sourceDLSSG;
-#if !defined(TRP_BASE_RENDERER)
+#if !defined(TRP_NO_NEURAL_RENDERING)
     // A saved NR request must not strand unrelated settings behind disabled controls.
     settingsDraft.sourceDLSSG.neuralEnabled &= nrRuntimePresent;
 #endif
@@ -81,7 +81,7 @@ RendererSettingsResult RendererSettingsController::Apply(const RendererSettingsD
     bool actionMessageIsError = false;
     const bool sourceUpscaler = host_.StartupConfigured();
     RendererSettingsCapabilities capabilities{sourceUpscaler, false, host_.DedicatedUITextureMode()};
-#if !defined(TRP_BASE_RENDERER)
+#if !defined(TRP_NO_NEURAL_RENDERING)
     capabilities.neuralRuntime =
         TheosRenderPipeline::SourceDLSSG::NeuralRuntimePresent(frameGen_.settings.neuralRenderingRuntimePath);
 #endif
@@ -178,9 +178,9 @@ RendererSettingsResult RendererSettingsController::Apply(const RendererSettingsD
 
 RendererSettingsResult RendererSettingsController::SetNeuralRenderingEnabled(bool enabled)
 {
-#if defined(TRP_BASE_RENDERER)
+#if defined(TRP_NO_NEURAL_RENDERING)
     (void)enabled;
-    return {"Neural Rendering requires the optional NR + Ada MFG add-on.", true};
+    return {"Neural Rendering is not included in this build.", true};
 #else
     std::string actionMessage;
     bool actionMessageIsError = false;
