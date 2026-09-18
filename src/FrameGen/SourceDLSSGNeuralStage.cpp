@@ -1,5 +1,6 @@
 #include <PCH.h>
 #include "SourceDLSSGBackend.h"
+#include "NeuralRenderingRuntimeIdentity.h"
 #include "PerformanceTuning.h"
 #include <chrono>
 
@@ -14,7 +15,22 @@ namespace TheosRenderPipeline::SourceDLSSG
 				a_options.runtimePath.string());
 		}
 		std::scoped_lock lock(neuralMutex_);
+		if (a_options.runtimePath != neuralOptions_.runtimePath || (!neuralOptions_.enabled && a_options.enabled)) {
+			neuralAvailability_.Reset();
+		}
 		neuralOptions_ = std::move(a_options);
+	}
+	const char* Backend::NeuralUnavailableReason(const NeuralOptions& options)
+	{
+		std::scoped_lock lock(neuralMutex_);
+		const auto reason = neuralAvailability_.UnavailableReason(options, [](const std::filesystem::path& path) {
+			const auto identity = NeuralRenderingRuntimeIdentity::VerifySource(path, true);
+			return identity.matched ? NeuralRendering::MatchRuntime(identity.size, identity.sha256, true) :
+				NeuralRendering::RuntimeBuild::Unknown;
+		});
+		if (reason && reason != neuralReportedUnavailable_) { logger::warn("[SourceDLSSG NR] {}", reason); }
+		neuralReportedUnavailable_ = reason;
+		return reason;
 	}
 	NeuralOptions Backend::NeuralConfiguration() const
 	{
@@ -73,7 +89,8 @@ namespace TheosRenderPipeline::SourceDLSSG
         if (frameNeuralOptions_.WorldOnly()) { frameNeuralOptions_.tuning.uiCorrection = false; }
         neuralFrameBegun_ = true;
         neuralEvaluatedEarly_ = false;
-        neuralEligible_ = eligible && !TransitionBlocked() && (!options.WorldOnly() || camera);
+        neuralEligible_ = eligible && !TransitionBlocked() && (!options.WorldOnly() || camera) &&
+            !NeuralUnavailableReason(frameNeuralOptions_);
         frameNeuralReset_ = neuralHistory_.ResetFor(frameNeuralOptions_, neuralEligible_,
             reset || (camera && camera->reset == sl::eTrue));
         reset |= frameNeuralReset_;
