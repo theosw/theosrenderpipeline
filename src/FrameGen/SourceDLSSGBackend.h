@@ -6,6 +6,7 @@
 #include "SourceDLSSGNeuralState.h"
 #if !defined(TRP_BASE_RENDERER)
 #include "SourceDLSSGNeuralRendering.h"
+#include "SourceDLSSGNeuralAvailability.h"
 #endif
 #include "SourceDLSSGHDR.h"
 #include "SourceDLSSGMFG.h"
@@ -104,6 +105,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		void ReleaseGuides();
 		bool RecreateNeuralIfNeeded(const NeuralOptions& options);
 		bool FailNeuralRecording();
+		const char* NeuralUnavailableReason(const NeuralOptions& options);
 		void RecordPresentationFeedback(std::uint32_t a_presentCount,
 			std::int64_t a_observedQpc, std::int64_t a_syncQpc);
 		void ResetPresentationFeedback();
@@ -143,6 +145,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 		SharedTexture motion_, depth_, ui_, hudless_, earlyNeuralColor_;
 #if !defined(TRP_BASE_RENDERER)
 		std::unique_ptr<NeuralPass> neuralPass_;
+		NeuralRuntimeAvailability neuralAvailability_; // Protected by neuralMutex_.
+		const char* neuralReportedUnavailable_{};
 #endif
 		std::unique_ptr<HDRPass> hdrPass_;
 		NeuralHistory neuralHistory_;

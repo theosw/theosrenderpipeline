@@ -339,7 +339,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 		}
 #if !defined(TRP_BASE_RENDERER)
 		const auto options = prepared ? frameNeuralOptions_ : NeuralConfiguration();
-		const bool eligible = prepared && neuralEligible_;
+		const auto unavailable = NeuralUnavailableReason(options);
+		const bool eligible = prepared && neuralEligible_ && !unavailable;
 		const bool active = options.enabled && eligible && (!options.WorldOnly() || neuralEvaluatedEarly_);
 		const bool lateActive = active && !options.WorldOnly();
 		const bool reset = prepared ? frameNeuralReset_ : neuralHistory_.ResetFor(options, false, false);
@@ -398,7 +399,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			if (active) { ++neuralSnapshot_.evaluations; }
 			if (reset) { ++neuralSnapshot_.resets; }
 			if (active) { neuralSnapshot_.telemetry = neuralPass_->Telemetry(); }
-			neuralSnapshot_.status = active ? neuralPass_->Status() : options.enabled ?
+			neuralSnapshot_.status = unavailable ? unavailable : active ? neuralPass_->Status() : options.enabled ?
 				"NR waiting for world inputs and dedicated native UI; standard DLSS active" : "standard DLSS; source NR is off";
 			if (changed || (active && (reset || neuralSnapshot_.evaluations % 600 == 0))) {
 				logger::info("[SourceDLSSG NR] frame={} active={} evaluations={} reset={} style={} fgRequested={} {}",
