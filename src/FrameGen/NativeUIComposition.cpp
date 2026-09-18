@@ -187,6 +187,7 @@ void main(uint3 id : SV_DispatchThreadID)
 	}
 
 	const float transparent[4]{ 0.0f, 0.0f, 0.0f, 0.0f };
+	if (nativeUITextureMode_) { (void)blend_.Initialize(a_device, a_context, format_); }
 	a_context->ClearUnorderedAccessViewFloat(nativeUIColorAndAlphaUAV_.Get(), transparent);
 	nativeUIExtractionAvailable_ = true;
 	spdlog::info(
@@ -283,44 +284,46 @@ bool NativeUIComposition::ComposeOverlay(ID3D11DeviceContext* context, ID3D11Tex
 bool NativeUIComposition::ComposeLayer(ID3D11DeviceContext* a_context, ID3D11Texture2D* a_presentation,
     ID3D11ShaderResourceView* layer)
 {
-	// Preserve drawing performed after the upscaler copied its result. A separate
-	// snapshot avoids reading and writing the presentation texture simultaneously.
-	a_context->CopyResource(nativeComposedSnapshot_.Get(), a_presentation);
+	if (!blend_.Compose(a_context, a_presentation, layer, outputWidth_, outputHeight_)) {
+		// Preserve drawing performed after the upscaler copied its result. A separate
+		// snapshot avoids reading and writing the presentation texture simultaneously.
+		a_context->CopyResource(nativeComposedSnapshot_.Get(), a_presentation);
 
-	Microsoft::WRL::ComPtr<ID3D11ComputeShader> savedShader;
-	Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> savedSRVs[2];
-	Microsoft::WRL::ComPtr<ID3D11UnorderedAccessView> savedUAV;
-	a_context->CSGetShader(savedShader.GetAddressOf(), nullptr, nullptr);
-	ID3D11ShaderResourceView* savedSRVRaw[2]{};
-	a_context->CSGetShaderResources(0, 2, savedSRVRaw);
-	for (std::size_t index = 0; index < std::size(savedSRVs); ++index) {
-		savedSRVs[index].Attach(savedSRVRaw[index]);
+		Microsoft::WRL::ComPtr<ID3D11ComputeShader> savedShader;
+		Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> savedSRVs[2];
+		Microsoft::WRL::ComPtr<ID3D11UnorderedAccessView> savedUAV;
+		a_context->CSGetShader(savedShader.GetAddressOf(), nullptr, nullptr);
+		ID3D11ShaderResourceView* savedSRVRaw[2]{};
+		a_context->CSGetShaderResources(0, 2, savedSRVRaw);
+		for (std::size_t index = 0; index < std::size(savedSRVs); ++index) {
+			savedSRVs[index].Attach(savedSRVRaw[index]);
+		}
+		ID3D11UnorderedAccessView* savedUAVRaw = nullptr;
+		a_context->CSGetUnorderedAccessViews(0, 1, &savedUAVRaw);
+		savedUAV.Attach(savedUAVRaw);
+
+		a_context->CSSetShader(nativeUICompositionShader_.Get(), nullptr, 0);
+		ID3D11ShaderResourceView* sourceViews[]{
+			nativeComposedSnapshotSRV_.Get(),
+			layer
+		};
+		a_context->CSSetShaderResources(0, static_cast<UINT>(std::size(sourceViews)), sourceViews);
+		ID3D11UnorderedAccessView* outputViews[]{ nativeUICompositionUAV_.Get() };
+		a_context->CSSetUnorderedAccessViews(0, 1, outputViews, nullptr);
+		a_context->Dispatch((outputWidth_ + 7) / 8, (outputHeight_ + 7) / 8, 1);
+
+		ID3D11ShaderResourceView* nullSRVs[2]{};
+		ID3D11UnorderedAccessView* nullUAVs[1]{};
+		a_context->CSSetShaderResources(0, 2, nullSRVs);
+		a_context->CSSetUnorderedAccessViews(0, 1, nullUAVs, nullptr);
+		ID3D11ShaderResourceView* restoreSRVs[]{ savedSRVs[0].Get(), savedSRVs[1].Get() };
+		ID3D11UnorderedAccessView* restoreUAVs[]{ savedUAV.Get() };
+		a_context->CSSetShader(savedShader.Get(), nullptr, 0);
+		a_context->CSSetShaderResources(0, 2, restoreSRVs);
+		a_context->CSSetUnorderedAccessViews(0, 1, restoreUAVs, nullptr);
+
+		a_context->CopyResource(a_presentation, nativeUICompositionTexture_.Get());
 	}
-	ID3D11UnorderedAccessView* savedUAVRaw = nullptr;
-	a_context->CSGetUnorderedAccessViews(0, 1, &savedUAVRaw);
-	savedUAV.Attach(savedUAVRaw);
-
-	a_context->CSSetShader(nativeUICompositionShader_.Get(), nullptr, 0);
-	ID3D11ShaderResourceView* sourceViews[]{
-		nativeComposedSnapshotSRV_.Get(),
-		layer
-	};
-	a_context->CSSetShaderResources(0, static_cast<UINT>(std::size(sourceViews)), sourceViews);
-	ID3D11UnorderedAccessView* outputViews[]{ nativeUICompositionUAV_.Get() };
-	a_context->CSSetUnorderedAccessViews(0, 1, outputViews, nullptr);
-	a_context->Dispatch((outputWidth_ + 7) / 8, (outputHeight_ + 7) / 8, 1);
-
-	ID3D11ShaderResourceView* nullSRVs[2]{};
-	ID3D11UnorderedAccessView* nullUAVs[1]{};
-	a_context->CSSetShaderResources(0, 2, nullSRVs);
-	a_context->CSSetUnorderedAccessViews(0, 1, nullUAVs, nullptr);
-	ID3D11ShaderResourceView* restoreSRVs[]{ savedSRVs[0].Get(), savedSRVs[1].Get() };
-	ID3D11UnorderedAccessView* restoreUAVs[]{ savedUAV.Get() };
-	a_context->CSSetShader(savedShader.Get(), nullptr, 0);
-	a_context->CSSetShaderResources(0, 2, restoreSRVs);
-	a_context->CSSetUnorderedAccessViews(0, 1, restoreUAVs, nullptr);
-
-	a_context->CopyResource(a_presentation, nativeUICompositionTexture_.Get());
 	++nativeUIExtractionCount_;
 	if (nativeUIExtractionCount_ <= 3 || nativeUIExtractionCount_ % 600 == 0) {
 		spdlog::info(
@@ -334,6 +337,7 @@ bool NativeUIComposition::ComposeLayer(ID3D11DeviceContext* a_context, ID3D11Tex
 
 void NativeUIComposition::ResetAfterRetirement()
 {
+	blend_.ResetAfterRetirement();
 	outputWidth_ = outputHeight_ = 0;
 	format_ = DXGI_FORMAT_UNKNOWN;
 	nativeUIExtractionAvailable_ = false;
