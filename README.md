@@ -47,10 +47,11 @@ includes NR and excludes both compatibility paths; RTX 40-series uses native x2.
 
 **Skyrim 1.5.97, 1.6.640 and 1.7.104 are experimental and untested in-game.**
 RTX 30-series execution, native RTX 50-series operation and HDR appearance remain
-unverified. Earlier Full candidates received scoped Skyrim 1.6.1170/RTX 4080 SUPER
-checks with ENB and Bottle's Community Shaders build, including both CS NR
-placements and Ratio controls. The combined 0.1.4 Standard and Full builds still
-need their own game acceptance. No physical frame-cadence claim is made.
+unverified. Both 0.1.4 editions received positive Skyrim 1.6.1170/RTX 4080 SUPER
+reports with Bottle's Community Shaders build: native x2 in Standard, Ada x4 in
+Full, and both NR placements. Full also logged x6. Recurring Streamline RSYNC
+errors remain recorded; no physical frame-cadence claim is made. Earlier Full
+builds were tested with ENB; the combined 0.1.4 ENB regression test is pending.
 
 See the [1.7.104 port notes](docs/SKYRIM_1_7_104.md) and
 [1.6.640 port notes](docs/SKYRIM_1_6_640.md). World, DLSS and Output open Image
@@ -59,7 +60,9 @@ settings; NR and Frame generation open their respective tabs.
 Use SKSE64 and Address Library matching your Skyrim executable. Full and Standard
 remain separate feature editions; each supports all four game versions.
 
-ENB is optional. Community Shaders setup and the tested build are documented above.
+The same DLL supports ENB and Community Shaders installations. It selects the CS
+path when CommunityShaders.dll is loaded; otherwise TRP owns upscaling. ENB is
+optional. Use one shading setup per profile. CS setup is documented above.
 
 See [LICENSE](LICENSE) and [third-party notices](THIRD-PARTY.md) for project and
 contribution terms. Vendor runtimes retain their own licenses.

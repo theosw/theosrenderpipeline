@@ -2,7 +2,8 @@
 
 Adds Community Shaders integration and NR Ratio/runtime checks. Standard now also
 includes NR; Full adds the RTX 40 MFG unlock and experimental RTX 30 compatibility.
-The combined 0.1.4 builds still need their own game acceptance.
+Both editions have positive Bottle CS test reports; the 0.1.4 ENB regression
+test is pending.
 
 DLSS/DLAA, frame generation, Neural Rendering and native-resolution UI for Skyrim.
 This package includes the full renderer, configuration and sharpening shader.
@@ -90,9 +91,10 @@ CS frame generation and CS Reflex. TRP provides FG/Reflex/NR while CS retains
 upscaling, render scale, sharpening and colour. Assign CS a separate menu key,
 such as F8, avoiding keys already assigned to capture tools. TRP keeps End.
 
-Earlier candidates received scoped Skyrim 1.6.1170/RTX 4080 SUPER checks with
-ENB and Bottle's Community Shaders build/Effects 11. Both CS NR placements and
-Ratio controls were accepted. The combined 0.1.4 build still needs its own run.
+This 0.1.4 build has a positive Skyrim 1.6.1170/RTX 4080 SUPER report with
+Bottle's Community Shaders build/Effects 11, including logged x4 and both NR
+placements. Full also logged x6. Recurring Streamline RSYNC errors remain
+recorded. Earlier ENB checks apply to earlier builds; the 0.1.4 ENB test is pending.
 Other CS builds, RTX 30 execution, native RTX 50 operation and HDR appearance
 remain unverified.
 

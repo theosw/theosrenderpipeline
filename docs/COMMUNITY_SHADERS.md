@@ -50,7 +50,15 @@ were visually accepted. A later Ratio test confirmed that lowering the maximum
 luma ratio darkens the scene and zero effect restores its colour. Separate CS
 and TRP menu keys were also accepted. These observations do not accept other CS
 builds, HDR appearance, native RTX 50 operation or physical frame cadence.
-The combined 0.1.4 candidate and its new Standard NR edition need their own runs.
+The combined 0.1.4 Standard and Full candidates now have overall positive
+reports on that setup, with logged native x2 in Standard, Ada x4 in Full, both
+NR placements and later Full x6. Full recorded zero NR/host failure counters
+alongside two recurring Streamline RSYNC errors. These reports do not separately
+verify every UI/transition check. The 0.1.4 ENB regression run is still pending.
+
+CS's "D3D12 Swap Chain: Inactive" footer describes its own disabled frame-generation
+proxy. TRP owns a separate Streamline swapchain, so this status is expected here.
+Keep CS frame generation disabled.
 
 Offline fixtures cover resource/guide isolation, binding restoration, display
 conversion without UI, presentation confirmation, frame consumption and resize.

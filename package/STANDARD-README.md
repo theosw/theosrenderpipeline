@@ -37,8 +37,9 @@ both. CS controls upscaling, render scale, sharpening and colour; TRP controls F
 and NR. Assign CS a separate menu key, such as F8, to avoid End conflicts with
 TRP or KreatE. Do not use F8 if it is already assigned to a capture tool.
 
-Earlier Full checkpoints were tested with Bottle's CS build/Effects 11 on
-Skyrim 1.6.1170 and an RTX 4080 SUPER. Other CS builds need confirmation.
+Standard 0.1.4 was tested with Bottle's CS build/Effects 11 on Skyrim 1.6.1170
+and an RTX 4080 SUPER, with native x2 and both NR placements. Other CS builds
+need confirmation.
 
 ## With the Full edition
 
@@ -52,8 +53,9 @@ support NR; Standard excludes Ada/Ampere compatibility code.
 
 ## Compatibility and reports
 
-The combined 0.1.4 Standard candidate has not yet been tested in-game. Earlier
-Full CS/NR and Standard menu checks apply only to their recorded builds.
+Standard 0.1.4 has a positive report on the CS setup above, with no recorded
+NR/host failures. The 0.1.4 ENB regression test is pending. Both shading setups
+use the same renderer DLL; enable only the intended shading setup in each profile.
 Skyrim 1.5.97, 1.6.640 and 1.7.104 are experimental and untested in-game.
 Actual RTX 30 execution in Full, native RTX 50-series operation, HDR appearance
 and physical frame cadence remain unverified.
