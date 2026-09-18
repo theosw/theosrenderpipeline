@@ -22,6 +22,14 @@ namespace
     }
 }
 
+bool NvidiaHost::CaptureAndComposeDedicatedNativeUI()
+{
+    // The direct compositor binds graphics state. Keep our routing hooks from
+    // treating its fullscreen draw as another native-UI producer.
+    InternalOperation internal(sourceUIInternal_);
+    return nativeUI_.Compose(context_.Get(), presentation_.Texture());
+}
+
 void NvidiaHost::RegisterSourceGameContext(ID3D11DeviceContext* context)
 {
     if (!StartupConfigured() || !proxyActive_) { return; }

@@ -1,5 +1,10 @@
 # Theo's Render Pipeline
 
+Version **0.1.4** combines Community Shaders support with Neural
+Rendering in both editions. CS keeps shading, upscaling and UI; TRP supplies
+frame generation, Reflex and optional world-only NR. Disable CS frame generation
+and Reflex when using TRP. See [setup and validation limits](docs/COMMUNITY_SHADERS.md).
+
 NVIDIA rendering integration for Skyrim: DLSS/DLAA, multi-frame generation,
 optional Neural Rendering and native-resolution menus and HUD. NVIDIA runtimes
 provide inference and generated-frame presentation.
@@ -8,14 +13,16 @@ This source archive builds `TheosRenderPipeline.dll`, including external ImGui i
 Install packages are supplied separately and link their matching Git revision.
 The full-feature package contains NR integration and Ada/Ampere MFG compatibility, with
 all NVIDIA runtimes supplied separately. It needs no other renderer package.
-See the installation guide for exact runtime download paths.
+Standard includes the SR/FG and NR runtimes, with NR off by default. Full can
+also use Standard's runtimes when installed after it in MO2.
+See the installation guides for each edition.
 
 ## Features
 
 - DLSS Super Resolution, DLAA, model presets and sharpening.
 - Frame generation and native MFG capabilities. The full-feature build selects
   its compatibility path using the rendering GPU; the existing opt-out remains available.
-- Full-feature build: NR before or after DLSS, one or two passes, input scaling and tuning.
+- Both editions: NR before or after DLSS, one or two passes, input scaling and tuning.
 - Spatial scaling for loading-screen backgrounds and an optional request for
   transition artwork, enabled by default under Advanced. Skyrim chooses the art.
 - Native UI composition, inventory/spell previews, startup overlays, external
@@ -34,17 +41,18 @@ in Git.
 The plugin and SKSE identity are `TheosRenderPipeline`. Published `SolFG_*`
 companion exports retain their names and layouts in `TheosRenderPipeline.dll`.
 
-Version **0.1.3** combines experimental RTX 30-series (SM86) compatibility
-with support for four exact Steam Skyrim versions. Full selects the Ampere
-compatibility path on RTX 30-series, the Ada unlock on RTX 40-series, and native
-capabilities on RTX 50-series. Standard excludes NR and both compatibility paths.
+Full selects experimental Ampere compatibility on RTX 30-series, the Ada MFG
+unlock on RTX 40-series, and native capabilities on RTX 50-series. Standard
+includes NR and excludes both compatibility paths; RTX 40-series uses native x2.
 
 **Skyrim 1.5.97, 1.6.640 and 1.7.104 are experimental and untested in-game.**
-RTX 30-series execution is also experimental and unverified. Both component
-candidates received scoped Skyrim 1.6.1170/LoreRim/ENB regression tests on an
-RTX 4080 SUPER, including Full x4/NR and Standard End closure during editing.
-The final combined build has not had a separate game run. Native RTX 50-series,
-HDR appearance and physical frame cadence remain unverified.
+RTX 30-series execution, native RTX 50-series operation and HDR appearance remain
+unverified. Both 0.1.4 editions received positive Skyrim 1.6.1170/RTX 4080 SUPER
+reports with Cabbage ENB and Bottle's Community Shaders build: native x2 in
+Standard, Ada x4 in Full, and both NR placements in each setup. Full also logged
+x6 in the CS run. Recurring Streamline RSYNC errors remain recorded in some
+runs; no physical frame-cadence claim is made. Individual UI/transition checks
+and compatibility with other CS builds are not inferred from overall feedback.
 
 See the [1.7.104 port notes](docs/SKYRIM_1_7_104.md) and
 [1.6.640 port notes](docs/SKYRIM_1_6_640.md). World, DLSS and Output open Image
@@ -53,7 +61,9 @@ settings; NR and Frame generation open their respective tabs.
 Use SKSE64 and Address Library matching your Skyrim executable. Full and Standard
 remain separate feature editions; each supports all four game versions.
 
-ENB is not a startup requirement; setups without ENB have not been validated.
+The same DLL supports ENB and Community Shaders installations. It selects the CS
+path when CommunityShaders.dll is loaded; otherwise TRP owns upscaling. ENB is
+optional. Use one shading setup per profile. CS setup is documented above.
 
 See [LICENSE](LICENSE) and [third-party notices](THIRD-PARTY.md) for project and
 contribution terms. Vendor runtimes retain their own licenses.

@@ -32,24 +32,29 @@ To run the optional checks in a configured build directory:
 
 ```powershell
 cmake -S . -B <build-directory> -DTRP_BUILD_COMPATIBILITY_TESTS=ON
-cmake --build <build-directory> --config Release --target TRPRuntimeProfileTests TRPRuntimeLayoutTests
+cmake --build <build-directory> --config Release --target TRPRuntimeProfileTests TRPRuntimeLayoutTests TRPSourceNvidiaFrameEvaluatorTests TRPD3D11FrameCopyTests
 ctest --test-dir <build-directory> -C Release --output-on-failure
 ```
 
 The `arp-nvidia` build preset builds only the renderer, so build the test targets
 explicitly before running CTest.
 These offline checks cover exact version admission, artwork caller isolation,
-graphics/control layouts and the linked format-1/2/5 Address Library loader;
-they do not execute game hooks or load NVIDIA runtimes.
+graphics/control layouts and the linked format-1/2/5 Address Library loader.
+The frame evaluator check uses D3D11 WARP to verify native reconstruction ordering,
+failure/reset handling and preparation of an already-completed frame without a
+second upscale. The frame-copy check reads back active-area color and depth,
+including cropped allocations, return-copy borders, producer overwrites, format
+conversion and compute-state restoration. These tests do not execute game hooks,
+load NVIDIA runtimes or validate cross-device GPU retirement.
 
-`TRP_ENABLE_OPTIONAL_FEATURES` selects the release variant. `OFF` builds the standard
-renderer without NR runtime integration, its shaders/UI, Ada/Ampere compatibility
-implementation or its static library. `ON` (the default) builds the
-full-feature renderer with NR and Ada/Ampere compatibility. Both variants preserve native
-NVIDIA capabilities and the same plugin identity. The standard build keeps NR
-preferences in settings files for later use by the full build, but cannot load NR.
-Build each configuration separately. The full-feature package requires
-user-supplied NVIDIA files, the included settings and the runtime sharpening shader.
+`TRP_ENABLE_NEURAL_RENDERING` defaults to `ON` in both editions and includes NR
+integration, shaders and controls. `OFF` is an explicit build without NR.
+`TRP_ENABLE_OPTIONAL_FEATURES` selects MFG compatibility: `OFF` builds Standard
+with native NVIDIA capabilities; `ON` (the default) adds Ada/Ampere compatibility
+and its static library for Full. Build each configuration separately. Both
+editions preserve the same plugin identity and complete NR controls.
+The Standard download includes the NVIDIA runtimes, including NR; Full may use
+Standard's runtimes when installed after it in MO2, or separately supplied files.
 
 Detours is compiled from Nukem9's source and bundled decoder. Use the validated
 revision below, placed under ignored `.dependencies/` or another local directory:
@@ -92,13 +97,13 @@ A complete installation also needs the configuration/shaders under `package/`,
 matching SKSE64/Address Library and the separately supplied NVIDIA runtimes:
 
 - `SKSE/Plugins/TheosRenderPipeline/nvngx_dlss.dll`
-- For NR in the full-feature build: `SKSE/Plugins/TheosRenderPipeline/NVIDIA/nvngx_dlssnr.dll`
+- For NR in either edition: `SKSE/Plugins/TheosRenderPipeline/NVIDIA/nvngx_dlssnr.dll`
 - Under `SKSE/Plugins/TheosRenderPipeline/NVIDIA/Streamline/`: `nvngx_dlssg.dll`, `sl.common.dll`,
   `sl.dlss_g.dll`, `sl.interposer.dll`, `sl.pcl.dll` and `sl.reflex.dll`.
 
 Keep the matching vendor license files with the runtimes. Existing runtime
-compatibility checks are retained. The standard build omits NR controls; the full build retains
-all NR/MFG controls. Build output alone
+compatibility checks are retained. Both editions retain NR controls; Full also
+retains Ada/Ampere MFG compatibility. Build output alone
 is not a complete installation; use a separately assembled release package and
 the [installation guide](../package/README.md).
 

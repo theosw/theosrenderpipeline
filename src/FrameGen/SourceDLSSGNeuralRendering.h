@@ -28,7 +28,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		void RetireTelemetry();
 		bool NeedsRecreation(const NeuralOptions& options, UINT guideWidth = 0, UINT guideHeight = 0) const
 		{
-			return feature_.IsInitialized() && (runtimePath_ != options.runtimePath || beforeUpscaling_ != options.beforeUpscaling || passes_ != options.passes ||
+			return feature_.IsInitialized() && (runtimePath_ != options.runtimePath || beforeUpscaling_ != options.beforeUpscaling || worldOnly_ != options.WorldOnly() || passes_ != options.passes ||
 				!NeuralRendering::SameReconstructionResources(reconstruction_, options.reconstruction) ||
 				((guideWidth || guideHeight) && (guideWidth != guideWidth_ || guideHeight != guideHeight_)));
 		}
@@ -55,6 +55,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		std::filesystem::path runtimePath_;
 		UINT guideWidth_{}, guideHeight_{};
 		bool beforeUpscaling_{};
+		bool worldOnly_{};
 		int passes_{1};
 		Microsoft::WRL::ComPtr<ID3D12RootSignature> root_;
 		Microsoft::WRL::ComPtr<ID3D12PipelineState> pipeline_;

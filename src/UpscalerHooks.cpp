@@ -6,6 +6,7 @@
 #include "UpscalerSamplerHooks.h"
 
 #include <PCH.h>
+#include "CommunityShaderIntegration.h"
 
 #include "DLSSBackend.h"
 #include "DRS.h"
@@ -778,6 +779,7 @@ struct UpscalerHooks
 		{
 			func();
 			MenuOpenCloseEventHandler::Register();
+			if (TheosRenderPipeline::CommunityShaders::Active()) { return; }
 			RenderPipeline::GetSingleton()->InitUpscaler();
 			// Establish native engine dimensions immediately after renderer
 			// initialization. These fields are distinct from the HWND cache
@@ -930,6 +932,12 @@ struct UpscalerHooks
 			util::report_and_fail("No verified hook profile for this Skyrim runtime.");
 		}
 		const auto& offsets = profile->hooks;
+		if (TheosRenderPipeline::CommunityShaders::Active()) {
+			stl::write_thunk_call<BSGraphics_Renderer_Init_InitD3D>(REL::RelocationID(75595, 77226).address() + REL::Relocate(0x50, 0x2BC));
+			TheosRenderPipeline::InstallUpscalerDeviceHooks(reinterpret_cast<std::uintptr_t>(GetModuleHandleW(nullptr)));
+			TheosRenderPipeline::LoadingArtwork::Install();
+			return;
+		}
 		{
 			// Validate all sites before publishing
 			// any patch; retain the original calling convention through a tail jump.

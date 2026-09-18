@@ -1,6 +1,6 @@
 #include <PCH.h>
 #include "SourceDLSSGMFG.h"
-#include "NeuralRenderingRuntimeIdentity.h"
+#include "../PluginPaths.h"
 #include "SourceDLSSGMFGPatch.h"
 #include "../../extern/RTX40MFG/midpoint_fix.h"
 #include "../../extern/RTX40MFG/dlssg_provider_policy.h"
@@ -20,13 +20,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// Resolve only the configured bundle; the backend owns loading and calls.
 		HMODULE RetainConfiguredModule(const std::filesystem::path& directory, const wchar_t* name)
 		{
-			using namespace NeuralRenderingRuntimeIdentity;
-			auto module = GetModuleHandleW(name);
-			if (!module || !EqualPath(ModulePath(module), directory / name)) { return nullptr; }
-			HMODULE retained{};
-			if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
-				reinterpret_cast<LPCWSTR>(module), &retained)) { return nullptr; }
-			return retained;
+			return PluginPaths::RetainLoadedModule(directory / name);
 		}
 	}
 	[[noreturn]] void MFGUnlock::Fail(const char* reason)

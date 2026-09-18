@@ -10,6 +10,8 @@ set(ARP_BASELINE_SOURCES
     include/SolFGStartupOverlayAPI.h
     include/SolFGTextureProviderAPI.h
     src/DLSSBackend.cpp
+    src/CommunityShaderIntegration.cpp
+    src/CommunityShaderIntegration.h
     src/DLSSBackend.h
     src/DLSSFeatureParameters.h
     src/DLSSPreset.h
@@ -21,9 +23,17 @@ set(ARP_BASELINE_SOURCES
     src/FrameGen/PresentationTargets.h
     src/FrameGen/GameFacingTargets.h
     src/FrameGen/NativeUIComposition.h
+    src/FrameGen/NativeUIBlend.h
+    src/FrameGen/NativeUIBlend.cpp
     src/FrameGen/NativeUIPass.h
     src/FrameGen/SourceFrameCoordinator.h
     src/FrameGen/SourceNvidiaFrameEvaluator.h
+    src/FrameGen/SourceNvidiaFramePreparation.h
+    src/FrameGen/D3D11FrameCopy.h
+    src/FrameGen/D3D11ContextIsolation.h
+    src/FrameGen/CommunityShaderFrame.h
+    src/FrameGen/CommunityShaderAdapter.h
+    src/FrameGen/CommunityShaderAdapter.cpp
     src/FrameGen/SourceNvidiaEvaluation.cpp
     src/FrameGen/LoadingArtwork.cpp
     src/FrameGen/LoadingArtwork.h
@@ -132,8 +142,8 @@ set(ARP_BASELINE_SOURCES
     src/XSEPlugin.cpp
 )
 
-# Optional runtime integration and its UI are never linked into the base.
-set(ARP_OPTIONAL_SOURCES
+# Neural Rendering is available independently of MFG compatibility.
+set(ARP_NEURAL_SOURCES
     src/FrameGen/NeuralRenderingFeatureSession.cpp
     src/FrameGen/NeuralRenderingModulePathHook.cpp
     src/FrameGen/NeuralRenderingRuntimeIdentity.cpp

@@ -3,6 +3,7 @@
 #include "DLSSBackend.h"
 #include "DLSSPreset.h"
 #include "DRS.h"
+#include "CommunityShaderIntegration.h"
 #include "FrameGen/SourceFrameGeneration.h"
 #include "FrameGen/NvidiaHost.h"
 #include "FrameGen/SourceDLSSGBackend.h"
@@ -70,7 +71,7 @@ void RenderPipeline::LoadINI()
 		mEnableJitter);
 
 	auto bFXAAEnabled = RE::GetINISetting("bFXAAEnabled:Display");
-	if (bFXAAEnabled) {
+	if (bFXAAEnabled && !TheosRenderPipeline::CommunityShaders::Active()) {
 		if (bFXAAEnabled->GetBool()) {
 			logger::info("Forcing FXAA off.");
 		}

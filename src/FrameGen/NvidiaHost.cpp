@@ -6,6 +6,8 @@
 #include "SourceDLSSGCamera.h"
 #include "SourceFrameGeneration.h"
 #include "PerformanceTuning.h"
+#include "CommunityShaderIntegration.h"
+#include "SourceGenerationPolicy.h"
 #include <PCH.h>
 
 bool NvidiaHost::EvaluateFrame(IDXGISwapChain* a_swapChain, bool a_nativeUIHandoff)
@@ -115,6 +117,36 @@ float NvidiaHost::OptimalMipmapBias() const
     return DLSSBackend::GetSingleton()->GetOptimalMipLodBias();
 }
 
+bool NvidiaHost::PrepareCommunityFrameForPresent()
+{
+    if (!proxyActive_ || !upscalerReady_ || FAILED(FailureResult()) || !gameTargets_.GameFacing()) { return false; }
+    Microsoft::WRL::ComPtr<IDXGISwapChain3> indexed;
+    if (FAILED(innerSwapChain_->QueryInterface(IID_PPV_ARGS(&indexed)))) { return false; }
+    const auto index = indexed->GetCurrentBackBufferIndex();
+    if (index >= presentation_.Buffers().size()) { return false; }
+    D3D11_TEXTURE2D_DESC desc{}; gameTargets_.GameFacing()->GetDesc(&desc);
+    const bool prepared = communityFrame_.Prepare(desc);
+    auto* pipeline = RenderPipeline::GetSingleton();
+    SetRuntimeEnabled(TheosRenderPipeline::SourceGenerationEnabled(warmupPresentsRemaining_,
+        SourceFrameGeneration::GetSingleton()->RuntimeInterpolationRequested(), prepared,
+        pipeline->FrameGenerationTransitionBlocked()));
+    // Every real presentation copies CS's completed image, including menus and
+    // frames where camera/guide inputs are unavailable for generation.
+    context_->CopyResource(presentation_.Buffers()[index].Get(), gameTargets_.GameFacing());
+    if (prepared) {
+        renderWidth_ = communityFrame_.RenderExtent().width;
+        renderHeight_ = communityFrame_.RenderExtent().height;
+        ++evaluationCount_;
+        if (pipeline->mPendingHistoryResets > 0) { --pipeline->mPendingHistoryResets; }
+    }
+    status_ = communityFrame_.Status();
+    if (presentCount_ < 3 || presentCount_ % 600 == 0) {
+        logger::info("[CS Adapter] present={} prepared={} evaluations={} render={}x{} output={}x{} {}",
+            presentCount_, prepared, evaluationCount_, renderWidth_, renderHeight_, outputWidth_, outputHeight_, status_);
+    }
+    return prepared;
+}
+
 HRESULT NvidiaHost::GetGameFacingBuffer(IDXGISwapChain* a_swapChain, UINT, REFIID a_iid, void** a_surface)
 {
     if (!a_surface)
@@ -135,7 +167,7 @@ HRESULT NvidiaHost::GetGameFacingBuffer(IDXGISwapChain* a_swapChain, UINT, REFII
 
 void NvidiaHost::AdjustLegacyDescForCaller(DXGI_SWAP_CHAIN_DESC* a_desc, const void* a_returnAddress) const
 {
-    if (!proxyActive_ || !a_desc || !a_returnAddress || !renderWidth_ || !renderHeight_)
+    if (TheosRenderPipeline::CommunityShaders::Active() || !proxyActive_ || !a_desc || !a_returnAddress || !renderWidth_ || !renderHeight_)
     {
         return;
     }
@@ -173,8 +205,6 @@ bool NvidiaHost::CreateNativeUIExtractionResources(const D3D11_TEXTURE2D_DESC& d
 }
 
 bool NvidiaHost::ExtractNativeUIColorAndAlpha() { return nativeUI_.Extract(context_.Get(), presentation_.Texture()); }
-
-bool NvidiaHost::CaptureAndComposeDedicatedNativeUI() { return nativeUI_.Compose(context_.Get(), presentation_.Texture()); }
 
 void NvidiaHost::EndNativeUIPass() { nativeUIPass_.End(context_.Get()); }
 

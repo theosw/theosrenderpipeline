@@ -15,7 +15,7 @@ struct NvidiaHost::SourceNvidiaEvaluationOperations
     RenderPipeline& upscaler;
     sl::Constants constants{};
 
-    bool NeuralEligible(const TheosRenderPipeline::SourceNvidiaFrameInputs& frame) const
+    bool NeuralEligible(const TheosRenderPipeline::SourceNvidiaFrameGuides& frame) const
     {
         auto* ui = RE::UI::GetSingleton();
         return host.nativeUI_.Dedicated() && frame.uiColorAndAlpha && frame.hudLessColor && ui &&
@@ -24,7 +24,7 @@ struct NvidiaHost::SourceNvidiaEvaluationOperations
 
     bool EvaluateNeuralBeforeDLSS(TheosRenderPipeline::SourceNvidiaFrameInputs& frame)
     {
-#if !defined(TRP_BASE_RENDERER)
+#if !defined(TRP_NO_NEURAL_RENDERING)
         auto& backend = TheosRenderPipeline::SourceDLSSG::Backend::Get();
         const auto options = backend.NeuralConfiguration();
         sl::Constants preview{};
@@ -34,7 +34,7 @@ struct NvidiaHost::SourceNvidiaEvaluationOperations
                 frame.renderWidth, frame.renderHeight, frame.jitterX, frame.jitterY,
                 frame.reset, frame.jitterEnabled, preview, false);
         return backend.EvaluateNeuralBeforeUpscaling(options, cameraValid ? &preview : nullptr,
-            eligible, frame.input, frame.motion, frame.depth, frame.reset);
+            eligible, frame.input, frame.motion, frame.depth, {frame.renderWidth, frame.renderHeight}, frame.reset);
 #else
         (void)frame;
         return true;
@@ -77,17 +77,18 @@ struct NvidiaHost::SourceNvidiaEvaluationOperations
         return evaluated;
     }
     void UpscaleSucceeded() { ++host.upscaleEvaluationCount_; }
-    bool CaptureCamera(const TheosRenderPipeline::SourceNvidiaFrameInputs& frame)
+    bool CaptureCamera(const TheosRenderPipeline::SourceNvidiaFrameGuides& frame)
     {
         return TheosRenderPipeline::SourceDLSSG::CaptureCameraConstants(upscaler.mGraphicsState,
             frame.renderWidth, frame.renderHeight, frame.jitterX, frame.jitterY,
             frame.reset, frame.jitterEnabled, constants);
     }
-    bool Prepare(const TheosRenderPipeline::SourceNvidiaFrameInputs& frame)
+    bool Prepare(const TheosRenderPipeline::SourceNvidiaFrameGuides& frame)
     {
         ScopedD3D11PerformanceStage timer{host.context_.Get(), PerformanceTuning::D3D11Stage::kFrameGenInputs};
         return TheosRenderPipeline::SourceDLSSG::Backend::Get().Prepare(constants, frame.motion, frame.depth,
-            frame.uiColorAndAlpha, frame.hudLessColor, frame.outputWidth, frame.outputHeight, NeuralEligible(frame));
+            frame.uiColorAndAlpha, frame.hudLessColor, {frame.renderWidth, frame.renderHeight},
+            frame.outputWidth, frame.outputHeight, NeuralEligible(frame));
     }
     void PublishGeneration(bool prepared)
     {

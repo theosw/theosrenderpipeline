@@ -43,6 +43,23 @@ presentation path. Display refresh is reported without choosing another host.
 
 ## Resource boundaries
 
+`SourceNvidiaFramePreparation` accepts borrowed guides and camera inputs after
+the frame producer succeeds. It advances camera history, prepares downstream
+inputs and publishes the generation decision without invoking an upscaler.
+The native evaluator calls it only after successful reconstruction; NR or DLSS
+failure skips preparation. Resource validation, synchronization and retirement
+remain the host's responsibility. This internal boundary does not install an
+external renderer adapter.
+
+Frame preparation receives the active render extent independently of the source
+texture allocation. Shared motion/depth guides contain only that top-left area;
+depth is sampled into R32_FLOAT because depth-stencil textures cannot be cropped
+with a region copy. Early NR uses the same area and writes its result back without
+changing the producer's surrounding pixels. `D3D11FrameCopy` preserves the compute
+bindings it changes; callers unbind writable producer views and retain ownership
+of synchronization. Changed shared-guide extents still drain the GPU before
+replacing resources. UI and completed-world tags retain their full output extent.
+
 `GameSwapChain` returns a stable render-size texture to Skyrim. The inner
 `SourceDLSSG::SwapChain` manages shared D3D11/D3D12 presentation textures and the
 rotating native swapchain. They have different buffer identities and lifetimes.

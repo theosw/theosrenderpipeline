@@ -13,6 +13,10 @@ namespace TheosRenderPipeline::SourceDLSSG
 	{
 		bool enabled{ false }; // Standard DLSS unless source NR was explicitly saved.
 		bool beforeUpscaling{ false };
+		// Input contract supplied by the renderer adapter, never a saved setting.
+		// CS can run either placement before UI composition.
+		bool worldOnly{ false };
+		bool WorldOnly() const { return beforeUpscaling || worldOnly; }
 		int passes{ 1 };
 		std::filesystem::path runtimePath;
 		NeuralRendering::Tuning tuning{};

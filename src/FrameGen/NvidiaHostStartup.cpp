@@ -3,6 +3,7 @@
 #include "GameSwapChain.h"
 #include "NativeInput.h"
 #include "NvidiaHost.h"
+#include "CommunityShaderIntegration.h"
 #include "SourceDLSSGBackend.h"
 #include "SourceDLSSGCamera.h"
 #include "SourceFrameGeneration.h"
@@ -46,7 +47,8 @@ HRESULT NvidiaHost::CreateSwapChain(IDXGIFactory* a_factory, ID3D11Device* a_dev
     backend.ConfigureMFGUnlock(settings.sourceDLSSGMFGUnlock);
     TheosRenderPipeline::SourceDLSSG::NeuralOptions options;
     options.runtimePath = settings.neuralRenderingRuntimePath;
-    options.enabled = settings.sourceDLSSG.neuralEnabled && !options.runtimePath.empty() && RenderPipeline::GetSingleton()->mUpscaleType == DLSS;
+    options.enabled = settings.sourceDLSSG.neuralEnabled && !options.runtimePath.empty() &&
+        (TheosRenderPipeline::CommunityShaders::Active() || RenderPipeline::GetSingleton()->mUpscaleType == DLSS);
     options.tuning = settings.sourceDLSSG.neuralTuning;
     options.reconstruction = settings.sourceDLSSG.neuralReconstruction;
     options.beforeUpscaling = settings.sourceDLSSG.neuralBeforeUpscaling;
@@ -135,7 +137,12 @@ bool NvidiaHost::CreateGameFacingResources(IDXGISwapChain* a_swapChain)
     auto* settings = RenderPipeline::GetSingleton();
     int queriedRenderWidth = 0;
     int queriedRenderHeight = 0;
-    const auto sizeQuery = &TheosRenderPipeline::SourceDLSSG::QueryRenderSize;
+    const auto sizeQuery = [](int width, int height, int quality, int* renderWidth, int* renderHeight) {
+        if (TheosRenderPipeline::CommunityShaders::Active()) {
+            *renderWidth = width; *renderHeight = height; return true;
+        }
+        return TheosRenderPipeline::SourceDLSSG::QueryRenderSize(width, height, quality, renderWidth, renderHeight);
+    };
     if (!sizeQuery(static_cast<int>(outputWidth_), static_cast<int>(outputHeight_), sourceUpscalerSettings_.Startup().AllocationQuality(),
                    &queriedRenderWidth, &queriedRenderHeight) ||
         queriedRenderWidth <= 0 || queriedRenderHeight <= 0 || queriedRenderWidth > static_cast<int>(outputWidth_) ||
@@ -163,6 +170,12 @@ bool NvidiaHost::CreateGameFacingResources(IDXGISwapChain* a_swapChain)
         return false;
     }
 
+    if (TheosRenderPipeline::CommunityShaders::Active()) {
+        evaluationFailureLogged_ = false;
+        sourceUpscalerInitializationPending_ = true;
+        logger::info("[CS Adapter] native game-facing buffer prepared {}x{}; CS owns its upscaling resources", outputWidth_, outputHeight_);
+        return true;
+    }
     const auto inputDesc = TheosRenderPipeline::GameFacingTargets::UpscaleInputDesc(outputDesc, renderWidth_, renderHeight_);
     const auto inputResult = gameTargets_.CreateUpscaleInputAfterRetirement(device_.Get(), outputDesc, renderWidth_, renderHeight_);
     if (FAILED(inputResult) || !gameTargets_.UpscaleInput())
@@ -235,6 +248,12 @@ bool NvidiaHost::CompleteStartupAfterDeviceCreation()
 
 bool NvidiaHost::InitializeSourceUpscaler(const D3D11_TEXTURE2D_DESC& a_outputDesc)
 {
+    if (TheosRenderPipeline::CommunityShaders::Active()) {
+        upscalerReady_ = true;
+        splitSourceDLSSActive_ = false;
+        status_ = "CS owns upscaling; NVIDIA frame adapter initialized";
+        return true;
+    }
     if (!device_ || !context_ || renderWidth_ == 0 || renderHeight_ == 0)
     {
         status_ = "TheosRenderPipeline DLSS split source prerequisites are incomplete";
