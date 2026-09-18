@@ -170,6 +170,7 @@ float3 RestoreProducer(float3 original, float3 a, float3 n) {
     if (ProducerColor) {
         OutputColor[p.xy]=float4(Swizzle(RestoreProducer(Swizzle(original.rgb),a,n)),original.a); return;
     }
+    if (TransferStrength==0) { OutputColor[p.xy]=original; return; }
     if (!Passthrough) { a=ToLinear(a); n=ToLinear(n); }
     float white=Passthrough?1:max(WhitePoint,0.0001);
     float3 base=Swizzle(original.rgb)/white, result=base;
@@ -181,8 +182,13 @@ float3 RestoreProducer(float3 original, float3 a, float3 n) {
         scaled.yz=normal.yz*(chroma==0?1:length(scaled.yz)/chroma);
         result=lerp(base,GamutClip(FromLab(scaled)),TransferStrength);
     }
-    float lumaRatio=min(max((Luma(result)+0.001953125)/(by+0.001953125),0),MaxRatio);
-    result=max(lerp(base*lumaRatio,result,ColourStrength)*white,0);
+    float lumaRatio=max((Luma(result)+0.001953125)/(max(by,0)+0.001953125),0);
+    result=max(lerp(base*lumaRatio,result,ColourStrength),0);
+    // Limit the final colour, including extrapolation above colour strength 1.
+    // Capping only the luminance branch lets the other branch bypass the limit.
+    float resultY=Luma(result), maxY=max(by,0)*MaxRatio;
+    if (resultY>maxY) result*=maxY/max(resultY,0.0000000001);
+    result=min(result*white,65504);
     OutputColor[p.xy]=float4(Swizzle(result),original.a);
 }
 )";

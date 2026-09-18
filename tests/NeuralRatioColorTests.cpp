@@ -245,6 +245,57 @@ static void ProducerEdits(ID3D11Device* device, ID3D11DeviceContext* context,
     std::puts("Producer edits: real changes, zero strength, invalid output, black, signed RGB, alpha and FP16 bounds passed.");
 }
 
+static void RatioGain(ID3D11Device* device, ID3D11DeviceContext* context,
+    ID3D11ComputeShader* shader, ID3D11Buffer* constants)
+{
+    // The limit must constrain final luminance, including colour extrapolation,
+    // rather than only a branch that full colour strength can discard.
+    const auto luma = [](const Pixel& p) { return p[0] * 0.2126f + p[1] * 0.7152f + p[2] * 0.0722f; };
+    for (const bool hdr : {false, true}) for (const bool bgra : {false, true}) {
+        const float white = hdr ? 64.0f : 1.0f;
+        std::vector<Pixel> pixels{{0.01f, 0.01f, 0.01f, -0.5f}, {0.003f, 0.015f, 0.001f, 2},
+            {0, 0, 0, 0.5f}, {0.00001f, 0.00002f, 0.00004f, 0.25f}, {0.2f, 0.1f, 0.4f, 1}};
+        for (auto& p : pixels) { for (size_t c = 0; c < 3; ++c) { p[c] *= white; } }
+        if (bgra) { for (auto& p : pixels) { std::swap(p[0], p[2]); } }
+        const UINT width = static_cast<UINT>(pixels.size());
+        auto original = Texture(device, width, 1, pixels);
+        auto encoded = Texture(device, width, 1, std::vector<Pixel>(pixels.size()));
+        auto model = Texture(device, width, 1, std::vector<Pixel>(pixels.size(), Pixel{1, 1, 1, 1}));
+        auto resolved = Texture(device, width, 1, std::vector<Pixel>(pixels.size()));
+        auto expected = Readback(context, original.texture.Get());
+        ResolveConstants params;
+        params.sourceWidth = params.targetWidth = params.workWidth = width;
+        params.sourceHeight = params.targetHeight = params.workHeight = 1;
+        params.passthrough = !hdr; params.whitePoint = white; params.sourceIsBGRA = bgra;
+        Dispatch(context, shader, constants, params, {original.srv.Get(), nullptr, nullptr}, encoded.uav.Get(), width, 1);
+        params.mode = 1;
+        for (float limit : {0.5f, 1.0f, 2.0f, 4.0f}) for (float strength : {0.0f, 0.5f, 1.0f, 2.0f})
+            for (float colour : {0.0f, 1.0f, 2.0f}) {
+                params.maxRatio = limit; params.transferStrength = strength; params.colourStrength = colour;
+                Dispatch(context, shader, constants, params, {encoded.srv.Get(), model.srv.Get(), original.srv.Get()},
+                    resolved.uav.Get(), width, 1);
+                auto actual = Readback(context, resolved.texture.Get());
+                for (size_t i = 0; i < actual.size(); ++i) {
+                    Require(actual[i][3] == expected[i][3], "Ratio gain cannot change source alpha");
+                    if (!strength) { Require(actual[i] == expected[i], "zero Ratio effect strength is exact identity even with a sub-unity cap"); continue; }
+                    auto a = actual[i], e = expected[i];
+                    if (bgra) { std::swap(a[0], a[2]); std::swap(e[0], e[2]); }
+                    for (size_t c = 0; c < 3; ++c) { Require(std::isfinite(a[c]) && a[c] >= 0, "Ratio gain returns finite nonnegative RGB"); }
+                    const float bound = luma(e) * limit;
+                    if (luma(a) > bound * 1.002f + 0.0000001f) {
+                        std::fprintf(stderr, "Gain mismatch: HDR=%d BGRA=%d strength=%g colour=%g max=%g pixel=%zu originalY=%g actualY=%g\n",
+                            hdr, bgra, strength, colour, limit, i, luma(e), luma(a));
+                        Require(false, "maximum Ratio luminance holds after colour mixing");
+                    }
+                    if (i == 0 && limit == 2 && strength == 1 && colour == 1) {
+                        Require(luma(a) > luma(e) * 1.9f, "Ratio still transfers brightening up to the requested cap");
+                    }
+                }
+            }
+    }
+    std::puts("Ratio gain: final luminance bound, zero effect, black, HDR/SDR, BGRA, alpha and colour extrapolation passed.");
+}
+
 int main()
 {
     ComPtr<ID3D11Device> device;
@@ -278,6 +329,7 @@ int main()
         ModelIdentity(device.Get(), context.Get(), shader.Get(), constants.Get(), true, 1, bgra);
     }
     ProducerEdits(device.Get(), context.Get(), shader.Get(), constants.Get());
+    RatioGain(device.Get(), context.Get(), shader.Get(), constants.Get());
     context->ClearState();
     std::puts("Ratio color: FP16 HDR/SDR identity, bounded input, channel order, alpha and active-region guards passed.");
 }
