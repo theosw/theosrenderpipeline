@@ -1,4 +1,4 @@
-# Theo's Render Pipeline — Standard, 0.1.4 candidate
+# Theo's Render Pipeline — Standard, 0.1.4
 
 DLSS/DLAA, native NVIDIA frame generation, Neural Rendering, NVIDIA Reflex and
 native-resolution menus for Skyrim. All eight NVIDIA runtime DLLs are included.
@@ -53,8 +53,9 @@ support NR; Standard excludes Ada/Ampere compatibility code.
 
 ## Compatibility and reports
 
-Standard 0.1.4 has a positive report on the CS setup above, with no recorded
-NR/host failures. The 0.1.4 ENB regression test is pending. Both shading setups
+Standard 0.1.4 has positive reports with Cabbage ENB and the CS setup above,
+with native x2 and both NR placements and no recorded NR/host failure counters.
+The ENB run retains two recurring Streamline RSYNC errors. Both shading setups
 use the same renderer DLL; enable only the intended shading setup in each profile.
 Skyrim 1.5.97, 1.6.640 and 1.7.104 are experimental and untested in-game.
 Actual RTX 30 execution in Full, native RTX 50-series operation, HDR appearance
