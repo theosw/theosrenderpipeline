@@ -119,7 +119,7 @@ RWTexture2D<float4> output : register(u0);
 			status_ = "NR settings or guide dimensions changed without retiring the previous pass"; return false;
 		}
 		if (corrected_ && (!SameSize(corrected_.Get(), hudless) || corrected_->GetDesc().Format != sceneDesc.Format ||
-			(!options.beforeUpscaling && (!SameSize(composed_.Get(), composed) || composed_->GetDesc().Format != outputDesc.Format)))) {
+			(!options.WorldOnly() && (!SameSize(composed_.Get(), composed) || composed_->GetDesc().Format != outputDesc.Format)))) {
 			status_ = "NR dimensions changed without retiring the previous pass"; return false;
 		}
 		if (!corrected_) {
@@ -130,7 +130,7 @@ RWTexture2D<float4> output : register(u0);
 				return check(device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc,
 					D3D12_RESOURCE_STATE_COMMON, nullptr, IID_PPV_ARGS(&out)), "NR output allocation");
 			};
-			if (!create(sceneDesc, corrected_) || (!options.beforeUpscaling && !create(outputDesc, composed_))) { return false; }
+			if (!create(sceneDesc, corrected_) || (!options.WorldOnly() && !create(outputDesc, composed_))) { return false; }
 			if (options.passes == 2) {
 				auto secondDesc = sceneDesc; secondDesc.Width = workWidth; secondDesc.Height = workHeight;
 				if (!create(secondDesc, secondOutput_)) { return false; }
@@ -144,9 +144,9 @@ RWTexture2D<float4> output : register(u0);
 					auto residualDesc = workDesc; residualDesc.Width = sceneDesc.Width;
 					residualDesc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
 					if (!create(residualDesc, residual_)) { return false; }
-				} else if (reconstruction.colorIsHDR && !create(sceneDesc, encoded_)) { return false; }
+				} else if ((reconstruction.colorIsHDR || reconstruction.producerColor) && !create(sceneDesc, encoded_)) { return false; }
 			}
-			if (!options.beforeUpscaling) {
+			if (!options.WorldOnly()) {
 				D3D12_DESCRIPTOR_RANGE ranges[2]{};
 				ranges[0] = { D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 2, 0, 0, 0 };
 				ranges[1] = { D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 0, 0, 2 };
@@ -188,6 +188,7 @@ RWTexture2D<float4> output : register(u0);
 		runtimePath_ = options.runtimePath;
 		guideWidth_ = info.renderWidth; guideHeight_ = info.renderHeight;
 		beforeUpscaling_ = options.beforeUpscaling;
+		worldOnly_ = options.WorldOnly();
 		passes_ = options.passes;
 		return true;
 	}
@@ -198,7 +199,7 @@ RWTexture2D<float4> output : register(u0);
 		ID3D12Resource* hudless, ID3D12Resource* composed, std::uint64_t timestampFrequency)
 	{
 		if (!device || !list || slot >= heaps_.size() || options.passes < 1 || options.passes > 2 || !SameSize(motion, depth) ||
-			!Texture(hudless) || (options.beforeUpscaling ? (ui || composed || options.tuning.uiCorrection) :
+			!Texture(hudless) || (options.WorldOnly() ? (ui || composed || options.tuning.uiCorrection) :
 			(!SameSize(hudless, composed) || !SameSize(ui, hudless) || hudless == composed)) ||
 			!std::isfinite(scaleX) || !std::isfinite(scaleY) || !scaleX || !scaleY) {
 			status_ = "NR source input contract is incomplete"; return false;
@@ -218,6 +219,7 @@ RWTexture2D<float4> output : register(u0);
 		constants.targetWidth = static_cast<UINT>(featureOutput->GetDesc().Width); constants.targetHeight = featureOutput->GetDesc().Height;
 		constants.workWidth = constants.targetWidth; constants.workHeight = constants.targetHeight;
 		constants.passthrough = !reconstruction.colorIsHDR;
+		constants.producerColor = reconstruction.producerColor;
 		constants.transferStrength = reconstruction.transferStrength; constants.colourStrength = reconstruction.colourStrength;
 		constants.maxRatio = reconstruction.maxRatio; constants.whitePoint = reconstruction.whitePoint;
 		auto dispatch = [&](unsigned stage, ResolveKernel kernel, ID3D12Resource* a, ID3D12Resource* b,
@@ -328,11 +330,13 @@ RWTexture2D<float4> output : register(u0);
 			Transition(list, corrected_.Get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS, read);
 		}
 
-		if (options.beforeUpscaling) {
+		if (options.WorldOnly()) {
 			Transition(list, corrected_.Get(), read, D3D12_RESOURCE_STATE_COMMON);
 			for (auto* texture : { motion, depth, hudless }) { Transition(list, texture, read, D3D12_RESOURCE_STATE_COMMON); }
-			status_ = std::format("NR before DLSS {}x{} -> {}x{}; {} pass(es); world only; UI correction unused",
-				constants.workWidth, constants.workHeight, constants.sourceWidth, constants.sourceHeight, options.passes);
+			status_ = std::format("NR {} upscaling {}x{} -> {}x{}; {} pass(es); {}; world only; UI correction unused",
+				options.beforeUpscaling ? "before" : "after", constants.workWidth, constants.workHeight,
+				constants.sourceWidth, constants.sourceHeight, options.passes,
+				reconstruction.producerColor ? "producer RGB reconstruction" : "user reconstruction");
 			return true;
 		}
 

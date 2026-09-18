@@ -5,6 +5,7 @@
 #include "FrameGen/NvidiaHost.h"
 #include "FrameGen/SourceDLSSGBackend.h"
 #include "PerformanceTuning.h"
+#include "CommunityShaderIntegration.h"
 
 namespace TheosRenderPipeline
 {
@@ -80,7 +81,7 @@ RendererSettingsResult RendererSettingsController::Apply(const RendererSettingsD
     std::string actionMessage;
     bool actionMessageIsError = false;
     const bool sourceUpscaler = host_.StartupConfigured();
-    RendererSettingsCapabilities capabilities{sourceUpscaler, false, host_.DedicatedUITextureMode()};
+    RendererSettingsCapabilities capabilities{sourceUpscaler, false, host_.DedicatedUITextureMode(), CommunityShaders::Active()};
 #if !defined(TRP_NO_NEURAL_RENDERING)
     capabilities.neuralRuntime =
         TheosRenderPipeline::SourceDLSSG::NeuralRuntimePresent(frameGen_.settings.neuralRenderingRuntimePath);
@@ -125,7 +126,7 @@ RendererSettingsResult RendererSettingsController::Apply(const RendererSettingsD
         source.ConfigureOutputFPSLimit(frameGen_.settings.sourceDLSSG.outputFPSLimit);
         source.ConfigureGeneration(frameGen_.settings.sourceDLSSG.generation);
         TheosRenderPipeline::SourceDLSSG::NeuralOptions options;
-        options.enabled = frameGen_.settings.sourceDLSSG.neuralEnabled && upscaler_.mUpscaleType == DLSS;
+        options.enabled = frameGen_.settings.sourceDLSSG.neuralEnabled && (CommunityShaders::Active() || upscaler_.mUpscaleType == DLSS);
         options.runtimePath = frameGen_.settings.neuralRenderingRuntimePath;
         options.tuning = frameGen_.settings.sourceDLSSG.neuralTuning;
         options.reconstruction = frameGen_.settings.sourceDLSSG.neuralReconstruction;
@@ -196,7 +197,8 @@ RendererSettingsResult RendererSettingsController::SetNeuralRenderingEnabled(boo
             return {"NR runtime DLL not found. Install nvngx_dlssnr.dll at the configured path and restart Skyrim.",
                     true};
         }
-        if (options.enabled && (!backend.Ready() || upscaler_.mUpscaleType != DLSS || !host_.DedicatedUITextureMode()))
+        if (options.enabled && (!backend.Ready() || (!CommunityShaders::Active() &&
+            (upscaler_.mUpscaleType != DLSS || !host_.DedicatedUITextureMode()))))
         {
             actionMessage = "Source NR requires DLSS, dedicated UI Texture mode, and a configured NR runtime.";
             actionMessageIsError = true;

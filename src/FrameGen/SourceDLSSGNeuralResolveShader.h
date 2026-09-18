@@ -9,7 +9,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 inline constexpr char kNeuralResolveShader[] = R"(
 cbuffer NRParams : register(b0) {
     uint SourceWidth, SourceHeight, TargetWidth, TargetHeight;
-    uint SourceIsBgra, Mode, Passthrough, Pad0;
+    uint SourceIsBgra, Mode, Passthrough, ProducerColor;
     uint WorkWidth, WorkHeight;
     float TransferStrength, ColourStrength, MaxRatio, WhitePoint;
 };
@@ -101,13 +101,51 @@ float3 GamutClip(float3 c) {
     return float3(dot(wide,float3(1.70505095,-0.621792018,-0.0832590014)),
         dot(wide,float3(-0.130255997,1.14080501,-0.0105480002)),dot(wide,float3(-0.0240030009,-0.128968999,1.15297198)));
 }
+// A paired range conversion in the producer's own RGB coordinates. No gamma,
+// gamut or exposure interpretation is inferred from its floating-point format.
+// Reuse the original pixel's scale when returning NR's delta; never invert a
+// nearly-white learned value, which would amplify quantization unpredictably.
+float ProducerScale(float3 c) {
+    float peak=max(c.r,max(c.g,c.b));
+    float white=max(WhitePoint,0.0001), x=peak/white;
+    if (x<=0.75) return white;
+    float bounded=0.75+0.25*(1-exp2(-5.77078009*(x-0.75)));
+    return peak/bounded;
+}
+float3 RestoreProducer(float3 original, float3 a, float3 n) {
+    if (!all(isfinite(original)) || !all(isfinite(a)) || !all(isfinite(n)) || TransferStrength==0) return original;
+    float3 base=max(original,0);
+    float peak=max(base.r,max(base.g,base.b));
+    if (peak<=0.000001) return original;
+    a=saturate(a); n=saturate(n);
+    float3 delta=(n-a)*ProducerScale(base);
+    float brightnessRatio=(Luma(n)+0.000001)/(Luma(a)+0.000001);
+    float3 brightnessDelta=base*(brightnessRatio-1);
+    float3 result=base+TransferStrength*lerp(brightnessDelta,delta,ColourStrength);
+    if (!all(isfinite(result))) return original;
+    // Bound gain and prevent FP16 overflow. The original signed channels and
+    // alpha are retained outside the nonnegative model proxy.
+    float limit=min(peak*max(MaxRatio,1),max(peak,65504));
+    result=clamp(result,0,limit);
+    return float3(original.r<0?original.r:result.r,
+                  original.g<0?original.g:result.g,
+                  original.b<0?original.b:result.b);
+}
 [numthreads(8,8,1)] void Ratio(uint3 p : SV_DispatchThreadID) {
     if (p.x >= TargetWidth || p.y >= TargetHeight) return;
     if (Mode == 0) {
         float4 c=Tex0.Load(int3(p.xy,0)); float3 rgb=max(Swizzle(c.rgb),0);
+        if (ProducerColor) {
+            rgb=all(isfinite(c.rgb)) ? rgb/ProducerScale(rgb) : 0;
+            OutputColor[p.xy]=float4(Swizzle(saturate(rgb)),1); return;
+        }
         if (!Passthrough) {
-            rgb/=max(WhitePoint,0.0001); float y=Luma(rgb);
-            if (y>0.75) rgb*= (0.75+0.25*(1-exp2(-5.77078009*(y-0.75))))/y;
+            rgb/=max(WhitePoint,0.0001);
+            // Bound the brightest channel with one RGB scale. A luminance-only
+            // shoulder lets saturated highlights exceed one; ToSRGB then clips
+            // channels separately and changes hue even when NR changes nothing.
+            float peak=max(rgb.r,max(rgb.g,rgb.b));
+            if (peak>0.75) rgb*= (0.75+0.25*(1-exp2(-5.77078009*(peak-0.75))))/peak;
             rgb=ToSRGB(rgb);
         }
         OutputColor[p.xy]=float4(Swizzle(rgb),c.a); return;
@@ -129,6 +167,10 @@ float3 GamutClip(float3 c) {
         }
         weight=abs(weight)>0.000001?weight:1; a/=weight; n/=weight;
     }
+    if (ProducerColor) {
+        OutputColor[p.xy]=float4(Swizzle(RestoreProducer(Swizzle(original.rgb),a,n)),original.a); return;
+    }
+    if (TransferStrength==0) { OutputColor[p.xy]=original; return; }
     if (!Passthrough) { a=ToLinear(a); n=ToLinear(n); }
     float white=Passthrough?1:max(WhitePoint,0.0001);
     float3 base=Swizzle(original.rgb)/white, result=base;
@@ -140,8 +182,13 @@ float3 GamutClip(float3 c) {
         scaled.yz=normal.yz*(chroma==0?1:length(scaled.yz)/chroma);
         result=lerp(base,GamutClip(FromLab(scaled)),TransferStrength);
     }
-    float lumaRatio=min(max((Luma(result)+0.001953125)/(by+0.001953125),0),MaxRatio);
-    result=max(lerp(base*lumaRatio,result,ColourStrength)*white,0);
+    float lumaRatio=max((Luma(result)+0.001953125)/(max(by,0)+0.001953125),0);
+    result=max(lerp(base*lumaRatio,result,ColourStrength),0);
+    // Limit the final colour, including extrapolation above colour strength 1.
+    // Capping only the luminance branch lets the other branch bypass the limit.
+    float resultY=Luma(result), maxY=max(by,0)*MaxRatio;
+    if (resultY>maxY) result*=maxY/max(resultY,0.0000000001);
+    result=min(result*white,65504);
     OutputColor[p.xy]=float4(Swizzle(result),original.a);
 }
 )";

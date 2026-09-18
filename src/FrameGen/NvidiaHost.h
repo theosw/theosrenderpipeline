@@ -6,6 +6,7 @@
 #include <wrl/client.h>
 
 #include "GameFacingTargets.h"
+#include "CommunityShaderAdapter.h"
 #include "NativeUIAttachments.h"
 #include "NativeUIComposition.h"
 #include "NativeUIContexts.h"
@@ -36,6 +37,8 @@ class NvidiaHost
 
     HRESULT CreateSwapChain(IDXGIFactory* a_factory, ID3D11Device* a_device, DXGI_SWAP_CHAIN_DESC* a_desc, IDXGISwapChain** a_swapChain);
     bool CompleteStartupAfterDeviceCreation();
+    TheosRenderPipeline::CommunityShaderAdapter& CommunityFrame() { return communityFrame_; }
+    bool PrepareCommunityFrameForPresent();
     bool EvaluateFrame(IDXGISwapChain* a_swapChain, bool a_nativeUIHandoff = false);
     bool FinishNativeUIPassForPresent();
     void OnBackgroundReady(TheosRenderPipeline::BackgroundBoundary boundary, bool mainOrLoading);
@@ -133,6 +136,7 @@ class NvidiaHost
     Microsoft::WRL::ComPtr<ID3D11DeviceContext> context_;
     TheosRenderPipeline::NativeUIContexts nativeUIContexts_;
     TheosRenderPipeline::GameFacingTargets gameTargets_;
+    TheosRenderPipeline::CommunityShaderAdapter communityFrame_;
     TheosRenderPipeline::NativeUIComposition nativeUI_;
     TheosRenderPipeline::PresentationTargets presentation_;
     TheosRenderPipeline::NativeUIPass nativeUIPass_;

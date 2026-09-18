@@ -15,6 +15,7 @@
 #include "NativeUIBridge.h"
 #include "../compatibility/ImGuiCompat/ImGuiIntegration.h"
 #include "UpscalerHooks.h"
+#include "CommunityShaderIntegration.h"
 #include <SolFGLateOverlayAPI.h>
 #include <SolFGStartupOverlayAPI.h>
 #include "FrameGen/NvidiaHost.h"
@@ -60,9 +61,18 @@ namespace
 
 	void MessageHandler(SKSE::MessagingInterface::Message* a_msg)
 	{
-		DRS::GetSingleton()->MessageHandler(a_msg);
-		RenderPipeline::GetSingleton()->MessageHandler(a_msg);
 		if (a_msg && a_msg->type == SKSE::MessagingInterface::kPostLoad) {
+			TheosRenderPipeline::CommunityShaders::SelectRenderer();
+			if (!TheosRenderPipeline::CommunityShaders::Active()) {
+				const auto runtime = GetPluginDirectory() / L"TheosRenderPipeline" / L"nvngx_dlss.dll";
+				logger::info("nvngx_dlss.dll preload from \"{}\": {}", runtime.string(), ::LoadLibraryW(runtime.c_str()) ? "ok" : "failed");
+				DRS::InstallHooks();
+			}
+			InstallUpscalerHooks();
+		}
+		if (!TheosRenderPipeline::CommunityShaders::Active()) { DRS::GetSingleton()->MessageHandler(a_msg); }
+		RenderPipeline::GetSingleton()->MessageHandler(a_msg);
+		if (a_msg && a_msg->type == SKSE::MessagingInterface::kPostLoad && !TheosRenderPipeline::CommunityShaders::Active()) {
 			TheosRenderPipeline::ImGuiIntegration::Install();
 		}
 	}
@@ -163,12 +173,8 @@ extern "C" DLLEXPORT bool __cdecl SKSEPlugin_Load(const SKSE::LoadInterface* a_s
 	}
 	logger::info("{} {}", Plugin::DISPLAY_NAME, Plugin::RELEASE_VERSION);
 
-	// Preload the DLSS runtime that ships in Data/SKSE/Plugins/TheosRenderPipeline so NGX
-	// can find it regardless of working directory.
-	const auto dlssRuntime = GetPluginDirectory() / L"TheosRenderPipeline" / L"nvngx_dlss.dll";
-	const auto dlssModule = ::LoadLibraryW(dlssRuntime.c_str());
-	logger::info("nvngx_dlss.dll preload from \"{}\": {}", dlssRuntime.string(), dlssModule ? "ok" : "failed");
-
+	// Capture the engine callee before post-load renderer hooks replace its call.
+	TheosRenderPipeline::CommunityShaders::RememberEngineBoundary();
 
 	// Load runtime paths and the initial interpolation request before the
 	// required NVIDIA host is constructed during device creation.
@@ -189,8 +195,7 @@ extern "C" DLLEXPORT bool __cdecl SKSEPlugin_Load(const SKSE::LoadInterface* a_s
     // All call hooks share this block for the lifetime of the plugin.
     // Reallocating it later can free stubs that game code still branches through.
     SKSE::AllocTrampoline(1024);
-	DRS::InstallHooks();
-	InstallUpscalerHooks();
+	// Select hook ownership at kPostLoad, after all SKSE plugins are loaded.
 
 	logger::info("{} loaded", Plugin::NAME);
 	return true;

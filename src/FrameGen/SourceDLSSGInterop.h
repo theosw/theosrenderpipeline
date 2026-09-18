@@ -3,6 +3,7 @@
 #include <d3d11_4.h>
 #include <d3d12.h>
 #include <wrl/client.h>
+#include "D3D11FrameCopy.h"
 
 #include <array>
 #include <cstddef>
@@ -45,6 +46,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			ID3D12CommandQueue* a_queue);
 		HRESULT CreateSharedTexture(const D3D11_TEXTURE2D_DESC& a_desc, SharedTexture& a_output);
 		HRESULT CopyInput(ID3D11Texture2D* a_input, const SharedTexture& a_destination);
+		HRESULT CopyInputRegion(ID3D11Texture2D* a_input, const SharedTexture& a_destination, FrameExtent a_extent);
 		HRESULT SignalD3D11(Work a_work);
 		HRESULT WaitD3D12(Work a_work);
 		HRESULT WaitD3D11(Work a_work);

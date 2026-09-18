@@ -1,5 +1,6 @@
 #include "SourceDLSSGBackend.h"
 #include <PCH.h>
+#include "CommunityShaderIntegration.h"
 #include "SourceDLSSGSwapChain.h"
 #include "../PluginPaths.h"
 #include <d3dcompiler.h>
@@ -66,7 +67,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 		directory_ = Normalize(a_directory);
 		// Keep one owner for the configured modules. Versions do not gate loading.
 		for (const auto* name : kStreamlineModules) {
-			if (::GetModuleHandleW(name)) {
+			const auto configuredOwner = RetainLoadedModule(directory_ / name);
+			if (configuredOwner) { ::FreeLibrary(configuredOwner); }
+			if (configuredOwner || (!CommunityShaders::Active() && ::GetModuleHandleW(name))) {
 				return Check(E_UNEXPECTED, std::format("{} already loaded by another owner", std::filesystem::path(name).string()).c_str());
 			}
 		}
@@ -156,10 +159,10 @@ namespace TheosRenderPipeline::SourceDLSSG
 		for (const auto feature : { sl::kFeatureReflex, sl::kFeaturePCL, sl::kFeatureDLSS_G }) {
 			if (!Check(supported_(feature, info), std::format("feature support {}", feature).c_str())) { return fault_; }
 		}
-		for (const auto* name : kStreamlineModules) {
-			const auto loaded = GetModuleHandleW(name);
-			if (!loaded || !TheosRenderPipeline::PluginPaths::EqualPath(
-				TheosRenderPipeline::PluginPaths::ModulePath(loaded), directory_ / name)) {
+		for (std::size_t index = 0; index < kStreamlineModules.size(); ++index) {
+			const auto* name = kStreamlineModules[index];
+			runtimeModules_[index] = TheosRenderPipeline::PluginPaths::RetainLoadedModule(directory_ / name);
+			if (!runtimeModules_[index]) {
 				Check(E_FAIL, std::format("{} was not loaded from the configured Streamline directory", std::filesystem::path(name).string()).c_str());
 				return fault_;
 			}
@@ -229,19 +232,22 @@ namespace TheosRenderPipeline::SourceDLSSG
 	void Backend::ReleaseGuides()
 	{
 		motion_ = {}; depth_ = {}; ui_ = {}; hudless_ = {}; earlyNeuralColor_ = {};
-		uiSource_.Reset(); depthSource_.Reset(); depthSRV_.Reset(); depthUAV_.Reset();
+		uiSource_.Reset(); depthCopy_.ResetViews();
 	}
-	bool Backend::EnsureGuide(ID3D11Texture2D* a_source, SharedTexture& a_pair, DXGI_FORMAT a_format)
+	bool Backend::EnsureGuide(ID3D11Texture2D* a_source, SharedTexture& a_pair, DXGI_FORMAT a_format, FrameExtent a_extent)
 	{
 		if (!a_source) { return false; }
 		D3D11_TEXTURE2D_DESC desc{};
 		a_source->GetDesc(&desc);
+		if (!a_extent.width && !a_extent.height) { a_extent = {desc.Width, desc.Height}; }
+		if (!a_extent.Fits(desc)) { return false; }
+		desc.Width = a_extent.width; desc.Height = a_extent.height;
 		if (a_format != DXGI_FORMAT_UNKNOWN) { desc.Format = a_format; }
 		if (a_pair.texture11 && (a_pair.desc.Width != desc.Width || a_pair.desc.Height != desc.Height || a_pair.desc.Format != desc.Format)) {
 			if (!Check(interop_.SignalD3D11(Work::FrameGeneration), "retire changed guide") ||
 				!Check(interop_.Drain(), "drain changed guide")) { return false; }
 			a_pair = {};
-			if (&a_pair == &depth_) { depthUAV_.Reset(); }
+			if (&a_pair == &depth_) { depthCopy_.ResetViews(); }
 		}
 		if (a_pair.texture11) { return true; }
 		desc.Usage = D3D11_USAGE_DEFAULT; desc.CPUAccessFlags = 0; desc.MiscFlags = 0;
@@ -256,61 +262,34 @@ namespace TheosRenderPipeline::SourceDLSSG
 	}
 	bool Backend::CopyDepth(ID3D11Texture2D* a_depth)
 	{
-		if (!depthCopy_) {
-			constexpr char source[] = "Texture2D<float> s:register(t0); RWTexture2D<float> d:register(u0); [numthreads(8,8,1)] void main(uint3 p:SV_DispatchThreadID){uint w,h; d.GetDimensions(w,h); if(p.x<w && p.y<h) d[p.xy]=s.Load(int3(p.xy,0));}";
-			ComPtr<ID3DBlob> code, errors;
-			if (!Check(D3DCompile(source, sizeof(source) - 1, "SourceDLSSGDepth", nullptr, nullptr, "main", "cs_5_0", 0, 0, &code, &errors), "depth shader compile") ||
-				!Check(device11_->CreateComputeShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, &depthCopy_), "depth shader")) { return false; }
-		}
-		if (depthSource_.Get() != a_depth) {
-			D3D11_TEXTURE2D_DESC desc{}; a_depth->GetDesc(&desc);
-			D3D11_SHADER_RESOURCE_VIEW_DESC srv{};
-			switch (desc.Format) {
-			case DXGI_FORMAT_R24G8_TYPELESS: srv.Format = DXGI_FORMAT_R24_UNORM_X8_TYPELESS; break;
-			case DXGI_FORMAT_R32_TYPELESS: case DXGI_FORMAT_R32_FLOAT: srv.Format = DXGI_FORMAT_R32_FLOAT; break;
-			default: return Check(E_INVALIDARG, "unsupported depth source format");
-			}
-			srv.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D; srv.Texture2D.MipLevels = 1;
-			depthSRV_.Reset();
-			if (!Check(device11_->CreateShaderResourceView(a_depth, &srv, &depthSRV_), "depth SRV")) { return false; }
-			depthSource_ = a_depth;
-		}
-		if (!depthUAV_ && !Check(device11_->CreateUnorderedAccessView(depth_.texture11.Get(), nullptr, &depthUAV_), "depth UAV")) { return false; }
-		ComPtr<ID3D11ComputeShader> shader;
-		ComPtr<ID3D11ShaderResourceView> srv;
-		ComPtr<ID3D11UnorderedAccessView> uav;
-		ID3D11ClassInstance* classes[256]{}; UINT classCount = 256;
-		context11_->CSGetShader(&shader, classes, &classCount);
-		context11_->CSGetShaderResources(0, 1, &srv);
-		context11_->CSGetUnorderedAccessViews(0, 1, &uav);
-		ID3D11ShaderResourceView* noSRV = nullptr; ID3D11UnorderedAccessView* noUAV = nullptr;
-		context11_->CSSetShaderResources(0, 1, &noSRV); context11_->CSSetUnorderedAccessViews(0, 1, &noUAV, nullptr);
-		context11_->CSSetShader(depthCopy_.Get(), nullptr, 0);
-		context11_->CSSetShaderResources(0, 1, depthSRV_.GetAddressOf());
-		context11_->CSSetUnorderedAccessViews(0, 1, depthUAV_.GetAddressOf(), nullptr);
-		context11_->Dispatch((depth_.desc.Width + 7) / 8, (depth_.desc.Height + 7) / 8, 1);
-		context11_->CSSetShaderResources(0, 1, &noSRV); context11_->CSSetUnorderedAccessViews(0, 1, &noUAV, nullptr);
-		context11_->CSSetShader(shader.Get(), classes, classCount);
-		context11_->CSSetShaderResources(0, 1, srv.GetAddressOf()); context11_->CSSetUnorderedAccessViews(0, 1, uav.GetAddressOf(), nullptr);
-		for (UINT i = 0; i < classCount; ++i) { if (classes[i]) { classes[i]->Release(); } }
-		return true;
+		return Check(depthCopy_.Copy(context11_.Get(), a_depth, depth_.texture11.Get(),
+			{depth_.desc.Width, depth_.desc.Height}), "depth copy");
 	}
 	bool Backend::Prepare(const sl::Constants& a_constants, ID3D11Texture2D* a_motion, ID3D11Texture2D* a_depth,
-		ID3D11Texture2D* a_ui, ID3D11Texture2D* a_hudless, UINT a_width, UINT a_height, bool a_neuralEligible)
+		ID3D11Texture2D* a_ui, ID3D11Texture2D* a_hudless, FrameExtent a_renderExtent,
+		UINT a_width, UINT a_height, bool a_neuralEligible)
 	{
-		if (!Ready() || !Session::ValidConstants(a_constants) || !a_motion || !a_depth) { return false; }
-		if (!neuralEvaluatedEarly_ && (!EnsureGuide(a_motion, motion_) || !EnsureGuide(a_depth, depth_, DXGI_FORMAT_R32_FLOAT) ||
-			!CopyDepth(a_depth) || !Check(interop_.CopyInput(a_motion, motion_), "motion copy"))) { return false; }
+		if (!Ready() || !Session::ValidConstants(a_constants) || !a_motion || !a_depth ||
+			!a_renderExtent.width || !a_renderExtent.height) { return false; }
+		if (neuralEvaluatedEarly_) {
+			// Early NR froze these before the producer could overwrite its depth.
+			// Never reuse them for a differently sized completed frame.
+			if (motion_.desc.Width != a_renderExtent.width || motion_.desc.Height != a_renderExtent.height ||
+				depth_.desc.Width != a_renderExtent.width || depth_.desc.Height != a_renderExtent.height) { return false; }
+		} else if (!EnsureGuide(a_motion, motion_, DXGI_FORMAT_UNKNOWN, a_renderExtent) ||
+			!EnsureGuide(a_depth, depth_, DXGI_FORMAT_R32_FLOAT, a_renderExtent) ||
+			!CopyDepth(a_depth) || !Check(interop_.CopyInputRegion(a_motion, motion_, a_renderExtent), "motion copy")) { return false; }
 		if (a_hudless && (!EnsureGuide(a_hudless, hudless_) || !Check(interop_.CopyInput(a_hudless, hudless_), "HUD-less copy"))) { return false; }
 		if (a_ui && !EnsureGuide(a_ui, ui_)) { return false; }
 		uiSource_ = a_ui;
 		frameConstants_ = a_constants;
-		const bool eligible = a_neuralEligible && !TransitionBlocked() && a_ui && a_hudless;
+		const bool eligible = a_neuralEligible && !TransitionBlocked() && a_hudless &&
+			(a_ui || (neuralEvaluatedEarly_ && frameNeuralOptions_.worldOnly));
 		// The game host freezes settings before DLSS. Standalone callers that
 		// only Prepare retain the late-stage contract and never run early NR here.
 		if (!neuralFrameBegun_) {
 			frameNeuralOptions_ = NeuralConfiguration();
-			neuralEligible_ = eligible && !frameNeuralOptions_.beforeUpscaling;
+			neuralEligible_ = eligible && !frameNeuralOptions_.WorldOnly();
 			frameNeuralReset_ = neuralHistory_.ResetFor(frameNeuralOptions_, neuralEligible_, a_constants.reset == sl::eTrue);
 		} else {
 			neuralEligible_ = neuralEligible_ && eligible;
@@ -360,9 +339,10 @@ namespace TheosRenderPipeline::SourceDLSSG
 		}
 #if !defined(TRP_NO_NEURAL_RENDERING)
 		const auto options = prepared ? frameNeuralOptions_ : NeuralConfiguration();
-		const bool eligible = prepared && neuralEligible_;
-		const bool active = options.enabled && eligible && (!options.beforeUpscaling || neuralEvaluatedEarly_);
-		const bool lateActive = active && !options.beforeUpscaling;
+		const auto unavailable = NeuralUnavailableReason(options);
+		const bool eligible = prepared && neuralEligible_ && !unavailable;
+		const bool active = options.enabled && eligible && (!options.WorldOnly() || neuralEvaluatedEarly_);
+		const bool lateActive = active && !options.WorldOnly();
 		const bool reset = prepared ? frameNeuralReset_ : neuralHistory_.ResetFor(options, false, false);
 		if (lateActive && !RecreateNeuralIfNeeded(options)) { return fault_; }
 #endif
@@ -419,7 +399,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			if (active) { ++neuralSnapshot_.evaluations; }
 			if (reset) { ++neuralSnapshot_.resets; }
 			if (active) { neuralSnapshot_.telemetry = neuralPass_->Telemetry(); }
-			neuralSnapshot_.status = active ? neuralPass_->Status() : options.enabled ?
+			neuralSnapshot_.status = unavailable ? unavailable : active ? neuralPass_->Status() : options.enabled ?
 				"NR waiting for world inputs and dedicated native UI; standard DLSS active" : "standard DLSS; source NR is off";
 			if (changed || (active && (reset || neuralSnapshot_.evaluations % 600 == 0))) {
 				logger::info("[SourceDLSSG NR] frame={} active={} evaluations={} reset={} style={} fgRequested={} {}",

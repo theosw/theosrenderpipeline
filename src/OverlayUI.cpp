@@ -340,7 +340,7 @@ void OverlayUI::BuildUI()
     ImGui::End();
 }
 
-void OverlayUI::OnPresent()
+void OverlayUI::OnPresent(ID3D11Texture2D* producerUI)
 {
 	if (!initialized) {
 		return;
@@ -360,7 +360,7 @@ void OverlayUI::OnPresent()
 	if (nvidiaHost->ProxyActive()) {
 		// Source Present preparation also provides a native target on frames
 		// without a world/Mist UI handoff. Legacy fallback keeps its old extent.
-		const bool nativeUI = (nvidiaHost->NativePresentReady() || nvidiaHost->NativeUIPassActive()) && nvidiaHost->NativePresentationTexture();
+		const bool nativeUI = producerUI || ((nvidiaHost->NativePresentReady() || nvidiaHost->NativeUIPassActive()) && nvidiaHost->NativePresentationTexture());
 		ImGui::GetIO().DisplaySize = ImVec2(
 			static_cast<float>(nativeUI ? nvidiaHost->OutputWidth() : nvidiaHost->RenderWidth()),
 			static_cast<float>(nativeUI ? nvidiaHost->OutputHeight() : nvidiaHost->RenderHeight()));
@@ -373,7 +373,9 @@ void OverlayUI::OnPresent()
 	ID3D11RenderTargetView* overlayTarget = nullptr;
 	ID3D11Texture2D* finalFrame = nullptr;
 	Microsoft::WRL::ComPtr<ID3D11Texture2D> fallbackBuffer;
-	if (nvidiaHost->ProxyActive()) {
+	if (producerUI) {
+		finalFrame = producerUI;
+	} else if (nvidiaHost->ProxyActive()) {
 		finalFrame = nvidiaHost->NativeUIPassActive() ?
 			nvidiaHost->NativeUIRenderTexture() : nvidiaHost->GameFacingTexture();
 		if (nvidiaHost->NativePresentReady()) {

@@ -144,6 +144,13 @@ namespace TheosRenderPipeline::SourceDLSSG
 		return S_OK;
 	}
 
+	HRESULT Interop::CopyInputRegion(ID3D11Texture2D* a_input, const SharedTexture& a_destination, FrameExtent a_extent)
+	{
+		if (!Ready()) { return FAILED(fault_) ? fault_ : E_UNEXPECTED; }
+		if (a_destination.desc.Width != a_extent.width || a_destination.desc.Height != a_extent.height) { return E_INVALIDARG; }
+		return D3D11FrameCopy::Color(context11_.Get(), a_input, a_destination.texture11.Get(), a_extent);
+	}
+
 	HRESULT Interop::SignalD3D11(Work a_work)
 	{
 		auto* work = Get(a_work);

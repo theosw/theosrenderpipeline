@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.21)
 
 project(
 	TheosRenderPipeline
-	VERSION 0.1.3
+	VERSION 0.1.4
 	LANGUAGES C CXX
 )
 
@@ -200,9 +200,59 @@ find_package(xbyak CONFIG REQUIRED)
 # Build the plugin without packaging, deployment or game launch.
 add_custom_target(ARPBaseline DEPENDS TheosRenderPipeline)
 
-option(TRP_BUILD_COMPATIBILITY_TESTS "Build offline runtime profile checks" OFF)
+option(TRP_BUILD_COMPATIBILITY_TESTS "Build offline runtime and frame contract checks" OFF)
 if(TRP_BUILD_COMPATIBILITY_TESTS)
     enable_testing()
+    foreach(module IN ITEMS 1 2)
+        add_library(TRPModuleIdentityFixture${module} SHARED tests/ModuleIdentityFixture.cpp)
+        target_compile_definitions(TRPModuleIdentityFixture${module} PRIVATE TRP_TEST_MODULE_ID=${module})
+        set_target_properties(TRPModuleIdentityFixture${module} PROPERTIES
+            OUTPUT_NAME "TRPModuleIdentityFixture"
+            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/module-fixtures/${module}"
+            ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/module-fixtures/${module}")
+    endforeach()
+    add_executable(TRPPluginPathsTests tests/PluginPathsTests.cpp)
+    target_compile_features(TRPPluginPathsTests PRIVATE cxx_std_23)
+    target_compile_definitions(TRPPluginPathsTests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    target_include_directories(TRPPluginPathsTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_link_libraries(TRPPluginPathsTests PRIVATE ARPDetours)
+    add_dependencies(TRPPluginPathsTests TRPModuleIdentityFixture1 TRPModuleIdentityFixture2)
+    foreach(order IN ITEMS a-first b-first)
+        add_test(NAME PluginPaths-${order} COMMAND TRPPluginPathsTests
+            $<TARGET_FILE:TRPModuleIdentityFixture1> $<TARGET_FILE:TRPModuleIdentityFixture2> ${order} direct)
+        add_test(NAME PluginPaths-virtual-${order} COMMAND TRPPluginPathsTests
+            $<TARGET_FILE:TRPModuleIdentityFixture1> $<TARGET_FILE:TRPModuleIdentityFixture2> ${order} virtual)
+    endforeach()
+    add_executable(TRPD3D11FrameCopyTests tests/D3D11FrameCopyTests.cpp)
+    target_compile_features(TRPD3D11FrameCopyTests PRIVATE cxx_std_23)
+    target_compile_definitions(TRPD3D11FrameCopyTests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    target_include_directories(TRPD3D11FrameCopyTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_link_libraries(TRPD3D11FrameCopyTests PRIVATE d3d11 d3dcompiler)
+    add_test(NAME D3D11FrameCopy COMMAND TRPD3D11FrameCopyTests)
+    add_executable(TRPNeuralRatioColorTests tests/NeuralRatioColorTests.cpp)
+    target_compile_features(TRPNeuralRatioColorTests PRIVATE cxx_std_23)
+    target_compile_definitions(TRPNeuralRatioColorTests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    target_include_directories(TRPNeuralRatioColorTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_link_libraries(TRPNeuralRatioColorTests PRIVATE d3d11 d3dcompiler)
+    add_test(NAME NeuralRatioColor COMMAND TRPNeuralRatioColorTests)
+    add_executable(TRPCommunityShaderFrameTests tests/CommunityShaderFrameTests.cpp)
+    target_compile_features(TRPCommunityShaderFrameTests PRIVATE cxx_std_23)
+    target_compile_definitions(TRPCommunityShaderFrameTests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    target_include_directories(TRPCommunityShaderFrameTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_link_libraries(TRPCommunityShaderFrameTests PRIVATE d3d11 d3dcompiler)
+    add_test(NAME CommunityShaderFrame COMMAND TRPCommunityShaderFrameTests)
+    add_executable(TRPNeuralWorldContractTests tests/NeuralWorldContractTests.cpp)
+    target_compile_features(TRPNeuralWorldContractTests PRIVATE cxx_std_23)
+    target_compile_definitions(TRPNeuralWorldContractTests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    target_include_directories(TRPNeuralWorldContractTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+        "${CMAKE_CURRENT_SOURCE_DIR}/include" "${TRP_STREAMLINE_INCLUDE_DIR}")
+    add_test(NAME NeuralWorldContract COMMAND TRPNeuralWorldContractTests)
+    add_executable(TRPSourceNvidiaFrameEvaluatorTests tests/SourceNvidiaFrameEvaluatorTests.cpp)
+    target_compile_features(TRPSourceNvidiaFrameEvaluatorTests PRIVATE cxx_std_23)
+    target_compile_definitions(TRPSourceNvidiaFrameEvaluatorTests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    target_include_directories(TRPSourceNvidiaFrameEvaluatorTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_link_libraries(TRPSourceNvidiaFrameEvaluatorTests PRIVATE d3d11)
+    add_test(NAME SourceNvidiaFrameEvaluation COMMAND TRPSourceNvidiaFrameEvaluatorTests)
     add_executable(TRPRuntimeProfileTests tests/RuntimeProfileTests.cpp)
     target_compile_features(TRPRuntimeProfileTests PRIVATE cxx_std_23)
     target_compile_definitions(TRPRuntimeProfileTests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
