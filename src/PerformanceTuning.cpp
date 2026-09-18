@@ -536,11 +536,17 @@ void PerformanceTuning::MaybeLogTimingSummary()
 		return TheosRenderPipeline::Telemetry::Milliseconds(d11[ToIndex(a_stage)], timingSnapshot_.d3d11Available[ToIndex(a_stage)]);
 	};
 	logger::info(
-		"[Performance] smoothed ms: D3D11 frame={} inputs={} colorCopy={} mask={} DLSS={} RCAS={} outputCopy={} hudless={}",
+		"[Performance] smoothed ms: D3D11 frame={} inputs={} colorCopy={} mask={} DLSS={} RCAS={} outputCopy={} presentationCopy={} hudless={}",
 		d11ms(D3D11Stage::kFrame), d11ms(D3D11Stage::kFrameGenInputs),
 		d11ms(D3D11Stage::kInputColorCopy), d11ms(D3D11Stage::kMaskEncode),
 		d11ms(D3D11Stage::kDLSS), d11ms(D3D11Stage::kRCAS),
-		d11ms(D3D11Stage::kOutputCopy), d11ms(D3D11Stage::kHUDLessCopy));
+		d11ms(D3D11Stage::kOutputCopy), d11ms(D3D11Stage::kPresentationCopy), d11ms(D3D11Stage::kHUDLessCopy));
+	for (std::size_t i = 0; i < routeStatus_.size(); ++i) {
+		const auto& route = routeStatus_[i];
+		logger::info("[Performance Route] {} requested={} frames={} fallbacks={} rejected={} reason={}",
+			OptimizationName(static_cast<Optimization>(i)), route.requested,
+			route.activeFrames, route.fallbackCount, route.sessionRejected, route.reason);
+	}
 	{
 		const auto& present = timingSnapshot_.sourcePresentCpu;
 		logger::info("[Performance Source] nativeUI={} startupOverlay={} CPU Present p50={} p95={} p99={} samples={}; CPU includes API waits, not GPU generation or scanout",
