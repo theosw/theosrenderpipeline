@@ -1,52 +1,62 @@
-# Community Shaders adapter prototype
+# Community Shaders integration
 
-The initial prototype received scoped x4 gameplay confirmation, but NR caused
-colored sky artifacts in both placements. This candidate changes the later NR
-boundary; its visual result is untested. Validation targets Skyrim 1.6.1170
-with Community Shaders in the UltraCS profile. Support for other
-CS revisions, lighting modes and Skyrim versions is not established by building
-the plugin or by the existing runtime-profile tests.
+Use CS for shading, upscaling, render scale, jitter, sharpening, tone mapping and
+UI. TRP supplies NVIDIA frame generation, Reflex and optional Neural Rendering.
+Disable CS frame generation and CS Reflex; leave CS upscaling enabled. No
+replacement CS DLL is required. Disable other competing upscaler/FG plugins.
 
-CS owns shading, reconstruction, render scale, jitter, sharpening, tone mapping
-and UI. TRP retains its NVIDIA frame-generation host, multiplier/latency controls
-and optional NR. Disable CS frame generation and CS Reflex before the combined
-run; leave CS upscaling enabled. No replacement CS DLL is required.
+Set separate menu keys for CS and TRP/KreatE. F8 for CS and End for TRP works in
+the tested setup; Bottle also offers Shift+F8 for its editor. Pick another key
+if F8 is already used by FrameView or another tool. TRP does not rebind CS for you.
 
-The adapter wraps the engine postprocessing call while preserving the earlier
-renderer hook. It snapshots motion, depth and camera before CS rewrites them.
-Before-upscale NR still runs there on unfinished world color. After-upscale NR
-now waits until the preserved engine postprocessing callee returns and operates
-on the actual framebuffer RTV's scene, before CS restores any framebuffer
-redirection and before UI rendering. The corrected scene is then captured for
-FG. Previously both placements evaluated before tone mapping. The early path
-remains unvalidated and is not part of this correction. Both retain passes,
-input scaling and reconstruction settings. A float texture alone does not
-determine the correct HDR reconstruction setting; HDR appearance remains untested.
+## Rendering boundaries
 
-The completed scene is captured before UI. Where CS uses a separate UI
-compositor, the adapter replays its observed single-output compute dispatch
-into a private scene target without UI. It accepts that conversion only after
-the output is copied into the known game-facing buffer. An unavailable handoff
-leaves normal scene presentation working without submitting stale FG inputs.
-Camera history advances at the host's actual presentation boundary, below any
-CS suppressed-Present traversal. Existing cross-API fences and resource
-retirement remain responsible for shared NVIDIA resources.
+The adapter preserves the engine postprocessing chain and snapshots motion,
+depth and camera before CS rewrites them. Before-upscaling NR runs on CS producer
+colour with a bounded linear-to-display working conversion and restoration to
+the producer's linear range before CS continues. After-upscaling NR runs on the
+completed postprocessing scene, before UI. The final scene is captured for FG.
+Both placements retain pass count, input scaling and reconstruction controls.
 
-This implementation uses common engine locations, standard graphics fields and
-D3D resource identity. It has no private CS global offsets or shader hash
-allowlist. This reduces dependence on a particular fork but does not prove
-compatibility with every CS version. Renderer ownership is selected at plugin
-post-load; the ENB path retains its own reconstruction and UI hooks.
+Ratio applies its maximum luminance gain after colour mixing; zero effect
+strength restores the input exactly. Runtime capability checks reject unsupported
+reconstruction requests before starting NR GPU work, leaving normal rendering
+available. Supported settings can recover without a relaunch; real GPU failures
+still use the existing failure and resource-retirement handling.
 
-Offline WARP tests cover guide/scene overwrite isolation, active extents,
-graphics/compute binding restoration, display conversion without UI, additional
-output rejection, presentation confirmation, frame consumption and resize.
-NR contract tests cover world-only placements, history resets and settings
-validation. They do not execute CS's engine hooks, NR inference or generated
-frame presentation.
+Where CS uses a separate UI compositor, the adapter replays its observed
+single-output compute conversion into a private scene target without UI. It
+accepts that conversion only after output is copied to the known game-facing
+buffer. A missing handoff does not submit stale FG inputs. Camera history advances
+at the actual host presentation boundary. Cross-API fences and resource retirement
+remain responsible for shared NVIDIA resources.
 
-For the next test, use the same bright sky with NR off, then after-upscaling NR
-at one pass and Auto/100%, leaving x4 unchanged. Confirm the logged input is the
-post-processing scene, check that UI stays untouched, and verify one transition.
-Preserve the CS-only baseline and record the exact package and live settings.
-Do not infer visual acceptance from Present counts or offline test results.
+Integration uses common engine locations, standard graphics fields and D3D
+resource identity, with no private CS global offsets or shader hash allowlist.
+This reduces fork dependence but does not establish compatibility with every CS
+revision. Renderer ownership is selected at plugin post-load. The ENB path keeps
+its own reconstruction and UI hooks.
+
+## Editions and validation
+
+Both Standard and Full compile the same NR/CS integration. Standard uses native
+NVIDIA FG and includes the runtimes; Full adds Ada/Ampere compatibility and can
+use Standard's runtimes when installed after it in MO2. NR defaults off.
+
+Earlier Full checkpoints were tested on Skyrim 1.6.1170, RTX 4080 SUPER and
+Bottle's CS 1.8 build with Effects 11. Both NR placements at one pass/100% input
+were visually accepted. A later Ratio test confirmed that lowering the maximum
+luma ratio darkens the scene and zero effect restores its colour. Separate CS
+and TRP menu keys were also accepted. These observations do not accept other CS
+builds, HDR appearance, native RTX 50 operation or physical frame cadence.
+The combined 0.1.4 candidate and its new Standard NR edition need their own runs.
+
+Offline fixtures cover resource/guide isolation, binding restoration, display
+conversion without UI, presentation confirmation, frame consumption and resize.
+NR contract tests cover placement, history, settings and runtime preflight;
+production-HLSL WARP tests exercise Ratio reconstruction. Those fixtures do not
+execute the installed CS engine hooks or prove generated-frame presentation.
+
+For a focused candidate test, compare NR off with Before and After upscaling at
+one pass/100% input in the same bright scene. Check HUD/menu colour and one cell
+transition. Test Standard native x2 first, then Full x4 with the same runtimes.

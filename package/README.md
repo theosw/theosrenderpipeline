@@ -1,22 +1,22 @@
-# Theo's Render Pipeline — Full, 0.1.3 experimental release
+# Theo's Render Pipeline — Full, 0.1.4 candidate
 
-Adds experimental RTX 30-series (SM86) frame generation and Steam Skyrim
-1.5.97/1.6.640/1.7.104 support alongside 1.6.1170. Those additional game versions
-and actual RTX 30 execution are untested in-game. Component candidates were
-tested on 1.6.1170/RTX 4080 SUPER; the combined build has no separate game run.
+Adds Community Shaders integration and NR Ratio/runtime checks. Standard now also
+includes NR; Full adds the RTX 40 MFG unlock and experimental RTX 30 compatibility.
+The combined 0.1.4 builds still need their own game acceptance.
 
 DLSS/DLAA, frame generation, Neural Rendering and native-resolution UI for Skyrim.
 This package includes the full renderer, configuration and sharpening shader.
 It requires no other Theo's Render Pipeline package. NVIDIA DLLs are supplied
 separately: download the SR/FG files below, and the NR runtime if you want NR.
-Alternatively, install Standard first and Full after it in MO2; the NR-enabled
+Alternatively, install matching 0.1.4 Standard first and Full after it in MO2; the NR-enabled
 Standard download supplies all eight runtimes, including NR. In that setup,
 skip the runtime downloads below.
 
 ## Install
 
 1. Install and enable this ZIP in **MO2**. Disable other upscaler and
-   frame-generation mods.
+   frame-generation mods. Keep Community Shaders enabled if you use it; follow
+   the CS setup below.
 2. Download the **SDK ZIP** under **Assets** on the
    [NVIDIA Streamline 2.14.1 page](https://github.com/NVIDIA-RTX/Streamline/releases/tag/v2.14.1).
    Extract it and open its `bin/x64` folder.
@@ -85,13 +85,16 @@ Visual C++ runtime and a compatible NVIDIA GPU/driver. DLSS-G-compatible hardwar
 is required even with frame generation switched off. AMD/Intel and ReShade
 integration are not supported.
 
-ENB is not a startup requirement; setups without ENB have not been validated.
+ENB is optional. With Community Shaders, keep CS upscaling enabled and disable
+CS frame generation and CS Reflex. TRP provides FG/Reflex/NR while CS retains
+upscaling, render scale, sharpening and colour. Assign CS a separate menu key,
+such as F8, avoiding keys already assigned to capture tools. TRP keeps End.
 
-Both component candidates received scoped Skyrim 1.6.1170/LoreRim/ENB tests
-on an RTX 4080 SUPER, including Full x4 frame generation and Before-DLSS NR.
-Standard End closure during numeric editing was also verified. The final
-combined 0.1.3 build has not had a separate game run. RTX 30-series execution,
-native RTX 50-series operation and HDR appearance remain unverified.
+Earlier candidates received scoped Skyrim 1.6.1170/RTX 4080 SUPER checks with
+ENB and Bottle's Community Shaders build/Effects 11. Both CS NR placements and
+Ratio controls were accepted. The combined 0.1.4 build still needs its own run.
+Other CS builds, RTX 30 execution, native RTX 50 operation and HDR appearance
+remain unverified.
 
 **Skyrim 1.5.97, 1.6.640 and 1.7.104 are experimental and untested in-game.** Build and offline
 compatibility checks passed. Use matching SKSE64 and Address Library, and please

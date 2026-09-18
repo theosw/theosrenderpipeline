@@ -1,9 +1,9 @@
 # Theo's Render Pipeline
 
-This development branch contains an **untested Community Shaders adapter**.
-CS keeps its shading, upscaling and UI; TRP supplies frame generation and optional
-world-only NR. CS frame generation and Reflex must be off for the combined test.
-See [the adapter contract and test limits](docs/COMMUNITY_SHADERS.md).
+Version **0.1.4 candidate** combines Community Shaders support with Neural
+Rendering in both editions. CS keeps shading, upscaling and UI; TRP supplies
+frame generation, Reflex and optional world-only NR. Disable CS frame generation
+and Reflex when using TRP. See [setup and validation limits](docs/COMMUNITY_SHADERS.md).
 
 NVIDIA rendering integration for Skyrim: DLSS/DLAA, multi-frame generation,
 optional Neural Rendering and native-resolution menus and HUD. NVIDIA runtimes
@@ -41,17 +41,16 @@ in Git.
 The plugin and SKSE identity are `TheosRenderPipeline`. Published `SolFG_*`
 companion exports retain their names and layouts in `TheosRenderPipeline.dll`.
 
-Version **0.1.3** combines experimental RTX 30-series (SM86) compatibility
-with support for four exact Steam Skyrim versions. Full selects the Ampere
-compatibility path on RTX 30-series, the Ada unlock on RTX 40-series, and native
-capabilities on RTX 50-series. Standard includes NR and excludes both compatibility paths.
+Full selects experimental Ampere compatibility on RTX 30-series, the Ada MFG
+unlock on RTX 40-series, and native capabilities on RTX 50-series. Standard
+includes NR and excludes both compatibility paths; RTX 40-series uses native x2.
 
 **Skyrim 1.5.97, 1.6.640 and 1.7.104 are experimental and untested in-game.**
-RTX 30-series execution is also experimental and unverified. Both component
-candidates received scoped Skyrim 1.6.1170/LoreRim/ENB regression tests on an
-RTX 4080 SUPER, including Full x4/NR and Standard End closure during editing.
-The final combined build has not had a separate game run. Native RTX 50-series,
-HDR appearance and physical frame cadence remain unverified.
+RTX 30-series execution, native RTX 50-series operation and HDR appearance remain
+unverified. Earlier Full candidates received scoped Skyrim 1.6.1170/RTX 4080 SUPER
+checks with ENB and Bottle's Community Shaders build, including both CS NR
+placements and Ratio controls. The combined 0.1.4 Standard and Full builds still
+need their own game acceptance. No physical frame-cadence claim is made.
 
 See the [1.7.104 port notes](docs/SKYRIM_1_7_104.md) and
 [1.6.640 port notes](docs/SKYRIM_1_6_640.md). World, DLSS and Output open Image
@@ -60,7 +59,7 @@ settings; NR and Frame generation open their respective tabs.
 Use SKSE64 and Address Library matching your Skyrim executable. Full and Standard
 remain separate feature editions; each supports all four game versions.
 
-ENB is not a startup requirement; setups without ENB have not been validated.
+ENB is optional. Community Shaders setup and the tested build are documented above.
 
 See [LICENSE](LICENSE) and [third-party notices](THIRD-PARTY.md) for project and
 contribution terms. Vendor runtimes retain their own licenses.
