@@ -88,8 +88,11 @@ namespace TheosRenderPipeline
                 view.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D; view.Texture2D.MipLevels = 1;
                 ComPtr<ID3D11Device> device; context->GetDevice(&device);
                 if (shader_) {
-                    ComPtr<ID3D11Device> shaderDevice; shader_->GetDevice(&shaderDevice);
-                    if (!SameObject(device.Get(), shaderDevice.Get())) { return E_INVALIDARG; }
+                    // ReShade can return its native device from a shader's
+                    // GetDevice while contexts/resources expose the proxy.
+                    // Retain the device that actually created our shader;
+                    // never infer ownership from an incoming resource.
+                    if (!SameObject(device.Get(), shaderDevice_.Get())) { return E_INVALIDARG; }
                 } else {
                     constexpr char program[] = "Texture2D<float> s:register(t0); RWTexture2D<float> d:register(u0); [numthreads(8,8,1)] void main(uint3 p:SV_DispatchThreadID){uint w,h; d.GetDimensions(w,h); if(p.x<w && p.y<h) d[p.xy]=s.Load(int3(p.xy,0));}";
                     ComPtr<ID3DBlob> code;
@@ -98,6 +101,7 @@ namespace TheosRenderPipeline
                     if (FAILED(hr)) { return hr; }
                     hr = device->CreateComputeShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, &shader_);
                     if (FAILED(hr)) { return hr; }
+                    shaderDevice_ = device;
                 }
                 if (source_.Get() != source) {
                     ComPtr<ID3D11ShaderResourceView> srv;
@@ -135,6 +139,7 @@ namespace TheosRenderPipeline
             ComPtr<ID3D11ShaderResourceView> srv_;
             ComPtr<ID3D11UnorderedAccessView> uav_;
             ComPtr<ID3D11ComputeShader> shader_;
+            ComPtr<ID3D11Device> shaderDevice_;
         };
     }
 }

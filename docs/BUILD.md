@@ -47,6 +47,11 @@ including cropped allocations, return-copy borders, producer overwrites, format
 conversion and compute-state restoration. These tests do not execute game hooks,
 load NVIDIA runtimes or validate cross-device GPU retirement.
 
+The additional `TRPSourceDLSSGInteropFenceTests` target requires a D3D11/D3D12
+hardware adapter and WARP. It exercises input-fence ownership, rejection and
+GPU waits using production interop. See [ReShade startup validation](RESHADE.md)
+for its separate wrapped-device comparison and acceptance limits.
+
 `TRP_ENABLE_NEURAL_RENDERING` defaults to `ON` in both editions and includes NR
 integration, shaders and controls. `OFF` is an explicit build without NR.
 `TRP_ENABLE_OPTIONAL_FEATURES` selects MFG compatibility: `OFF` builds Standard
