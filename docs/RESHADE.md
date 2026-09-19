@@ -1,75 +1,31 @@
-# ReShade device identity compatibility
+# ReShade compatibility
 
-This candidate addresses an `input reuse fence failed HRESULT=0x80070057`
-startup failure when a graphics wrapper exposes a different device identity
-from the underlying device that owns its fences.
+These fixes let TRP accept its own fences and cached depth shaders when
+ReShade exposes a proxy for their device. Unrelated devices remain rejected.
 
-TRP obtains the underlying identity from a fence it created itself. Incoming
-completion fences must belong to either that device or the original host
-interface. Foreign devices are still rejected. Queue waits, the D3D11 bridge,
-resource retirement and partial-startup failure handling remain intact. Failure
-logs now distinguish identity validation from individual wait/signal operations.
-No private ReShade interface or modified ReShade DLL is required by this fix.
+## Setup
 
-ReShade can also report its underlying D3D11 device from a cached compute shader
-while contexts and textures report the proxy. Comparing those identities caused
-the first depth capture to pass and the next to fail with `depth copy failed
-HRESULT=0x80070057`, stopping presentation when loading into gameplay. The depth
-copy now retains its shader's actual creation device and validates later reuse
-against that owner. Resource validation and foreign-device rejection remain.
+Use your existing ReShade installation, preset and settings. TRP does not
+include a ReShade DLL. Leave **SSE ReShade Helper disabled**: the tested
+configuration lost the graphics device when that helper was enabled.
 
-## Validation
+The fixes have been checked with ReShade 6.3.3.1921 and Skyrim 1.6.1170 using
+Cabbage ENB on an RTX 4080 SUPER. Gameplay renders, but this startup-only
+candidate still has an unresolved performance issue. Source-frame effects,
+depth binding and overlay integration are provided by the separate ReShade
+integration change. Other ReShade versions and hardware remain unverified.
 
-`TRPSourceDLSSGInteropFenceTests` exercises the production interop implementation.
-It requires a hardware adapter supporting D3D11/D3D12, shared fences, and the
-Windows WARP adapter. It checks same-device fences at zero and nonzero values,
-rejects fences from the separate WARP device before enqueueing work, observes a
-pending input blocking later queue progress, and retires the completed work.
-It also checks invalid input and recording-state rejection. Checks remain active
-in Release builds.
+## Developer checks
 
-For a ReShade comparison, copy the built test executable and an identified
-64-bit ReShade DLL named `dxgi.dll` into a separate empty test directory. Run:
+Build `TRPSourceDLSSGInteropFenceTests` and `TRPD3D11FrameCopyTests`. Normal
+CTest covers unwrapped devices. For each wrapped check, place its executable
+in an ignored test directory beside your ReShade DLL named `dxgi.dll` and run:
 
 ```powershell
-.\TRPSourceDLSSGInteropFenceTests.exe --require-wrapped
+./TRPSourceDLSSGInteropFenceTests.exe --require-wrapped
+./TRPD3D11FrameCopyTests.exe --require-wrapped
 ```
 
-The flag requires different host/fence-owner identities, so a missing or
-non-intercepting proxy cannot silently pass as the wrapped regression case.
-Run the original executable without that flag and without a local proxy for
-the ordinary comparison. Keep ReShade.log and the DLL version/hash with results.
-Do not place test files in the game directory. No ReShade DLL is included in Git.
-
-`TRPD3D11FrameCopyTests` also accepts `--require-wrapped` from an isolated directory
-containing the same identified `dxgi.dll`. That mode uses hardware and requires
-the shader/creation-device identity split. It verifies pixel readback for repeated
-depth captures, three formats, cropped dimensions, cache reuse, state restoration
-and foreign-device rejection, including a different otherwise-valid resource set.
-Normal CTest continues to use WARP. The previous cached-shader check fails the
-same wrapped regression test; the correction passes both modes.
-
-The initial standalone comparison passed with ReShade 6.3.3.1921 on RTX 4080
-SUPER; the previous identity check failed on the same ReShade binary. The test
-creates no swapchain, loads no NVIDIA inference runtimes, and does not run Skyrim.
-
-## Remaining scope
-
-The initial fence-only candidate reached the visible menu with ReShade 6.3.3.1921
-and the Cabbage preset after SSE ReShade Helper was disabled. The helper-enabled
-run instead lost the graphics device during startup. Keep the helper disabled
-for this configuration; its cached rendering-target replay is separate from
-TRP's corrected ownership checks. The helper-disabled run exposed the subsequent
-depth-copy rejection on loading into gameplay. The updated shader-ownership fix
-has standalone evidence; a new game run remains required.
-
-These corrections do not provide explicit effect placement before/after upscaling, depth
-binding, or coordinated HUD-less/FG color processing. Successful startup alone
-does not establish those behaviors, compatibility with every ReShade build,
-NR appearance, MFG presentation cadence, or ReShade overlay input handling.
-
-A requested game check should identify the package, ReShade and NVIDIA runtime
-versions; retain the current ENB/CS and NR/MFG feature scope; and separately
-observe startup, gameplay, menus, effects, overlay close and a loading transition.
-An effects-off toggle leaves ReShade's device hooks loaded and is not a proxy
-absence comparison.
+These checks require a proxy/native identity split and verify foreign-device
+rejection, fence waits, repeated depth copies, pixel output and context state.
+They do not launch Skyrim. Record the ReShade version with the results.
