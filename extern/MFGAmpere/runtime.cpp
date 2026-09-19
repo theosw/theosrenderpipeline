@@ -186,8 +186,8 @@ template<unsigned I> FARPROC WINAPI Resolve(HMODULE module, LPCSTR name) {
         s.mask.fetch_or(1u << index); return replacement;
     } catch (...) { Fail("Ampere resolver preparation failed"); return result; }
 }
-bool Load(const std::filesystem::path& directory, const wchar_t* name, HMODULE& owned) {
-    const auto result = LoadConfiguredModule(directory / name);
+bool Load(const std::filesystem::path& directory, const wchar_t* name, HMODULE& owned, bool allowSeparateModules) {
+    const auto result = LoadConfiguredModule(directory / name, allowSeparateModules);
     owned = result.module;
     Message(ModuleLoadDiagnostic(result).c_str());
     return result.Succeeded() || Fail(result.Error());
@@ -285,16 +285,16 @@ bool PlanProvider() {
 }
 } // namespace
 
-bool Start(ID3D12Device* device,const std::filesystem::path& directory,Log log) noexcept {
+bool Start(ID3D12Device* device,const std::filesystem::path& directory,Log log,bool allowSeparateModules) noexcept {
     auto& s=State();
     if (s.started.exchange(true)) return Fail("Ampere startup cannot be repeated");
     s.log=log;
     try {
         if (!device || !directory.is_absolute() || midpoint_fix::ObserveD3D12Adapter(device)!=midpoint_fix::AdapterKind::Ampere) return Fail("Ampere preparation requires the actual SM86 rendering adapter");
         if (!BindAdapter(device)) return false;
-        if (!Load(directory,L"nvngx_dlssg.dll",s.provider)) return false;
-        if (!Load(directory,L"sl.common.dll",s.common)) return false;
-        if (!Load(directory,L"sl.dlss_g.dll",s.wrapper)) return false;
+        if (!Load(directory,L"nvngx_dlssg.dll",s.provider,allowSeparateModules)) return false;
+        if (!Load(directory,L"sl.common.dll",s.common,allowSeparateModules)) return false;
+        if (!Load(directory,L"sl.dlss_g.dll",s.wrapper,allowSeparateModules)) return false;
         if (!PlanProvider()) return false;
         const std::array<HMODULE,2> modules{s.common,s.wrapper};
         const std::array<Resolver,2> replacements{Resolve<0>,Resolve<1>};

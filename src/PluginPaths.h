@@ -70,6 +70,18 @@ namespace TheosRenderPipeline::PluginPaths
 		return nullptr;
 	}
 
+    // CS owns a separate runtime bundle. Only that coordinated mode admits
+    // same-named modules elsewhere; our configured file must still be unowned.
+    inline bool HasConflictingLoadedModule(const std::filesystem::path& path, bool allowSeparateModules)
+    {
+        const auto configured = RetainLoadedModule(path);
+        if (configured) {
+            ::FreeLibrary(configured);
+            return true;
+        }
+        return !allowSeparateModules && ::GetModuleHandleW(path.filename().c_str()) != nullptr;
+    }
+
     inline std::filesystem::path Directory()
     {
         // Use the game's virtual Data tree. MO2 may load our replacement DLL

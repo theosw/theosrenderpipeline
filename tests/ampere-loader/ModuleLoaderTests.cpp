@@ -17,9 +17,12 @@ struct Module {
 
 std::wstring mode, fixtureName;
 fs::path reportedPath;
+fs::path hookedPath;
 decltype(&GetModuleFileNameW) originalModulePath{};
 DWORD WINAPI ReportModulePath(HMODULE module, LPWSTR output, DWORD size) {
-    if (!module || module != GetModuleHandleW(fixtureName.c_str())) return originalModulePath(module, output, size);
+    wchar_t actual[32768]{};
+    if (!module || !originalModulePath(module, actual, 32768) || _wcsicmp(actual, hookedPath.c_str()) != 0)
+        return originalModulePath(module, output, size);
     if (mode == L"query-failed") { SetLastError(ERROR_ACCESS_DENIED); return 0; }
     if (mode == L"query-truncated") { SetLastError(ERROR_INSUFFICIENT_BUFFER); return size; }
     if (reportedPath.empty()) return originalModulePath(module, output, size);
@@ -50,14 +53,35 @@ int wmain(int argc, wchar_t** argv) {
         const auto fixtureA = Paths::Normalize(argv[1]);
         const auto fixtureB = Paths::Normalize(argv[2]);
         fixtureName = fixtureA.filename();
+        hookedPath = fixtureA;
         mode = argv[5];
+        const bool separate = mode.starts_with(L"cs-");
         auto requested = fixtureA;
         auto expectedFailure = Loader::ModuleLoadFailure::None;
         DWORD expectedError{};
         bool expectLoaded = true;
         Module existing;
         ReportedPathHook hook;
-        if (mode == L"alias") {
+        if (mode == L"cs-peer-first" || mode == L"cs-missing" || mode == L"cs-mismatch") {
+            existing.handle = LoadLibraryW(fixtureB.c_str());
+            Require(existing.handle != nullptr, "independent CS-like owner loaded first");
+            if (mode == L"cs-missing") {
+                requested = fixtureA.parent_path() / L"missing" / fixtureA.filename();
+                expectedFailure = Loader::ModuleLoadFailure::LoadFailed;
+                expectedError = ERROR_MOD_NOT_FOUND;
+                expectLoaded = false;
+            } else if (mode == L"cs-mismatch") {
+                reportedPath = fixtureB;
+                expectedFailure = Loader::ModuleLoadFailure::PathMismatch;
+                hook.Install();
+            }
+        } else if (mode == L"cs-owned" || mode == L"cs-owned-alias") {
+            existing.handle = LoadLibraryW(fixtureA.c_str());
+            Require(existing.handle != nullptr, "configured module already owned");
+            if (mode == L"cs-owned-alias") requested = fs::path(argv[3]) / fixtureA.filename();
+            expectedFailure = Loader::ModuleLoadFailure::AlreadyOwned;
+            expectLoaded = false;
+        } else if (mode == L"alias") {
             reportedPath = fs::path(argv[3]) / fixtureA.filename();
             Require(_wcsicmp(reportedPath.c_str(), fixtureA.c_str()) != 0, "alias has a different spelling");
             Require(fs::equivalent(reportedPath, fixtureA), "alias resolves to the fixture");
@@ -90,9 +114,9 @@ int wmain(int argc, wchar_t** argv) {
             expectedFailure = Loader::ModuleLoadFailure::InvalidPath;
             expectedError = ERROR_BAD_PATHNAME;
             expectLoaded = false;
-        } else Require(mode == L"direct", "known fixture mode");
+        } else Require(mode == L"direct" || mode == L"cs-trp-first", "known fixture mode");
 
-        const auto result = Loader::LoadConfiguredModule(requested);
+        const auto result = Loader::LoadConfiguredModule(requested, separate);
         Module owned{result.module};
         Require(result.failure == expectedFailure, "specific failure classification");
         Require(result.windowsError == expectedError, "original Windows error retained");
@@ -105,6 +129,23 @@ int wmain(int argc, wchar_t** argv) {
         if (result.Succeeded()) {
             Module retained{Paths::RetainLoadedModule(requested)};
             Require(retained.handle == result.module, "post-startup retention uses the same configured identity");
+            if (mode == L"cs-trp-first") {
+                existing.handle = LoadLibraryW(fixtureB.c_str());
+                Require(existing.handle != nullptr, "independent CS-like owner loaded second");
+            }
+            if (separate) {
+                Require(existing.handle != result.module, "separate owners retain separate modules");
+                const auto repeat = Loader::LoadConfiguredModule(requested, true);
+                Module repeatOwner{repeat.module};
+                Require(!repeat.module && repeat.failure == Loader::ModuleLoadFailure::AlreadyOwned,
+                    "CS coexistence never admits a second owner of the configured module");
+            }
+        }
+        if (separate && existing.handle && mode != L"cs-owned" && mode != L"cs-owned-alias") {
+            auto identity = reinterpret_cast<int(*)()>(GetProcAddress(existing.handle, "ModuleIdentity"));
+            Require(identity && identity() == 2, "CS-like module remains intact");
+            Module retainedPeer{Paths::RetainLoadedModule(fixtureB)};
+            Require(retainedPeer.handle == existing.handle, "CS-like module keeps its own path identity");
         }
         if (mode == L"alias" || mode == L"foreign") {
             Require(result.reported == reportedPath, "diagnostic keeps original reported spelling");

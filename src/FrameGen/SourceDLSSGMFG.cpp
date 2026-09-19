@@ -1,6 +1,7 @@
 #include <PCH.h>
 #include "SourceDLSSGMFG.h"
 #include "../PluginPaths.h"
+#include "CommunityShaderIntegration.h"
 #include "SourceDLSSGMFGPatch.h"
 #include "../../extern/RTX40MFG/midpoint_fix.h"
 #include "../../extern/RTX40MFG/dlssg_provider_policy.h"
@@ -55,7 +56,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 		spdlog::info("[SourceDLSSG MFG] selected route={} compatibilityRequested={}",
 			state_.UsesAmpereUnlock() ? "Ampere" : state_.UsesAdaUnlock() ? "Ada" : "Native", state_.requested);
 		if (state_.UsesAmpereUnlock()) {
-			if (!trp::ampere::Start(device, directory, [](const char* message) { spdlog::info("[SourceDLSSG Ampere] {}", message); })) {
+			spdlog::info("[SourceDLSSG Ampere] separate runtime bundles permitted={}", CommunityShaders::Active());
+			if (!trp::ampere::Start(device, directory, [](const char* message) { spdlog::info("[SourceDLSSG Ampere] {}", message); }, CommunityShaders::Active())) {
 				const auto snapshot = trp::ampere::Snapshot();
 				Fail(snapshot.error ? snapshot.error : "Ampere startup preparation failed");
 			}

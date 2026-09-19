@@ -28,7 +28,7 @@ struct ModuleLoadResult {
     }
 };
 
-inline ModuleLoadResult LoadConfiguredModule(const std::filesystem::path& requested) {
+inline ModuleLoadResult LoadConfiguredModule(const std::filesystem::path& requested, bool allowSeparateModules = false) {
     ModuleLoadResult result;
     result.requested = requested.lexically_normal();
     if (!result.requested.is_absolute() || result.requested.filename().empty()) {
@@ -36,7 +36,7 @@ inline ModuleLoadResult LoadConfiguredModule(const std::filesystem::path& reques
         result.windowsError = ERROR_BAD_PATHNAME;
         return result;
     }
-    if (::GetModuleHandleW(result.requested.filename().c_str())) {
+    if (TheosRenderPipeline::PluginPaths::HasConflictingLoadedModule(result.requested, allowSeparateModules)) {
         result.failure = ModuleLoadFailure::AlreadyOwned;
         return result;
     }

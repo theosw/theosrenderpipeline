@@ -10,9 +10,10 @@ add_test(NAME AmpereLoader-AliasSetup COMMAND powershell -NoProfile -ExecutionPo
     -File "${CMAKE_CURRENT_SOURCE_DIR}/CreateModuleAlias.ps1"
     -SourceDirectory $<TARGET_FILE_DIR:TRPModuleIdentityFixture1> -AliasPath "${alias}")
 set_tests_properties(AmpereLoader-AliasSetup PROPERTIES FIXTURES_SETUP AmpereLoaderAlias)
-foreach(mode IN ITEMS direct alias foreign missing invalid-image query-failed query-truncated already-owned relative)
+foreach(mode IN ITEMS direct alias foreign missing invalid-image query-failed query-truncated already-owned relative
+    cs-peer-first cs-trp-first cs-owned cs-owned-alias cs-missing cs-mismatch)
     add_test(NAME AmpereLoader-${mode} COMMAND TRPAmpereModuleLoaderTests
         $<TARGET_FILE:TRPModuleIdentityFixture1> $<TARGET_FILE:TRPModuleIdentityFixture2>
         "${alias}" "${CMAKE_CURRENT_BINARY_DIR}/not-a-pe.dll" ${mode})
 endforeach()
-set_tests_properties(AmpereLoader-alias PROPERTIES FIXTURES_REQUIRED AmpereLoaderAlias)
+set_tests_properties(AmpereLoader-alias AmpereLoader-cs-owned-alias PROPERTIES FIXTURES_REQUIRED AmpereLoaderAlias)
