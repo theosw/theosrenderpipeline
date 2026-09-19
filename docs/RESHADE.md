@@ -1,75 +1,141 @@
-# ReShade device identity compatibility
+# Experimental ReShade integration
 
-This candidate addresses an `input reuse fence failed HRESULT=0x80070057`
-startup failure when a graphics wrapper exposes a different device identity
-from the underlying device that owns its fences.
+TRP can run ReShade effects once per source frame, before or after upscaling,
+with an explicit scene-depth input. Effects complete before the scene is handed
+to frame generation. ReShade's overlay is drawn at the native UI boundary.
 
-TRP obtains the underlying identity from a fence it created itself. Incoming
-completion fences must belong to either that device or the original host
-interface. Foreign devices are still rejected. Queue waits, the D3D11 bridge,
-resource retirement and partial-startup failure handling remain intact. Failure
-logs now distinguish identity validation from individual wait/signal operations.
-No private ReShade interface or modified ReShade DLL is required by this fix.
+This feature has standalone validation with ReShade **6.3.3.1921 / add-on API
+14**. Skyrim, ENB/CS preset appearance, physical input, MFG cadence and performance
+remain unverified for this candidate. Other ReShade versions and custom forks
+have not been validated.
 
-ReShade can also report its underlying D3D11 device from a cached compute shader
-while contexts and textures report the proxy. Comparing those identities caused
-the first depth capture to pass and the next to fail with `depth copy failed
-HRESULT=0x80070057`, stopping presentation when loading into gameplay. The depth
-copy now retains its shader's actual creation device and validates later reuse
-against that owner. Resource validation and foreign-device rejection remain.
+## Settings and installation
 
-## Validation
+Use an ordinary ReShade installation and its existing `ReShade.ini`, preset and
+shader paths. TRP does not distribute ReShade or rewrite its bindings. The
+configured effects toggle and overlay key continue to belong to ReShade.
+`[GENERAL] Disable` is respected.
 
-`TRPSourceDLSSGInteropFenceTests` exercises the production interop implementation.
-It requires a hardware adapter supporting D3D11/D3D12, shared fences, and the
-Windows WARP adapter. It checks same-device fences at zero and nonzero values,
-rejects fences from the separate WARP device before enqueueing work, observes a
-pending input blocking later queue progress, and retires the completed work.
-It also checks invalid input and recording-state rejection. Checks remain active
-in Release builds.
+Leave **SSE ReShade Helper disabled** for this candidate: TRP supplies its own
+effect and UI stages, and the helper-enabled configuration previously lost the
+device. Compatibility with the helper has not been established.
 
-For a ReShade comparison, copy the built test executable and an identified
-64-bit ReShade DLL named `dxgi.dll` into a separate empty test directory. Run:
+The Advanced panel offers **ReShade before upscaling**. The equivalent saved
+setting in `TheosRenderPipeline.ini` is:
 
-```powershell
-.\TRPSourceDLSSGInteropFenceTests.exe --require-wrapped
+```ini
+[Compatibility]
+ReShadeBeforeUpscaling=false
 ```
 
-The flag requires different host/fence-owner identities, so a missing or
-non-intercepting proxy cannot silently pass as the wrapped regression case.
-Run the original executable without that flag and without a local proxy for
-the ordinary comparison. Keep ReShade.log and the DLL version/hash with results.
-Do not place test files in the game directory. No ReShade DLL is included in Git.
+After upscaling is the default. Before upscaling uses the active render extent;
+after upscaling uses the output extent. A change can reload ReShade shaders. The
+first result after a target extent/format change is discarded while the runtime
+adapts, avoiding an old-size effect pass appearing on the new target.
 
-`TRPD3D11FrameCopyTests` also accepts `--require-wrapped` from an isolated directory
-containing the same identified `dxgi.dll`. That mode uses hardware and requires
-the shader/creation-device identity split. It verifies pixel readback for repeated
-depth captures, three formats, cropped dimensions, cache reuse, state restoration
-and foreign-device rejection, including a different otherwise-valid resource set.
-Normal CTest continues to use WARP. The previous cached-shader check fails the
-same wrapped regression test; the correction passes both modes.
+Before-upscaling presets must tolerate the producer's color representation.
+In particular, CS supplies unfinished HDR scene color at that boundary. The
+default after-upscaling stage receives the completed scene. Do not assume a
+preset has identical appearance in both positions or that switching position
+guarantees a particular speedup.
 
-The initial standalone comparison passed with ReShade 6.3.3.1921 on RTX 4080
-SUPER; the previous identity check failed on the same ReShade binary. The test
-creates no swapchain, loads no NVIDIA inference runtimes, and does not run Skyrim.
+## Frame ordering
 
-## Remaining scope
+Only the selected ReShade position runs:
 
-The initial fence-only candidate reached the visible menu with ReShade 6.3.3.1921
-and the Cabbage preset after SSE ReShade Helper was disabled. The helper-enabled
-run instead lost the graphics device during startup. Keep the helper disabled
-for this configuration; its cached rendering-target replay is separate from
-TRP's corrected ownership checks. The helper-disabled run exposed the subsequent
-depth-copy rejection on loading into gameplay. The updated shader-ownership fix
-has standalone evidence; a new game run remains required.
+| Producer | Order |
+| --- | --- |
+| TRP upscaling / ENB | Optional early NR → early ReShade → DLSS or loading-image scaling → late ReShade → existing preparation / optional late NR → native UI |
+| Community Shaders | Optional early NR → early ReShade → CS upscaling and engine post-processing → optional late NR → late ReShade → scene snapshot → native UI |
 
-These corrections do not provide explicit effect placement before/after upscaling, depth
-binding, or coordinated HUD-less/FG color processing. Successful startup alone
-does not establish those behaviors, compatibility with every ReShade build,
-NR appearance, MFG presentation cadence, or ReShade overlay input handling.
+The existing NR placements, passes, tuning and MFG selection are preserved.
+Both scene capture routes include the selected effects before FG consumes the
+scene. The output presentation chain has no independent ReShade effect runtime.
 
-A requested game check should identify the package, ReShade and NVIDIA runtime
-versions; retain the current ENB/CS and NR/MFG feature scope; and separately
-observe startup, gameplay, menus, effects, overlay close and a loading transition.
-An effects-off toggle leaves ReShade's device hooks loaded and is not a proxy
-absence comparison.
+TRP crops the active depth rectangle into an R32_FLOAT texture. When effects
+run at output resolution, it point-scales depth to that extent, preserving
+foreground/background discontinuities. The published `DEPTH` is raw Skyrim
+reversed-Z depth; presets remain responsible for their depth interpretation.
+Menu/loading or missing-guide frames get explicit zero/far depth rather than
+the previous world's depth.
+
+World/menu evaluation and Present fallback share the same per-source-frame
+guard. If no scene boundary runs, UI updates still process ReShade input and
+draw its overlay without applying effects to the HUD. ReShade overlay state
+participates in TRP's paired game-control suppression. Physical close/movement
+acceptance must still be checked in Skyrim.
+
+## Ownership and lifetime
+
+TRP resolves the public API from an already loaded ReShade module. It registers
+before creating its own D3D12 output device and uses the public `get_native()`
+handle from the scoped device-init callback for that device and its queues.
+This prevents an automatic ReShade runtime on the generated-output swapchain.
+Unrelated D3D12 device creation and the game-facing D3D11 interfaces are unchanged.
+
+One explicitly owned D3D11 runtime processes effects, shader reloads, input and
+the GUI. Its offscreen swapchain facade never presents to DXGI. Keeping a second
+automatic runtime merely with effects disabled is insufficient: ReShade runtimes
+share window input, and output Presents can consume pending hotkeys before the
+source runtime processes them.
+
+The integration restores the D3D11 context around its work. Private color/depth
+resources never become FG tags. Runtime and host resources are released at the
+existing retirement boundary; native UI format/size replacement first waits
+for the owned D3D11 runtime. No private ReShade GUID, vtable offset or binary patch
+is used. If public registration or native-output capture is unavailable, the
+source stages stay inactive and status reports the automatic fallback.
+
+## Standalone verification
+
+With compatibility tests enabled, CTest includes `ReShadeAbsent`, which verifies
+that no-injector operation is inert. `SourceNvidiaFrameEvaluation` checks stage
+ordering across 8,192 native and 256 supplied-frame combinations.
+
+For an actual-runtime check, create an ignored directory under `out/`, copy
+`TRPReShadeIntegrationTests.exe` there from the build, and copy the contents of
+`tests/fixtures/reshade/` beside it. Supply your own 64-bit ReShade 6.3.3 DLL as
+`dxgi.dll`. Run from that directory:
+
+```powershell
+./TRPReShadeIntegrationTests.exe --require-reshade
+```
+
+The fixture creates its own hidden window and D3D11/D3D12 devices. It does not
+launch Skyrim. It checks effect pixels and depth extents in both positions,
+live placement changes, four actual output Presents per source frame without
+duplicate effects or lost F8/Home input, effects-off behavior, zero menu depth,
+context restoration and runtime recreation after retirement. Synthetic input
+is posted only to that fixture window. Restore the fixture INI between runs,
+since ReShade saves its runtime configuration.
+
+These checks do not load Streamline or run NR/MFG inference. A future game test
+must verify the intended build, both ReShade placements, NR off/both positions,
+overlay close and game controls, loading/menu transitions, and x2/x4 operation
+before drawing performance or release-acceptance conclusions.
+
+## Existing device-identity regressions
+
+The preceding compatibility fixes remain included. ReShade can expose a proxy
+device while child fences or cached compute shaders report the underlying
+device. TRP accepts its own fence's native owner and retains the actual creation
+device for cached depth shaders, while continuing to reject foreign devices.
+Queue waits, partial-startup handling and retirement checks remain intact.
+
+The production-interop fixture checks same-device fences at zero/nonzero values,
+foreign WARP fences, pending input waits and completion. The depth-copy fixture
+checks repeated captures, three formats, cropping, cache reuse, restored state
+and foreign contexts/resources. For either wrapped regression, copy the executable
+into a separate ignored directory beside the identified ReShade `dxgi.dll` and run:
+
+```powershell
+./TRPSourceDLSSGInteropFenceTests.exe --require-wrapped
+./TRPD3D11FrameCopyTests.exe --require-wrapped
+```
+
+The flag requires the observed proxy/native identity split; it cannot pass by
+silently omitting the injector. Normal CTest runs the unwrapped comparisons.
+Retain the DLL version/hash and ReShade log with results. These fixtures do not
+create a swapchain or run Skyrim. The new integration fixture above separately
+exercises real presentation and effects. Effects-off leaves ReShade hooks loaded
+and must not be treated as a DLL-absent comparison.

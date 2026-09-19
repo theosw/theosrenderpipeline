@@ -19,6 +19,7 @@
 #include "InventoryPreviewDraw.h"
 #include "LoadingScreenState.h"
 #include "LoadingScreenUpscaler.h"
+#include "ReShadeIntegration.h"
 #include <atomic>
 #include <cstdint>
 #include <filesystem>
@@ -88,7 +89,7 @@ class NvidiaHost
     ID3D11DepthStencilView* NativeUIDepthDSV() const { return presentation_.DepthDSV(); }
     bool DedicatedUITextureMode() const { return nativeUI_.Dedicated(); }
     bool NativeUIPassActive() const { return nativeUIPass_.Active(); }
-    bool NativeUIInternalBind() const { return nativeUIPass_.InternalBind() || sourceUIInternal_ || startupOverlay_.Internal() || previewDraw_.Internal(); }
+    bool NativeUIInternalBind() const { return nativeUIPass_.InternalBind() || sourceUIInternal_ || startupOverlay_.Internal() || previewDraw_.Internal() || TheosRenderPipeline::ReShadeIntegration::Get().Internal(); }
     ID3D11DepthStencilView* NativeUIBackgroundDepth() const { return nativeUIPass_.BackgroundDepth(); }
     bool NativeUITargetBound() const { return nativeUIPass_.TargetBound(); }
     void SetNativeUITargetBound(bool a_bound) { nativeUIPass_.SetTargetBound(a_bound); }

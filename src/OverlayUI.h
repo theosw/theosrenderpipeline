@@ -52,6 +52,7 @@ private:
 	void PollInput();
 	void SetTextInputCapture(bool a_capture);
 	void SetVisible(bool a_visible);
+    void UpdateControlCapture();
 	void CaptureSettingsDraft();
     void RefreshNeuralRuntimeAvailability();
 	int CountStagedChanges() const;

@@ -120,6 +120,7 @@ void NvidiaHost::ResetSessionAfterRetirement()
 
 void NvidiaHost::ReleaseSourceUpscaler()
 {
+    TheosRenderPipeline::ReShadeIntegration::Get().ResetAfterRetirement();
     communityFrame_.ResetAfterRetirement();
     EndNativeUIPass();
     startupOverlay_.ResetAfterRetirement();
@@ -151,6 +152,7 @@ void NvidiaHost::OnPresentCompleted(HRESULT a_result)
     }
 
     ++presentCount_;
+    TheosRenderPipeline::ReShadeIntegration::Get().PresentCompleted();
     if (TheosRenderPipeline::CommunityShaders::Active()) { communityFrame_.PresentCompleted(SUCCEEDED(a_result)); }
     const auto previousResult = lastPresentResult_;
     lastPresentResult_ = a_result;

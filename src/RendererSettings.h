@@ -20,6 +20,7 @@ struct RendererSettingsDraft
     bool enableJitter{true};
     bool nativeUI{true};
     bool requestLoadingArtwork{true};
+    bool reShadeBeforeUpscaling{false};
     bool lateOverlayBridge{true};
     bool enableGPUTimings{true};
     bool enableFrameTrace{false};
@@ -40,7 +41,8 @@ inline int CountRendererSettingsChanges(const RendererSettingsDraft& draft, cons
                                &RendererSettingsDraft::enableJitter,    &RendererSettingsDraft::nativeUI,
                                &RendererSettingsDraft::lateOverlayBridge, &RendererSettingsDraft::enableGPUTimings,
                                &RendererSettingsDraft::enableFrameTrace, &RendererSettingsDraft::directRCASOutput,
-                               &RendererSettingsDraft::directDLSSOutput, &RendererSettingsDraft::requestLoadingArtwork};
+                               &RendererSettingsDraft::directDLSSOutput, &RendererSettingsDraft::requestLoadingArtwork,
+                               &RendererSettingsDraft::reShadeBeforeUpscaling};
     constexpr std::array choices{&RendererSettingsDraft::upscaleType, &RendererSettingsDraft::qualityLevel,
                                  &RendererSettingsDraft::dlssPreset};
     int count = 0;

@@ -62,7 +62,11 @@ struct Operations
     unsigned upscales{}, cameras{}, prepares{}, decisions{};
     bool generation{};
     bool neuralOK{true}, earlyNR{}, neuralReset{};
-    unsigned neuralCalls{}, dlssCalls{};
+    unsigned neuralCalls{}, dlssCalls{}, reShadeCalls{};
+    bool reShade{}, reShadeBefore{};
+    const std::array<float, 4> shaded{0.5f, 0.125f, 0.25f, 1};
+    std::array<float, 4> ExpectedInput() const { return reShade && reShadeBefore ? shaded : earlyNR ? neuralScene : scene; }
+    std::array<float, 4> ExpectedOutput() const { return reShade && !reShadeBefore ? shaded : reconstructed; }
     const std::array<float, 4> scene{0.25f, 0.5f, 0.75f, 1};
     const std::array<float, 4> neuralScene{0.125f, 0.75f, 0.375f, 1};
     const std::array<float, 4> reconstructed{0.75f, 0.25f, 0.5f, 1};
@@ -94,7 +98,7 @@ struct Operations
         context->OMGetRenderTargets(8, bound, &depth);
         Require(!depth, "depth detached before input capture");
         for (auto* rtv : bound) { Require(!rtv, "all MRTs detached before input capture"); }
-        Require(Pixel(context, frame.input) == (earlyNR ? neuralScene : scene), "DLSS consumes the selected NR/world image");
+        Require(Pixel(context, frame.input) == ExpectedInput(), "DLSS consumes the selected NR/world image");
         Require(frame.motion == expected.motion && frame.depth == expected.depth, "guide identity");
         Require(frame.renderWidth == 12 && frame.renderHeight == 8 && frame.outputWidth == 18 && frame.outputHeight == 12, "render/output extents stay distinct");
         Require(frame.sharpness == 0.25f && frame.jitterX == -0.375f && frame.jitterY == 0.125f && frame.motionScaleX == 12 && frame.motionScaleY == 8, "evaluation scalars preserved");
@@ -102,15 +106,28 @@ struct Operations
         // A later producer can overwrite the outer color; the frozen DLSS input
         // must retain the original frame rather than aliasing that resource.
         world.Paint(context, {1, 0, 0, 1});
-        Require(Pixel(context, frame.input) == (earlyNR ? neuralScene : scene), "input snapshot does not alias outer color");
+        Require(Pixel(context, frame.input) == ExpectedInput(), "input snapshot does not alias outer color");
         if (dlssOK) { output.Paint(context, reconstructed); }
         return dlssOK;
     }
     void UpscaleSucceeded() { ++upscales; }
+    void RenderReShade(const SourceNvidiaFrameInputs& frame, bool before)
+    {
+        if (!reShade || before != reShadeBefore) { return; }
+        Require(neuralCalls == 1 && !cameras && !prepares, "effects follow early NR and precede FG snapshots");
+        Require(dlssCalls == unsigned(!before), "effects run on the selected side of DLSS");
+        auto* color = before ? frame.input : frame.output;
+        Require(Pixel(context, color) == (before ? (earlyNR ? neuralScene : scene) : reconstructed), "effect input has completed producer pixels");
+        ComPtr<ID3D11Device> device; context->GetDevice(&device);
+        ComPtr<ID3D11RenderTargetView> rtv;
+        Check(device->CreateRenderTargetView(color, nullptr, &rtv), "effect view");
+        context->ClearRenderTargetView(rtv.Get(), shaded.data());
+        ++reShadeCalls;
+    }
     bool CaptureCamera(const SourceNvidiaFrameGuides& frame)
     {
         Require(upscales == 1 && decisions == 0, "upscale counted before camera history advances");
-        Require(Pixel(context, output.texture.Get()) == reconstructed, "camera capture follows completed reconstruction");
+        Require(Pixel(context, output.texture.Get()) == ExpectedOutput(), "camera capture follows completed reconstruction");
         Require(frame.reset == (expected.reset || neuralReset), "reset from reconstruction reaches camera history");
         ++cameras;
         return cameraOK;
@@ -119,7 +136,7 @@ struct Operations
     {
         Require(cameras == 1 && decisions == 0, "prepare follows valid camera, before generation publication");
         Require(frame.uiColorAndAlpha == expected.uiColorAndAlpha && frame.hudLessColor == expected.hudLessColor, "native UI and HUD-less tag identity, including null fallback");
-        if (frame.hudLessColor) { Require(Pixel(context, frame.hudLessColor) == reconstructed, "HUD-less tag contains native reconstruction"); }
+        if (frame.hudLessColor) { Require(Pixel(context, frame.hudLessColor) == ExpectedOutput(), "HUD-less tag contains native reconstruction"); }
         ++prepares;
         return prepareOK;
     }
@@ -185,7 +202,7 @@ int main()
     Surface output(device.Get(), 18, 12), ui(device.Get(), 18, 12);
     // Include disabled FG, warm-up and transition blocks independently of vendor
     // outcomes; all three must retain Prepare/NR and a completed DLSS image.
-    for (unsigned mask = 0; mask < 2048; ++mask) {
+    for (unsigned mask = 0; mask < 8192; ++mask) {
         const bool neuralOK = !(mask & 256), earlyNR = mask & 512, neuralReset = mask & 1024;
         const bool dlss = (mask & 1) && neuralOK, camera = mask & 2, prepare = mask & 4;
         const bool requested = mask & 8, blocked = mask & 16, warming = mask & 32, tagged = mask & 64, reset = mask & 128;
@@ -203,14 +220,16 @@ int main()
         frame.sharpness = 0.25f; frame.jitterX = -0.375f; frame.jitterY = 0.125f;
         frame.motionScaleX = 12; frame.motionScaleY = 8; frame.reset = reset; frame.jitterEnabled = true;
         Operations ops{context.Get(), world, output, frame, dlss, camera, prepare, requested, blocked, warming ? 3 : 0};
+        ops.reShade = mask & 2048; ops.reShadeBefore = mask & 4096;
         ops.neuralOK = neuralOK; ops.earlyNR = earlyNR; ops.neuralReset = neuralReset;
         const auto result = SourceNvidiaFrameEvaluator::Evaluate(context.Get(), frame, ops);
         Require(result.upscaled == dlss && result.cameraValid == (dlss && camera) && result.prepared == (dlss && camera && prepare), "separate reconstruction/camera/preparation outcomes");
         Require(ops.upscales == unsigned(dlss) && ops.cameras == unsigned(dlss) && ops.prepares == unsigned(dlss && camera) && ops.decisions == unsigned(dlss), "failed upscale leaves camera/preparation/generation untouched");
         Require(ops.neuralCalls == 1 && ops.dlssCalls == unsigned(neuralOK), "failed NR stops DLSS and all later stages");
+        Require(ops.reShadeCalls == unsigned(ops.reShade && neuralOK && (ops.reShadeBefore || dlss)), "selected effect stage runs once and skips failed producers");
         Require(frame.reset == reset, "per-frame NR resets do not mutate the caller's input snapshot");
         Require(ops.generation == (dlss && camera && prepare && requested && !blocked && !warming), "generation gate with preparation independent of checkbox");
-        Require(Pixel(context.Get(), output.texture.Get()) == (dlss ? ops.reconstructed : std::array<float, 4>{0, 0, 0, 0}), "real output survives preparation failure");
+        Require(Pixel(context.Get(), output.texture.Get()) == (dlss ? ops.ExpectedOutput() : std::array<float, 4>{0, 0, 0, 0}), "real output survives preparation failure");
     }
     for (unsigned mask = 0; mask < 256; ++mask) {
         SourceNvidiaFrameGuides frame{};
@@ -239,5 +258,5 @@ int main()
             Pixel(context.Get(), input.texture.Get()) == std::array<float, 4>{0, 0, 0, 0},
             "supplied frame path does not touch native reconstruction surfaces");
     }
-    std::puts("PASS: 2048 native and 256 supplied-frame ordering/failure/reset/generation combinations");
+    std::puts("PASS: 8192 native and 256 supplied-frame ordering/failure/reset/generation combinations");
 }
