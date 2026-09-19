@@ -14,6 +14,13 @@ void OverlayUI::DrawAdvancedPanel(float advancedCardHeight, const FrameView& vie
 {
     if (ImGui::BeginTabItem("Advanced"))
     {
+        ImGui::Checkbox("ReShade before upscaling", &settingsDraft.reShadeBeforeUpscaling);
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Runs ReShade effects before upscaling when checked, after upscaling otherwise.\n"
+                "Effects receive world color and depth before Skyrim UI. Changing placement reloads effects.\n"
+                "ReShade's own effects toggle and preset selection remain available.");
+        }
+        ImGui::TextWrapped("%s", TheosRenderPipeline::ReShadeIntegration::Get().Status().c_str());
         ImGui::Checkbox("Request loading-screen artwork", &settingsDraft.requestLoadingArtwork);
         if (ImGui::IsItemHovered()) {
             ImGui::SetTooltip("Requests artwork during cell transitions that would otherwise omit it.\n"

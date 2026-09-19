@@ -77,6 +77,20 @@ struct NvidiaHost::SourceNvidiaEvaluationOperations
         return evaluated;
     }
     void UpscaleSucceeded() { ++host.upscaleEvaluationCount_; }
+    void RenderReShade(const TheosRenderPipeline::SourceNvidiaFrameInputs& frame, bool before)
+    {
+        auto& effects = TheosRenderPipeline::ReShadeIntegration::Get();
+        effects.SetBeforeUpscaling(upscaler.mReShadeBeforeUpscaling);
+        auto* ui = RE::UI::GetSingleton();
+        const bool world = ui && !ui->IsMenuOpen(RE::MainMenu::MENU_NAME) && !ui->IsMenuOpen(RE::LoadingMenu::MENU_NAME);
+        const auto hr = effects.Render(before ? frame.input : frame.output, world ? frame.depth : nullptr,
+            before ? TheosRenderPipeline::FrameExtent{frame.renderWidth, frame.renderHeight} :
+                     TheosRenderPipeline::FrameExtent{frame.outputWidth, frame.outputHeight},
+            {frame.renderWidth, frame.renderHeight}, before);
+        if (FAILED(hr) && (effects.Snapshot().failures <= 3 || host.presentCount_ % 600 == 0)) {
+            logger::warn("[ReShade] {} (0x{:08X})", effects.Status(), static_cast<unsigned>(hr));
+        }
+    }
     bool CaptureCamera(const TheosRenderPipeline::SourceNvidiaFrameGuides& frame)
     {
         return TheosRenderPipeline::SourceDLSSG::CaptureCameraConstants(upscaler.mGraphicsState,

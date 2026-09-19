@@ -64,6 +64,9 @@ set(ARP_BASELINE_SOURCES
     src/DRS.h
     src/RenderPipeline.cpp
     src/RenderPipeline.h
+    src/ReShadeIntegration.cpp
+    src/ReShadeIntegration.h
+    src/ReShadeSwapChain.h
     src/SettingsFile.h
     src/PluginPaths.h
     src/SkyrimRuntime.h

@@ -1,6 +1,8 @@
 #include <PCH.h>
 #include "CommunityShaderAdapter.h"
 #include "SourceDLSSGBackend.h"
+#include "ReShadeIntegration.h"
+#include "RenderPipeline.h"
 
 namespace TheosRenderPipeline
 {
@@ -31,6 +33,9 @@ namespace TheosRenderPipeline
         if (options_.beforeUpscaling && !EvaluateWorld(input.world, input.render)) {
             worldBegun_ = false; return false;
         }
+        auto& effects = ReShadeIntegration::Get();
+        effects.SetBeforeUpscaling(RenderPipeline::GetSingleton()->mReShadeBeforeUpscaling);
+        effects.Render(input.world, eligible_ ? resources_.Depth() : nullptr, input.render, input.render, true);
         return true;
     }
 
@@ -74,6 +79,8 @@ namespace TheosRenderPipeline
         if (!options_.beforeUpscaling && !EvaluateWorld(scene, resources_.OutputExtent())) {
             worldBegun_ = false; return false;
         }
+        ReShadeIntegration::Get().Render(scene, eligible_ ? resources_.Depth() : nullptr,
+            resources_.OutputExtent(), resources_.RenderExtent(), false);
         worldCompleted_ = SUCCEEDED(resources_.CaptureScene(context_.Get(), scene));
         status_ = worldCompleted_ ? "CS world captured before UI" : "CS completed world unavailable";
         return worldCompleted_;

@@ -140,16 +140,21 @@ void OverlayUI::SetVisible(bool a_visible)
 		}
 	}
 
+    UpdateControlCapture();
+}
+
+void OverlayUI::UpdateControlCapture()
+{
+    const bool wantsControls = visible || TheosRenderPipeline::ReShadeIntegration::Get().OverlayOpen();
 	// Suppress game controls with paired ToggleControls calls and restore the
 	// remembered state on close (pattern proven by the SKSE_Template_Forms
 	// overlay; a bare ignoreKeyboardMouse write left input permanently dead).
 	auto controlMap = RE::ControlMap::GetSingleton();
 	if (!controlMap) {
-		logger::warn("[Overlay] ControlMap unavailable while toggling visibility");
 		return;
 	}
 
-	if (visible) {
+	if (wantsControls) {
 		if (!controlsSuppressed) {
 			fightingWasEnabled = controlMap->IsFightingControlsEnabled();
 			lookingWasEnabled = controlMap->IsLookingControlsEnabled();
@@ -347,7 +352,22 @@ void OverlayUI::OnPresent(ID3D11Texture2D* producerUI)
 	}
 
 	UpdateFrameStats();
+    auto* host = NvidiaHost::GetSingleton();
+    if (host->ProxyActive() && host->UpscalerReady()) {
+        ID3D11Texture2D* target = producerUI;
+        if (!target && host->NativePresentReady()) {
+            target = host->NativeUIDrawnThisFrame() ? host->NativeUIRenderTexture() : host->NativePresentationTexture();
+        }
+        if (target) {
+            auto& effects = TheosRenderPipeline::ReShadeIntegration::Get();
+            const auto result = effects.FinishUI(target);
+            if (FAILED(result) && (effects.Snapshot().failures <= 3 || host->PresentCount() % 600 == 0)) {
+                logger::warn("[ReShade] {} (0x{:08X})", effects.Status(), static_cast<unsigned>(result));
+            }
+        }
+    }
 	HandleHotkey();
+    UpdateControlCapture();
 
 	if (!visible) {
 		return;

@@ -31,8 +31,11 @@ namespace TheosRenderPipeline
             // Completes the optional D3D12 NR round trip before D3D11 DLSS can
             // read input. Settings/re-entry resets apply to both stages.
             if (!operations.EvaluateNeuralBeforeDLSS(frame)) { return {}; }
+            operations.RenderReShade(frame, true);
             if (!operations.EvaluateDLSS(frame)) { return {}; }
             operations.UpscaleSucceeded();
+            // Finish external effects before Prepare snapshots HUD-less color.
+            operations.RenderReShade(frame, false);
 
             const auto preparation = SourceNvidiaFramePreparation::PrepareCompletedFrame(frame, operations);
             return {true, preparation.cameraValid, preparation.prepared};

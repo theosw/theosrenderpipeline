@@ -92,6 +92,7 @@ public:
 	std::atomic_uint32_t mInventory3DLastSkippedDraws{ 0 };
 	bool mUseOptimalMipLodBias{ true };
 	bool mAutoExposure{ true };
+    bool mReShadeBeforeUpscaling{ false };
 	int  mDLSSPreset{ 0 };  // NGX preset: 0 default, 5/6 E/F, 10/11 J/K, 12/13 L/M
 	bool mNativeUI{ true };  // scaled mode: rasterize the game's UI pass at native resolution
 	std::atomic_bool mRequestLoadingArtwork{ true };

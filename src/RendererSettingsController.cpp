@@ -27,6 +27,7 @@ RendererSettingsDraft RendererSettingsController::Capture([[maybe_unused]] bool 
     settingsDraft.sharpness = upscaler_.mSharpness;
     settingsDraft.enableJitter = upscaler_.mEnableJitter;
     settingsDraft.nativeUI = upscaler_.mNativeUI;
+    settingsDraft.reShadeBeforeUpscaling = upscaler_.mReShadeBeforeUpscaling;
     settingsDraft.requestLoadingArtwork = upscaler_.mRequestLoadingArtwork.load(std::memory_order_relaxed);
     if (host_.StartupConfigured())
     {
@@ -106,6 +107,7 @@ RendererSettingsResult RendererSettingsController::Apply(const RendererSettingsD
     upscaler_.mSharpness = std::clamp(settingsDraft.sharpness, 0.0f, 1.0f);
     upscaler_.mEnableJitter = settingsDraft.enableJitter;
     upscaler_.mNativeUI = settingsDraft.nativeUI;
+    upscaler_.mReShadeBeforeUpscaling = settingsDraft.reShadeBeforeUpscaling;
     upscaler_.mRequestLoadingArtwork.store(settingsDraft.requestLoadingArtwork, std::memory_order_relaxed);
     upscaler_.mWheelerLateOverlayBridge = settingsDraft.lateOverlayBridge;
     // The host stages allocation changes and applies live changes after a completed Present.

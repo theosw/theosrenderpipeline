@@ -19,6 +19,9 @@ See the installation guides for each edition.
 
 ## Features
 
+Experimental [ReShade integration](docs/RESHADE.md) adds source-frame effects,
+explicit depth and a before/after-upscaling choice. Game validation is pending.
+
 - DLSS Super Resolution, DLAA, model presets and sharpening.
 - Frame generation and native MFG capabilities. The full-feature build selects
   its compatibility path using the rendering GPU; the existing opt-out remains available.

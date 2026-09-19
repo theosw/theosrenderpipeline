@@ -85,13 +85,15 @@ namespace TheosRenderPipeline::CommunityShaders
         }
         void STDMETHODCALLTYPE Dispatch(ID3D11DeviceContext* context, UINT x, UINT y, UINT z)
         {
-            NvidiaHost::GetSingleton()->CommunityFrame().CaptureDisplayTransform(context, x, y, z, dispatchOriginal);
+            if (!ReShadeIntegration::Get().Internal()) {
+                NvidiaHost::GetSingleton()->CommunityFrame().CaptureDisplayTransform(context, x, y, z, dispatchOriginal);
+            }
             dispatchOriginal(context, x, y, z);
         }
         void STDMETHODCALLTYPE CopyResource(ID3D11DeviceContext* context, ID3D11Resource* destination, ID3D11Resource* source)
         {
             auto* host = NvidiaHost::GetSingleton();
-            if (D3D11FrameCopy::SameObject(destination, host->GameFacingTexture())) {
+            if (!ReShadeIntegration::Get().Internal() && D3D11FrameCopy::SameObject(destination, host->GameFacingTexture())) {
                 host->CommunityFrame().ConfirmPresentationCopy(source);
             }
             copyOriginal(context, destination, source);

@@ -1,3 +1,4 @@
+#include "ReShadeIntegration.h"
 #include "SourceDLSSGBackend.h"
 #include <PCH.h>
 #include "CommunityShaderIntegration.h"
@@ -140,7 +141,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 		ComPtr<IDXGIAdapter> adapter;
 		if (!Check(device11_.As(&dxgiDevice), "D3D11 DXGI device") ||
 			!Check(dxgiDevice->GetAdapter(&adapter), "D3D11 adapter") ||
-			!Check(D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(&device12_)), "D3D12 device")) { return fault_; }
+			!Check(ReShadeIntegration::Get().CreateSourceDevice(adapter.Get(), D3D_FEATURE_LEVEL_12_0, &device12_), "D3D12 device")) { return fault_; }
+		logger::info("[ReShade] {}", ReShadeIntegration::Get().Status());
 		MFGUnlock::StartupScope startupScope(mfgUnlock_);
 		if (!Load(a_directory)) { return fault_; }
 		void* upgraded = device12_.Get();

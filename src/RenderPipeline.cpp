@@ -36,6 +36,7 @@ void RenderPipeline::LoadINI()
 	mAutoExposure = ini.GetBoolValue("Settings", "AutoExposure", true);
 	mDLSSPreset = TheosRenderPipeline::DLSSPreset::Sanitize((int)ini.GetLongValue("Settings", "DLSSPreset", 0));
 	mNativeUI = ini.GetBoolValue("Settings", "NativeUI", true);
+    mReShadeBeforeUpscaling = ini.GetBoolValue("Compatibility", "ReShadeBeforeUpscaling", false);
 	mRequestLoadingArtwork.store(ini.GetBoolValue("Settings", "RequestLoadingArtwork", true), std::memory_order_relaxed);
 	mWheelerLateOverlayBridge = ini.GetBoolValue("Compatibility", "WheelerLateOverlayBridge", true);
 	PerformanceTuning::Settings performanceSettings{};
@@ -102,6 +103,7 @@ bool RenderPipeline::SaveINI()
 	ini.SetBoolValue("Settings", "AutoExposure", creation.autoExposure);
 	ini.SetLongValue("Settings", "DLSSPreset", creation.preset);
 	ini.SetBoolValue("Settings", "NativeUI", mNativeUI);
+    ini.SetBoolValue("Compatibility", "ReShadeBeforeUpscaling", mReShadeBeforeUpscaling);
 	ini.SetBoolValue("Settings", "RequestLoadingArtwork", mRequestLoadingArtwork.load(std::memory_order_relaxed));
 	ini.SetBoolValue("Compatibility", "WheelerLateOverlayBridge", mWheelerLateOverlayBridge);
 	const auto& performanceSettings = PerformanceTuning::GetSingleton()->settings;
