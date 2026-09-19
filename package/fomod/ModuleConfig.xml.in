@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://qconsulting.ca/fo3/ModConfig5.0.xsd">
+  <moduleName>Theo's Render Pipeline - @EDITION@</moduleName>
+  <requiredInstallFiles>
+    <folder source="SKSE" destination="SKSE" />
+@FILES@
+  </requiredInstallFiles>
+</config>

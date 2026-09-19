@@ -5,6 +5,10 @@ native-resolution menus for Skyrim. All eight NVIDIA runtime DLLs are included.
 
 ## Install
 
+MO2 suggests **Theo's Render Pipeline - Standard** as the mod name. Install it
+as a separate mod; do not merge it with Universal. When updating, replace the
+same edition, then check your saved settings.
+
 1. Install and enable this ZIP in MO2. Disable competing upscaler/frame-generation mods.
    If using Community Shaders, keep CS enabled and follow the CS setup below.
 2. Enable Hardware-Accelerated GPU Scheduling in Windows graphics settings and
@@ -52,19 +56,19 @@ upscaling by default; use **Advanced → ReShade before upscaling** to change th
 Changing placement may reload shaders. Give ReShade, CS and TRP different menu keys.
 
 The shared ReShade integration passed offline checks in both editions. Gameplay
-was tested in Full with ReShade 6.3.3.1921, Skyrim 1.6.1170, Cabbage ENB and
+was tested in Universal with ReShade 6.3.3.1921, Skyrim 1.6.1170, Cabbage ENB and
 RTX 4080 SUPER. Standard ReShade gameplay, CS with ReShade, other ReShade versions
 and other effect/NR placements still need testing. Keep Native UI enabled for
 the tested world-only effects setup.
 
-## With the Full edition
+## With the Universal edition
 
-For the RTX 40 MFG unlock or experimental RTX 30 support, install the matching 0.2.0 Full
-ZIP after Standard in MO2's left pane. Let Full win file conflicts. Full uses
+For the RTX 40 MFG unlock or experimental RTX 30 support, install the matching 0.2.0 Universal
+ZIP as a separate mod below Standard in MO2's left pane. Enable both and let Universal win file conflicts. Universal uses
 the NVIDIA runtimes included here, including NR.
 
 Both editions contain settings files; the later mod's files win. Switching
-editions may change settings. Disable Full to return to Standard. Both editions
+editions may change settings. Disable Universal to return to Standard. Both editions
 support NR; Standard excludes Ada/Ampere compatibility code.
 
 ## Compatibility and reports
@@ -74,7 +78,7 @@ with native x2 and both NR placements and no recorded NR/host failure counters.
 The ENB run retains two recurring Streamline RSYNC errors. Both shading setups
 use the same renderer DLL; enable only the intended shading setup in each profile.
 Skyrim 1.5.97, 1.6.640 and 1.7.104 are experimental and untested in-game.
-Actual RTX 30 execution in Full, native RTX 50-series operation, HDR appearance
+Actual RTX 30 execution in Universal, native RTX 50-series operation, HDR appearance
 and physical frame cadence remain unverified.
 
 For reports, include TRP-STANDARD-PACKAGE.txt, GPU/driver, game/mod versions,

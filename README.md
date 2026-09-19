@@ -73,3 +73,27 @@ optional. Use one shading setup per profile. CS setup is documented above.
 
 See [LICENSE](LICENSE) and [third-party notices](THIRD-PARTY.md) for project and
 contribution terms. Vendor runtimes retain their own licenses.
+
+## Public ZIP installer metadata
+
+The public Full download is named **Universal**. MO2 should suggest distinct,
+version-independent names: **Theo's Render Pipeline - Standard** and
+**Theo's Render Pipeline - Universal**. Install Standard first, then Universal
+as a separate mod below it in the left pane if those features are wanted.
+Enable both and let Universal win conflicts; do not merge the editions.
+Universal can also use separately supplied NVIDIA runtimes.
+
+After assembling each public package, before creating its ZIP, run:
+
+```powershell
+pwsh -File tools/Set-PackageInstaller.ps1 -PackageDirectory <public-package-folder> -Edition Standard -Version 0.2.0
+pwsh -File tools/Set-PackageInstaller.ps1 -PackageDirectory <public-package-folder> -Edition Universal -Version 0.2.0
+```
+
+Use the corresponding folder for each command. This adds `fomod/info.xml` and
+`fomod/ModuleConfig.xml` with no option pages. Every public payload file and notice
+is installed in its existing location; no renderer rebuild or filename change
+is needed. Internal build names and `TRP-FULL-PACKAGE.txt` remain unchanged.
+Apply this only to public staging folders, after private manifests and symbols
+have been excluded. The script refuses private staging trees. MO2 users can
+still override the proposed mod name.

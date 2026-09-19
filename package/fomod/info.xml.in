@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<fomod>
+  <Name>Theo's Render Pipeline - @EDITION@</Name>
+  <Author>Theo</Author>
+  <Version>@VERSION@</Version>
+  <Website>https://github.com/theosw/theosrenderpipeline</Website>
+  <Description>@DESCRIPTION@</Description>
+</fomod>
