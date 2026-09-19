@@ -217,6 +217,7 @@ if(TRP_BUILD_COMPATIBILITY_TESTS)
     target_include_directories(TRPPluginPathsTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
     target_link_libraries(TRPPluginPathsTests PRIVATE ARPDetours)
     add_dependencies(TRPPluginPathsTests TRPModuleIdentityFixture1 TRPModuleIdentityFixture2)
+    add_subdirectory(tests/ampere-loader)
     foreach(order IN ITEMS a-first b-first)
         add_test(NAME PluginPaths-${order} COMMAND TRPPluginPathsTests
             $<TARGET_FILE:TRPModuleIdentityFixture1> $<TARGET_FILE:TRPModuleIdentityFixture2> ${order} direct)

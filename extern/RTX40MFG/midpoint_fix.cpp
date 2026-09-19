@@ -899,7 +899,7 @@ AdapterKind ObserveD3D12Adapter(void* device) noexcept
                     ? Failure::eAdapterUnavailable : Failure::eAdapterNotAda);
         }
     }
-    Log(L"D157 adapter verification: luid=0x%016llX capability=%d.%d verified=%d",
+    Log(L"D157 adapter verification: luid=0x%016llX capability=%d.%d adaVerified=%d",
         static_cast<unsigned long long>(packedLuid), major, minor, verified);
     return kind;
 }
