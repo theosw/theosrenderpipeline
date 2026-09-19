@@ -19,6 +19,7 @@ RendererSettingsDraft RendererSettingsController::Capture([[maybe_unused]] bool 
 {
     RendererSettingsDraft settingsDraft;
     settingsDraft.valid = true;
+    settingsDraft.menuHotkey = upscaler_.mToggleOverlayHotkey;
     settingsDraft.upscaleType = upscaler_.mUpscaleType;
     settingsDraft.qualityLevel = upscaler_.mQualityLevel;
     settingsDraft.dlssPreset = upscaler_.mDLSSPreset;
@@ -100,6 +101,7 @@ RendererSettingsResult RendererSettingsController::Apply(const RendererSettingsD
         return {actionMessage, actionMessageIsError};
     }
     upscaler_.mUpscaleType = settingsDraft.upscaleType;
+    upscaler_.mToggleOverlayHotkey = settingsDraft.menuHotkey;
     upscaler_.mQualityLevel = std::clamp(settingsDraft.qualityLevel, 0, 4);
     upscaler_.mDLSSPreset = settingsDraft.dlssPreset;
     upscaler_.mAutoExposure = settingsDraft.autoExposure;

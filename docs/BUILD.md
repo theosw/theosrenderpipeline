@@ -38,6 +38,10 @@ ctest --test-dir <build-directory> -C Release --output-on-failure
 
 The `arp-nvidia` build preset builds only the renderer, so build the test targets
 explicitly before running CTest.
+`TRPOverlayHotkeyTests` and `TRPOverlayNumericInputTests` cover menu rebinding,
+settings serialization and text editing. They use hidden fixture windows and a
+standalone ImGui context; they do not launch Skyrim or establish in-game input
+acceptance.
 These offline checks cover exact version admission, artwork caller isolation,
 graphics/control layouts and the linked format-1/2/5 Address Library loader.
 The frame evaluator check uses D3D11 WARP to verify native reconstruction ordering,

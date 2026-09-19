@@ -11,9 +11,17 @@ namespace TheosRenderPipeline::Overlay
 	{
 	public:
 		using Keys = std::array<bool, 256>;
-		void Update(ImGuiIO& io, const Keys& keys, bool focused)
+		void Update(ImGuiIO& io, const Keys& keys, bool focused, bool capturingHotkey = false)
 		{
-			if (focused != focused_) { io.AddFocusEvent(focused); }
+            if (focused != applicationFocused_) { io.AddFocusEvent(focused); }
+            applicationFocused_ = focused;
+            if (focused && capturingHotkey) {
+                // Suspend numeric keys without declaring application focus lost.
+                // Reset our edge state so held capture keys are blocked when
+                // ordinary editing resumes.
+                Release(io);
+                return;
+            }
 			if (!focused) {
 				Release(io);
 				return;
@@ -76,6 +84,7 @@ namespace TheosRenderPipeline::Overlay
 		};
 		Keys previous_{}, blocked_{};
 		bool focused_{};
+        bool applicationFocused_{};
 	};
 
 	inline bool FPSInput(const char* id, int& value)

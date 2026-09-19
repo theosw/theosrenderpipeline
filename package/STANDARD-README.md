@@ -27,6 +27,12 @@ input scaling and tuning remain available. NR and frame generation are independe
 
 Apply now changes this session. Save as default also saves settings. Discard
 changes drops unapplied edits. DLSS/DLAA mode and render scale need a restart.
+Rebind the menu under **Advanced > Controls > Menu hotkey**, then Apply now or
+Save as default. Escape cancels capture; Reset to End stages the original key.
+Choose a single keyboard key that is free in your other mods; `[` and `]` are
+reserved for NR. End and function keys close during value editing; for other
+bindings, click outside the field first.
+
 If the NR DLL is removed, its controls become unavailable until it is restored
 and Skyrim restarted; DLSS/frame generation remain available.
 

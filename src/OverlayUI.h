@@ -79,6 +79,7 @@ private:
 	TheosRenderPipeline::RendererSettingsDraft settingsDraft{};
     bool nrRuntimePresent{false};
 	std::string actionMessage;
+    std::string hotkeyCaptureError;
 	bool actionMessageIsError{ false };
 
 	bool controlsSuppressed{ false };
