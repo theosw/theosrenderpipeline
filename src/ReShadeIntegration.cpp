@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cstring>
+#include <memory>
 #include <vector>
 
 namespace TheosRenderPipeline
@@ -234,7 +235,8 @@ namespace TheosRenderPipeline
         // Capture only this synchronous host-owned creation, never another mod's
         // device. All of TRP's D3D12 work and Streamline use the same native
         // device/queues; the game-facing D3D11 interfaces stay untouched.
-        s.capturingDevice = s.module ? &native : nullptr;
+        // ComPtr overloads operator& for output parameters; capture the object itself.
+        s.capturingDevice = s.module ? std::addressof(native) : nullptr;
         const auto result = D3D12CreateDevice(adapter, minimum, IID_PPV_ARGS(&exposed));
         s.capturingDevice = nullptr;
         if (FAILED(result)) { return result; }

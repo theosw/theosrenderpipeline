@@ -59,6 +59,7 @@ static std::array<unsigned char, 4> Pixel(ID3D11Device* device, ID3D11DeviceCont
 
 int main(int argc, char** argv)
 {
+    SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
     const bool requireReShade = argc == 2 && std::string_view(argv[1]) == "--require-reshade";
     Require(argc == 1 || requireReShade, "supported arguments");
     WNDCLASSW wc{}; wc.hInstance = GetModuleHandleW(nullptr); wc.lpfnWndProc = DefWindowProcW; wc.lpszClassName = L"TRPReShadeFixture";
@@ -74,12 +75,25 @@ int main(int argc, char** argv)
     Surface color(device.Get(), 64, 32), earlyColor(device.Get(), 32, 16), depth(device.Get(), 32, 16, DXGI_FORMAT_R32_FLOAT), ui(device.Get(), 64, 32);
     const std::array<float, 4> scene{0.25f, 0.5f, 0.25f, 1};
     color.Paint(context.Get(), scene); ui.Paint(context.Get(), scene); depth.Paint(context.Get(), {0.5f, 0, 0, 0});
+    // Device creation is required even when the optional injector is absent.
+    ComPtr<IDXGIDevice> dxgi; ComPtr<IDXGIAdapter> adapter; Check(device.As(&dxgi), "DXGI device"); Check(dxgi->GetAdapter(&adapter), "adapter");
+    Require(effects.CreateSourceDevice(adapter.Get(), D3D_FEATURE_LEVEL_12_0, nullptr) == E_POINTER, "null device output rejected");
+    ComPtr<ID3D12Device> device12; Check(effects.CreateSourceDevice(adapter.Get(), D3D_FEATURE_LEVEL_12_0, &device12), "D3D12 device");
+    Require(device12.Get() != nullptr, "successful creation returns a device");
+    D3D12_COMMAND_QUEUE_DESC queueDesc{}; ComPtr<ID3D12CommandQueue> queue; Check(device12->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&queue)), "queue");
     if (!requireReShade) {
         Require(effects.Status() == "ReShade not loaded", "absence fixture must not load an injector");
+        ComPtr<ID3D12Fence> ready; Check(device12->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&ready)), "absent runtime fence");
+        ComPtr<ID3D12Device> fenceDevice; Check(ready->GetDevice(IID_PPV_ARGS(&fenceDevice)), "absent fence device");
+        Require(TheosRenderPipeline::D3D11FrameCopy::SameObject(device12.Get(), fenceDevice.Get()), "absent runtime preserves native device identity");
+        Check(queue->Signal(ready.Get(), 1), "absent queue signal");
+        HANDLE complete = CreateEventW(nullptr, FALSE, FALSE, nullptr); Require(complete != nullptr, "absent fence event");
+        Check(ready->SetEventOnCompletion(1, complete), "absent fence completion");
+        Require(WaitForSingleObject(complete, 30000) == WAIT_OBJECT_0, "absent queue completes work"); CloseHandle(complete);
         Require(effects.Render(color.texture.Get(), depth.texture.Get(), {64, 32}, {32, 16}, false) == S_FALSE, "absent stage is inert");
         Require(effects.FinishUI(ui.texture.Get()) == S_FALSE, "absent GUI is inert");
         Require(Pixel(device.Get(), context.Get(), color.texture.Get())[0] == 64, "absence leaves pixels unchanged");
-        effects.ResetAfterRetirement(); DestroyWindow(window); std::puts("PASS: absent ReShade is inert"); return 0;
+        effects.ResetAfterRetirement(); DestroyWindow(window); std::puts("PASS: absent ReShade creates a working native device and leaves effects inert"); return 0;
     }
 
     auto module = GetModuleHandleW(L"dxgi.dll");
@@ -90,9 +104,6 @@ int main(int argc, char** argv)
 
     // The production device factory keeps this D3D12 output chain free of
     // automatic effect/input runtimes. It presents four times per source frame.
-    ComPtr<IDXGIDevice> dxgi; ComPtr<IDXGIAdapter> adapter; Check(device.As(&dxgi), "DXGI device"); Check(dxgi->GetAdapter(&adapter), "adapter");
-    ComPtr<ID3D12Device> device12; Check(effects.CreateSourceDevice(adapter.Get(), D3D_FEATURE_LEVEL_12_0, &device12), "D3D12 device");
-    D3D12_COMMAND_QUEUE_DESC queueDesc{}; ComPtr<ID3D12CommandQueue> queue; Check(device12->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&queue)), "queue");
     DXGI_SWAP_CHAIN_DESC1 desc{}; desc.Width = 64; desc.Height = 32; desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
     desc.SampleDesc.Count = 1; desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT; desc.BufferCount = 2; desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
     ComPtr<IDXGISwapChain1> output; Check(factory->CreateSwapChainForHwnd(queue.Get(), window, &desc, nullptr, nullptr, &output), "output swapchain");
