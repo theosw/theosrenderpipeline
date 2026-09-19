@@ -1,9 +1,11 @@
 #include "FrameGen/D3D11FrameCopy.h"
+#include <dxgi1_4.h>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <vector>
+#include <string_view>
 
 using Microsoft::WRL::ComPtr;
 using TheosRenderPipeline::FrameExtent;
@@ -51,11 +53,17 @@ static void ExpectRegion(const std::vector<float>& pixels, const std::vector<flo
     }
 }
 
-int main()
+int main(int argc, char** argv)
 {
+    const bool requireWrapped = argc == 2 && std::string_view(argv[1]) == "--require-wrapped";
+    Require(argc == 1 || requireWrapped, "supported arguments");
+    // Import DXGI so a locally staged ReShade proxy is loaded in the explicit
+    // wrapped run. Normal CTest uses WARP with no external DLL requirement.
+    ComPtr<IDXGIFactory> factory;
+    Check(CreateDXGIFactory1(IID_PPV_ARGS(&factory)), "DXGI factory");
     ComPtr<ID3D11Device> device; ComPtr<ID3D11DeviceContext> context;
-    Check(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0, nullptr, 0,
-        D3D11_SDK_VERSION, &device, nullptr, &context), "WARP device");
+    Check(D3D11CreateDevice(nullptr, requireWrapped ? D3D_DRIVER_TYPE_HARDWARE : D3D_DRIVER_TYPE_WARP,
+        nullptr, 0, nullptr, 0, D3D11_SDK_VERSION, &device, nullptr, &context), "copy device");
     constexpr UINT width = 22, height = 17;
     constexpr FrameExtent active{13, 9};
     std::vector<float> scene(width * height);
@@ -104,6 +112,11 @@ int main()
     constexpr char noop[] = "[numthreads(1,1,1)] void main(uint3 p:SV_DispatchThreadID){}";
     ComPtr<ID3DBlob> code; Check(D3DCompile(noop, sizeof(noop) - 1, nullptr, nullptr, nullptr, "main", "cs_5_0", 0, 0, &code, nullptr), "sentinel shader code");
     ComPtr<ID3D11ComputeShader> savedShader; Check(device->CreateComputeShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, &savedShader), "sentinel shader");
+    ComPtr<ID3D11Device> shaderOwner;
+    savedShader->GetDevice(&shaderOwner);
+    const bool differentShaderOwner = !Copy::SameObject(device.Get(), shaderOwner.Get());
+    std::printf("shaderDeviceDiffersFromCreationDevice=%u\n", differentShaderOwner);
+    Require(!requireWrapped || differentShaderOwner, "wrapped mode must reproduce the shader/creation-device identity split");
     context->CSSetShader(savedShader.Get(), nullptr, 0);
     context->CSSetShaderResources(0, 1, savedSRV.GetAddressOf()); context->CSSetShaderResources(3, 1, savedSRV.GetAddressOf());
     context->CSSetUnorderedAccessViews(0, 1, savedUAV.GetAddressOf(), nullptr);
@@ -130,6 +143,14 @@ int main()
             Require(shader == savedShader && srv == savedSRV && untouched == savedSRV && uav == savedUAV, "compute bindings restored");
             Require(FAILED(depthCopy.Copy(context.Get(), depth.Get(), target.Get(), {extent.width + 1, extent.height})), "depth extent mismatch rejected");
             Require(FAILED(depthCopy.Copy(otherContext.Get(), depth.Get(), target.Get(), extent)), "foreign depth context rejected");
+            auto foreignSource = Texture(otherDevice.Get(), width, height, DXGI_FORMAT_R32_FLOAT,
+                D3D11_BIND_SHADER_RESOURCE, scene.data());
+            auto foreignTarget = Texture(otherDevice.Get(), extent.width, extent.height, DXGI_FORMAT_R32_FLOAT,
+                D3D11_BIND_UNORDERED_ACCESS | D3D11_BIND_SHADER_RESOURCE);
+            Require(FAILED(depthCopy.Copy(otherContext.Get(), foreignSource.Get(), foreignTarget.Get(), extent)),
+                "cached shader cannot be reused on another otherwise valid device");
+            Check(depthCopy.Copy(context.Get(), depth.Get(), target.Get(), extent), "legitimate reuse after foreign rejection");
+            ExpectRegion(Pixels(context.Get(), target.Get()), scene, extent, width, 0.0000002f);
             if (depthStencil && extent.width == width) {
                 ComPtr<ID3D11DepthStencilView> dsv;
                 D3D11_DEPTH_STENCIL_VIEW_DESC desc{}; desc.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;
