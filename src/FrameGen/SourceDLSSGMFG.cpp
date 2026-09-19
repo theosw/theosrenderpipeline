@@ -1,6 +1,7 @@
 #include <PCH.h>
 #include "SourceDLSSGMFG.h"
 #include "../PluginPaths.h"
+#include "CommunityShaderIntegration.h"
 #include "SourceDLSSGMFGPatch.h"
 #include "../../extern/RTX40MFG/midpoint_fix.h"
 #include "../../extern/RTX40MFG/dlssg_provider_policy.h"
@@ -26,11 +27,16 @@ namespace TheosRenderPipeline::SourceDLSSG
 	[[noreturn]] void MFGUnlock::Fail(const char* reason)
 	{
 		state_.failed = true; state_.status = reason;
+		const auto guidance = state_.UsesAmpereUnlock() ?
+			std::string("RTX 30-series frame generation requires the Full compatibility path.\n"
+				"Keep SourceDLSSGMFGUnlock=true and include TheosRenderPipeline.log when reporting this startup failure.\n") :
+			std::format("Temporal error: {}. Attempts: {}.\n\n"
+				"Set SourceDLSSGMFGUnlock=false in SKSE/Plugins/TheosRenderPipeline.ini to use the unmodified NVIDIA runtime.\n",
+				state_.temporalFailure, state_.attempts);
 		util::report_and_fail(std::format(
 			"Theo's Render Pipeline: MFG startup or patch verification failed.\n\n"
-			"{}\nTemporal error: {}. Attempts: {}.\n\n"
-			"Set SourceDLSSGMFGUnlock=false in SKSE/Plugins/TheosRenderPipeline.ini to use the unmodified NVIDIA runtime.\n"
-			"See TheosRenderPipeline.log for details. Skyrim will close after this message.", reason, state_.temporalFailure, state_.attempts));
+			"{}\n\n{}"
+			"See TheosRenderPipeline.log for details. Skyrim will close after this message.", reason, guidance));
 	}
 	void MFGUnlock::EnterStartupScope() noexcept { trp::ampere::EnterStartupScope(); }
 	void MFGUnlock::LeaveStartupScope() noexcept { trp::ampere::LeaveStartupScope(); }
@@ -47,8 +53,11 @@ namespace TheosRenderPipeline::SourceDLSSG
 			state_.temporalFailure = midpoint_fix::FailureCode();
 			Fail("active rendering adapter could not be identified; no patches applied");
 		}
+		spdlog::info("[SourceDLSSG MFG] selected route={} compatibilityRequested={}",
+			state_.UsesAmpereUnlock() ? "Ampere" : state_.UsesAdaUnlock() ? "Ada" : "Native", state_.requested);
 		if (state_.UsesAmpereUnlock()) {
-			if (!trp::ampere::Start(device, directory, [](const char* message) { spdlog::info("[SourceDLSSG Ampere] {}", message); })) {
+			spdlog::info("[SourceDLSSG Ampere] separate runtime bundles permitted={}", CommunityShaders::Active());
+			if (!trp::ampere::Start(device, directory, [](const char* message) { spdlog::info("[SourceDLSSG Ampere] {}", message); }, CommunityShaders::Active())) {
 				const auto snapshot = trp::ampere::Snapshot();
 				Fail(snapshot.error ? snapshot.error : "Ampere startup preparation failed");
 			}

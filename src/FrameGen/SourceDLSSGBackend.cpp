@@ -67,9 +67,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		directory_ = Normalize(a_directory);
 		// Keep one owner for the configured modules. Versions do not gate loading.
 		for (const auto* name : kStreamlineModules) {
-			const auto configuredOwner = RetainLoadedModule(directory_ / name);
-			if (configuredOwner) { ::FreeLibrary(configuredOwner); }
-			if (configuredOwner || (!CommunityShaders::Active() && ::GetModuleHandleW(name))) {
+			if (HasConflictingLoadedModule(directory_ / name, CommunityShaders::Active())) {
 				return Check(E_UNEXPECTED, std::format("{} already loaded by another owner", std::filesystem::path(name).string()).c_str());
 			}
 		}
