@@ -211,7 +211,13 @@ namespace TheosRenderPipeline::SourceDLSSG
 		api_.context = this;
 		api_.waitForInputReaders = [](void* context, void* fence, std::uint64_t value) {
 			auto& owner = *static_cast<Backend*>(context);
-			return owner.Check(owner.interop_.WaitForInputReaders(static_cast<ID3D12Fence*>(fence), value), "input reuse fence");
+			const auto result = owner.interop_.WaitForInputReaders(static_cast<ID3D12Fence*>(fence), value);
+			if (FAILED(result)) {
+				const auto& detail = owner.interop_.LastInputWait();
+				logger::error("[SourceDLSSG] input reuse fence stage={} fence={} value={} hostIdentity={} referenceFenceOwner={} inputFenceOwner={}",
+					detail.stage, fence, value, detail.hostIdentity, detail.referenceFenceOwner, detail.inputFenceOwner);
+			}
+			return owner.Check(result, "input reuse fence");
 		};
 		session_.RequestReflexMode(ReflexConfiguration());
 		session_.RequestOutputFPSLimit(outputFPSLimit_.load(std::memory_order_relaxed));

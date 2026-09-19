@@ -30,6 +30,15 @@ namespace TheosRenderPipeline::SourceDLSSG
 		D3D11_TEXTURE2D_DESC desc{};
 	};
 
+	struct InputWaitDiagnostics
+	{
+		const char* stage{ "not called" };
+		// Address snapshots for failure logging only; these do not own COM objects.
+		const void* hostIdentity{};
+		const void* referenceFenceOwner{};
+		const void* inputFenceOwner{};
+	};
+
 	class Interop final
 	{
 	public:
@@ -55,6 +64,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// internal fence, the presenting-queue barrier is valid only with DLSS-G's
 		// default eBlockPresentingClientQueue mode.
 		HRESULT WaitForInputReaders(ID3D12Fence* a_fence, std::uint64_t a_value);
+		const InputWaitDiagnostics& LastInputWait() const { return inputWait_; }
 		HRESULT Begin(Work a_work, ID3D12GraphicsCommandList** a_list, AllocatorWaitTiming* a_wait = nullptr);
 		HRESULT Submit(Work a_work);
 		HRESULT Drain(DWORD a_timeoutMs = 2000);
@@ -90,7 +100,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 		Microsoft::WRL::ComPtr<ID3D11DeviceContext4> context11_;
 		Microsoft::WRL::ComPtr<ID3D12Device> device12_;
 		Microsoft::WRL::ComPtr<ID3D12CommandQueue> queue_;
+		Microsoft::WRL::ComPtr<IUnknown> fenceDeviceIdentity_;
 		std::array<WorkContext, static_cast<std::size_t>(Work::Count)> work_;
+		InputWaitDiagnostics inputWait_;
 		HRESULT fault_{ S_OK };
 		bool ready_{ false };
 	};
