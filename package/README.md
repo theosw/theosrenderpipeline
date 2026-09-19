@@ -1,15 +1,13 @@
-# Theo's Render Pipeline — Full, 0.1.4
+# Theo's Render Pipeline — Full, 0.2.0
 
-Adds Community Shaders integration and NR Ratio/runtime checks. Standard now also
-includes NR; Full adds the RTX 40 MFG unlock and experimental RTX 30 compatibility.
-Both editions have positive Cabbage ENB and Bottle CS test reports on Skyrim
-1.6.1170 / RTX 4080 SUPER.
+Adds ReShade support and fixes RTX 30 runtime loading with MO2 and Community
+Shaders. Full includes the RTX 40 MFG unlock and experimental RTX 30 compatibility.
 
 DLSS/DLAA, frame generation, Neural Rendering and native-resolution UI for Skyrim.
 This package includes the full renderer, configuration and sharpening shader.
 It requires no other Theo's Render Pipeline package. NVIDIA DLLs are supplied
 separately: download the SR/FG files below, and the NR runtime if you want NR.
-Alternatively, install matching 0.1.4 Standard first and Full after it in MO2; the NR-enabled
+Alternatively, install matching 0.2.0 Standard first and Full after it in MO2; the NR-enabled
 Standard download supplies all eight runtimes, including NR. In that setup,
 skip the runtime downloads below.
 
@@ -67,7 +65,7 @@ and render scale changes take effect after restarting Skyrim.
   in End. RTX 30-series uses experimental Ampere compatibility, RTX 40-series
   uses the Ada unlock, and RTX 50-series uses native capabilities. The FG toggle
   leaves the rendering host active. The saved `SourceDLSSGMFGUnlock` setting
-  controls both compatibility paths; leave it enabled for the RTX 30 test.
+  controls both compatibility paths; leave it enabled for RTX 30 cards.
 - NR starts off. After supplying its DLL, enable it with Before DLSS/one pass
   as the default placement. After DLSS, two passes, input scaling and tuning
   are also available.
@@ -83,21 +81,36 @@ the packaged configuration; `RCAS.hlsl` is the runtime sharpening shader.
 The same renderer DLL targets Skyrim 1.6.1170 and experimental 1.5.97/1.6.640/1.7.104.
 Install SKSE64 and Address Library matching your game, the x64 Microsoft
 Visual C++ runtime and a compatible NVIDIA GPU/driver. DLSS-G-compatible hardware
-is required even with frame generation switched off. AMD/Intel and ReShade
-integration are not supported.
+is required even with frame generation switched off. AMD/Intel are not supported.
 
 ENB is optional. With Community Shaders, keep CS upscaling enabled and disable
 CS frame generation and CS Reflex. TRP provides FG/Reflex/NR while CS retains
 upscaling, render scale, sharpening and colour. Assign CS a separate menu key,
-such as F8, avoiding keys already assigned to capture tools. TRP keeps End.
+such as F8, avoiding keys already assigned to ReShade or capture tools. TRP keeps End.
+The tested CS setup uses SDR. CS HDR remains unverified and has an unresolved
+report of an invisible TRP menu and inactive frame generation.
 
-This 0.1.4 build has positive Skyrim 1.6.1170/RTX 4080 SUPER reports with Cabbage
+Earlier 0.1.4 builds have positive Skyrim 1.6.1170/RTX 4080 SUPER reports with Cabbage
 ENB and Bottle's Community Shaders build/Effects 11, including logged x4 and
 both NR placements in each setup. Full also logged x6 in the CS run. Recurring
 Streamline RSYNC errors remain recorded in some tests; physical frame cadence
 has not been validated.
 Other CS builds, RTX 30 execution, native RTX 50 operation and HDR appearance
 remain unverified.
+
+## ReShade (optional)
+
+Keep your existing ReShade installation, preset and hotkeys. **Disable SSE
+ReShade Helper.** TRP supplies the effects and overlay stages. Effects run after
+upscaling by default; use **Advanced → ReShade before upscaling** to change this.
+Changing placement may reload shaders. Give ReShade, CS and TRP different menu keys.
+
+The renderer was tested with and without ReShade 6.3.3.1921 on Skyrim 1.6.1170,
+Cabbage ENB and RTX 4080 SUPER, with x4 and NR before upscaling. CS with ReShade,
+other ReShade versions and other effect/NR placements still need game testing.
+Keep Native UI enabled for the tested world-only effects setup.
+
+## Experimental game versions
 
 **Skyrim 1.5.97, 1.6.640 and 1.7.104 are experimental and untested in-game.** Build and offline
 compatibility checks passed. Use matching SKSE64 and Address Library, and please

@@ -9,6 +9,11 @@ Set separate menu keys for CS and TRP/KreatE. F8 for CS and End for TRP works in
 the tested setup; Bottle also offers Shift+F8 for its editor. Pick another key
 if F8 is already used by FrameView or another tool. TRP does not rebind CS for you.
 
+The tested CS setup uses SDR. CS HDR remains unverified and has an unresolved
+report of an invisible TRP menu and inactive frame generation on CS 1.8.4.
+Do not treat the SDR results as HDR support. CS combined with ReShade also
+remains untested; use distinct menu keys if trying that combination.
+
 ## Rendering boundaries
 
 The adapter preserves the engine postprocessing chain and snapshots motion,
