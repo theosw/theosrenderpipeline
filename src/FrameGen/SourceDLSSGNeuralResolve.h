@@ -25,6 +25,15 @@ namespace TheosRenderPipeline::SourceDLSSG
 			ResolveKernel kernel, const ResolveConstants& constants, ID3D12Resource* a, ID3D12Resource* b,
 			ID3D12Resource* original, ID3D12Resource* output);
 	private:
+		struct DescriptorTable
+		{
+			// Retain identities so a released input address cannot be reused and
+			// mistaken for an unchanged descriptor. Replace only a retired slot.
+			std::array<Microsoft::WRL::ComPtr<ID3D12Resource>, 4> resources;
+			UINT width{}, height{};
+			bool valid{};
+		};
+		std::array<std::array<DescriptorTable, kStages>, kCommandSlots> descriptors_;
 		Microsoft::WRL::ComPtr<ID3D12RootSignature> root_;
 		std::array<Microsoft::WRL::ComPtr<ID3D12PipelineState>, 3> pipelines_;
 		std::array<std::array<Microsoft::WRL::ComPtr<ID3D12DescriptorHeap>, kStages>, kCommandSlots> heaps_;
