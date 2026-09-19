@@ -84,6 +84,7 @@ void OverlayUI::PollInput()
 	static bool lastRight = false;
 	const auto foreground = ::GetForegroundWindow();
 	const bool focused = visible && foreground && (foreground == hwnd || ::IsChild(hwnd, foreground));
+    const bool capturingHotkey = hotkeys.IsCapturing();
 	const bool left = focused && (::GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
 	const bool right = focused && (::GetAsyncKeyState(VK_RBUTTON) & 0x8000) != 0;
 	if (left != lastLeft) {
@@ -95,13 +96,13 @@ void OverlayUI::PollInput()
 		lastRight = right;
 	}
 	TheosRenderPipeline::Overlay::NumericInput::Keys keys{};
-	if (focused) {
+	if (focused && !capturingHotkey) {
 		for (unsigned vk = VK_BACK; vk < keys.size(); ++vk) {
 			keys[vk] = (::GetAsyncKeyState(static_cast<int>(vk)) & 0x8000) != 0;
 		}
 	}
-	numericInput.Update(io, keys, focused);
-	SetTextInputCapture(focused && io.WantTextInput);
+	numericInput.Update(io, keys, focused, capturingHotkey);
+	SetTextInputCapture(focused && (io.WantTextInput || capturingHotkey));
 }
 
 void OverlayUI::SetTextInputCapture(bool a_capture)
@@ -127,6 +128,8 @@ void OverlayUI::SetVisible(bool a_visible)
 		auto& io = ImGui::GetIO();
 		io.MouseDrawCursor = visible;
 		if (!visible) {
+            hotkeys.CancelCapture();
+            hotkeyCaptureError.clear();
 			numericInput.Update(io, {}, false);
 			// Hidden overlays do not run another ImGui frame, so a queued focus-loss
 			// event would never clear the active InputInt. Reset it synchronously or
@@ -190,6 +193,22 @@ LRESULT CALLBACK OverlayUI::WindowMessage(int code, WPARAM wParam, LPARAM lParam
 void OverlayUI::HandleHotkey()
 {
 	const auto toggleKey = static_cast<UINT>(RenderPipeline::GetSingleton()->mToggleOverlayHotkey);
+    hotkeys.SetToggleKey(toggleKey);
+    const auto capture = hotkeys.TakeCapture();
+    if (capture.status != CaptureStatus::Idle) {
+        // Capture can finish between two Presents. Block a still-held selected
+        // key even when PollInput never observed the waiting state.
+        numericInput.Release(ImGui::GetIO());
+        if (capture.status == CaptureStatus::Accepted) {
+            settingsDraft.menuHotkey = static_cast<int>(capture.key);
+            hotkeyCaptureError.clear();
+        } else if (capture.status == CaptureStatus::Rejected) {
+            hotkeyCaptureError = "Use one keyboard key. [ and ] are reserved for Neural Rendering.";
+        } else if (capture.status == CaptureStatus::Cancelled) {
+            hotkeyCaptureError.clear();
+        }
+        return;
+    }
 	for (const auto key : hotkeys.TakePending()) {
 		const auto actions = ActionsForHotkey(key, toggleKey, visible && ImGui::GetIO().WantTextInput);
 		if (actions.neuralState >= 0) { ApplyNeuralRenderingStateForSession(actions.neuralState); }
@@ -274,6 +293,8 @@ void OverlayUI::RefreshNeuralRuntimeAvailability()
 
 void OverlayUI::CaptureSettingsDraft()
 {
+    hotkeys.CancelCapture();
+    hotkeyCaptureError.clear();
     RefreshNeuralRuntimeAvailability();
     settingsDraft = TheosRenderPipeline::RendererSettingsController::Current().Capture(nrRuntimePresent);
 }
@@ -285,7 +306,7 @@ int OverlayUI::CountStagedChanges() const
 
 void OverlayUI::ApplySettingsDraft(bool save)
 {
-    if (!settingsDraft.valid)
+    if (!settingsDraft.valid || hotkeys.IsCapturing())
     {
         return;
     }
@@ -294,6 +315,7 @@ void OverlayUI::ApplySettingsDraft(bool save)
     actionMessageIsError = result.error;
     if (result.applied)
     {
+        hotkeys.SetToggleKey(static_cast<UINT>(RenderPipeline::GetSingleton()->mToggleOverlayHotkey));
         CaptureSettingsDraft();
     }
 }
@@ -311,6 +333,7 @@ void OverlayUI::BuildUI()
     ImGui::SetNextWindowSizeConstraints(ImVec2(780.0f, 560.0f), maximumWindowSize);
     if (!ImGui::Begin(Plugin::DISPLAY_NAME.data(), nullptr, ImGuiWindowFlags_NoCollapse))
     {
+        hotkeys.CancelCapture();
         ImGui::End();
         return;
     }
@@ -449,10 +472,11 @@ void OverlayUI::DrawSettingsActions()
         }
         else
         {
-            ImGui::TextDisabled("No staged changes | toggle overlay: END");
+            ImGui::TextDisabled("No staged changes | toggle overlay: %s",
+                HotkeyName(static_cast<UINT>(RenderPipeline::GetSingleton()->mToggleOverlayHotkey)).c_str());
         }
         ImGui::TableNextColumn();
-        ImGui::BeginDisabled(stagedChanges == 0);
+        ImGui::BeginDisabled(stagedChanges == 0 && !hotkeys.IsCapturing());
         if (ImGui::Button("Discard changes", ImVec2(150.0f, 0.0f)))
         {
             CaptureSettingsDraft();
@@ -464,6 +488,8 @@ void OverlayUI::DrawSettingsActions()
             ImGui::SetTooltip("Discard edits you have not applied. Applied settings and saved defaults stay as they are.");
         }
         ImGui::SameLine();
+        ImGui::EndDisabled();
+        ImGui::BeginDisabled(stagedChanges == 0 || hotkeys.IsCapturing());
         if (ImGui::Button("Apply now", ImVec2(140.0f, 0.0f)))
         {
             ApplySettingsDraft(false);
@@ -478,10 +504,12 @@ void OverlayUI::DrawSettingsActions()
         ImGui::PushStyleColor(ImGuiCol_Button, kAmber);
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, kOchre);
         ImGui::PushStyleColor(ImGuiCol_ButtonActive, kAmberDim);
+        ImGui::BeginDisabled(hotkeys.IsCapturing());
         if (ImGui::Button("Save as default", ImVec2(200.0f, 0.0f)))
         {
             ApplySettingsDraft(true);
         }
+        ImGui::EndDisabled();
         ImGui::PopStyleColor(4);
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
         {

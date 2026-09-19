@@ -14,6 +14,39 @@ void OverlayUI::DrawAdvancedPanel(float advancedCardHeight, const FrameView& vie
 {
     if (ImGui::BeginTabItem("Advanced"))
     {
+        const float controlsStart = ImGui::GetCursorPosY();
+        ImGui::TextUnformatted("CONTROLS");
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted("Menu hotkey");
+        ImGui::SameLine();
+        const bool capturing = hotkeys.IsCapturing();
+        const auto keyLabel = (capturing ? std::string("Press a key...") :
+            HotkeyName(static_cast<UINT>(settingsDraft.menuHotkey))) + "###menuHotkey";
+        if (ImGui::Button(keyLabel.c_str(), ImVec2(160.0f, 0.0f))) {
+            hotkeys.BeginCapture();
+            hotkeyCaptureError.clear();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Reset to End")) {
+            hotkeys.CancelCapture();
+            hotkeyCaptureError.clear();
+            settingsDraft.menuHotkey = VK_END;
+        }
+        if (capturing) {
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel")) {
+                hotkeys.CancelCapture();
+                hotkeyCaptureError.clear();
+            }
+        }
+        ImGui::TextDisabled("Click to assign a keyboard key. Escape cancels.");
+        if (!hotkeyCaptureError.empty()) {
+            ImGui::TextWrapped("%s", hotkeyCaptureError.c_str());
+        } else if (!CanToggleWhileEditing(static_cast<UINT>(settingsDraft.menuHotkey))) {
+            ImGui::TextDisabled("While editing a value, click outside the field before using this key.");
+        }
+        ImGui::Separator();
+        advancedCardHeight = (std::max)(80.0f, advancedCardHeight - (ImGui::GetCursorPosY() - controlsStart));
         ImGui::Checkbox("ReShade before upscaling", &settingsDraft.reShadeBeforeUpscaling);
         if (ImGui::IsItemHovered()) {
             ImGui::SetTooltip("Runs ReShade effects before upscaling when checked, after upscaling otherwise.\n"
@@ -40,6 +73,10 @@ void OverlayUI::DrawAdvancedPanel(float advancedCardHeight, const FrameView& vie
             ImGui::EndTabBar();
         }
         ImGui::EndTabItem();
+    }
+    else {
+        hotkeys.CancelCapture();
+        hotkeyCaptureError.clear();
     }
 }
 

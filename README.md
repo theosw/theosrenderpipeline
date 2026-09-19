@@ -33,6 +33,7 @@ explicit depth and a before/after-upscaling choice. Game validation is pending.
 
 **End** opens settings. **Apply now** changes the session; **Save as default**
 persists settings; **Discard changes** drops unapplied edits. NR starts off.
+Rebind the menu key under **Advanced > Controls**; End remains the default.
 The NVIDIA host remains required when interpolation is off.
 
 ## Build and install

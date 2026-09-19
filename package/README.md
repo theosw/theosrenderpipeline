@@ -62,6 +62,13 @@ Newer runtimes use the same filenames and folders; compatibility may vary.
 also saves settings; **Discard changes** drops unapplied edits. DLSS/DLAA mode
 and render scale changes take effect after restarting Skyrim.
 
+Change the menu key under **Advanced > Controls > Menu hotkey**. Click the key,
+press a replacement, then Apply now or Save as default. Escape cancels capture;
+Reset to End stages the original binding. The picker accepts single keyboard
+keys; `[` and `]` stay reserved for NR. End and function keys can close the menu
+while editing a value; for other bindings, click outside the field first.
+Choose a key that is free in your other mods.
+
 - DLSS starts at 67%, preset K, with sharpening enabled.
 - Frame generation starts on at x2. Choose x4 or another supported multiplier
   in End. RTX 30-series uses experimental Ampere compatibility, RTX 40-series

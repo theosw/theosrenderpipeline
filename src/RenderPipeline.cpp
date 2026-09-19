@@ -1,4 +1,5 @@
 #include "RenderPipeline.h"
+#include "OverlayHotkeys.h"
 
 #include "DLSSBackend.h"
 #include "DLSSPreset.h"
@@ -51,7 +52,7 @@ void RenderPipeline::LoadINI()
 		logger::error(
 			"[DynRes] ignored unsupported DynamicResolution request: TheosRenderPipeline's scaled-proxy path upscales at Present and requires a fixed full proxy input");
 	}
-	mToggleOverlayHotkey = (int)ini.GetLongValue("Hotkeys", "ToggleOverlay", 0x23);
+	mToggleOverlayHotkey = TheosRenderPipeline::Overlay::LoadMenuHotkey(ini);
 	mLogMenuMetrics = ini.GetBoolValue("Debug", "LogMenuMetrics", false);
 	mQualityLevel = std::clamp(mQualityLevel, 0, 4);
 
@@ -94,6 +95,7 @@ bool RenderPipeline::SaveINI()
 		sourceHost->SourceUpscalerSettings().Requested() :
 		TheosRenderPipeline::Upscaler::Creation{mUpscaleType, mQualityLevel, mDLSSPreset, mSharpening, mAutoExposure};
 	ini.SetLongValue("Settings", "UpscaleType", creation.mode);
+	TheosRenderPipeline::Overlay::StoreMenuHotkey(ini, mToggleOverlayHotkey);
 	ini.SetLongValue("Settings", "QualityLevel", creation.quality);
 	ini.SetBoolValue("Settings", "UseOptimalMipLodBias", mUseOptimalMipLodBias);
 	ini.SetDoubleValue("Settings", "MipLodBias", mMipLodBias);
