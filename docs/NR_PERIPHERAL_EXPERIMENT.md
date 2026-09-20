@@ -80,15 +80,36 @@ NGX bootstrap; correcting that harness precondition enabled the actual tests.
 Raw logs, samples, timeout records and local binaries are under this checkout's
 ignored `out/diagnostics` and `out/build/peripheral-fixtures` directories.
 
-## Next acceptance
+## Build and game evidence
 
-Before deployment, build the complete renderer and run its registered tests.
-Then, on user authorization, compare the same scene with native NR, uniform
-90%, and peripheral at 100%, keeping one NR pass, placement and FG fixed.
-Check faces, grass, thin edges, camera pans, the density boundary, menus and
-transitions in ENB and CS. Collect full frame timings in addition to NR spans.
-No game launch, deployment, visual acceptance or physical cadence result is
-implied by the offline work. RTX 30 performance and visual quality are untested.
+Both Standard and Universal build successfully and each passes 50 registered
+CTests and 30 offline SKSE Query cases. The production-pass fixture covers 32
+configurations across native/CS, early/late placement, one/two passes and
+full/half input scale, with compression both off and on.
+
+The first ENB game comparison used RTX 4080 SUPER, 5120x1440 output, DLSS Quality
+with a 3413x960 scene, x2 frame generation and one NR pass before upscaling.
+The user reported difficulty distinguishing the modes and accepted the result.
+Retired early-NR GPU round-trip samples gave:
+
+| NR input / compression | Model extent | Round trip (ms) |
+|---|---|---|
+| 100% / off, two intervals | 3413x960 | 6.645 / 6.789 |
+| 100% / on | 3072x864 | 6.068 |
+| 90% / off | 3072x864 | 6.048 |
+| 90% / on | 2765x778 | 5.539 |
+
+These spans include copies and cross-API scheduling. Cumulative sample deltas
+exclude the first five seconds after each mode change and pairs more than eight
+seconds apart. Observation lengths differ and no matched camera capture was
+retained. Compression saves roughly 0.6-0.7 ms against full input in this run;
+it does not establish an advantage over uniform 90% or a whole-game FPS gain.
+The final setting combines both reductions. There were no logged NR failures,
+but one NVIDIA RSYNC flip-queue error occurred, followed by continued rendering.
+
+CS gameplay, after-upscaling gameplay, MFG, RTX 30 performance, detailed moving
+edge/centre quality, individual UI/transition cases and physical cadence remain
+unverified for this candidate. Keep the feature opt-in while those are assessed.
 
 Standalone fixture build: `cmake -S tests/nr-peripheral -B out/build/peripheral-fixtures`,
 then build Release and run CTest for that directory. The optional hardware
