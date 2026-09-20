@@ -102,7 +102,13 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (optionsPendingPresent_ && submittedMode_ == snapshot_.options.mode &&
 			submittedGeneratedFrames_ == snapshot_.options.numFramesToGenerate &&
 			submittedDynamicTarget_ == snapshot_.options.dynamicTargetFrameRate) { return true; }
-		if (!Check(api_.setOptions(viewport_, snapshot_.options), a_operation)) { return false; }
+		const auto result = api_.setOptions(viewport_, snapshot_.options);
+		snapshot_.optionsResult = result;
+		// NVIDIA stores the options before appending this advisory budget result.
+		// Retrying would repeat an already-applied submission; keep normal Present
+		// and input-reader retirement. Other results retain the fatal boundary.
+		if (result == sl::Result::eWarnOutOfVRAM) { ++snapshot_.optionsWarnings; }
+		else if (!Check(result, a_operation)) { return false; }
 		submittedMode_ = snapshot_.options.mode;
 		submittedGeneratedFrames_ = snapshot_.options.numFramesToGenerate;
 		submittedDynamicTarget_ = snapshot_.options.dynamicTargetFrameRate;

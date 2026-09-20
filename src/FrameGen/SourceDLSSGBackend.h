@@ -121,6 +121,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		SessionAPI api_{};
 		Session session_;
 		sl::Result reportedStateQueryResult_{ sl::Result::eOk };
+		sl::Result reportedOptionsResult_{ sl::Result::eOk };
 		MFGUnlock mfgUnlock_;
 		std::atomic<sl::ReflexMode> reflexMode_{ sl::ReflexMode::eLowLatency };
 		std::atomic<int> outputFPSLimit_{ 0 };

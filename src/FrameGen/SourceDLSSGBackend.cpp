@@ -50,6 +50,15 @@ namespace TheosRenderPipeline::SourceDLSSG
 				}
 				reportedStateQueryResult_ = s.stateQueryResult;
 			}
+			if (s.optionsResult != reportedOptionsResult_) {
+				if (s.optionsResult == sl::Result::eWarnOutOfVRAM) {
+					logger::warn("[SourceDLSSG] DLSS-G options eWarnOutOfVRAM frame={} warnings={}; options applied; continuing presentation",
+						s.frameIndex, s.optionsWarnings);
+				} else if (reportedOptionsResult_ == sl::Result::eWarnOutOfVRAM && s.optionsResult == sl::Result::eOk) {
+					logger::info("[SourceDLSSG] DLSS-G options budget warning cleared frame={} warnings={}", s.frameIndex, s.optionsWarnings);
+				}
+				reportedOptionsResult_ = s.optionsResult;
+			}
 			return true;
 		}
 		const auto detail = std::format("session {} failure={} result={} frame={}",
