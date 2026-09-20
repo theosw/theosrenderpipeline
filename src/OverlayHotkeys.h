@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Windows.h>
+#include <array>
 #include <mutex>
 #include <vector>
 
@@ -37,10 +38,16 @@ namespace TheosRenderPipeline::Overlay
                       ForegroundQuery foreground = ::GetForegroundWindow);
         void Uninstall();
         LRESULT ForwardMessage(int code, WPARAM wParam, LPARAM lParam);
+        // One complete Skyrim input batch, including an empty batch. Values are
+        // copied; no InputEvent pointer or ImGui state crosses threads.
+        void ObserveGameKeys(const std::vector<UINT>& pressedKeys);
         std::vector<UINT> TakePending();
 
     private:
         void ObserveMessage(const MSG& message);
+        UINT NormalizeKey(UINT key) const;
+        bool IsHotkey(UINT key) const;
+        void ClearPending();
         bool HasFocus() const;
         std::mutex mutex_;
         HWND window_{};
@@ -48,5 +55,13 @@ namespace TheosRenderPipeline::Overlay
         UINT toggleKey_{};
         ForegroundQuery foreground_{ ::GetForegroundWindow };
         std::vector<UINT> pending_;
+        // Match copies of a press across adjacent window/game input batches,
+        // independently of when Present drains the actions. Credits expire at
+        // the next game batch so a consuming menu cannot leave stale presses.
+        std::array<unsigned, 256> windowPresses_{};
+        std::array<unsigned, 256> gamePresses_{};
     };
+
+    // Skyrim keyboard IDs are DirectInput scan codes, not Win32 virtual keys.
+    UINT VirtualKeyFromGameScanCode(UINT scanCode);
 }

@@ -113,6 +113,8 @@ set(ARP_BASELINE_SOURCES
     src/OverlayNumericInput.h
     src/OverlayHotkeys.cpp
     src/OverlayHotkeys.h
+    src/OverlayGameInput.cpp
+    src/OverlayGameInput.h
     src/OverlayUI.cpp
     src/OverlayFrameView.cpp
     src/OverlayFrameView.h
