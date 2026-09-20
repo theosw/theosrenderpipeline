@@ -38,6 +38,22 @@ int main()
     using namespace TheosRenderPipeline::NeuralRendering;
     Reconstruction original;
     Require(EffectiveResolve(original) == ResolveMethod::Auto, "normal native-resolution Auto remains direct");
+    auto peripheral = original;
+    peripheral.peripheralCompression = true;
+    Require(!original.peripheralCompression, "peripheral mode is opt-in");
+    Require(ModelExtent(5120, peripheral) == 4608 && ModelExtent(1440, peripheral) == 1296, "80/90 work budget");
+    Require(ModelExtent(1, peripheral) == 1 && ModelExtent(0, peripheral) == 0, "tiny and invalid extents");
+    Require(EffectiveResolve(peripheral) == ResolveMethod::Residual, "peripheral Auto reconstructs the full scene");
+    Require(!SameReconstructionResources(original, peripheral), "changing spatial layout recreates feature resources");
+    peripheral.inputScale = 0.25f;
+    Require(ModelExtent(5120, peripheral) == 1152, "global scale combines with peripheral work budget without re-clamping");
+    external.reconstruction = peripheral;
+    Require(history.ResetFor(external, true, false), "peripheral enable resets model history");
+    Require(!history.ResetFor(external, true, false), "stable peripheral layout preserves history");
+    for (float scale : {0.0f, 0.25f, 0.58f, 0.9f, 1.0f, 2.0f}) {
+        auto uniform = original; uniform.inputScale = scale;
+        Require(ModelExtent(2035, uniform) == WorkExtent(2035, scale), "off preserves existing rounded uniform dimensions");
+    }
     auto producer = original;
     producer.producerColor = true;
     Require(EffectiveResolve(producer) == ResolveMethod::Ratio, "producer input always restores scene colour even with Auto");
@@ -107,6 +123,10 @@ int main()
     Require(probes == 1, "steady frames do not read or hash a runtime again");
     request.beforeUpscaling = false; request.reconstruction.producerColor = false;
     Require(!availability.UnavailableReason(request, classify), "switching to legacy late Auto recovers without relaunch");
+    request.reconstruction.peripheralCompression = true;
+    Require(availability.UnavailableReason(request, classify), "legacy peripheral reconstruction rejected before GPU recording");
+    request.reconstruction.peripheralCompression = false;
+    Require(!availability.UnavailableReason(request, classify), "legacy direct mode remains available after disabling the experiment");
     request.reconstruction.inputScale = 0.5f;
     Require(availability.UnavailableReason(request, classify), "legacy reduced Auto requires unsupported residual reconstruction");
     request.reconstruction.inputScale = 1; request.reconstruction.method = ResolveMethod::Ratio;

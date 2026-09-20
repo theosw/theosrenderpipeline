@@ -6,17 +6,58 @@ namespace TheosRenderPipeline::SourceDLSSG
 // UpgradeToneMap, HueOKLab and clamp::AP1 components (MIT).
 // Copyright (c) 2025 Carlos Lopez Jr. See THIRD-PARTY.md for the full notice,
 // pinned upstream links and component scope; OkLab is defined by Bjorn Ottosson.
+// Peripheral radius mapping adapted from optimizer-fps-dlss5, revision 71f5cfa,
+// Copyright (c) 2026 Yuri Grib (BeliyG3), MIT. See THIRD-PARTY.md.
 inline constexpr char kNeuralResolveShader[] = R"(
 cbuffer NRParams : register(b0) {
     uint SourceWidth, SourceHeight, TargetWidth, TargetHeight;
     uint SourceIsBgra, Mode, Passthrough, ProducerColor;
     uint WorkWidth, WorkHeight;
     float TransferStrength, ColourStrength, MaxRatio, WhitePoint;
+    uint Peripheral, Reserved;
+    uint GuideWidth, GuideHeight;
+    float MotionScaleX, MotionScaleY;
 };
 Texture2D<float4> Tex0 : register(t0);
 Texture2D<float4> Tex1 : register(t1);
 Texture2D<float4> Tex2 : register(t2);
 RWTexture2D<float4> OutputColor : register(u0);
+// Only the entry point's output is live in the compiled shader.
+RWTexture2D<float> OutputDepth : register(u0);
+RWTexture2D<float2> OutputMotion : register(u0);
+// Symmetric 80/90 map. The central band has unit density before global input
+// scaling; its first derivative joins continuously to the compressed edges.
+// Linear extension preserves offscreen motion instead of clipping endpoints.
+float PackRadius(float r) {
+    r=abs(r);
+    if (r<=0.8) return r;
+    if (r>1) return 0.9+(r-1)*0.25;
+    float t=(r-0.8)/0.2;
+    return 0.8+0.1*t/(0.5+0.5*t);
+}
+float UnpackRadius(float r) {
+    r=abs(r);
+    if (r<=0.8) return r;
+    if (r>0.9) return 1+(r-0.9)/0.25;
+    float y=(r-0.8)/0.1;
+    return 0.8+0.2*(0.5*y/(1-0.5*y));
+}
+float PackAxis(float p, float source, float work) {
+    if (!Peripheral) return p*work/source;
+    float r=2*p/source-1;
+    return (sign(r)*PackRadius(r)/0.9+1)*0.5*work;
+}
+float UnpackAxis(float p, float source, float work) {
+    if (!Peripheral) return p*source/work;
+    float r=(2*p/work-1)*0.9;
+    return (sign(r)*UnpackRadius(r)+1)*0.5*source;
+}
+float2 PackPosition(float2 p) {
+    return float2(PackAxis(p.x,SourceWidth,WorkWidth),PackAxis(p.y,SourceHeight,WorkHeight));
+}
+float2 UnpackPosition(float2 p) {
+    return float2(UnpackAxis(p.x,SourceWidth,WorkWidth),UnpackAxis(p.y,SourceHeight,WorkHeight));
+}
 float3 Swizzle(float3 c) { return SourceIsBgra ? c.bgr : c; }
 float Lanczos(float x) {
     x = abs(x);
@@ -30,6 +71,7 @@ int2 ClampPixel(int2 p, uint2 size) { return clamp(p, int2(0,0), int2(size)-1); 
     if (p.x >= TargetWidth || p.y >= TargetHeight) return;
     float2 a = float2(p.xy) * float2(SourceWidth,SourceHeight) / float2(TargetWidth,TargetHeight);
     float2 b = float2(p.xy+1) * float2(SourceWidth,SourceHeight) / float2(TargetWidth,TargetHeight);
+    if (Peripheral) { a=UnpackPosition(p.xy); b=UnpackPosition(p.xy+1); }
     float4 sum = 0; float weight = 0;
     for (int y=(int)floor(a.y); y<(int)ceil(b.y); ++y) {
         float wy = max(0, min(b.y,y+1.0)-max(a.y,(float)y));
@@ -41,15 +83,32 @@ int2 ClampPixel(int2 p, uint2 size) { return clamp(p, int2(0,0), int2(size)-1); 
     }
     OutputColor[p.xy]=sum/max(weight,0.000001);
 }
+[numthreads(8,8,1)] void PackDepth(uint3 p : SV_DispatchThreadID) {
+    if (p.x>=WorkWidth || p.y>=WorkHeight) return;
+    float2 native=UnpackPosition(p.xy+0.5);
+    int2 guide=ClampPixel(int2(native*float2(GuideWidth,GuideHeight)/float2(SourceWidth,SourceHeight)),uint2(GuideWidth,GuideHeight));
+    OutputDepth[p.xy]=Tex0.Load(int3(guide,0)).r;
+}
+[numthreads(8,8,1)] void PackMotion(uint3 p : SV_DispatchThreadID) {
+    if (p.x>=WorkWidth || p.y>=WorkHeight) return;
+    float2 native=UnpackPosition(p.xy+0.5);
+    int2 guide=ClampPixel(int2(native*float2(GuideWidth,GuideHeight)/float2(SourceWidth,SourceHeight)),uint2(GuideWidth,GuideHeight));
+    // Host scales describe guide pixels. Convert to scene pixels before
+    // applying the nonlinear transform to both current/previous endpoints.
+    float2 motion=Tex0.Load(int3(guide,0)).rg*float2(MotionScaleX,MotionScaleY)*
+        float2(SourceWidth,SourceHeight)/float2(GuideWidth,GuideHeight);
+    OutputMotion[p.xy]=PackPosition(native+motion)-PackPosition(native);
+}
 [numthreads(8,8,1)] void Residual(uint3 p : SV_DispatchThreadID) {
     if (Mode == 0) {
         // Horizontal difference, low width -> native width, height stays low.
         if (p.x >= SourceWidth || p.y >= TargetHeight) return;
         float3 sum=0; float weight=0;
-        if (SourceWidth == TargetWidth) {
+        if (SourceWidth == TargetWidth && !Peripheral) {
             sum = Tex1.Load(int3(p.xy,0)).rgb - Tex0.Load(int3(p.xy,0)).rgb; weight=1;
         } else {
             float x=(p.x+0.5)*TargetWidth/SourceWidth-0.5;
+            if (Peripheral) x=PackAxis(p.x+0.5,SourceWidth,TargetWidth)-0.5;
             [unroll] for (int i=-2; i<=3; ++i) {
                 int sx=(int)floor(x)+i; float w=Lanczos(x-sx);
                 int3 q=int3(clamp(sx,0,(int)TargetWidth-1),p.y,0);
@@ -61,9 +120,10 @@ int2 ClampPixel(int2 p, uint2 size) { return clamp(p, int2(0,0), int2(size)-1); 
     if (p.x >= SourceWidth || p.y >= SourceHeight) return;
     float4 original=Tex0.Load(int3(p.xy,0));
     float3 delta=0; float weight=0;
-    if (SourceHeight == TargetHeight) { delta=Tex1.Load(int3(p.xy,0)).rgb; weight=1; }
+    if (SourceHeight == TargetHeight && !Peripheral) { delta=Tex1.Load(int3(p.xy,0)).rgb; weight=1; }
     else {
         float y=(p.y+0.5)*TargetHeight/SourceHeight-0.5;
+        if (Peripheral) y=PackAxis(p.y+0.5,SourceHeight,TargetHeight)-0.5;
         [unroll] for (int i=-2; i<=3; ++i) {
             int sy=(int)floor(y)+i; float w=Lanczos(y-sy);
             delta+=Tex1.Load(int3(p.x,clamp(sy,0,(int)TargetHeight-1),0)).rgb*w; weight+=w;
@@ -153,10 +213,11 @@ float3 RestoreProducer(float3 original, float3 a, float3 n) {
     float4 original=Tex2.Load(int3(p.xy,0));
     float3 a=0, n=0;
     uint2 size=max(uint2(WorkWidth,WorkHeight),1);
-    if (all(size==uint2(TargetWidth,TargetHeight))) {
+    if (all(size==uint2(TargetWidth,TargetHeight)) && !Peripheral) {
         a=Swizzle(Tex0.Load(int3(p.xy,0)).rgb); n=Swizzle(Tex1.Load(int3(p.xy,0)).rgb);
     } else {
         float2 pos=(p.xy+0.5)*size/float2(TargetWidth,TargetHeight)-0.5; float weight=0;
+        if (Peripheral) pos=PackPosition(p.xy+0.5)-0.5;
         [loop] for (int y=-2; y<=3; ++y) {
             [loop] for (int x=-2; x<=3; ++x) {
                 int2 q=int2(floor(pos))+int2(x,y);

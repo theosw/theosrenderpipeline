@@ -26,8 +26,8 @@ namespace TheosRenderPipeline::SourceDLSSG
             if (!NeuralRendering::UsesReconstructionContract(build_) &&
                 NeuralRendering::EffectiveResolve(options.reconstruction) != NeuralRendering::ResolveMethod::Auto) {
                 return options.reconstruction.producerColor ?
-                    "This NR runtime cannot run before CS upscaling; use After upscaling, Auto and 100% input" :
-                    "This NR runtime requires Auto reconstruction at 100% input; NR skipped";
+                    "This NR runtime cannot run before CS upscaling; use After upscaling, Auto, 100% input and peripheral compression off" :
+                    "This NR runtime requires Auto reconstruction at 100% input with peripheral compression off; NR skipped";
             }
             return nullptr;
         }
