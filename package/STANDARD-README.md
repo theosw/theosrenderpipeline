@@ -3,8 +3,9 @@
 DLSS/DLAA, native NVIDIA frame generation, Neural Rendering, NVIDIA Reflex and
 native-resolution menus for Skyrim. All eight NVIDIA runtime DLLs are included.
 
-The 0.2.1 startup fix for saved 78% Ultra Quality DLSS is retained, preserving
-the selected render resolution and settings.
+Version 0.2.2 enables NR with native DLAA, before or after anti-aliasing, and
+adds startup identification and configuration diagnostics. The 0.2.1 startup
+fix for saved 78% Ultra Quality DLSS is retained.
 
 ## Install
 
@@ -18,7 +19,8 @@ Use matching SKSE64 and Address Library for Steam Skyrim 1.5.97, 1.6.640,
 1.6.1170 or 1.7.104, the x64 Microsoft Visual C++ runtime and a compatible
 NVIDIA GPU/driver. Standard requires native DLSS-G hardware support even with
 frame generation off. RTX 40-series uses x2; higher multipliers require native
-hardware/runtime support. Standard does not add RTX 30 frame generation.
+hardware/runtime support. RTX 30 requires Universal installed after Standard,
+even with frame generation off; Standard alone cannot initialize its host there.
 AMD/Intel are not supported. ENB is optional. Community Shaders and optional
 ReShade setup are described below.
 
@@ -28,6 +30,8 @@ Defaults are DLSS at 67%, preset K, sharpening enabled, frame generation x2 and
 NR off. Enable Neural Rendering in the End menu; no separate NR download is
 needed. Before DLSS/one pass is the default placement. After DLSS, two passes,
 input scaling and tuning remain available. NR and frame generation are independent.
+Both NR placements now work with native DLAA. At 100% NR input scale, both
+process the native resolution, so placement alone does not reduce inference cost.
 
 Apply now changes this session. Save as default also saves settings. Discard
 changes drops unapplied edits. DLSS/DLAA mode and render scale need a restart.
@@ -44,8 +48,8 @@ TRP or KreatE. Do not use F8 if it is already assigned to ReShade or a capture t
 Standard 0.1.4 was tested with Bottle's CS build/Effects 11 on Skyrim 1.6.1170
 and an RTX 4080 SUPER, with native x2 and both NR placements. Other CS builds
 need confirmation.
-The tested CS setup uses SDR. CS HDR remains unverified and has an unresolved
-report of an invisible TRP menu and inactive frame generation.
+HDR is not supported in this release. Keep CS HDR off; it can leave the TRP
+menu invisible and frame generation inactive.
 
 ## ReShade (optional)
 
@@ -77,8 +81,11 @@ with native x2 and both NR placements and no recorded NR/host failure counters.
 The ENB run retains two recurring Streamline RSYNC errors. Both shading setups
 use the same renderer DLL; enable only the intended shading setup in each profile.
 Skyrim 1.5.97, 1.6.640 and 1.7.104 are experimental and untested in-game.
-Actual RTX 30 execution in Universal, native RTX 50-series operation, HDR appearance
-and physical frame cadence remain unverified.
+Universal 0.2.2 has positive ENB/RTX 4080 SUPER DLAA/NR feedback and an RTX 3060
+Laptop/CS volunteer report confirming FG and NR execution. RTX 30 remains
+experimental, with grass-edge artifacting and occasional hitches reported.
+Standard's DLAA/NR correction passes offline checks; the local gameplay test
+used Universal. Native RTX 50-series operation and physical cadence remain unverified.
 
 For reports, include TRP-STANDARD-PACKAGE.txt, GPU/driver, game/mod versions,
 settings and TheosRenderPipeline.log/skse64.log. Logs are normally under
@@ -93,8 +100,3 @@ See LICENSE and THIRD-PARTY.md for renderer terms, source credits and NVIDIA
 RTX SDK/DLSS terms. NVIDIA-LICENSES.txt retains the accompanying runtime notices.
 NVIDIA components retain their own terms and are not relicensed under the
 renderer's GPL license. This software contains source code provided by NVIDIA Corporation.
-
-Version 0.2.2 adds startup identification and compatibility-setting diagnostics.
-Standard does not include RTX 30 compatibility; install matching Universal
-after Standard so Universal wins the renderer DLL conflict. This is required
-even with frame generation switched off. RTX 30 execution remains unverified.

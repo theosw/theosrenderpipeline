@@ -1,8 +1,11 @@
 # RTX 30 testing for 0.2.2
 
-RTX 30 execution remains experimental and unverified on hardware. The 0.2.2
-candidate corrects a missing compatibility key and improves startup diagnosis;
-it does not establish successful frame generation or NR on RTX 30.
+RTX 30 support remains experimental. An RTX 3060 Laptop volunteer using
+Community Shaders has successfully run frame generation and NR with the 0.2.2
+compatibility changes; retained logs record x2/x3/x4 outputs. Later feedback
+reports grass-edge artifacting and occasional one-to-two-second hitches.
+Physical frame pacing, broader hardware coverage and RTX 30 DLAA/NR remain
+unverified. The separate DLAA/NR correction was tested locally on ENB/RTX 4080 SUPER.
 
 Install matching Standard first, then Universal after it in MO2 so Universal
 wins `TheosRenderPipeline.dll`. The NVIDIA runtime files can come from Standard.
@@ -13,10 +16,12 @@ RTX 30 instead of reaching a generic vendor adapter rejection. The NVIDIA host
 is still required with interpolation off, so Standard alone is not an RTX 30
 DLSS/NR fallback. With Community Shaders, disable its frame generation and Reflex.
 
-For the first hardware run, keep NR off. Confirm x2, then x4 in the same scene;
+For a first test on your setup, keep NR off. Confirm x2, then x4 in the same scene;
 check a menu/loading transition and turning frame generation off and back on.
 Then test NR separately, before and after upscaling. Keep the startup log from
 each run and report GPU, driver, game version, shading setup and visible issues.
+NR is expensive on the tested laptop GPU. Start with one pass before upscaling
+and reduce NR input resolution if needed. Keep CS HDR off; HDR is not supported.
 
 The log now records edition, source revision, loaded renderer path, INI key
 presence/value, physical rendering adapter, selected compatibility route, and

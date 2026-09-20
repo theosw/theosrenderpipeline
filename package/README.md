@@ -1,8 +1,9 @@
 # Theo's Render Pipeline — Universal, 0.2.2
 
-Version 0.2.2 corrects the compatibility default for older INIs and adds startup
-diagnostics. The 0.2.1 fix for saved 78% Ultra Quality DLSS is retained. Universal
-includes the RTX 40 MFG unlock and experimental RTX 30 compatibility.
+Version 0.2.2 enables NR with DLAA, before or after anti-aliasing, and improves
+experimental RTX 30 compatibility. Older INIs now use the packaged compatibility
+default when the key is missing; explicit opt-outs remain respected. The 0.2.1
+Ultra Quality fix is retained. Universal includes the RTX 40 MFG unlock.
 
 DLSS/DLAA, frame generation, Neural Rendering and native-resolution UI for Skyrim.
 This package includes the full renderer, configuration and sharpening shader.
@@ -69,7 +70,9 @@ and render scale changes take effect after restarting Skyrim.
   controls both compatibility paths; leave it enabled for RTX 30 cards.
 - NR starts off. After supplying its DLL, enable it with Before DLSS/one pass
   as the default placement. After DLSS, two passes, input scaling and tuning
-  are also available.
+  are also available. Both placements now work with native DLAA. At 100% NR
+  input scale, DLAA gives both placements the same resolution; changing their
+  order alone does not reduce inference resolution.
 - Reflex and GPU measurements are enabled.
 - **Advanced → Request loading-screen artwork** defaults on. It asks Skyrim
   to select artwork on eligible cell transitions; startup loading is unchanged.
@@ -88,16 +91,21 @@ ENB is optional. With Community Shaders, keep CS upscaling enabled and disable
 CS frame generation and CS Reflex. TRP provides FG/Reflex/NR while CS retains
 upscaling, render scale, sharpening and colour. Assign CS a separate menu key,
 such as F8, avoiding keys already assigned to ReShade or capture tools. TRP keeps End.
-The tested CS setup uses SDR. CS HDR remains unverified and has an unresolved
-report of an invisible TRP menu and inactive frame generation.
+HDR is not supported in this release. Keep CS HDR off; it can leave the TRP
+menu invisible and frame generation inactive.
 
 Earlier 0.1.4 builds have positive Skyrim 1.6.1170/RTX 4080 SUPER reports with Cabbage
 ENB and Bottle's Community Shaders build/Effects 11, including logged x4 and
 both NR placements in each setup. Universal also logged x6 in the CS run. Recurring
 Streamline RSYNC errors remain recorded in some tests; physical frame cadence
 has not been validated.
-Other CS builds, RTX 30 execution, native RTX 50 operation and HDR appearance
-remain unverified.
+Version 0.2.2 has positive ENB/RTX 4080 SUPER feedback for NR before and after
+native 5120x1440 DLAA, with x4. An RTX 3060 Laptop volunteer using CS confirmed
+frame generation and NR; logs record x2/x3/x4 outputs. RTX 30 support remains
+experimental, with grass-edge artifacting and occasional hitches reported.
+Other RTX 30 configurations, native RTX 50 operation and other CS builds need
+further testing. NR can be expensive on RTX 30: start with it off, then try one
+pass before upscaling and reduce NR input resolution if needed.
 
 ## ReShade (optional)
 
@@ -133,5 +141,5 @@ In 0.2.2, a missing `Experimental/SourceDLSSGMFGUnlock` key uses the packaged
 `true` default. Explicit `false` remains respected. RTX 30 requires Universal
 and this setting enabled even when interpolation is off. If startup fails,
 include `TheosRenderPipeline.log`; its opening lines identify the edition,
-source revision, renderer path and effective startup setting. RTX 30 GPU
-execution remains experimental and unverified.
+source revision, renderer path and effective startup setting. Standard alone
+does not supply the compatibility path required by RTX 30.
