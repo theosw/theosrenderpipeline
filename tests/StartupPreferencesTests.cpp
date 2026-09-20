@@ -33,9 +33,16 @@ int main(int argc, char** argv)
         CSimpleIniA spatial;
         Require(!LoadReconstruction(spatial,"SourceDLSSG").peripheralCompression,"old INIs must retain uniform NR");
         auto reconstruction=LoadReconstruction(spatial,"SourceDLSSG");
+        Require(!reconstruction.fusedPreparation,"missing preparation key defaults off");
+        Require(!LoadReconstruction(packaged,"SourceDLSSG").fusedPreparation,"combined preparation remains off in packages");
+        reconstruction.fusedPreparation=true;
         reconstruction.peripheralCompression=true; reconstruction.inputScale=.5f;
         StoreReconstruction(spatial,"SourceDLSSG",reconstruction);
         Require(LoadReconstruction(spatial,"SourceDLSSG")==reconstruction,"peripheral layout survives save/load");
+        auto separate=reconstruction; separate.fusedPreparation=false;
+        Require(!SameReconstructionResources(reconstruction,separate),"preparation toggle requires retired recreation");
+        spatial.SetBoolValue("SourceDLSSG","NRFusedPreparation",false);
+        Require(!LoadReconstruction(spatial,"SourceDLSSG").fusedPreparation,"explicit preparation opt-out wins");
         spatial.SetBoolValue("SourceDLSSG","NRPeripheralCompression",false);
         Require(!LoadReconstruction(spatial,"SourceDLSSG").peripheralCompression,"explicit spatial opt-out wins");
         owner.LoadStartupPreferences(packaged);

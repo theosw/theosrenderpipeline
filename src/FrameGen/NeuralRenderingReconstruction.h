@@ -14,6 +14,7 @@ namespace TheosRenderPipeline::NeuralRendering
 		bool colorIsHDR{};
 		// Experimental fixed 80% centre / 90% work extent, in addition to inputScale.
 		bool peripheralCompression{};
+		bool fusedPreparation{};
 		// Adapter-owned input contract, never loaded from or written to an INI.
 		// Preserve the producer's RGB domain instead of assuming linear/sRGB.
 		bool producerColor{};
@@ -50,6 +51,7 @@ namespace TheosRenderPipeline::NeuralRendering
 	inline bool SameReconstructionResources(const Reconstruction& a, const Reconstruction& b)
 	{
 		return a.preset == b.preset && a.peripheralCompression == b.peripheralCompression &&
+			a.fusedPreparation == b.fusedPreparation &&
 			NormalizeInputScale(a.inputScale) == NormalizeInputScale(b.inputScale) &&
 			EffectiveResolve(a) == EffectiveResolve(b) && a.colorIsHDR == b.colorIsHDR && a.producerColor == b.producerColor &&
 			// Changing the proxy normalization changes the temporal model's input.
@@ -74,6 +76,7 @@ namespace TheosRenderPipeline::NeuralRendering
 		value.whitePoint = static_cast<float>(ini.GetDoubleValue(section, "NRWhitePoint", 1));
 		value.colorIsHDR = ini.GetBoolValue(section, "NRColorIsHDR", false);
 		value.peripheralCompression = ini.GetBoolValue(section, "NRPeripheralCompression", false);
+		value.fusedPreparation = ini.GetBoolValue(section, "NRFusedPreparation", false);
 		return SanitizeReconstruction(value);
 	}
 	template<class Ini> void StoreReconstruction(Ini& ini, const char* section, Reconstruction value)
@@ -88,5 +91,6 @@ namespace TheosRenderPipeline::NeuralRendering
 		ini.SetDoubleValue(section, "NRWhitePoint", value.whitePoint);
 		ini.SetBoolValue(section, "NRColorIsHDR", value.colorIsHDR);
 		ini.SetBoolValue(section, "NRPeripheralCompression", value.peripheralCompression);
+		ini.SetBoolValue(section, "NRFusedPreparation", value.fusedPreparation);
 	}
 }

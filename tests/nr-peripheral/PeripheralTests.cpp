@@ -1,5 +1,6 @@
 #include "GPU.h"
 #include "FeatureDouble.h"
+#include "PreparationTests.h"
 
 // Independent double-precision reference: monotone inverse is found by
 // bisection, rather than copying the shader's analytic inverse.
@@ -116,4 +117,4 @@ static void Passes(GPU& gpu){
     }
     std::printf("PASS: %u full production-pass cases, scripted identity NR, off/on, native early/late and CS producer, one/two passes, repeated retired slots\n",cases);
 }
-int main(){GPU gpu;Kernels(gpu);Passes(gpu);}
+int main(){GPU gpu;Kernels(gpu);Passes(gpu);CombinedPreparation(gpu);PreparationRecorder(gpu);}

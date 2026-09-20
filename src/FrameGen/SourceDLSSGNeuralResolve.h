@@ -5,14 +5,14 @@
 
 namespace TheosRenderPipeline::SourceDLSSG
 {
-	enum class ResolveKernel : unsigned { Downsample, Residual, Ratio, PackDepth, PackMotion };
+	enum class ResolveKernel : unsigned { Downsample, Residual, Ratio, PackDepth, PackMotion, PrepareColor, PackGuides };
 	struct ResolveConstants
 	{
 		UINT sourceWidth{}, sourceHeight{}, targetWidth{}, targetHeight{};
 		UINT sourceIsBGRA{}, mode{}, passthrough{ 1 }, producerColor{};
 		UINT workWidth{}, workHeight{};
 		float transferStrength{ 1 }, colourStrength{ 1 }, maxRatio{ 2 }, whitePoint{ 1 };
-		UINT peripheral{}, reserved{};
+		UINT peripheral{}, encodedFormat{}; // 0 float32, 1 float16, 2 UNORM8 intermediate
 		UINT guideWidth{}, guideHeight{};
 		float motionScaleX{ 1 }, motionScaleY{ 1 };
 	};
@@ -26,10 +26,10 @@ namespace TheosRenderPipeline::SourceDLSSG
 		HRESULT Initialize(ID3D12Device* device);
 		HRESULT Record(ID3D12Device* device, ID3D12GraphicsCommandList* list, std::size_t slot, unsigned stage,
 			ResolveKernel kernel, const ResolveConstants& constants, ID3D12Resource* a, ID3D12Resource* b,
-			ID3D12Resource* original, ID3D12Resource* output);
+			ID3D12Resource* original, ID3D12Resource* output, ID3D12Resource* secondOutput = nullptr);
 	private:
 		Microsoft::WRL::ComPtr<ID3D12RootSignature> root_;
-		std::array<Microsoft::WRL::ComPtr<ID3D12PipelineState>, 5> pipelines_;
+		std::array<Microsoft::WRL::ComPtr<ID3D12PipelineState>, 7> pipelines_;
 		std::array<std::array<Microsoft::WRL::ComPtr<ID3D12DescriptorHeap>, kStages>, kCommandSlots> heaps_;
 	};
 }

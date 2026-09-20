@@ -123,6 +123,10 @@ RWTexture2D<float4> output : register(u0);
 			status_ = "NR dimensions changed without retiring the previous pass"; return false;
 		}
 		if (!corrected_) {
+			fusedColor_ = reconstruction.fusedPreparation && method == NeuralRendering::ResolveMethod::Ratio &&
+				(reconstruction.producerColor || reconstruction.colorIsHDR) &&
+				(reconstruction.inputScale < 1 || reconstruction.peripheralCompression) &&
+				(sceneDesc.Format == DXGI_FORMAT_R16G16B16A16_FLOAT || sceneDesc.Format == DXGI_FORMAT_R32G32B32A32_FLOAT || sceneDesc.Format == DXGI_FORMAT_R8G8B8A8_UNORM);
 			auto create = [&](D3D12_RESOURCE_DESC desc, Microsoft::WRL::ComPtr<ID3D12Resource>& out) {
 				// The private NR outputs never alias a D3D11 resource or the swapchain.
 				desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
@@ -151,7 +155,7 @@ RWTexture2D<float4> output : register(u0);
 					auto residualDesc = workDesc; residualDesc.Width = sceneDesc.Width;
 					residualDesc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
 					if (!create(residualDesc, residual_)) { return false; }
-				} else if ((reconstruction.colorIsHDR || reconstruction.producerColor) && !create(sceneDesc, encoded_)) { return false; }
+				} else if (!fusedColor_ && (reconstruction.colorIsHDR || reconstruction.producerColor) && !create(sceneDesc, encoded_)) { return false; }
 			}
 			if (!options.WorldOnly()) {
 				D3D12_DESCRIPTOR_RANGE ranges[2]{};
@@ -232,14 +236,16 @@ RWTexture2D<float4> output : register(u0);
 		constants.transferStrength = reconstruction.transferStrength; constants.colourStrength = reconstruction.colourStrength;
 		constants.maxRatio = reconstruction.maxRatio; constants.whitePoint = reconstruction.whitePoint;
 		constants.peripheral = reconstruction.peripheralCompression;
+		constants.encodedFormat = hudless->GetDesc().Format == DXGI_FORMAT_R16G16B16A16_FLOAT ? 1 :
+			hudless->GetDesc().Format == DXGI_FORMAT_R8G8B8A8_UNORM ? 2 : 0;
 		constants.guideWidth = static_cast<UINT>(motion->GetDesc().Width); constants.guideHeight = motion->GetDesc().Height;
 		constants.motionScaleX = scaleX; constants.motionScaleY = scaleY;
 		auto* featureMotion = motion;
 		auto* featureDepth = depth;
 		auto* featureUI = ui;
 		auto dispatch = [&](unsigned stage, ResolveKernel kernel, ID3D12Resource* a, ID3D12Resource* b,
-			ID3D12Resource* original, ID3D12Resource* output) {
-			const auto hr = resolve_.Record(device, list, slot, stage, kernel, constants, a, b, original, output);
+			ID3D12Resource* original, ID3D12Resource* output, ID3D12Resource* secondOutput = nullptr) {
+			const auto hr = resolve_.Record(device, list, slot, stage, kernel, constants, a, b, original, output, secondOutput);
 			if (FAILED(hr)) { status_ = std::format("NR reconstruction recording failed 0x{:08X}", static_cast<UINT>(hr)); }
 			return SUCCEEDED(hr);
 		};
@@ -251,12 +257,14 @@ RWTexture2D<float4> output : register(u0);
 			}
 			if (workColor_) {
 				constants.targetWidth = constants.workWidth; constants.targetHeight = constants.workHeight;
-				if (!dispatch(1, ResolveKernel::Downsample, featureColor, nullptr, nullptr, workColor_.Get())) { return false; }
+				if (!dispatch(1, fusedColor_ ? ResolveKernel::PrepareColor : ResolveKernel::Downsample, featureColor, nullptr, nullptr, workColor_.Get())) { return false; }
 				featureColor = workColor_.Get();
 			}
 		}
 		if (reconstruction.peripheralCompression) {
-			if (!dispatch(4, ResolveKernel::PackDepth, depth, nullptr, nullptr, packedDepth_.Get()) ||
+			if (reconstruction.fusedPreparation) {
+				if (!dispatch(4, ResolveKernel::PackGuides, depth, motion, nullptr, packedDepth_.Get(), packedMotion_.Get())) { return false; }
+			} else if (!dispatch(4, ResolveKernel::PackDepth, depth, nullptr, nullptr, packedDepth_.Get()) ||
 				!dispatch(5, ResolveKernel::PackMotion, motion, nullptr, nullptr, packedMotion_.Get())) { return false; }
 			featureDepth = packedDepth_.Get(); featureMotion = packedMotion_.Get();
 			if (ui) {
@@ -358,11 +366,12 @@ RWTexture2D<float4> output : register(u0);
 		if (options.WorldOnly()) {
 			Transition(list, corrected_.Get(), read, D3D12_RESOURCE_STATE_COMMON);
 			for (auto* texture : { featureMotion, featureDepth, hudless }) { Transition(list, texture, read, D3D12_RESOURCE_STATE_COMMON); }
-			status_ = std::format("NR {} upscaling {}x{} -> {}x{}; {} pass(es); {}; {}; world only; UI correction unused",
+			status_ = std::format("NR {} upscaling {}x{} -> {}x{}; {} pass(es); {}; {}; world only; UI correction unused; fusion requested={} colour={} guides={}",
 				options.beforeUpscaling ? "before" : "after", constants.workWidth, constants.workHeight,
 				constants.sourceWidth, constants.sourceHeight, options.passes,
 				reconstruction.producerColor ? "producer RGB reconstruction" : "user reconstruction",
-				reconstruction.peripheralCompression ? "peripheral 80/90" : "uniform");
+				reconstruction.peripheralCompression ? "peripheral 80/90" : "uniform",
+				reconstruction.fusedPreparation, fusedColor_, reconstruction.fusedPreparation && reconstruction.peripheralCompression);
 			return true;
 		}
 
@@ -394,11 +403,12 @@ RWTexture2D<float4> output : register(u0);
 		// Preserve the HUD-less tag identity already registered with Streamline.
 		// Both its generated frames and our real-frame composition use corrected_.
 		if (FAILED(Interop::RecordCopy(list, corrected_.Get(), hudless))) { status_ = "NR HUD-less copy rejected"; return false; }
-		status_ = std::format("source NR after DLSS {}x{} -> {}x{}; {} pass(es); {} resolve; {}; native UI after NR; NR feeds real output and HUD-less FG tag",
+		status_ = std::format("source NR after DLSS {}x{} -> {}x{}; {} pass(es); {} resolve; {}; native UI after NR; NR feeds real output and HUD-less FG tag; fusion requested={} colour={} guides={}",
 			constants.workWidth, constants.workHeight, constants.sourceWidth, constants.sourceHeight,
 			options.passes,
 			method == NeuralRendering::ResolveMethod::Ratio ? "ratio" : method == NeuralRendering::ResolveMethod::Residual ? "residual" : "direct",
-			reconstruction.peripheralCompression ? "peripheral 80/90" : "uniform");
+			reconstruction.peripheralCompression ? "peripheral 80/90" : "uniform",
+			reconstruction.fusedPreparation, fusedColor_, reconstruction.fusedPreparation && reconstruction.peripheralCompression);
 		return true;
 	}
 }

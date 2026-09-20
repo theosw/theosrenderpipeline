@@ -3,6 +3,7 @@
 #include <d3d12sdklayers.h>
 #include <dxgi1_6.h>
 #include <DirectXPackedVector.h>
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdio>
@@ -67,7 +68,7 @@ struct GPU {
         Check(device->CreateCommittedResource(&h,D3D12_HEAP_FLAG_NONE,&d,type==D3D12_HEAP_TYPE_UPLOAD?
             D3D12_RESOURCE_STATE_GENERIC_READ:D3D12_RESOURCE_STATE_COPY_DEST,nullptr,IID_PPV_ARGS(&r)),"buffer");return r;
     }
-    static unsigned Components(DXGI_FORMAT format){return format==DXGI_FORMAT_R32_FLOAT?1:format==DXGI_FORMAT_R32G32_FLOAT?2:4;}
+    static unsigned Components(DXGI_FORMAT format){return format==DXGI_FORMAT_R32_FLOAT?1:(format==DXGI_FORMAT_R32G32_FLOAT || format==DXGI_FORMAT_R16G16_FLOAT)?2:4;}
     ComPtr<ID3D12Resource> Texture(UINT w,UINT h,const std::vector<Pixel>& pixels={},DXGI_FORMAT format=DXGI_FORMAT_R32G32B32A32_FLOAT){
         D3D12_RESOURCE_DESC d{};d.Dimension=D3D12_RESOURCE_DIMENSION_TEXTURE2D;d.Width=w;d.Height=h;
         d.DepthOrArraySize=d.MipLevels=d.SampleDesc.Count=1;d.Format=format;d.Flags=D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
@@ -79,9 +80,12 @@ struct GPU {
             void* data{};D3D12_RANGE noRead{};Check(upload->Map(0,&noRead,&data),"upload map");
             const auto c=Components(format);
             for(UINT y=0;y<h;++y)for(UINT x=0;x<w;++x){
-                if(format==DXGI_FORMAT_R16G16B16A16_FLOAT){
-                    auto* pixel=reinterpret_cast<DirectX::PackedVector::HALF*>((char*)data+y*layout.Footprint.RowPitch+x*8);
-                    for(unsigned ch=0;ch<4;++ch)pixel[ch]=DirectX::PackedVector::XMConvertFloatToHalf(pixels[y*w+x][ch]);
+                if(format==DXGI_FORMAT_R8G8B8A8_UNORM){
+                    auto* pixel=reinterpret_cast<unsigned char*>((char*)data+y*layout.Footprint.RowPitch+x*4);
+                    for(unsigned ch=0;ch<4;++ch)pixel[ch]=static_cast<unsigned char>(std::round(std::clamp(pixels[y*w+x][ch],0.f,1.f)*255));
+                }else if(format==DXGI_FORMAT_R16G16B16A16_FLOAT || format==DXGI_FORMAT_R16G16_FLOAT){
+                    auto* pixel=reinterpret_cast<DirectX::PackedVector::HALF*>((char*)data+y*layout.Footprint.RowPitch+x*c*2);
+                    for(unsigned ch=0;ch<c;++ch)pixel[ch]=DirectX::PackedVector::XMConvertFloatToHalf(pixels[y*w+x][ch]);
                 }else std::memcpy((char*)data+y*layout.Footprint.RowPitch+x*c*4,pixels[y*w+x].data(),c*4);
             }
             upload->Unmap(0,nullptr);Begin();Barrier(r.Get(),D3D12_RESOURCE_STATE_COMMON,D3D12_RESOURCE_STATE_COPY_DEST);
@@ -100,12 +104,14 @@ struct GPU {
         void* data{};D3D12_RANGE range{0,size_t(size)};Check(readback->Map(0,&range,&data),"read map");
         std::vector<Pixel> pixels(size_t(d.Width)*d.Height);const auto c=Components(d.Format);
         for(UINT y=0;y<d.Height;++y)for(UINT x=0;x<d.Width;++x){
-            if(d.Format==DXGI_FORMAT_R16G16B16A16_FLOAT){
-                const auto* pixel=reinterpret_cast<DirectX::PackedVector::HALF*>((char*)data+y*layout.Footprint.RowPitch+x*8);
-                for(unsigned ch=0;ch<4;++ch)pixels[y*d.Width+x][ch]=DirectX::PackedVector::XMConvertHalfToFloat(pixel[ch]);
+            if(d.Format==DXGI_FORMAT_R8G8B8A8_UNORM){
+                const auto* pixel=reinterpret_cast<const unsigned char*>((char*)data+y*layout.Footprint.RowPitch+x*4);
+                for(unsigned ch=0;ch<4;++ch)pixels[y*d.Width+x][ch]=pixel[ch]/255.f;
+            }else if(d.Format==DXGI_FORMAT_R16G16B16A16_FLOAT || d.Format==DXGI_FORMAT_R16G16_FLOAT){
+                const auto* pixel=reinterpret_cast<DirectX::PackedVector::HALF*>((char*)data+y*layout.Footprint.RowPitch+x*c*2);
+                for(unsigned ch=0;ch<c;++ch)pixels[y*d.Width+x][ch]=DirectX::PackedVector::XMConvertHalfToFloat(pixel[ch]);
             }else std::memcpy(pixels[y*d.Width+x].data(),(char*)data+y*layout.Footprint.RowPitch+x*c*4,c*4);
         }
         D3D12_RANGE noWrite{};readback->Unmap(0,&noWrite);return pixels;
     }
 };
-
