@@ -14,7 +14,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (root_) { return S_OK; }
 		D3D12_DESCRIPTOR_RANGE ranges[2]{
 			{ D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 3, 0, 0, 0 },
-			{ D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 0, 0, 3 }
+			{ D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 2, 0, 0, 3 }
 		};
 		D3D12_ROOT_PARAMETER params[2]{};
 		params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
@@ -28,7 +28,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		ComPtr<ID3D12RootSignature> root;
 		hr = device->CreateRootSignature(0, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&root));
 		if (FAILED(hr)) { return hr; }
-		const char* entries[]{ "Downsample", "Residual", "Ratio", "PackDepth", "PackMotion" };
+		const char* entries[]{ "Downsample", "Residual", "Ratio", "PackDepth", "PackMotion", "PrepareColor", "PackGuides" };
 		for (unsigned i = 0; i < pipelines_.size(); ++i) {
 			ComPtr<ID3DBlob> shader;
 			hr = D3DCompile(kNeuralResolveShader, sizeof(kNeuralResolveShader) - 1, "TheosRenderPipeline-NR-resolve", nullptr, nullptr,
@@ -44,7 +44,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		}
 		for (auto& slot : heaps_) {
 			for (auto& heap : slot) {
-				D3D12_DESCRIPTOR_HEAP_DESC h{ D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 4, D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE, 0 };
+				D3D12_DESCRIPTOR_HEAP_DESC h{ D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 5, D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE, 0 };
 				hr = device->CreateDescriptorHeap(&h, IID_PPV_ARGS(&heap));
 				if (FAILED(hr)) { return hr; }
 			}
@@ -54,11 +54,13 @@ namespace TheosRenderPipeline::SourceDLSSG
 	}
 	HRESULT NeuralResolveKernels::Record(ID3D12Device* device, ID3D12GraphicsCommandList* list, std::size_t slot,
 		unsigned stage, ResolveKernel kernel, const ResolveConstants& constants, ID3D12Resource* a,
-		ID3D12Resource* b, ID3D12Resource* original, ID3D12Resource* output)
+		ID3D12Resource* b, ID3D12Resource* original, ID3D12Resource* output, ID3D12Resource* secondOutput)
 	{
 		if (!root_ || !device || !list || slot >= heaps_.size() || stage >= kStages || unsigned(kernel) >= pipelines_.size() ||
-			!a || !output || a == output || b == output || original == output) { return E_INVALIDARG; }
-		for (auto* texture : { a, b, original, output }) {
+			!a || !output || a == output || b == output || original == output ||
+			(secondOutput && (secondOutput == a || secondOutput == b || secondOutput == original || secondOutput == output)) ||
+			(kernel == ResolveKernel::PackGuides && (!b || !secondOutput))) { return E_INVALIDARG; }
+		for (auto* texture : { a, b, original, output, secondOutput }) {
 			if (!texture) { continue; }
 			const auto d = texture->GetDesc();
 			if (d.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D || d.DepthOrArraySize != 1 || d.MipLevels != 1 ||
@@ -85,16 +87,19 @@ namespace TheosRenderPipeline::SourceDLSSG
 			srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
 			device->CreateShaderResourceView(texture, &srv, cpu); cpu.ptr += stride;
 		}
-		D3D12_UNORDERED_ACCESS_VIEW_DESC uav{}; uav.Format = output->GetDesc().Format;
-		uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
-		device->CreateUnorderedAccessView(output, nullptr, &uav, cpu);
-		transition(output, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		for (auto* texture : { output, secondOutput }) {
+			D3D12_UNORDERED_ACCESS_VIEW_DESC uav{}; uav.Format = texture ? texture->GetDesc().Format : DXGI_FORMAT_R32G32_FLOAT;
+			uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+			device->CreateUnorderedAccessView(texture, nullptr, &uav, cpu); cpu.ptr += stride;
+			if (texture) { transition(texture, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_UNORDERED_ACCESS); }
+		}
 		list->SetDescriptorHeaps(1, &heap); list->SetComputeRootSignature(root_.Get());
 		list->SetPipelineState(pipelines_[unsigned(kernel)].Get());
 		list->SetComputeRoot32BitConstants(0, sizeof(constants) / 4, &constants, 0);
 		list->SetComputeRootDescriptorTable(1, heap->GetGPUDescriptorHandleForHeapStart());
 		list->Dispatch((static_cast<UINT>(output->GetDesc().Width) + 7) / 8, (output->GetDesc().Height + 7) / 8, 1);
 		transition(output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
+		if (secondOutput) { transition(secondOutput, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON); }
 		for (unsigned i = 0; i < inputs.size(); ++i) {
 			if (inputs[i] && std::find(inputs.begin(), inputs.begin() + i, inputs[i]) == inputs.begin() + i) {
 				transition(inputs[i], D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COMMON);

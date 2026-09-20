@@ -52,10 +52,10 @@ namespace TheosRenderPipeline::SourceDLSSG
             neuralSnapshot_.telemetry = neuralPass_->Telemetry();
         }
         neuralPass_.reset();
-        logger::info("[SourceDLSSG NR] retired feature for placement={} passes={} preset={} inputScale={} resolve={} HDR={} producerColor={} peripheral={}",
+        logger::info("[SourceDLSSG NR] retired feature for placement={} passes={} preset={} inputScale={} resolve={} HDR={} producerColor={} peripheral={} fusion={}",
             options.beforeUpscaling ? "before DLSS" : "after DLSS", options.passes, options.reconstruction.preset,
             options.reconstruction.inputScale, static_cast<unsigned>(options.reconstruction.method), options.reconstruction.colorIsHDR,
-            options.reconstruction.producerColor, options.reconstruction.peripheralCompression);
+            options.reconstruction.producerColor, options.reconstruction.peripheralCompression, options.reconstruction.fusedPreparation);
         return true;
     }
 

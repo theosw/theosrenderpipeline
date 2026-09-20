@@ -29,6 +29,10 @@ namespace
 		float percent = value.inputScale * 100;
 		if (ImGui::SliderFloat("NR input resolution", &percent, 25, 100, "%.1f%%")) { value.inputScale = percent / 100; }
 		ImGui::Checkbox("Peripheral compression (experimental)", &value.peripheralCompression);
+		ImGui::Checkbox("Combined preparation (experimental)", &value.fusedPreparation);
+		if (value.fusedPreparation) {
+			ImGui::TextWrapped("Combines colour encoding with downsampling where needed, and depth/motion packing with peripheral compression. Some configurations have no preparation passes to combine.");
+		}
 		if (value.peripheralCompression) {
 			ImGui::TextWrapped("Preserves sampling density across the central 80% of each axis and compresses the edges. Uses about 19% fewer model pixels at the same input resolution. Edge quality and performance need testing.");
 		}

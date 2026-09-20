@@ -14,7 +14,7 @@ cbuffer NRParams : register(b0) {
     uint SourceIsBgra, Mode, Passthrough, ProducerColor;
     uint WorkWidth, WorkHeight;
     float TransferStrength, ColourStrength, MaxRatio, WhitePoint;
-    uint Peripheral, Reserved;
+    uint Peripheral, EncodedFormat;
     uint GuideWidth, GuideHeight;
     float MotionScaleX, MotionScaleY;
 };
@@ -25,6 +25,7 @@ RWTexture2D<float4> OutputColor : register(u0);
 // Only the entry point's output is live in the compiled shader.
 RWTexture2D<float> OutputDepth : register(u0);
 RWTexture2D<float2> OutputMotion : register(u0);
+RWTexture2D<float2> OutputSecondMotion : register(u1);
 // Symmetric 80/90 map. The central band has unit density before global input
 // scaling; its first derivative joins continuously to the compressed edges.
 // Linear extension preserves offscreen motion instead of clipping endpoints.
@@ -67,7 +68,8 @@ float Lanczos(float x) {
     return (sin(a) / a) * (sin(b) / b);
 }
 int2 ClampPixel(int2 p, uint2 size) { return clamp(p, int2(0,0), int2(size)-1); }
-[numthreads(8,8,1)] void Downsample(uint3 p : SV_DispatchThreadID) {
+float4 EncodedTap(float4 c);
+void FilterColor(uint3 p, bool encode) {
     if (p.x >= TargetWidth || p.y >= TargetHeight) return;
     float2 a = float2(p.xy) * float2(SourceWidth,SourceHeight) / float2(TargetWidth,TargetHeight);
     float2 b = float2(p.xy+1) * float2(SourceWidth,SourceHeight) / float2(TargetWidth,TargetHeight);
@@ -78,11 +80,14 @@ int2 ClampPixel(int2 p, uint2 size) { return clamp(p, int2(0,0), int2(size)-1); 
         for (int x=(int)floor(a.x); x<(int)ceil(b.x); ++x) {
             float w = wy * max(0, min(b.x,x+1.0)-max(a.x,(float)x));
             float4 c=Tex0.Load(int3(ClampPixel(int2(x,y),uint2(SourceWidth,SourceHeight)),0));
+            if (encode) c=EncodedTap(c);
             c.rgb=Swizzle(c.rgb); sum += c*w; weight += w;
         }
     }
     OutputColor[p.xy]=sum/max(weight,0.000001);
 }
+[numthreads(8,8,1)] void Downsample(uint3 p : SV_DispatchThreadID) { FilterColor(p,false); }
+[numthreads(8,8,1)] void PrepareColor(uint3 p : SV_DispatchThreadID) { FilterColor(p,true); }
 [numthreads(8,8,1)] void PackDepth(uint3 p : SV_DispatchThreadID) {
     if (p.x>=WorkWidth || p.y>=WorkHeight) return;
     float2 native=UnpackPosition(p.xy+0.5);
@@ -98,6 +103,15 @@ int2 ClampPixel(int2 p, uint2 size) { return clamp(p, int2(0,0), int2(size)-1); 
     float2 motion=Tex0.Load(int3(guide,0)).rg*float2(MotionScaleX,MotionScaleY)*
         float2(SourceWidth,SourceHeight)/float2(GuideWidth,GuideHeight);
     OutputMotion[p.xy]=PackPosition(native+motion)-PackPosition(native);
+}
+[numthreads(8,8,1)] void PackGuides(uint3 p : SV_DispatchThreadID) {
+    if (p.x>=WorkWidth || p.y>=WorkHeight) return;
+    float2 native=UnpackPosition(p.xy+0.5);
+    int2 guide=ClampPixel(int2(native*float2(GuideWidth,GuideHeight)/float2(SourceWidth,SourceHeight)),uint2(GuideWidth,GuideHeight));
+    OutputDepth[p.xy]=Tex0.Load(int3(guide,0)).r;
+    float2 motion=Tex1.Load(int3(guide,0)).rg*float2(MotionScaleX,MotionScaleY)*
+        float2(SourceWidth,SourceHeight)/float2(GuideWidth,GuideHeight);
+    OutputSecondMotion[p.xy]=PackPosition(native+motion)-PackPosition(native);
 }
 [numthreads(8,8,1)] void Residual(uint3 p : SV_DispatchThreadID) {
     if (Mode == 0) {
@@ -171,6 +185,25 @@ float ProducerScale(float3 c) {
     if (x<=0.75) return white;
     float bounded=0.75+0.25*(1-exp2(-5.77078009*(x-0.75)));
     return peak/bounded;
+}
+float4 EncodedTap(float4 c) {
+    float3 rgb=max(Swizzle(c.rgb),0);
+    if (ProducerColor) {
+        rgb=all(isfinite(c.rgb)) ? rgb/ProducerScale(rgb) : 0;
+        c=float4(Swizzle(saturate(rgb)),1);
+    } else {
+        if (!Passthrough) {
+            rgb/=max(WhitePoint,0.0001);
+            float peak=max(rgb.r,max(rgb.g,rgb.b));
+            if (peak>0.75) rgb*=(0.75+0.25*(1-exp2(-5.77078009*(peak-0.75))))/peak;
+            rgb=ToSRGB(rgb);
+        }
+        c=float4(Swizzle(rgb),c.a);
+    }
+    // Match the eliminated intermediate texture's storage before filtering.
+    if (EncodedFormat==1) c=f16tof32(f32tof16(c));
+    else if (EncodedFormat==2) c=round(saturate(c)*255)/255;
+    return c;
 }
 float3 RestoreProducer(float3 original, float3 a, float3 n) {
     if (!all(isfinite(original)) || !all(isfinite(a)) || !all(isfinite(n)) || TransferStrength==0) return original;
