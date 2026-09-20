@@ -1,7 +1,8 @@
 # Theo's Render Pipeline
 
-Version **0.2.0** adds ReShade effects and overlay support, fixes startup without
-ReShade, and corrects RTX 30 runtime loading under MO2 and Community Shaders.
+Version **0.2.1** fixes startup when 78% Ultra Quality DLSS is saved. It preserves
+the selected render resolution and existing settings. Version 0.2.0 added ReShade
+support and corrected RTX 30 runtime loading under MO2 and Community Shaders.
 CS keeps shading, upscaling and UI; TRP supplies
 frame generation, Reflex and optional world-only NR. Disable CS frame generation
 and Reflex when using TRP. See [setup and validation limits](docs/COMMUNITY_SHADERS.md).

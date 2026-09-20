@@ -1,13 +1,14 @@
-# Theo's Render Pipeline — Full, 0.2.0
+# Theo's Render Pipeline — Full, 0.2.1
 
-Adds ReShade support and fixes RTX 30 runtime loading with MO2 and Community
-Shaders. Full includes the RTX 40 MFG unlock and experimental RTX 30 compatibility.
+Fixes startup when 78% Ultra Quality DLSS is saved, preserving the selected
+render resolution and settings. Full includes the RTX 40 MFG unlock and
+experimental RTX 30 compatibility.
 
 DLSS/DLAA, frame generation, Neural Rendering and native-resolution UI for Skyrim.
 This package includes the full renderer, configuration and sharpening shader.
 It requires no other Theo's Render Pipeline package. NVIDIA DLLs are supplied
 separately: download the SR/FG files below, and the NR runtime if you want NR.
-Alternatively, install matching 0.2.0 Standard first and Full after it in MO2; the NR-enabled
+Alternatively, install matching 0.2.1 Standard first and Full after it in MO2; the NR-enabled
 Standard download supplies all eight runtimes, including NR. In that setup,
 skip the runtime downloads below.
 

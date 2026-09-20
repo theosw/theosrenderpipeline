@@ -1,7 +1,10 @@
-# Theo's Render Pipeline — Standard, 0.2.0
+# Theo's Render Pipeline — Standard, 0.2.1
 
 DLSS/DLAA, native NVIDIA frame generation, Neural Rendering, NVIDIA Reflex and
 native-resolution menus for Skyrim. All eight NVIDIA runtime DLLs are included.
+
+Version 0.2.1 fixes startup when 78% Ultra Quality DLSS is saved, preserving
+the selected render resolution and settings.
 
 ## Install
 
@@ -59,7 +62,7 @@ the tested world-only effects setup.
 
 ## With the Full edition
 
-For the RTX 40 MFG unlock or experimental RTX 30 support, install the matching 0.2.0 Full
+For the RTX 40 MFG unlock or experimental RTX 30 support, install the matching 0.2.1 Full
 ZIP after Standard in MO2's left pane. Let Full win file conflicts. Full uses
 the NVIDIA runtimes included here, including NR.
 
