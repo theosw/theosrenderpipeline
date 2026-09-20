@@ -1,3 +1,19 @@
+# 0.2.3
+
+- Fixed settings-menu keyboard input on tested Nolvus setups while retaining
+  compatibility with LoreRim/KreatE.
+- Added optional NR peripheral compression to reduce model pixel workload
+  toward the screen edges.
+- Added optional combined NR preparation passes. Both optimizations default off.
+- Fixed corrupted percentage text in the NR description and DLAA tooltip.
+- Fixed a renderer shutdown when NVIDIA reports a VRAM-budget warning after
+  accepting frame-generation settings. Memory pressure and related hitches may
+  still occur.
+
+Temporal reuse is excluded. HDR remains unsupported; RTX 30 compatibility
+remains experimental. Existing NVIDIA runtimes and default settings are retained,
+with the two new NR options disabled by default.
+
 # 0.2.2
 
 - Enabled Neural Rendering with DLAA, before or after anti-aliasing.

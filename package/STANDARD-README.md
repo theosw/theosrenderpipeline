@@ -6,6 +6,9 @@ native-resolution menus for Skyrim. All eight NVIDIA runtime DLLs are included.
 Version 0.2.3 adds the Nolvus keyboard-input fallback, optional NR peripheral
 compression and optional combined preparation. Both NR optimizations default
 to off; enable them separately in the Neural Rendering controls and use Apply now.
+It also corrects menu percentage text and prevents a renderer shutdown when
+NVIDIA returns a VRAM-budget warning after accepting frame-generation settings.
+This correction does not reduce memory pressure itself.
 
 Version 0.2.2 enables NR with native DLAA, before or after anti-aliasing, and
 adds startup identification and configuration diagnostics. The 0.2.1 startup
