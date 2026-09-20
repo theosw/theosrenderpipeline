@@ -50,6 +50,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		Microsoft::WRL::ComPtr<ID3D12Resource> secondOutput_;
 		Microsoft::WRL::ComPtr<ID3D12Resource> corrected_, composed_;
 		Microsoft::WRL::ComPtr<ID3D12Resource> encoded_, workColor_, workOutput_, residual_;
+		Microsoft::WRL::ComPtr<ID3D12Resource> packedMotion_, packedDepth_, packedUI_;
 		NeuralResolveKernels resolve_;
 		NeuralRendering::Reconstruction reconstruction_;
 		std::filesystem::path runtimePath_;

@@ -80,8 +80,8 @@ static void Dispatch(ID3D11DeviceContext* context, ID3D11ComputeShader* shader, 
     const ResolveConstants& params, const std::array<ID3D11ShaderResourceView*, 3>& inputs,
     ID3D11UnorderedAccessView* output, UINT width, UINT height)
 {
-    // D3D11 constant buffers round the production 56-byte structure up to 16 bytes.
-    alignas(16) std::array<std::byte, 64> upload{};
+    // D3D11 constant buffers round the production structure up to 16 bytes.
+    alignas(16) std::array<std::byte, (sizeof(ResolveConstants) + 15) & ~size_t(15)> upload{};
     static_assert(sizeof(params) <= sizeof(upload));
     std::memcpy(upload.data(), &params, sizeof(params));
     context->UpdateSubresource(constants, 0, nullptr, upload.data(), 0, 0);
@@ -317,7 +317,7 @@ int main()
     Check(D3DCompile(source, sizeof(source) - 1, "TRP-downsample-color-test", nullptr, nullptr,
         "Downsample", "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &errors), "compile production downsample shader");
     Check(device->CreateComputeShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, &downsample), "downsample compute shader");
-    D3D11_BUFFER_DESC desc{}; desc.ByteWidth = 64; desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+    D3D11_BUFFER_DESC desc{}; desc.ByteWidth = (sizeof(ResolveConstants) + 15) & ~UINT(15); desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
     ComPtr<ID3D11Buffer> constants;
     Check(device->CreateBuffer(&desc, nullptr, &constants), "Ratio constants");
     for (const bool bgra : {false, true}) {

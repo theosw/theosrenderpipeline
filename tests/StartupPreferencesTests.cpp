@@ -27,6 +27,17 @@ int main(int argc, char** argv)
         auto& owner = *SourceFrameGeneration::GetSingleton();
         CSimpleIniA packaged;
         Require(packaged.LoadFile(argv[1]) >= 0, "packaged INI must load");
+        using namespace TheosRenderPipeline::NeuralRendering;
+        Require(!LoadReconstruction(packaged,"SourceDLSSG").peripheralCompression,
+            "peripheral experiment must remain off in packages");
+        CSimpleIniA spatial;
+        Require(!LoadReconstruction(spatial,"SourceDLSSG").peripheralCompression,"old INIs must retain uniform NR");
+        auto reconstruction=LoadReconstruction(spatial,"SourceDLSSG");
+        reconstruction.peripheralCompression=true; reconstruction.inputScale=.5f;
+        StoreReconstruction(spatial,"SourceDLSSG",reconstruction);
+        Require(LoadReconstruction(spatial,"SourceDLSSG")==reconstruction,"peripheral layout survives save/load");
+        spatial.SetBoolValue("SourceDLSSG","NRPeripheralCompression",false);
+        Require(!LoadReconstruction(spatial,"SourceDLSSG").peripheralCompression,"explicit spatial opt-out wins");
         owner.LoadStartupPreferences(packaged);
         Require(owner.settings.sourceDLSSGMFGUnlock && owner.settings.sourceDLSSGMFGUnlockPresent,
             "package must explicitly enable compatibility");

@@ -18,7 +18,7 @@ namespace
 	{
 		const char* presets[]{ "Default", "Shipping" };
 		ImGui::Combo("NR network preset", &value.preset, presets, IM_ARRAYSIZE(presets));
-		const char* methods[]{ "Auto | Direct at 100%, residual below", "Residual | Add NR changes to native scene", "Ratio | Transfer lighting and colour" };
+		const char* methods[]{ "Auto | Reconstruct when input is reduced", "Residual | Add NR changes to native scene", "Ratio | Transfer lighting and colour" };
 		int method = static_cast<int>(value.method);
 		ImGui::BeginDisabled(producerColor);
 		if (ImGui::Combo("Reconstruction", &method, methods, IM_ARRAYSIZE(methods))) {
@@ -28,6 +28,10 @@ namespace
 		if (producerColor) { ImGui::TextWrapped("CS restores scene colour automatically before DLSS."); }
 		float percent = value.inputScale * 100;
 		if (ImGui::SliderFloat("NR input resolution", &percent, 25, 100, "%.1f%%")) { value.inputScale = percent / 100; }
+		ImGui::Checkbox("Peripheral compression (experimental)", &value.peripheralCompression);
+		if (value.peripheralCompression) {
+			ImGui::TextWrapped("Preserves sampling density across the central 80% of each axis and compresses the edges. Uses about 19% fewer model pixels at the same input resolution. Edge quality and performance need testing.");
+		}
 		ImGui::TextWrapped("Relative to the selected stage: render resolution before DLSS, output resolution after DLSS. Lower values reduce NR's working resolution; game and UI sizes stay unchanged.");
 		if (!producerColor) { ImGui::TextWrapped("Residual clamps colour to 0..1 like the reference. Use Ratio for linear HDR input."); }
 		if (ImGui::TreeNode("Advanced reconstruction")) {

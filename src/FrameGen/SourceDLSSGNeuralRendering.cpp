@@ -113,8 +113,8 @@ RWTexture2D<float4> output : register(u0);
 		const auto sceneDesc = hudless->GetDesc(), outputDesc = composed ? composed->GetDesc() : sceneDesc;
 		const auto reconstruction = NeuralRendering::SanitizeReconstruction(options.reconstruction);
 		const auto method = NeuralRendering::EffectiveResolve(reconstruction);
-		const auto workWidth = NeuralRendering::WorkExtent(static_cast<UINT>(sceneDesc.Width), reconstruction.inputScale);
-		const auto workHeight = NeuralRendering::WorkExtent(sceneDesc.Height, reconstruction.inputScale);
+		const auto workWidth = NeuralRendering::ModelExtent(static_cast<UINT>(sceneDesc.Width), reconstruction);
+		const auto workHeight = NeuralRendering::ModelExtent(sceneDesc.Height, reconstruction);
 		if (NeedsRecreation(options, static_cast<UINT>(motion->GetDesc().Width), motion->GetDesc().Height)) {
 			status_ = "NR settings or guide dimensions changed without retiring the previous pass"; return false;
 		}
@@ -139,7 +139,14 @@ RWTexture2D<float4> output : register(u0);
 				if (!check(resolve_.Initialize(device), "NR resolve kernels")) { return false; }
 				auto workDesc = sceneDesc; workDesc.Width = workWidth; workDesc.Height = workHeight;
 				if (!create(workDesc, workOutput_)) { return false; }
-				if (reconstruction.inputScale < 1 && !create(workDesc, workColor_)) { return false; }
+				if ((reconstruction.inputScale < 1 || reconstruction.peripheralCompression) && !create(workDesc, workColor_)) { return false; }
+				if (reconstruction.peripheralCompression) {
+					auto guideDesc = workDesc; guideDesc.Format = DXGI_FORMAT_R32G32_FLOAT;
+					if (!create(guideDesc, packedMotion_)) { return false; }
+					guideDesc.Format = DXGI_FORMAT_R32_FLOAT;
+					if (!create(guideDesc, packedDepth_)) { return false; }
+					if (!options.WorldOnly() && !create(workDesc, packedUI_)) { return false; }
+				}
 				if (method == NeuralRendering::ResolveMethod::Residual) {
 					auto residualDesc = workDesc; residualDesc.Width = sceneDesc.Width;
 					residualDesc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
@@ -174,7 +181,8 @@ RWTexture2D<float4> output : register(u0);
 		info.device = device; info.runtimePath = options.runtimePath;
 		info.allowReconstructionRuntime = true;
 		info.displayWidth = workWidth; info.displayHeight = workHeight;
-		info.renderWidth = static_cast<UINT>(motion->GetDesc().Width); info.renderHeight = motion->GetDesc().Height;
+		info.renderWidth = reconstruction.peripheralCompression ? workWidth : static_cast<UINT>(motion->GetDesc().Width);
+		info.renderHeight = reconstruction.peripheralCompression ? workHeight : motion->GetDesc().Height;
 		// Each identified runtime contract selects its own default preset.
 		info.networkPreset = reconstruction.preset == 0 ? -1 : reconstruction.preset;
 		if (!feature_.EnsureInitialized(info)) { status_ = feature_.Status(); return false; }
@@ -186,7 +194,8 @@ RWTexture2D<float4> output : register(u0);
 		}
 		reconstruction_ = reconstruction;
 		runtimePath_ = options.runtimePath;
-		guideWidth_ = info.renderWidth; guideHeight_ = info.renderHeight;
+		// Recreation watches the producer's extent, not the private packed guides.
+		guideWidth_ = static_cast<UINT>(motion->GetDesc().Width); guideHeight_ = motion->GetDesc().Height;
 		beforeUpscaling_ = options.beforeUpscaling;
 		worldOnly_ = options.WorldOnly();
 		passes_ = options.passes;
@@ -222,6 +231,12 @@ RWTexture2D<float4> output : register(u0);
 		constants.producerColor = reconstruction.producerColor;
 		constants.transferStrength = reconstruction.transferStrength; constants.colourStrength = reconstruction.colourStrength;
 		constants.maxRatio = reconstruction.maxRatio; constants.whitePoint = reconstruction.whitePoint;
+		constants.peripheral = reconstruction.peripheralCompression;
+		constants.guideWidth = static_cast<UINT>(motion->GetDesc().Width); constants.guideHeight = motion->GetDesc().Height;
+		constants.motionScaleX = scaleX; constants.motionScaleY = scaleY;
+		auto* featureMotion = motion;
+		auto* featureDepth = depth;
+		auto* featureUI = ui;
 		auto dispatch = [&](unsigned stage, ResolveKernel kernel, ID3D12Resource* a, ID3D12Resource* b,
 			ID3D12Resource* original, ID3D12Resource* output) {
 			const auto hr = resolve_.Record(device, list, slot, stage, kernel, constants, a, b, original, output);
@@ -240,6 +255,15 @@ RWTexture2D<float4> output : register(u0);
 				featureColor = workColor_.Get();
 			}
 		}
+		if (reconstruction.peripheralCompression) {
+			if (!dispatch(4, ResolveKernel::PackDepth, depth, nullptr, nullptr, packedDepth_.Get()) ||
+				!dispatch(5, ResolveKernel::PackMotion, motion, nullptr, nullptr, packedMotion_.Get())) { return false; }
+			featureDepth = packedDepth_.Get(); featureMotion = packedMotion_.Get();
+			if (ui) {
+				if (!dispatch(6, ResolveKernel::Downsample, ui, nullptr, nullptr, packedUI_.Get())) { return false; }
+				featureUI = packedUI_.Get();
+			}
+		}
 		// NR UI correction reads Backbuffer's existing pixels. The reconstruction
 		// output/backbuffer alias must therefore contain the original scene, not
 		// fresh allocation contents or last frame's NR result. UI remains separate
@@ -249,19 +273,20 @@ RWTexture2D<float4> output : register(u0);
 			status_ = "NR correction background copy rejected"; return false;
 		}
 		constexpr auto read = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
-		for (auto* input : { motion, depth, ui, hudless, composed }) { Transition(list, input, D3D12_RESOURCE_STATE_COMMON, read); }
+		for (auto* input : { featureMotion, featureDepth, featureUI, hudless, composed }) { Transition(list, input, D3D12_RESOURCE_STATE_COMMON, read); }
 		if (featureColor != hudless) { Transition(list, featureColor, D3D12_RESOURCE_STATE_COMMON, read); }
 		Transition(list, featureOutput, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		NeuralRendering::FeatureSession::EvaluationInput input;
-		input.commandList = list; input.color = featureColor; input.motionVectors = motion; input.depth = depth;
-		input.output = featureOutput; input.ui = ui;
+		input.commandList = list; input.color = featureColor; input.motionVectors = featureMotion; input.depth = featureDepth;
+		input.output = featureOutput; input.ui = featureUI;
 		// This runtime aliases Backbuffer to output in UAV state. The older
 		// runtime reads the composed input instead.
 		input.backbuffer = NeuralRendering::UsesReconstructionContract(feature_.Build()) ? featureOutput : composed ? composed : hudless;
-		// Guides keep their extents. Both vector components use
-		// the rounded work-width ratio, not separate raw/rounded X/Y scale values.
+		// Uniform mode retains the existing runtime guide/scale contract. Packed
+		// guides already express endpoint displacement in model pixels.
 		const float motionRatio = resolving ? float(constants.workWidth) / constants.sourceWidth : 1.0f;
-		input.motionVectorScaleX = scaleX * motionRatio; input.motionVectorScaleY = scaleY * motionRatio;
+		input.motionVectorScaleX = reconstruction.peripheralCompression ? 1.0f : scaleX * motionRatio;
+		input.motionVectorScaleY = reconstruction.peripheralCompression ? 1.0f : scaleY * motionRatio;
 		input.reset = reset; input.depthInverted = depthInverted; input.tuning = options.tuning;
 		const bool gpuTiming = timestampHeap_ && timestampReadback_ && mappedTimestamps_ && timestampFrequency_;
 		const auto query = static_cast<UINT>(slot * 2);
@@ -314,7 +339,7 @@ RWTexture2D<float4> output : register(u0);
 		if (resolving) {
 			Transition(list, featureOutput, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
 			if (featureColor != hudless) { Transition(list, featureColor, read, D3D12_RESOURCE_STATE_COMMON); }
-			for (auto* resource : { motion, depth, ui, hudless, composed }) { Transition(list, resource, read, D3D12_RESOURCE_STATE_COMMON); }
+			for (auto* resource : { featureMotion, featureDepth, featureUI, hudless, composed }) { Transition(list, resource, read, D3D12_RESOURCE_STATE_COMMON); }
 			if (method == NeuralRendering::ResolveMethod::Residual) {
 				constants.targetWidth = constants.workWidth; constants.targetHeight = constants.workHeight;
 				if (!dispatch(2, ResolveKernel::Residual, featureColor, featureOutput, nullptr, residual_.Get())) { return false; }
@@ -324,7 +349,7 @@ RWTexture2D<float4> output : register(u0);
 				constants.mode = 1; constants.targetWidth = constants.sourceWidth; constants.targetHeight = constants.sourceHeight;
 				if (!dispatch(3, ResolveKernel::Ratio, featureColor, featureOutput, hudless, corrected_.Get())) { return false; }
 			}
-			for (auto* resource : { motion, depth, ui, hudless, composed }) { Transition(list, resource, D3D12_RESOURCE_STATE_COMMON, read); }
+			for (auto* resource : { featureMotion, featureDepth, featureUI, hudless, composed }) { Transition(list, resource, D3D12_RESOURCE_STATE_COMMON, read); }
 			Transition(list, corrected_.Get(), D3D12_RESOURCE_STATE_COMMON, read);
 		} else {
 			Transition(list, corrected_.Get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS, read);
@@ -332,16 +357,20 @@ RWTexture2D<float4> output : register(u0);
 
 		if (options.WorldOnly()) {
 			Transition(list, corrected_.Get(), read, D3D12_RESOURCE_STATE_COMMON);
-			for (auto* texture : { motion, depth, hudless }) { Transition(list, texture, read, D3D12_RESOURCE_STATE_COMMON); }
-			status_ = std::format("NR {} upscaling {}x{} -> {}x{}; {} pass(es); {}; world only; UI correction unused",
+			for (auto* texture : { featureMotion, featureDepth, hudless }) { Transition(list, texture, read, D3D12_RESOURCE_STATE_COMMON); }
+			status_ = std::format("NR {} upscaling {}x{} -> {}x{}; {} pass(es); {}; {}; world only; UI correction unused",
 				options.beforeUpscaling ? "before" : "after", constants.workWidth, constants.workHeight,
 				constants.sourceWidth, constants.sourceHeight, options.passes,
-				reconstruction.producerColor ? "producer RGB reconstruction" : "user reconstruction");
+				reconstruction.producerColor ? "producer RGB reconstruction" : "user reconstruction",
+				reconstruction.peripheralCompression ? "peripheral 80/90" : "uniform");
 			return true;
 		}
 
 		// Interop::Begin retired this slot before any descriptors are
 		// overwritten. NGX may bind its own heaps/root/PSO; explicitly bind ours.
+		// In peripheral mode NGX consumed a private warped UI. Composition still
+		// samples the untouched native UI; it has remained COMMON until here.
+		if (featureUI != ui) { Transition(list, ui, D3D12_RESOURCE_STATE_COMMON, read); }
 		auto* heap = heaps_[slot].Get();
 		auto cpu = heap->GetCPUDescriptorHandleForHeapStart();
 		const auto stride = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
@@ -360,14 +389,16 @@ RWTexture2D<float4> output : register(u0);
 		list->Dispatch((static_cast<UINT>(composed_->GetDesc().Width) + 7) / 8, (composed_->GetDesc().Height + 7) / 8, 1);
 		Transition(list, composed_.Get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
 		Transition(list, corrected_.Get(), read, D3D12_RESOURCE_STATE_COMMON);
-		for (auto* texture : { motion, depth, ui, hudless, composed }) { Transition(list, texture, read, D3D12_RESOURCE_STATE_COMMON); }
+		for (auto* texture : { featureMotion, featureDepth, featureUI, hudless, composed }) { Transition(list, texture, read, D3D12_RESOURCE_STATE_COMMON); }
+		if (featureUI != ui) { Transition(list, ui, read, D3D12_RESOURCE_STATE_COMMON); }
 		// Preserve the HUD-less tag identity already registered with Streamline.
 		// Both its generated frames and our real-frame composition use corrected_.
 		if (FAILED(Interop::RecordCopy(list, corrected_.Get(), hudless))) { status_ = "NR HUD-less copy rejected"; return false; }
-		status_ = std::format("source NR after DLSS {}x{} -> {}x{}; {} pass(es); {} resolve; native UI after NR; NR feeds real output and HUD-less FG tag",
+		status_ = std::format("source NR after DLSS {}x{} -> {}x{}; {} pass(es); {} resolve; {}; native UI after NR; NR feeds real output and HUD-less FG tag",
 			constants.workWidth, constants.workHeight, constants.sourceWidth, constants.sourceHeight,
 			options.passes,
-			method == NeuralRendering::ResolveMethod::Ratio ? "ratio" : method == NeuralRendering::ResolveMethod::Residual ? "residual" : "direct");
+			method == NeuralRendering::ResolveMethod::Ratio ? "ratio" : method == NeuralRendering::ResolveMethod::Residual ? "residual" : "direct",
+			reconstruction.peripheralCompression ? "peripheral 80/90" : "uniform");
 		return true;
 	}
 }

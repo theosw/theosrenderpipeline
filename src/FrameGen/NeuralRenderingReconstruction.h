@@ -12,6 +12,8 @@ namespace TheosRenderPipeline::NeuralRendering
 		ResolveMethod method{ ResolveMethod::Auto };
 		float inputScale{ 1 }, transferStrength{ 1 }, colourStrength{ 1 }, maxRatio{ 2 }, whitePoint{ 1 };
 		bool colorIsHDR{};
+		// Experimental fixed 80% centre / 90% work extent, in addition to inputScale.
+		bool peripheralCompression{};
 		// Adapter-owned input contract, never loaded from or written to an INI.
 		// Preserve the producer's RGB domain instead of assuming linear/sRGB.
 		bool producerColor{};
@@ -36,10 +38,10 @@ namespace TheosRenderPipeline::NeuralRendering
 	}
 	inline ResolveMethod EffectiveResolve(const Reconstruction& value)
 	{
-		// Explicit Ratio always resolves; Auto/Residual at native
-		// resolution both use the direct output, with no extra round trip.
+		// Explicit Ratio always resolves. Auto/Residual use direct output only
+		// at native input resolution with peripheral compression off.
 		return value.producerColor || value.method == ResolveMethod::Ratio ? ResolveMethod::Ratio :
-			NormalizeInputScale(value.inputScale) < 1 ? ResolveMethod::Residual : ResolveMethod::Auto;
+			(value.peripheralCompression || NormalizeInputScale(value.inputScale) < 1) ? ResolveMethod::Residual : ResolveMethod::Auto;
 	}
 	inline std::uint32_t WorkExtent(std::uint32_t extent, float scale)
 	{
@@ -47,10 +49,18 @@ namespace TheosRenderPipeline::NeuralRendering
 	}
 	inline bool SameReconstructionResources(const Reconstruction& a, const Reconstruction& b)
 	{
-		return a.preset == b.preset && NormalizeInputScale(a.inputScale) == NormalizeInputScale(b.inputScale) &&
+		return a.preset == b.preset && a.peripheralCompression == b.peripheralCompression &&
+			NormalizeInputScale(a.inputScale) == NormalizeInputScale(b.inputScale) &&
 			EffectiveResolve(a) == EffectiveResolve(b) && a.colorIsHDR == b.colorIsHDR && a.producerColor == b.producerColor &&
 			// Changing the proxy normalization changes the temporal model's input.
 			(!a.producerColor || a.whitePoint == b.whitePoint);
+	}
+	inline std::uint32_t ModelExtent(std::uint32_t extent, const Reconstruction& value)
+	{
+		// Do not normalize the product: 25% global scale with peripheral mode is
+		// 22.5% work extent, while the centre retains 25% sampling density.
+		return extent ? (std::max)(1u, static_cast<std::uint32_t>(std::llround(
+			double(extent) * NormalizeInputScale(value.inputScale) * (value.peripheralCompression ? 0.9 : 1.0)))) : 0;
 	}
 	template<class Ini> Reconstruction LoadReconstruction(const Ini& ini, const char* section)
 	{
@@ -63,6 +73,7 @@ namespace TheosRenderPipeline::NeuralRendering
 		value.maxRatio = static_cast<float>(ini.GetDoubleValue(section, "NRMaxRatio", 2));
 		value.whitePoint = static_cast<float>(ini.GetDoubleValue(section, "NRWhitePoint", 1));
 		value.colorIsHDR = ini.GetBoolValue(section, "NRColorIsHDR", false);
+		value.peripheralCompression = ini.GetBoolValue(section, "NRPeripheralCompression", false);
 		return SanitizeReconstruction(value);
 	}
 	template<class Ini> void StoreReconstruction(Ini& ini, const char* section, Reconstruction value)
@@ -76,5 +87,6 @@ namespace TheosRenderPipeline::NeuralRendering
 		ini.SetDoubleValue(section, "NRMaxRatio", value.maxRatio);
 		ini.SetDoubleValue(section, "NRWhitePoint", value.whitePoint);
 		ini.SetBoolValue(section, "NRColorIsHDR", value.colorIsHDR);
+		ini.SetBoolValue(section, "NRPeripheralCompression", value.peripheralCompression);
 	}
 }
