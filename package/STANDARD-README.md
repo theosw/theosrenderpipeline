@@ -74,13 +74,37 @@ Both editions contain settings files; the later mod's files win. Switching
 editions may change settings. Disable Universal to return to Standard. Both editions
 support NR; Standard excludes Ada/Ampere compatibility code.
 
+## Nolvus Awakening (candidate)
+
+Nolvus uses the same editions; RTX 30 and RTX 40 multipliers above x2 require
+Universal after Standard. The PR #33 Input Test ZIP, if supplied separately,
+goes below both and inherits their settings/runtimes. It is not included in
+the original 0.2.2 release ZIPs. Keep the base mods enabled, and disable the
+test overlay after closing Skyrim to restore the previous renderer.
+
+Disable competing ENB Anti-Aliasing and ENB Frame Generation components,
+including their dedicated settings overrides where installed. Keep the base
+SSE Display Tweaks, ENB and ReShade preset; disable SSE ReShade Helper.
+End can conflict with STB Active Effects. With Skyrim closed, set
+`ToggleOverlay=0x79` under `[Hotkeys]` in the winning TRP INI for F10, if free.
+Click outside an active text field before closing with F10.
+
+The candidate has positive F10 input, x5, both NR placements and Wheeler
+feedback on Nolvus Awakening 6.0.20 / Skyrim 1.5.97 with Universal, RTX 4080
+SUPER, ENB 0.504 and ReShade 6.3.1. Standard gameplay remains untested. Early
+OAR/IED loading panels have a known resolution limitation; the test log retains
+two Streamline RSYNC errors, and physical cadence remains unverified.
+See [PR #33](https://github.com/theosw/theosrenderpipeline/pull/33) for candidate status.
+
 ## Compatibility and reports
 
 Standard 0.1.4 has positive reports with Cabbage ENB and the CS setup above,
 with native x2 and both NR placements and no recorded NR/host failure counters.
 The ENB run retains two recurring Streamline RSYNC errors. Both shading setups
 use the same renderer DLL; enable only the intended shading setup in each profile.
-Skyrim 1.5.97, 1.6.640 and 1.7.104 are experimental and untested in-game.
+Skyrim 1.5.97, 1.6.640 and 1.7.104 remain experimental. The Universal Nolvus
+candidate above has limited 1.5.97 gameplay evidence; Standard on 1.5.97,
+and either edition on 1.6.640 or 1.7.104, remain untested in-game.
 Universal 0.2.2 has positive ENB/RTX 4080 SUPER DLAA/NR feedback and an RTX 3060
 Laptop/CS volunteer report confirming FG and NR execution. RTX 30 remains
 experimental, with grass-edge artifacting and occasional hitches reported.

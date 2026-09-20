@@ -1,6 +1,7 @@
 #include <PCH.h>
 #include "PluginPaths.h"
 #include "SkyrimRuntime.h"
+#include "OverlayGameInput.h"
 
 #include "DRS.h"
 #include "RenderPipeline.h"
@@ -61,6 +62,10 @@ namespace
 
 	void MessageHandler(SKSE::MessagingInterface::Message* a_msg)
 	{
+		if (a_msg && (a_msg->type == SKSE::MessagingInterface::kInputLoaded ||
+			a_msg->type == SKSE::MessagingInterface::kDataLoaded)) {
+			TheosRenderPipeline::Overlay::RegisterGameInput();
+		}
 		if (a_msg && a_msg->type == SKSE::MessagingInterface::kPostLoad) {
 			TheosRenderPipeline::CommunityShaders::SelectRenderer();
 			if (!TheosRenderPipeline::CommunityShaders::Active()) {

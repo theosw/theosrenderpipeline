@@ -31,6 +31,8 @@ public:
 	// Called from the Present hook, before the original Present executes.
     void OnPresent(ID3D11Texture2D* producerUI = nullptr);
 
+    void ObserveGameHotkeys(const std::vector<UINT>& pressedKeys) { hotkeys.ObserveGameKeys(pressedKeys); }
+
 private:
 	OverlayUI() = default;
 	OverlayUI(const OverlayUI&) = delete;

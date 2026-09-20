@@ -119,10 +119,31 @@ Cabbage ENB and RTX 4080 SUPER, with x4 and NR before upscaling. CS with ReShade
 other ReShade versions and other effect/NR placements still need game testing.
 Keep Native UI enabled for the tested world-only effects setup.
 
+## Nolvus Awakening (candidate)
+
+The keyboard fallback in PR #33 has scoped positive Nolvus Awakening 6.0.20 /
+Skyrim 1.5.97 feedback: Universal, RTX 4080 SUPER, ENB 0.504, ReShade 6.3.1,
+F10 input, x5, both NR placements and Wheeler. It is not in the original 0.2.2 release ZIPs.
+If supplied as a separate Input Test ZIP, install it below your existing TRP
+mods and keep them enabled; disabling it after closing Skyrim restores the
+previous renderer without replacing your INIs or runtimes.
+
+Disable competing ENB Anti-Aliasing and ENB Frame Generation components,
+including their dedicated settings overrides where installed. Keep the base
+SSE Display Tweaks, ENB and ReShade preset; disable SSE ReShade Helper.
+End can conflict with STB Active Effects. With Skyrim closed, set
+`ToggleOverlay=0x79` under `[Hotkeys]` in the winning TRP INI for F10, if free.
+Click outside an active text field before closing with F10.
+Early OAR/IED loading panels remain a known resolution limitation. The test log
+retains two Streamline RSYNC errors; physical cadence and unreported menu/cell
+transitions remain unverified.
+See [PR #33](https://github.com/theosw/theosrenderpipeline/pull/33) for candidate status.
+
 ## Experimental game versions
 
-**Skyrim 1.5.97, 1.6.640 and 1.7.104 are experimental and untested in-game.** Build and offline
-compatibility checks passed. Use matching SKSE64 and Address Library, and please
+**Skyrim 1.5.97, 1.6.640 and 1.7.104 remain experimental.** The candidate Nolvus
+result above covers a limited 1.5.97 configuration; 1.6.640 and 1.7.104 remain
+untested in-game. Build and offline compatibility checks passed. Use matching SKSE64 and Address Library, and please
 report your results with the game/mod versions and renderer log.
 Third-party ImGui integration covers the listed producer builds; older or
 SE-specific versions of those mods need their own compatibility checks.

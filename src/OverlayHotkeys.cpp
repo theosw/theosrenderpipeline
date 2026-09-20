@@ -17,7 +17,7 @@ namespace TheosRenderPipeline::Overlay
             window_ = window;
             toggleKey_ = toggleKey;
             foreground_ = foreground;
-            pending_.clear();
+            ClearPending();
             pending_.reserve(16);
         }
         // Observe removed queue messages before DispatchMessage reaches menus.
@@ -34,7 +34,7 @@ namespace TheosRenderPipeline::Overlay
         }
         std::scoped_lock lock(mutex_);
         window_ = nullptr;
-        pending_.clear();
+        ClearPending();
     }
 
     bool WindowHotkeys::HasFocus() const
@@ -43,12 +43,75 @@ namespace TheosRenderPipeline::Overlay
         return window_ && foreground && (foreground == window_ || IsChild(window_, foreground));
     }
 
+    void WindowHotkeys::ClearPending()
+    {
+        pending_.clear();
+        windowPresses_.fill(0);
+        gamePresses_.fill(0);
+    }
+
+    UINT WindowHotkeys::NormalizeKey(UINT key) const
+    {
+        if (toggleKey_ == VK_CONTROL && (key == VK_LCONTROL || key == VK_RCONTROL)) { return VK_CONTROL; }
+        if (toggleKey_ == VK_SHIFT && (key == VK_LSHIFT || key == VK_RSHIFT)) { return VK_SHIFT; }
+        if (toggleKey_ == VK_MENU && (key == VK_LMENU || key == VK_RMENU)) { return VK_MENU; }
+        return key;
+    }
+
+    bool WindowHotkeys::IsHotkey(UINT key) const
+    {
+        return key && key < windowPresses_.size() &&
+            (key == toggleKey_ || key == VK_OEM_4 || key == VK_OEM_6);
+    }
+
+    UINT VirtualKeyFromGameScanCode(UINT scanCode)
+    {
+        if (!scanCode || scanCode > 0xFF) { return 0; }
+        // E1 Pause and non-extended keypad navigation must remain distinct.
+        switch (scanCode) {
+        case 0x45: return VK_NUMLOCK;
+        case 0xC5: return VK_PAUSE;
+        case 0xB7: return VK_SNAPSHOT;
+        case 0x47: return VK_NUMPAD7;
+        case 0x48: return VK_NUMPAD8;
+        case 0x49: return VK_NUMPAD9;
+        case 0x4B: return VK_NUMPAD4;
+        case 0x4C: return VK_NUMPAD5;
+        case 0x4D: return VK_NUMPAD6;
+        case 0x4F: return VK_NUMPAD1;
+        case 0x50: return VK_NUMPAD2;
+        case 0x51: return VK_NUMPAD3;
+        case 0x52: return VK_NUMPAD0;
+        case 0x53: return VK_DECIMAL;
+        default: break;
+        }
+        const UINT extended = scanCode & 0x80 ? 0xE000 | (scanCode & 0x7F) : scanCode;
+        return MapVirtualKeyW(extended, MAPVK_VSC_TO_VK_EX);
+    }
+
+    void WindowHotkeys::ObserveGameKeys(const std::vector<UINT>& pressedKeys)
+    {
+        std::scoped_lock lock(mutex_);
+        if (!HasFocus()) { ClearPending(); return; }
+        gamePresses_.fill(0);
+        for (auto key : pressedKeys) {
+            key = NormalizeKey(key);
+            if (!IsHotkey(key)) { continue; }
+            if (windowPresses_[key]) { --windowPresses_[key]; }
+            else {
+                pending_.push_back(key);
+                ++gamePresses_[key];
+            }
+        }
+        windowPresses_.fill(0);
+    }
+
     void WindowHotkeys::ObserveMessage(const MSG& message)
     {
         std::scoped_lock lock(mutex_);
         if (!window_ || (message.hwnd != window_ && !IsChild(window_, message.hwnd))) { return; }
         if (!HasFocus()) {
-            pending_.clear();
+            ClearPending();
             return;
         }
 
@@ -77,11 +140,13 @@ namespace TheosRenderPipeline::Overlay
         default: return;
         }
 
-        if (!key) { return; }
-        if (toggleKey_ == VK_CONTROL && (key == VK_LCONTROL || key == VK_RCONTROL)) { key = VK_CONTROL; }
-        if (toggleKey_ == VK_SHIFT && (key == VK_LSHIFT || key == VK_RSHIFT)) { key = VK_SHIFT; }
-        if (toggleKey_ == VK_MENU && (key == VK_LMENU || key == VK_RMENU)) { key = VK_MENU; }
-        if (key == toggleKey_ || key == VK_OEM_4 || key == VK_OEM_6) { pending_.push_back(key); }
+        key = NormalizeKey(key);
+        if (!IsHotkey(key)) { return; }
+        if (gamePresses_[key]) { --gamePresses_[key]; }
+        else {
+            pending_.push_back(key);
+            ++windowPresses_[key];
+        }
     }
 
     LRESULT WindowHotkeys::ForwardMessage(int code, WPARAM wParam, LPARAM lParam)
@@ -94,7 +159,7 @@ namespace TheosRenderPipeline::Overlay
     std::vector<UINT> WindowHotkeys::TakePending()
     {
         std::scoped_lock lock(mutex_);
-        if (!HasFocus()) { pending_.clear(); }
+        if (!HasFocus()) { ClearPending(); }
         const auto result = pending_;
         pending_.clear();
         return result;
