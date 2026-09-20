@@ -1,4 +1,8 @@
-# Theo's Render Pipeline — Universal, 0.2.2
+# Theo's Render Pipeline — Universal, 0.2.3
+
+Version 0.2.3 adds the Nolvus keyboard-input fallback, optional NR peripheral
+compression and optional combined preparation. Both NR optimizations default
+to off; enable them separately in the Neural Rendering controls and use Apply now.
 
 Version 0.2.2 enables NR with DLAA, before or after anti-aliasing, and improves
 experimental RTX 30 compatibility. Older INIs now use the packaged compatibility
@@ -9,7 +13,7 @@ DLSS/DLAA, frame generation, Neural Rendering and native-resolution UI for Skyri
 This package includes the full renderer, configuration and sharpening shader.
 It requires no other Theo's Render Pipeline package. NVIDIA DLLs are supplied
 separately: download the SR/FG files below, and the NR runtime if you want NR.
-Alternatively, install matching 0.2.2 Standard first and Universal after it in MO2; the NR-enabled
+Alternatively, install matching 0.2.3 Standard first and Universal after it in MO2; the NR-enabled
 Standard download supplies all eight runtimes, including NR. In that setup,
 skip the runtime downloads below.
 

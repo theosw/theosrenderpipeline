@@ -3,8 +3,8 @@
 Nolvus uses the normal Standard and Universal editions. It does not need a
 separate renderer. This branch adds a keyboard-input fallback for installations
 where Skyrim receives the menu key but Windows does not deliver it to TRP.
-The fallback is in [PR #33](https://github.com/theosw/theosrenderpipeline/pull/33);
-it is not included in the original 0.2.2 release ZIPs.
+The fallback from [PR #33](https://github.com/theosw/theosrenderpipeline/pull/33)
+is included in 0.2.3. It is not included in the original 0.2.2 release ZIPs.
 
 ## Install
 

@@ -1,6 +1,10 @@
 # Theo's Render Pipeline
 
-Version **0.2.2** enables Neural Rendering with native DLAA, before or after
+Version **0.2.3** adds the Nolvus keyboard-input fallback and two optional NR
+optimizations: peripheral compression and combined preparation. Both controls
+default to off. See [0.2.3 changes and validation](docs/RELEASE_0_2_3.md).
+
+The 0.2.2 changes enable Neural Rendering with native DLAA, before or after
 anti-aliasing, and improves experimental RTX 30 compatibility. Missing
 compatibility keys now use the packaged default; explicit opt-outs remain
 respected. Startup diagnostics identify the effective renderer and settings.
