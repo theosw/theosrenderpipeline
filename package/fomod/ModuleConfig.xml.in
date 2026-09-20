@@ -5,4 +5,20 @@
     <folder source="SKSE" destination="SKSE" />
 @FILES@
   </requiredInstallFiles>
+  <installSteps order="Explicit">
+    <installStep name="Install @EDITION@">
+      <optionalFileGroups order="Explicit">
+        <group name="Package" type="SelectAll">
+          <plugins>
+            <plugin name="Theo's Render Pipeline - @EDITION@">
+              <description>@DESCRIPTION@</description>
+              <typeDescriptor>
+                <type name="Required" />
+              </typeDescriptor>
+            </plugin>
+          </plugins>
+        </group>
+      </optionalFileGroups>
+    </installStep>
+  </installSteps>
 </config>

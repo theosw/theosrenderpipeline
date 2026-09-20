@@ -5,7 +5,7 @@ native-resolution menus for Skyrim. All eight NVIDIA runtime DLLs are included.
 
 ## Install
 
-MO2 suggests **Theo's Render Pipeline - Standard** as the mod name. Install it
+Use **Theo's Render Pipeline - Standard** as the mod name. Install it
 as a separate mod; do not merge it with Universal. When updating, replace the
 same edition, then check your saved settings.
 

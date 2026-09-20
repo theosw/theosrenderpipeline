@@ -13,7 +13,7 @@ skip the runtime downloads below.
 
 ## Install
 
-MO2 suggests **Theo's Render Pipeline - Universal** as the mod name. Keep it
+Use **Theo's Render Pipeline - Universal** as the mod name. Keep it
 separate from **Theo's Render Pipeline - Standard**; do not merge the editions.
 If using Standard for the NVIDIA DLLs, enable both and let Universal win conflicts.
 When updating, replace the same edition, then check your saved settings.

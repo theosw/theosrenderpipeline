@@ -91,9 +91,17 @@ pwsh -File tools/Set-PackageInstaller.ps1 -PackageDirectory <public-package-fold
 ```
 
 Use the corresponding folder for each command. This adds `fomod/info.xml` and
-`fomod/ModuleConfig.xml` with no option pages. Every public payload file and notice
+`fomod/ModuleConfig.xml` with one required installation page. Older FOMOD Plus
+versions crash when an installer has no pages. Every public payload file and notice
 is installed in its existing location; no renderer rebuild or filename change
 is needed. Internal build names and `TRP-FULL-PACKAGE.txt` remain unchanged.
 Apply this only to public staging folders, after private manifests and symbols
 have been excluded. The script refuses private staging trees. MO2 users can
-still override the proposed mod name.
+still override the proposed mod name. FOMOD Plus versions may ignore the name in
+`info.xml`, so also put the edition before the version in archive filenames:
+`Theos Render Pipeline Standard-0.2.0.zip` and
+`Theos Render Pipeline Universal-0.2.0.zip`. MO2 2.5.2's local-file fallback stops
+at punctuation or digits, so keep the leading name in letters and spaces.
+FOMOD Plus may therefore show the name without the apostrophe and hyphen.
+Keep Nexus download names
+edition-specific too; installer plugins may prefer that metadata.

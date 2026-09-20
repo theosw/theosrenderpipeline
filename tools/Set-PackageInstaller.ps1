@@ -42,3 +42,4 @@ foreach ($name in @('info.xml', 'ModuleConfig.xml')) {
     [IO.File]::WriteAllText((Join-Path $folder $name), $xml, [Text.UTF8Encoding]::new($false))
 }
 Write-Output "Installer name: Theo's Render Pipeline - $Edition (version $Version)"
+Write-Output "Archive filename: Theos Render Pipeline $Edition-$Version.zip"
