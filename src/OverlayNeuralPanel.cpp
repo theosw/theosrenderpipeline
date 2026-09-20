@@ -10,6 +10,7 @@ using namespace TheosRenderPipeline::Overlay;
 
 #include "RenderPipeline.h"
 #include "CommunityShaderIntegration.h"
+#include "NeuralRenderingMode.h"
 
 namespace
 {
@@ -61,8 +62,8 @@ namespace
 			unavailableReason = "The NVIDIA host is not ready. Check runtime status and restart Skyrim.";
 		} else if (state.failed) {
 			unavailableReason = "NR failed. Open NR runtime details below for the reported error.";
-		} else if (!TheosRenderPipeline::CommunityShaders::Active() && upscaleType != DLSS) {
-			unavailableReason = "NR currently requires DLSS mode. Select DLSS in startup settings and restart Skyrim.";
+		} else if (!TheosRenderPipeline::SupportsNeuralRenderingMode(upscaleType, TheosRenderPipeline::CommunityShaders::Active())) {
+			unavailableReason = "NR requires DLSS or DLAA mode. Select either in startup settings and restart Skyrim.";
 		} else if (!TheosRenderPipeline::CommunityShaders::Active() && !NvidiaHost::GetSingleton()->DedicatedUITextureMode()) {
 			unavailableReason = "NR requires dedicated native UI composition. Enable Native UI in startup settings and restart Skyrim.";
 		}
@@ -107,7 +108,7 @@ namespace
 		ImGui::EndDisabled();
 		ImGui::TextColored(state.failed ? kRust : state.active ? kSage : kMuted, "%s",
 			state.failed ? "NR failed" : state.active ? "NR active" : unavailable ? "NR unavailable" :
-			draft.neuralEnabled ? "NR waiting for a world frame" : "Standard DLSS active");
+			draft.neuralEnabled ? "NR waiting for a world frame" : "NR off");
 		if (unavailable) {
 			ImGui::TextWrapped("%s", unavailableReason);
 			ImGui::TextWrapped("NR runtime path: %s", frameGen->settings.neuralRenderingRuntimePath.c_str());

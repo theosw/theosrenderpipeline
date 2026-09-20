@@ -128,7 +128,8 @@ RendererSettingsResult RendererSettingsController::Apply(const RendererSettingsD
         source.ConfigureOutputFPSLimit(frameGen_.settings.sourceDLSSG.outputFPSLimit);
         source.ConfigureGeneration(frameGen_.settings.sourceDLSSG.generation);
         TheosRenderPipeline::SourceDLSSG::NeuralOptions options;
-        options.enabled = frameGen_.settings.sourceDLSSG.neuralEnabled && (CommunityShaders::Active() || upscaler_.mUpscaleType == DLSS);
+        options.enabled = frameGen_.settings.sourceDLSSG.neuralEnabled &&
+            SupportsNeuralRenderingMode(upscaler_.mUpscaleType, CommunityShaders::Active());
         options.runtimePath = frameGen_.settings.neuralRenderingRuntimePath;
         options.tuning = frameGen_.settings.sourceDLSSG.neuralTuning;
         options.reconstruction = frameGen_.settings.sourceDLSSG.neuralReconstruction;
@@ -199,17 +200,18 @@ RendererSettingsResult RendererSettingsController::SetNeuralRenderingEnabled(boo
             return {"NR runtime DLL not found. Install nvngx_dlssnr.dll at the configured path and restart Skyrim.",
                     true};
         }
-        if (options.enabled && (!backend.Ready() || (!CommunityShaders::Active() &&
-            (upscaler_.mUpscaleType != DLSS || !host_.DedicatedUITextureMode()))))
+        if (options.enabled && (!backend.Ready() ||
+            !SupportsNeuralRenderingMode(upscaler_.mUpscaleType, CommunityShaders::Active()) ||
+            (!CommunityShaders::Active() && !host_.DedicatedUITextureMode())))
         {
-            actionMessage = "Source NR requires DLSS, dedicated UI Texture mode, and a configured NR runtime.";
+            actionMessage = "Source NR requires DLSS or DLAA, dedicated UI Texture mode, and a configured NR runtime.";
             actionMessageIsError = true;
             return {actionMessage, actionMessageIsError};
         }
         frameGen_.settings.sourceDLSSG.neuralEnabled = options.enabled;
         backend.ConfigureNeuralRendering(std::move(options));
         actionMessage =
-            !enabled ? "Standard DLSS requested." : "Source NR requested for the next eligible world frame.";
+            !enabled ? "Neural Rendering disabled." : "Source NR requested for the next eligible world frame.";
         actionMessageIsError = false;
         return {actionMessage, actionMessageIsError, true};
     }

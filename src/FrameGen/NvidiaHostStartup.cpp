@@ -7,6 +7,7 @@
 #include "SourceDLSSGBackend.h"
 #include "SourceDLSSGCamera.h"
 #include "SourceFrameGeneration.h"
+#include "NeuralRenderingMode.h"
 #include <PCH.h>
 
 HRESULT NvidiaHost::CreateSwapChain(IDXGIFactory* a_factory, ID3D11Device* a_device, DXGI_SWAP_CHAIN_DESC* a_desc, IDXGISwapChain** a_swapChain)
@@ -50,7 +51,7 @@ HRESULT NvidiaHost::CreateSwapChain(IDXGIFactory* a_factory, ID3D11Device* a_dev
     TheosRenderPipeline::SourceDLSSG::NeuralOptions options;
     options.runtimePath = settings.neuralRenderingRuntimePath;
     options.enabled = settings.sourceDLSSG.neuralEnabled && !options.runtimePath.empty() &&
-        (TheosRenderPipeline::CommunityShaders::Active() || RenderPipeline::GetSingleton()->mUpscaleType == DLSS);
+        TheosRenderPipeline::SupportsNeuralRenderingMode(upscalerSettings->mUpscaleType, TheosRenderPipeline::CommunityShaders::Active());
     options.tuning = settings.sourceDLSSG.neuralTuning;
     options.reconstruction = settings.sourceDLSSG.neuralReconstruction;
     options.beforeUpscaling = settings.sourceDLSSG.neuralBeforeUpscaling;

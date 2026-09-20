@@ -61,7 +61,10 @@ int main()
     draft.upscaleType = DLAA;
     Require(!ValidateRendererSettings(draft, capabilities), "saved native DLAA preference cannot lock NR when CS owns upscaling");
     capabilities.externalWorld = false;
-    Require(ValidateRendererSettings(draft, capabilities), "native DLAA NR restriction preserved");
+    Require(ValidateRendererSettings(draft, capabilities), "native DLAA still requires dedicated UI");
+    capabilities.dedicatedUI = true;
+    Require(!ValidateRendererSettings(draft, capabilities), "native DLAA with dedicated UI must allow NR");
+    capabilities.dedicatedUI = false;
     draft.upscaleType = DLSS;
     Require(ValidateRendererSettings(draft, capabilities), "native UI requirement preserved");
     capabilities.dedicatedUI = true;
@@ -70,6 +73,22 @@ int main()
     Require(ValidateRendererSettings(draft, capabilities), "external world cannot bypass missing runtime check");
     capabilities.neuralRuntime = true; capabilities.sourceHost = false;
     Require(ValidateRendererSettings(draft, capabilities), "external world cannot bypass unavailable host check");
+
+    for (int mode : {DLSS, DLAA}) for (bool before : {false, true}) {
+        draft.upscaleType = mode;
+        draft.sourceDLSSG.neuralBeforeUpscaling = before;
+        Require(SupportsNeuralRenderingMode(mode, false), "native DLSS and DLAA share the startup/apply NR mode policy");
+        for (unsigned mask = 0; mask < 16; ++mask) {
+            const bool host = mask & 1, runtime = mask & 2, ui = mask & 4, cs = mask & 8;
+            const bool accepted = ValidateRendererSettings(draft, {host, runtime, ui, cs}) == nullptr;
+            Require(accepted == (host && runtime && (ui || cs)), "both placements preserve host/runtime/UI requirements in DLSS and DLAA");
+        }
+    }
+    Require(!SupportsNeuralRenderingMode(-1, false) && !SupportsNeuralRenderingMode(1, false),
+        "unrecognised native modes remain ineligible for NR");
+    Require(SupportsNeuralRenderingMode(-1, true), "CS mode ownership remains independent of the native setting");
+    draft.upscaleType = -1;
+    Require(ValidateRendererSettings(draft, {true, true, true, false}), "invalid startup selection is rejected");
 
     NeuralRuntimeAvailability availability;
     NeuralOptions request;

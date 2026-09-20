@@ -100,7 +100,11 @@ struct Operations
         for (auto* rtv : bound) { Require(!rtv, "all MRTs detached before input capture"); }
         Require(Pixel(context, frame.input) == ExpectedInput(), "DLSS consumes the selected NR/world image");
         Require(frame.motion == expected.motion && frame.depth == expected.depth, "guide identity");
-        Require(frame.renderWidth == 12 && frame.renderHeight == 8 && frame.outputWidth == 18 && frame.outputHeight == 12, "render/output extents stay distinct");
+        D3D11_TEXTURE2D_DESC outputDesc{};
+        output.texture->GetDesc(&outputDesc);
+        Require(frame.renderWidth == 12 && frame.renderHeight == 8 &&
+            frame.outputWidth == outputDesc.Width && frame.outputHeight == outputDesc.Height,
+            "render/output extents match their resources for scaled DLSS and native DLAA");
         Require(frame.sharpness == 0.25f && frame.jitterX == -0.375f && frame.jitterY == 0.125f && frame.motionScaleX == 12 && frame.motionScaleY == 8, "evaluation scalars preserved");
         Require(frame.reset == (expected.reset || neuralReset) && frame.jitterEnabled, "NR appearance reset reaches DLSS");
         // A later producer can overwrite the outer color; the frozen DLSS input
@@ -163,9 +167,11 @@ struct SuppliedFrameOperations
         Require(!cameras && !prepares && !decisions, "supplied frame starts with camera capture");
         Require(frame.motion == expected.motion && frame.depth == expected.depth,
             "supplied guides retain producer identity");
+        D3D11_TEXTURE2D_DESC outputDesc{};
+        frame.hudLessColor->GetDesc(&outputDesc);
         Require(frame.renderWidth == 12 && frame.renderHeight == 8 &&
-            frame.outputWidth == 18 && frame.outputHeight == 12,
-            "supplied render and output extents remain distinct");
+            frame.outputWidth == outputDesc.Width && frame.outputHeight == outputDesc.Height,
+            "supplied render and output extents match their resources");
         Require(frame.jitterX == -0.375f && frame.jitterY == 0.125f &&
             frame.jitterEnabled == expected.jitterEnabled && frame.reset == expected.reset,
             "supplied camera values reach history unchanged");
@@ -193,13 +199,14 @@ struct SuppliedFrameOperations
     }
 };
 
-int main()
+static void TestExtent(bool nativeResolution)
 {
     ComPtr<ID3D11Device> device; ComPtr<ID3D11DeviceContext> context;
     Check(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0, nullptr, 0,
         D3D11_SDK_VERSION, &device, nullptr, &context), "WARP device");
     Surface world(device.Get(), 12, 8), input(device.Get(), 12, 8), motion(device.Get(), 12, 8), depth(device.Get(), 12, 8);
-    Surface output(device.Get(), 18, 12), ui(device.Get(), 18, 12);
+    const UINT outputWidth = nativeResolution ? 12 : 18, outputHeight = nativeResolution ? 8 : 12;
+    Surface output(device.Get(), outputWidth, outputHeight), ui(device.Get(), outputWidth, outputHeight);
     // Include disabled FG, warm-up and transition blocks independently of vendor
     // outcomes; all three must retain Prepare/NR and a completed DLSS image.
     for (unsigned mask = 0; mask < 8192; ++mask) {
@@ -216,7 +223,7 @@ int main()
         frame.motion = motion.texture.Get(); frame.depth = depth.texture.Get();
         frame.uiColorAndAlpha = tagged ? ui.texture.Get() : nullptr;
         frame.hudLessColor = tagged ? output.texture.Get() : nullptr;
-        frame.renderWidth = 12; frame.renderHeight = 8; frame.outputWidth = 18; frame.outputHeight = 12;
+        frame.renderWidth = 12; frame.renderHeight = 8; frame.outputWidth = outputWidth; frame.outputHeight = outputHeight;
         frame.sharpness = 0.25f; frame.jitterX = -0.375f; frame.jitterY = 0.125f;
         frame.motionScaleX = 12; frame.motionScaleY = 8; frame.reset = reset; frame.jitterEnabled = true;
         Operations ops{context.Get(), world, output, frame, dlss, camera, prepare, requested, blocked, warming ? 3 : 0};
@@ -236,7 +243,7 @@ int main()
         frame.motion = motion.texture.Get(); frame.depth = depth.texture.Get();
         frame.uiColorAndAlpha = (mask & 32) ? ui.texture.Get() : nullptr;
         frame.hudLessColor = output.texture.Get();
-        frame.renderWidth = 12; frame.renderHeight = 8; frame.outputWidth = 18; frame.outputHeight = 12;
+        frame.renderWidth = 12; frame.renderHeight = 8; frame.outputWidth = outputWidth; frame.outputHeight = outputHeight;
         frame.jitterX = -0.375f; frame.jitterY = 0.125f;
         frame.reset = mask & 64; frame.jitterEnabled = mask & 128;
         const bool camera = mask & 1, prepare = mask & 2, requested = mask & 4, blocked = mask & 8;
@@ -259,4 +266,10 @@ int main()
             "supplied frame path does not touch native reconstruction surfaces");
     }
     std::puts("PASS: 8192 native and 256 supplied-frame ordering/failure/reset/generation combinations");
+}
+
+int main()
+{
+    TestExtent(false);
+    TestExtent(true);
 }

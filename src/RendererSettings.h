@@ -2,6 +2,7 @@
 
 #include "TextureProviderBridge.h"
 #include "UpscaleType.h"
+#include "NeuralRenderingMode.h"
 #include "FrameGen/SourceDLSSGSettings.h"
 #include <array>
 #include <cmath>
@@ -92,10 +93,11 @@ inline const char* ValidateRendererSettings(const RendererSettingsDraft& draft,
     {
         return "NR runtime DLL not found. Install nvngx_dlssnr.dll at the configured path and restart Skyrim.";
     }
-    if (draft.sourceDLSSG.neuralEnabled && !capabilities.externalWorld &&
-        (draft.upscaleType != DLSS || !capabilities.dedicatedUI))
+    if (draft.sourceDLSSG.neuralEnabled &&
+        (!SupportsNeuralRenderingMode(draft.upscaleType, capabilities.externalWorld) ||
+         (!capabilities.externalWorld && !capabilities.dedicatedUI)))
     {
-        return "Source NR requires DLSS, dedicated UI Texture mode, and a configured NR runtime.";
+        return "Source NR requires DLSS or DLAA, dedicated UI Texture mode, and a configured NR runtime.";
     }
 #endif
     return nullptr;
