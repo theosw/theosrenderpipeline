@@ -26,7 +26,7 @@ engine integration. Use matching SKSE64 and Address Library files when installin
 Both Full and Standard use this universal configuration. The component candidates have scoped Full/Standard
 game evidence on 1.6.1170; the combined 0.1.3 build has not had a separate
 game run. **1.5.97, 1.6.640 and 1.7.104 remain experimental.** The later
-[Nolvus input candidate](NOLVUS.md) has limited 1.5.97 gameplay/menu evidence;
+[Nolvus input candidate](NOLVUS.md) has scoped Universal 1.5.97 input/x5/NR evidence;
 1.6.640 and 1.7.104 remain untested in-game. The
 [1.7.104 port status](SKYRIM_1_7_104.md) records its evidence.
 

@@ -89,10 +89,11 @@ End can conflict with STB Active Effects. With Skyrim closed, set
 `ToggleOverlay=0x79` under `[Hotkeys]` in the winning TRP INI for F10, if free.
 Click outside an active text field before closing with F10.
 
-The candidate reached gameplay and opened its F10 menu on Nolvus Awakening
-6.0.20 / Skyrim 1.5.97 with Universal, RTX 4080 SUPER, ENB 0.504, ReShade 6.3.1,
-DLSS/x2 and NR off. Standard gameplay, other input checks, x4 and NR in Nolvus
-remain unverified. Early OAR/IED loading panels have a known resolution limitation.
+The candidate has positive F10 input, x5, both NR placements and Wheeler
+feedback on Nolvus Awakening 6.0.20 / Skyrim 1.5.97 with Universal, RTX 4080
+SUPER, ENB 0.504 and ReShade 6.3.1. Standard gameplay remains untested. Early
+OAR/IED loading panels have a known resolution limitation; the test log retains
+two Streamline RSYNC errors, and physical cadence remains unverified.
 See [PR #33](https://github.com/theosw/theosrenderpipeline/pull/33) for candidate status.
 
 ## Compatibility and reports

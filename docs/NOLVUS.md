@@ -52,13 +52,24 @@ for a separately modified CS setup, also follow [Community Shaders setup](COMMUN
 
 The local test used **Nolvus Awakening 6.0.20, Skyrim 1.5.97, ENB 0.504,
 ReShade 6.3.1, RTX 4080 SUPER and 5120x1440 output**. Universal candidate
-`f078b1b` reached gameplay with DLSS Quality, x2 and NR off. The user confirmed
-the F10 menu was visible; the log recorded three open/close pairs.
+`f078b1b` has positive user feedback for F10 taps/holds, closing after defocusing
+a numeric field, movement and Alt-Tab recovery. The follow-up also received
+positive feedback for **x5**, NR before and after DLSS, and Wheeler. Logs
+record five presented outputs and NR evaluations in both placements. No extra
+Wheeler-specific adapter was needed in this tested setup; shared native UI
+remains enabled. The exact input device was not separately identified.
 
-This is limited candidate evidence, not acceptance of every Nolvus option.
-Short/held-key matching, closing after editing, restored movement, focus
-recovery, x4, NR in both placements, and Standard gameplay still need checks.
-Runtime output counts do not establish smooth displayed frame spacing.
+The same input source passed the requested LoreRim/KreatE shared-End sequence
+in local Universal integration `f37be730`, preserving the installed NR test
+options. Its log records six End open/close pairs and two active text-capture
+releases at closure; the user reports the sequence works fine. This supports
+the input change, not acceptance of a final combined release package.
+
+Both follow-up logs contain no TRP error-level entries but each retains two
+Streamline RSYNC `Flip queue is empty` errors. Their cause is unresolved.
+Standard gameplay, unreported inventory/cell transitions and other Nolvus
+configurations remain untested. Runtime output counts do not establish smooth
+displayed frame spacing.
 
 Early OAR and IED loading panels were reported at low resolution. Their installed
 DLL versions are not recognised by the native UI adapters. The same rejection

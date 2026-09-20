@@ -121,9 +121,9 @@ Keep Native UI enabled for the tested world-only effects setup.
 
 ## Nolvus Awakening (candidate)
 
-The keyboard fallback in PR #33 has limited Nolvus Awakening 6.0.20 / Skyrim
-1.5.97 evidence: Universal, RTX 4080 SUPER, ENB 0.504, ReShade 6.3.1, DLSS/x2,
-NR off, and a visible F10 menu. It is not in the original 0.2.2 release ZIPs.
+The keyboard fallback in PR #33 has scoped positive Nolvus Awakening 6.0.20 /
+Skyrim 1.5.97 feedback: Universal, RTX 4080 SUPER, ENB 0.504, ReShade 6.3.1,
+F10 input, x5, both NR placements and Wheeler. It is not in the original 0.2.2 release ZIPs.
 If supplied as a separate Input Test ZIP, install it below your existing TRP
 mods and keep them enabled; disabling it after closing Skyrim restores the
 previous renderer without replacing your INIs or runtimes.
@@ -134,8 +134,9 @@ SSE Display Tweaks, ENB and ReShade preset; disable SSE ReShade Helper.
 End can conflict with STB Active Effects. With Skyrim closed, set
 `ToggleOverlay=0x79` under `[Hotkeys]` in the winning TRP INI for F10, if free.
 Click outside an active text field before closing with F10.
-Early OAR/IED loading panels remain a known resolution limitation. Other input
-checks, x4 and NR in Nolvus remain unverified.
+Early OAR/IED loading panels remain a known resolution limitation. The test log
+retains two Streamline RSYNC errors; physical cadence and unreported menu/cell
+transitions remain unverified.
 See [PR #33](https://github.com/theosw/theosrenderpipeline/pull/33) for candidate status.
 
 ## Experimental game versions

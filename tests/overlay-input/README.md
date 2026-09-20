@@ -29,22 +29,20 @@ erase those matches. Empty batches expire unmatched credits so a menu that
 suppresses game input does not accumulate matches against future presses.
 This assumes the two copies arrive in adjacent input intervals; arbitrary
 reordering or a completely suppressed input dispatcher is not established by
-the fixture. Actual ordering under Nolvus and other input mods needs game
-validation before merge.
+the fixture. Game evidence is limited to the recorded configurations below.
 
-Nolvus candidate `f078b1b` subsequently received user-confirmed visible F10
-opening on Skyrim 1.5.97; its log records three open/close pairs. This does not
-identify the physical tap/hold sequence or establish editing, movement or focus
-acceptance. See [Nolvus status](../../docs/NOLVUS.md).
+Nolvus candidate `f078b1b` received positive user feedback for the requested
+F10 taps/holds, defocus-before-closing, movement and Alt-Tab checks on Skyrim
+1.5.97. The same input source, in local LoreRim integration `f37be730`, received
+positive feedback for shared End with KreatE, active-edit closure/movement and
+Alt-Tab recovery. Its log records six End open/close pairs and two releases of
+active text capture at closure. The exact input device was not separately
+identified. See [Nolvus status](../../docs/NOLVUS.md).
 
-Remaining game acceptance:
-
-- Nolvus 1.5.97: confirm visible closing, short taps and a held key do not
-  produce duplicate toggles, with Media Keys Fix absent in this profile.
-- LoreRim with KreatE: shared-key opening and closing still work.
-- Close with End while editing a number, then verify capture release and
-  movement. Numeric toggle bindings must not close while typing that number.
-- Alt-Tab away/back must not apply a queued background press.
+These are scoped input passes. Standard gameplay and the final release
+integration remain untested; arbitrary delayed delivery and complete dispatcher
+suppression remain outside the established matching contract. Numeric-binding
+protection is covered offline, not by these End/F10 game tests.
 
 The earlier public PureDark implementation demonstrates the engine-event
 approach in [SettingGUI.cpp](https://github.com/PureDark/Skyrim-Upscaler/blob/fa057bb088cf399e1112c1eaba714590c881e462/src/SettingGUI.cpp).
