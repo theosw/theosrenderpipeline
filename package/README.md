@@ -1,8 +1,8 @@
 # Theo's Render Pipeline — Universal, 0.2.2
 
-Fixes startup when 78% Ultra Quality DLSS is saved, preserving the selected
-render resolution and settings. Universal includes the RTX 40 MFG unlock and
-experimental RTX 30 compatibility.
+Version 0.2.2 corrects the compatibility default for older INIs and adds startup
+diagnostics. The 0.2.1 fix for saved 78% Ultra Quality DLSS is retained. Universal
+includes the RTX 40 MFG unlock and experimental RTX 30 compatibility.
 
 DLSS/DLAA, frame generation, Neural Rendering and native-resolution UI for Skyrim.
 This package includes the full renderer, configuration and sharpening shader.
