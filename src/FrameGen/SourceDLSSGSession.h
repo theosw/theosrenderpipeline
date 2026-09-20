@@ -83,6 +83,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 		std::uint64_t stateQueries{};
 		sl::Result stateQueryResult{ sl::Result::eOk };
 		std::uint64_t stateWarnings{};
+		sl::Result optionsResult{ sl::Result::eOk };
+		std::uint64_t optionsWarnings{};
 		// DLSSGState reports a delta since the previous getState call, not a
 		// cumulative count or a configured multiplier. Sum populated post-Present
 		// reads, including budget warnings; startup/resize state can repeat the
