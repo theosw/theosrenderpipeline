@@ -34,7 +34,7 @@ namespace
 			ImGui::TextWrapped("Combines colour encoding with downsampling where needed, and depth/motion packing with peripheral compression. Some configurations have no preparation passes to combine.");
 		}
 		if (value.peripheralCompression) {
-			ImGui::TextWrapped("Preserves sampling density across the central 80% of each axis and compresses the edges. Uses about 19% fewer model pixels at the same input resolution. Edge quality and performance need testing.");
+			ImGui::TextWrapped("%s", "Preserves sampling density across the central 80% of each axis and compresses the edges. Uses about 19% fewer model pixels at the same input resolution. Edge quality and performance need testing.");
 		}
 		ImGui::TextWrapped("Relative to the selected stage: render resolution before DLSS, output resolution after DLSS. Lower values reduce NR's working resolution; game and UI sizes stay unchanged.");
 		if (!producerColor) { ImGui::TextWrapped("Residual clamps colour to 0..1 like the reference. Use Ratio for linear HDR input."); }

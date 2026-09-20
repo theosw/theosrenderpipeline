@@ -33,8 +33,13 @@ The production GPU tests cover both NR options together, native/CS contracts,
 both placements, one/two passes, format rounding, loading resets and fresh UI.
 Merged PR32 and PR34 produce the exact source tree used by those checks.
 
-The final 0.2.3 DLL still needs its game acceptance. Component success does not
-establish Standard gameplay, other hardware or smooth physical frame spacing.
+The integrated Universal candidate at `72c026d` has positive overall LoreRim
+ENB feedback. Its log records x4, both NR placements, separate/together use of
+the new options and recovery after loading. The user reported corrupted
+percentage text in the peripheral description; that formatting call and the
+DLAA percentage tooltip are corrected. Visual verification of the text fix
+remains pending. This run does not establish Standard gameplay, other hardware,
+a performance gain or smooth physical frame spacing.
 Retained game logs include recurring Streamline RSYNC errors; the early Nolvus
 OAR/IED loading-panel limitation remains. The separate DLSS-G VRAM-budget
 warning correction in PR31 is not included in this integration.

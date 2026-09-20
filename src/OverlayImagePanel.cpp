@@ -175,7 +175,7 @@ void OverlayUI::DrawImagePanel(float tabCardHeight, float nestedCardHeight, cons
             {
                 if (nativeScale)
                 {
-                    ImGui::SetTooltip("DLAA renders at native resolution (100%).");
+                    ImGui::SetTooltip("%s", "DLAA renders at native resolution (100%).");
                 }
                 else
                 {
