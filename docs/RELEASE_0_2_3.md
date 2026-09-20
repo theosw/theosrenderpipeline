@@ -27,7 +27,14 @@ recorded Universal test. LoreRim/KreatE shared End also passed its requested
 regression. Peripheral compression and combined preparation were accepted in
 an earlier ENB experiment; its temporal-reuse path is not included here.
 
-The final 0.2.3 integration needs its own build/test results and game acceptance.
-Component success does not establish Standard gameplay, other hardware or
-smooth physical frame spacing. Retained game logs include recurring Streamline
-RSYNC errors; the early Nolvus OAR/IED loading-panel limitation remains.
+The combined source passes fresh Standard and Universal Release builds, all
+51 registered CTests and 30 offline SKSE Query/version cases per edition.
+The production GPU tests cover both NR options together, native/CS contracts,
+both placements, one/two passes, format rounding, loading resets and fresh UI.
+Merged PR32 and PR34 produce the exact source tree used by those checks.
+
+The final 0.2.3 DLL still needs its game acceptance. Component success does not
+establish Standard gameplay, other hardware or smooth physical frame spacing.
+Retained game logs include recurring Streamline RSYNC errors; the early Nolvus
+OAR/IED loading-panel limitation remains. The separate DLSS-G VRAM-budget
+warning correction in PR31 is not included in this integration.
