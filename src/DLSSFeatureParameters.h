@@ -34,7 +34,9 @@ namespace TheosRenderPipeline::DLSS
         case 0: result.Feature.InPerfQualityValue = NVSDK_NGX_PerfQuality_Value_MaxPerf; break;
         case 1: result.Feature.InPerfQualityValue = NVSDK_NGX_PerfQuality_Value_Balanced; break;
         case 3: result.Feature.InPerfQualityValue = NVSDK_NGX_PerfQuality_Value_UltraPerformance; break;
-        case 4: result.Feature.InPerfQualityValue = NVSDK_NGX_PerfQuality_Value_UltraQuality; break;
+        // INI 4 is our 78% scale; the vendor UltraQuality enum is rejected by NGX.
+        // Keep the allocated extent and saved setting, using supported Quality mode.
+        case 4: result.Feature.InPerfQualityValue = NVSDK_NGX_PerfQuality_Value_MaxQuality; break;
         case 5: result.Feature.InPerfQualityValue = NVSDK_NGX_PerfQuality_Value_DLAA; break;
         default: result.Feature.InPerfQualityValue = NVSDK_NGX_PerfQuality_Value_MaxQuality; break;
         }

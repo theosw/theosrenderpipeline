@@ -1,7 +1,10 @@
-# Theo's Render Pipeline — Standard, 0.1.4
+# Theo's Render Pipeline — Standard, 0.2.1
 
 DLSS/DLAA, native NVIDIA frame generation, Neural Rendering, NVIDIA Reflex and
 native-resolution menus for Skyrim. All eight NVIDIA runtime DLLs are included.
+
+Version 0.2.1 fixes startup when 78% Ultra Quality DLSS is saved, preserving
+the selected render resolution and settings.
 
 ## Install
 
@@ -16,7 +19,8 @@ Use matching SKSE64 and Address Library for Steam Skyrim 1.5.97, 1.6.640,
 NVIDIA GPU/driver. Standard requires native DLSS-G hardware support even with
 frame generation off. RTX 40-series uses x2; higher multipliers require native
 hardware/runtime support. Standard does not add RTX 30 frame generation.
-AMD/Intel and ReShade integration are not supported. ENB is optional. Community Shaders setup is described below.
+AMD/Intel are not supported. ENB is optional. Community Shaders and optional
+ReShade setup are described below.
 
 ## Settings
 
@@ -35,15 +39,30 @@ and Skyrim restarted; DLSS/frame generation remain available.
 Keep CS upscaling enabled. Disable CS frame generation and CS Reflex: TRP supplies
 both. CS controls upscaling, render scale, sharpening and colour; TRP controls FG
 and NR. Assign CS a separate menu key, such as F8, to avoid End conflicts with
-TRP or KreatE. Do not use F8 if it is already assigned to a capture tool.
+TRP or KreatE. Do not use F8 if it is already assigned to ReShade or a capture tool.
 
 Standard 0.1.4 was tested with Bottle's CS build/Effects 11 on Skyrim 1.6.1170
 and an RTX 4080 SUPER, with native x2 and both NR placements. Other CS builds
 need confirmation.
+The tested CS setup uses SDR. CS HDR remains unverified and has an unresolved
+report of an invisible TRP menu and inactive frame generation.
+
+## ReShade (optional)
+
+Keep your existing ReShade installation, preset and hotkeys. **Disable SSE
+ReShade Helper.** TRP supplies the effects and overlay stages. Effects run after
+upscaling by default; use **Advanced → ReShade before upscaling** to change this.
+Changing placement may reload shaders. Give ReShade, CS and TRP different menu keys.
+
+The shared ReShade integration passed offline checks in both editions. Gameplay
+was tested in Full with ReShade 6.3.3.1921, Skyrim 1.6.1170, Cabbage ENB and
+RTX 4080 SUPER. Standard ReShade gameplay, CS with ReShade, other ReShade versions
+and other effect/NR placements still need testing. Keep Native UI enabled for
+the tested world-only effects setup.
 
 ## With the Full edition
 
-For the RTX 40 MFG unlock or experimental RTX 30 support, install the matching 0.1.4 Full
+For the RTX 40 MFG unlock or experimental RTX 30 support, install the matching 0.2.1 Full
 ZIP after Standard in MO2's left pane. Let Full win file conflicts. Full uses
 the NVIDIA runtimes included here, including NR.
 

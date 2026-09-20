@@ -1,7 +1,9 @@
 # Theo's Render Pipeline
 
-Version **0.1.4** combines Community Shaders support with Neural
-Rendering in both editions. CS keeps shading, upscaling and UI; TRP supplies
+Version **0.2.1** fixes startup when 78% Ultra Quality DLSS is saved. It preserves
+the selected render resolution and existing settings. Version 0.2.0 added ReShade
+support and corrected RTX 30 runtime loading under MO2 and Community Shaders.
+CS keeps shading, upscaling and UI; TRP supplies
 frame generation, Reflex and optional world-only NR. Disable CS frame generation
 and Reflex when using TRP. See [setup and validation limits](docs/COMMUNITY_SHADERS.md).
 
@@ -19,8 +21,10 @@ See the installation guides for each edition.
 
 ## Features
 
-Experimental [ReShade integration](docs/RESHADE.md) adds source-frame effects,
-explicit depth and a before/after-upscaling choice. Game validation is pending.
+[ReShade integration](docs/RESHADE.md) adds source-frame effects, explicit depth
+and a before/after-upscaling choice. Keep SSE ReShade Helper disabled.
+Full has positive ENB gameplay reports with and without ReShade; see the guide
+for tested configurations and remaining limits.
 
 - DLSS Super Resolution, DLAA, model presets and sharpening.
 - Frame generation and native MFG capabilities. The full-feature build selects

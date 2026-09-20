@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.21)
 
 project(
 	TheosRenderPipeline
-	VERSION 0.1.4
+	VERSION 0.2.1
 	LANGUAGES C CXX
 )
 
@@ -203,6 +203,12 @@ add_custom_target(ARPBaseline DEPENDS TheosRenderPipeline)
 option(TRP_BUILD_COMPATIBILITY_TESTS "Build offline runtime and frame contract checks" OFF)
 if(TRP_BUILD_COMPATIBILITY_TESTS)
     enable_testing()
+    add_executable(TRPDLSSQualityTests tests/DLSSQualityTests.cpp)
+    target_compile_features(TRPDLSSQualityTests PRIVATE cxx_std_23)
+    target_compile_definitions(TRPDLSSQualityTests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    target_include_directories(TRPDLSSQualityTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+        "${TRP_NGX_SDK_DIR}/include" "${TRP_STREAMLINE_INCLUDE_DIR}")
+    add_test(NAME DLSSQuality COMMAND TRPDLSSQualityTests)
     add_executable(TRPReShadeIntegrationTests tests/ReShadeIntegrationTests.cpp src/ReShadeIntegration.cpp)
     target_compile_features(TRPReShadeIntegrationTests PRIVATE cxx_std_23)
     target_compile_definitions(TRPReShadeIntegrationTests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)

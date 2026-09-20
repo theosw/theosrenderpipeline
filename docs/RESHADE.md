@@ -8,7 +8,9 @@ upscaling; **after upscaling is the default**.
 
 Use your existing ReShade installation, `ReShade.ini`, preset and shader paths.
 TRP does not include ReShade or change its hotkeys. Leave **SSE ReShade Helper
-disabled**; TRP supplies the effect and overlay stages.
+disabled**; TRP supplies the effect and overlay stages. Keep Native UI enabled
+for the tested world-only effects setup. Use distinct menu keys for ReShade,
+TRP and Community Shaders, and avoid keys used by capture tools.
 
 To change placement, use **Advanced -> ReShade before upscaling**, or save:
 
@@ -28,14 +30,17 @@ Effects-off preserves the overlay and input handling.
 
 ## Compatibility
 
-The ReShade integration was tested with ReShade 6.3.3.1921, Skyrim 1.6.1170,
-Cabbage ENB and an RTX 4080 SUPER: gameplay, x4 frame generation, NR before
-upscaling, effect toggling and movement after closing the overlay worked.
-This does not establish a measured performance gain or validate other changes
-combined into a later build.
+Full's combined ReShade/RTX 30 startup changes, including the no-ReShade startup
+fix, have positive gameplay reports with and without ReShade 6.3.3.1921 on
+Skyrim 1.6.1170, Cabbage ENB and RTX 4080 SUPER, with x4 and NR before upscaling.
+An earlier ReShade checkpoint also received explicit effects-toggle and
+overlay-close movement confirmation. The 0.2.0 rebuild changes release metadata
+and documentation only; its new DLLs have not had a separate game run.
+This does not establish a measured performance gain.
 
 Before-upscaling effects, NR after upscaling, depth-dependent preset appearance,
-Community Shaders, transitions and other hardware still need game validation.
+Community Shaders, Standard ReShade gameplay, individual final-build hotkey/
+transition checks and other hardware still need game validation.
 NR settings and edition-specific frame-generation capabilities are preserved.
 
 ## Integration and tests
