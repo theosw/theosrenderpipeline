@@ -32,10 +32,15 @@ reordering or a completely suppressed input dispatcher is not established by
 the fixture. Actual ordering under Nolvus and other input mods needs game
 validation before merge.
 
-Pending game acceptance:
+Nolvus candidate `f078b1b` subsequently received user-confirmed visible F10
+opening on Skyrim 1.5.97; its log records three open/close pairs. This does not
+identify the physical tap/hold sequence or establish editing, movement or focus
+acceptance. See [Nolvus status](../../docs/NOLVUS.md).
 
-- Nolvus 1.5.97: keyboard toggle opens/closes the visible menu without Media
-  Keys Fix; short taps and a held key do not produce duplicate toggles.
+Remaining game acceptance:
+
+- Nolvus 1.5.97: confirm visible closing, short taps and a held key do not
+  produce duplicate toggles, with Media Keys Fix absent in this profile.
 - LoreRim with KreatE: shared-key opening and closing still work.
 - Close with End while editing a number, then verify capture release and
   movement. Numeric toggle bindings must not close while typing that number.
@@ -45,3 +50,9 @@ The earlier public PureDark implementation demonstrates the engine-event
 approach in [SettingGUI.cpp](https://github.com/PureDark/Skyrim-Upscaler/blob/fa057bb088cf399e1112c1eaba714590c881e462/src/SettingGUI.cpp).
 This change uses TRP's existing queued actions and capture policy; it does not
 establish parity with any newer closed-source PD build.
+
+Edition validation of renderer source `f078b1b`: Standard and Universal Release
+builds pass, with all 50 compatibility CTests passing per edition. Both DLLs
+also pass 30 offline SKSE Query/version cases each; those checks do not call
+SKSEPlugin_Load or validate gameplay. Standard retains NR and uses native NVIDIA
+frame-generation capabilities; Universal retains Ada/Ampere compatibility.

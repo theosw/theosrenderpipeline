@@ -55,7 +55,10 @@ Full selects experimental Ampere compatibility on RTX 30-series, the Ada MFG
 unlock on RTX 40-series, and native capabilities on RTX 50-series. Standard
 includes NR and excludes both compatibility paths; RTX 40-series uses native x2.
 
-**Skyrim 1.5.97, 1.6.640 and 1.7.104 are experimental and untested in-game.**
+**Skyrim 1.5.97, 1.6.640 and 1.7.104 remain experimental.** The Nolvus Awakening
+6.0.20 input candidate has limited 1.5.97 gameplay evidence: DLSS/x2 with NR off
+and a user-confirmed visible F10 menu. See [Nolvus setup and remaining checks](docs/NOLVUS.md).
+Skyrim 1.6.640 and 1.7.104 remain untested in-game.
 RTX 30 compatibility remains experimental: a 3060 Laptop/CS volunteer run records
 x2/x3/x4 outputs and NR inference, with grass-edge artifacting and occasional
 hitches still reported. Native RTX 50-series operation remains unverified.
