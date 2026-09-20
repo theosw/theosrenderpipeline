@@ -160,6 +160,11 @@ extern "C" DLLEXPORT bool __cdecl SKSEPlugin_Load(const SKSE::LoadInterface* a_s
 	}
 	InitializeLog();
 	logger::info("{} v{} loading", Plugin::NAME, Plugin::VERSION_STRING);
+	HMODULE renderer{};
+	::GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+		reinterpret_cast<LPCWSTR>(&InitializeLog), &renderer);
+	logger::info("[Renderer] edition={} source={} module={}", Plugin::EDITION, Plugin::SOURCE_REVISION,
+		TheosRenderPipeline::PluginPaths::ModulePath(renderer).string());
 	logger::info("[Runtime] Skyrim {}", a_skse->RuntimeVersion().string());
 	SKSE::Init(a_skse);
 

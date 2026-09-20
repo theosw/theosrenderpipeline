@@ -66,6 +66,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			return Check(E_UNEXPECTED, "another frame-generation mod is already loaded; disable the competing mod");
 		}
 		directory_ = Normalize(a_directory);
+		logger::info("[SourceDLSSG] startup stage=module-ownership directory={} communityShaders={}", directory_.string(), CommunityShaders::Active());
 		// Keep one owner for the configured modules. Versions do not gate loading.
 		for (const auto* name : kStreamlineModules) {
 			if (HasConflictingLoadedModule(directory_ / name, CommunityShaders::Active())) {
@@ -73,6 +74,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			}
 		}
 		mfgUnlock_.BeforeStreamline(device12_.Get(), directory_);
+		logger::info("[SourceDLSSG] startup stage=load-interposer");
 		interposer_ = ::LoadLibraryExW((directory_ / L"sl.interposer.dll").c_str(), nullptr,
 			LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
 		if (!interposer_) { return Check(HRESULT_FROM_WIN32(::GetLastError()), "load interposer"); }
@@ -101,9 +103,12 @@ namespace TheosRenderPipeline::SourceDLSSG
 			sl::PreferenceFlags::eUseManualHooking | sl::PreferenceFlags::eUseDXGIFactoryProxy;
 		preferences.logLevel = sl::LogLevel::eDefault;
 		preferences.logMessageCallback = StreamlineLogCallback;
+		logger::info("[SourceDLSSG] startup stage=slInit");
 		if (!Check(init_(preferences, sl::kSDKVersion), "slInit")) { return false; }
 		for (const auto feature : features) {
-			if (!Check(loadFeature_(feature, true), "slSetFeatureLoaded")) { return false; }
+			const auto operation = std::format("slSetFeatureLoaded feature={}", feature);
+			logger::info("[SourceDLSSG] startup stage={}", operation);
+			if (!Check(loadFeature_(feature, true), operation.c_str())) { return false; }
 		}
 		logger::info("[SourceDLSSG] Streamline initialized from {} SDK=2.11.1 manual factory proxy; OTA disabled", directory_.string());
 		return true;
@@ -142,6 +147,12 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (!Check(device11_.As(&dxgiDevice), "D3D11 DXGI device") ||
 			!Check(dxgiDevice->GetAdapter(&adapter), "D3D11 adapter") ||
 			!Check(ReShadeIntegration::Get().CreateSourceDevice(adapter.Get(), D3D_FEATURE_LEVEL_12_0, &device12_), "D3D12 device")) { return fault_; }
+		DXGI_ADAPTER_DESC adapterDesc{};
+		if (SUCCEEDED(adapter->GetDesc(&adapterDesc))) {
+			logger::info("[SourceDLSSG] rendering adapter={} vendor=0x{:04X} device=0x{:04X} LUID={:08X}:{:08X}",
+				std::filesystem::path(adapterDesc.Description).string(), adapterDesc.VendorId, adapterDesc.DeviceId,
+				static_cast<std::uint32_t>(adapterDesc.AdapterLuid.HighPart), adapterDesc.AdapterLuid.LowPart);
+		}
 		logger::info("[ReShade] {}", ReShadeIntegration::Get().Status());
 		MFGUnlock::StartupScope startupScope(mfgUnlock_);
 		if (!Load(a_directory)) { return fault_; }
@@ -157,7 +168,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 		info.deviceLUID = reinterpret_cast<std::uint8_t*>(&luid);
 		info.deviceLUIDSizeInBytes = sizeof(luid);
 		for (const auto feature : { sl::kFeatureReflex, sl::kFeaturePCL, sl::kFeatureDLSS_G }) {
-			if (!Check(supported_(feature, info), std::format("feature support {}", feature).c_str())) { return fault_; }
+			const auto operation = std::format("slIsFeatureSupported feature={}", feature);
+			logger::info("[SourceDLSSG] startup stage={}", operation);
+			if (!Check(supported_(feature, info), operation.c_str())) { return fault_; }
 		}
 		for (std::size_t index = 0; index < kStreamlineModules.size(); ++index) {
 			const auto* name = kStreamlineModules[index];

@@ -13,11 +13,13 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// requested is the saved permission; route is the effective startup choice.
 		bool requested{}, adapterVerified{}, wrapperPatched{}, providerPatched{}, temporalReady{}, wrapperBound{};
 		MFGRoute route{ MFGRoute::Unselected };
+		midpoint_fix::AdapterKind adapter{ midpoint_fix::AdapterKind::Unavailable };
 		bool failed{}, unsafeMemory{};
 		std::uint32_t attempts{}, temporalFailure{};
 		const char* status{ "waiting for MFG startup selection" };
-		bool SelectRoute(midpoint_fix::AdapterKind adapter)
+		bool SelectRoute(midpoint_fix::AdapterKind observed)
 		{
+			adapter = observed;
 			if (requested && adapter == midpoint_fix::AdapterKind::Unavailable) { return false; }
 			adapterVerified = adapter == midpoint_fix::AdapterKind::Ada || adapter == midpoint_fix::AdapterKind::Ampere;
 			route = !requested || !adapterVerified ? MFGRoute::Native :

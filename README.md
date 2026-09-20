@@ -1,8 +1,9 @@
 # Theo's Render Pipeline
 
-Version **0.2.1** fixes startup when 78% Ultra Quality DLSS is saved. It preserves
-the selected render resolution and existing settings. Version 0.2.0 added ReShade
-support and corrected RTX 30 runtime loading under MO2 and Community Shaders.
+Version **0.2.2** corrects the compatibility default for older INIs and adds
+startup diagnostics for RTX 30 testing. Explicit opt-outs remain respected.
+RTX 30 GPU execution is still unverified. The 0.2.1 fix for 78% Ultra Quality
+and 0.2.0 ReShade/Community Shaders support are retained.
 CS keeps shading, upscaling and UI; TRP supplies
 frame generation, Reflex and optional world-only NR. Disable CS frame generation
 and Reflex when using TRP. See [setup and validation limits](docs/COMMUNITY_SHADERS.md).

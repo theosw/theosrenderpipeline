@@ -290,12 +290,15 @@ bool Start(ID3D12Device* device,const std::filesystem::path& directory,Log log,b
     if (s.started.exchange(true)) return Fail("Ampere startup cannot be repeated");
     s.log=log;
     try {
+        Message("stage=adapter-binding");
         if (!device || !directory.is_absolute() || midpoint_fix::ObserveD3D12Adapter(device)!=midpoint_fix::AdapterKind::Ampere) return Fail("Ampere preparation requires the actual SM86 rendering adapter");
         if (!BindAdapter(device)) return false;
         if (!Load(directory,L"nvngx_dlssg.dll",s.provider,allowSeparateModules)) return false;
         if (!Load(directory,L"sl.common.dll",s.common,allowSeparateModules)) return false;
         if (!Load(directory,L"sl.dlss_g.dll",s.wrapper,allowSeparateModules)) return false;
+        Message("stage=provider-plan");
         if (!PlanProvider()) return false;
+        Message("stage=resolver-plan");
         const std::array<HMODULE,2> modules{s.common,s.wrapper};
         const std::array<Resolver,2> replacements{Resolve<0>,Resolve<1>};
         for (std::size_t i=0;i<modules.size();++i) {
@@ -305,8 +308,10 @@ bool Start(ID3D12Device* device,const std::filesystem::path& directory,Log log,b
             s.imports.Add(s.importSlots[i],{reinterpret_cast<std::uint8_t*>(&s.resolvers[i]),sizeof(void*)},
                 {reinterpret_cast<const std::uint8_t*>(&replacements[i]),sizeof(void*)});
         }
+        Message("stage=provider-publication");
         if (!s.data.Commit()) return Fail(s.data.Unsafe() ? "Ampere provider rollback failed; restart required" : "Ampere provider preparation rolled back");
         s.prepared.store(true);
+        Message("stage=resolver-publication");
         if (!s.imports.Commit()) return Fail(s.imports.Unsafe() ? "Ampere resolver rollback failed; restart required" : "Ampere resolver installation failed; restart required");
         s.installed.store(true);
         Message("Ampere provider and temporal program prepared before Streamline initialization");

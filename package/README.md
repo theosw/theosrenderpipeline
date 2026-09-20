@@ -1,14 +1,14 @@
-# Theo's Render Pipeline — Full, 0.2.1
+# Theo's Render Pipeline — Universal, 0.2.2
 
 Fixes startup when 78% Ultra Quality DLSS is saved, preserving the selected
-render resolution and settings. Full includes the RTX 40 MFG unlock and
+render resolution and settings. Universal includes the RTX 40 MFG unlock and
 experimental RTX 30 compatibility.
 
 DLSS/DLAA, frame generation, Neural Rendering and native-resolution UI for Skyrim.
 This package includes the full renderer, configuration and sharpening shader.
 It requires no other Theo's Render Pipeline package. NVIDIA DLLs are supplied
 separately: download the SR/FG files below, and the NR runtime if you want NR.
-Alternatively, install matching 0.2.1 Standard first and Full after it in MO2; the NR-enabled
+Alternatively, install matching 0.2.2 Standard first and Universal after it in MO2; the NR-enabled
 Standard download supplies all eight runtimes, including NR. In that setup,
 skip the runtime downloads below.
 
@@ -93,7 +93,7 @@ report of an invisible TRP menu and inactive frame generation.
 
 Earlier 0.1.4 builds have positive Skyrim 1.6.1170/RTX 4080 SUPER reports with Cabbage
 ENB and Bottle's Community Shaders build/Effects 11, including logged x4 and
-both NR placements in each setup. Full also logged x6 in the CS run. Recurring
+both NR placements in each setup. Universal also logged x6 in the CS run. Recurring
 Streamline RSYNC errors remain recorded in some tests; physical frame cadence
 has not been validated.
 Other CS builds, RTX 30 execution, native RTX 50 operation and HDR appearance
@@ -128,3 +128,10 @@ Logs are normally under `Documents/My Games/Skyrim Special Edition/SKSE/`.
 See `LICENSE` and `THIRD-PARTY.md` for project terms and attribution.
 Notices for SDK code included in the renderer are consolidated in
 `THIRD-PARTY.md`. Separately downloaded NVIDIA files retain their accompanying terms.
+
+In 0.2.2, a missing `Experimental/SourceDLSSGMFGUnlock` key uses the packaged
+`true` default. Explicit `false` remains respected. RTX 30 requires Universal
+and this setting enabled even when interpolation is off. If startup fails,
+include `TheosRenderPipeline.log`; its opening lines identify the edition,
+source revision, renderer path and effective startup setting. RTX 30 GPU
+execution remains experimental and unverified.

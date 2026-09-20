@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.21)
 
 project(
 	TheosRenderPipeline
-	VERSION 0.2.1
+	VERSION 0.2.2
 	LANGUAGES C CXX
 )
 
@@ -43,6 +43,7 @@ else()
     target_sources(TheosRenderPipeline PRIVATE src/FrameGen/SourceDLSSGNeuralDisabled.cpp)
 endif()
 if(TRP_ENABLE_OPTIONAL_FEATURES)
+    set(TRP_EDITION "Universal")
     target_sources(TheosRenderPipeline PRIVATE src/FrameGen/SourceDLSSGMFG.cpp)
     add_library(TheosRenderPipelineRTX40MFG STATIC
         extern/RTX40MFG/midpoint_fix.cpp extern/RTX40MFG/dlssg_provider_policy.cpp
@@ -53,6 +54,19 @@ if(TRP_ENABLE_OPTIONAL_FEATURES)
     target_link_libraries(TheosRenderPipeline PRIVATE TheosRenderPipelineRTX40MFG)
 else()
     target_sources(TheosRenderPipeline PRIVATE src/FrameGen/SourceDLSSGMFGNative.cpp)
+    set(TRP_EDITION "Standard")
+endif()
+
+execute_process(COMMAND git rev-parse --short=12 HEAD WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+    OUTPUT_VARIABLE TRP_SOURCE_REVISION OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+if(NOT TRP_SOURCE_REVISION)
+    set(TRP_SOURCE_REVISION "source-archive")
+else()
+    execute_process(COMMAND git diff --quiet HEAD WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+        RESULT_VARIABLE TRP_SOURCE_DIRTY ERROR_QUIET)
+    if(TRP_SOURCE_DIRTY)
+        string(APPEND TRP_SOURCE_REVISION "-modified")
+    endif()
 endif()
 
 configure_file(
@@ -203,6 +217,13 @@ add_custom_target(ARPBaseline DEPENDS TheosRenderPipeline)
 option(TRP_BUILD_COMPATIBILITY_TESTS "Build offline runtime and frame contract checks" OFF)
 if(TRP_BUILD_COMPATIBILITY_TESTS)
     enable_testing()
+    add_executable(TRPStartupPreferencesTests tests/StartupPreferencesTests.cpp)
+    target_compile_features(TRPStartupPreferencesTests PRIVATE cxx_std_23)
+    target_compile_definitions(TRPStartupPreferencesTests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    target_include_directories(TRPStartupPreferencesTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+        "${TRP_SIMPLEINI_INCLUDE_DIR}")
+    add_test(NAME StartupPreferences COMMAND TRPStartupPreferencesTests "${CMAKE_CURRENT_SOURCE_DIR}/package/SKSE/Plugins/TheosRenderPipeline.ini")
+    add_subdirectory(tests/ampere-runtime)
     add_executable(TRPDLSSQualityTests tests/DLSSQualityTests.cpp)
     target_compile_features(TRPDLSSQualityTests PRIVATE cxx_std_23)
     target_compile_definitions(TRPDLSSQualityTests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)

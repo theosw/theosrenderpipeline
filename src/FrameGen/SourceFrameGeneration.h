@@ -16,7 +16,8 @@ class SourceFrameGeneration
     struct Settings
     {
         bool enabled{true}; // Initial interpolation request; the NVIDIA host is always required.
-        bool sourceDLSSGMFGUnlock{};
+        bool sourceDLSSGMFGUnlock{true}; // Matches the packaged default; explicit false is preserved.
+        bool sourceDLSSGMFGUnlockPresent{};
         std::string sourceDLSSGStreamlineDirectory;
         TheosRenderPipeline::SourceDLSSG::Preferences sourceDLSSG;
         int nativeUICompositionMode{}; // 0 = dedicated UI; 1 = HUD-less detection.
@@ -31,12 +32,21 @@ class SourceFrameGeneration
     {
         settings.enabled = ini.GetBoolValue("FrameGeneration", "Enabled", true);
         RequestRuntimeInterpolation(settings.enabled);
-        settings.sourceDLSSGMFGUnlock = ini.GetBoolValue("Experimental", "SourceDLSSGMFGUnlock", false);
+        settings.sourceDLSSGMFGUnlockPresent = ini.GetValue("Experimental", "SourceDLSSGMFGUnlock", nullptr) != nullptr;
+        settings.sourceDLSSGMFGUnlock = ini.GetBoolValue("Experimental", "SourceDLSSGMFGUnlock", true);
         settings.sourceDLSSGStreamlineDirectory = ini.GetValue("Experimental", "SourceDLSSGStreamlineDirectory", "");
         settings.sourceDLSSG = TheosRenderPipeline::SourceDLSSG::LoadPreferences(ini);
         settings.nativeUICompositionMode = std::clamp(static_cast<int>(ini.GetLongValue(
             "Experimental", "NativeUICompositionMode", ini.GetLongValue("Experimental", "PureDarkHUDFixMethod", 0))), 0, 1);
         settings.neuralRenderingRuntimePath = ini.GetValue("Experimental", "NeuralRenderingRuntimePath", "");
+    }
+    template<class Ini> void StoreCompatibilityPreference(Ini& ini) const
+    {
+        // Seed older INIs when saving; never overwrite an explicit opt-out or
+        // a startup preference edited on disk since this session began.
+        if (!ini.GetValue("Experimental", "SourceDLSSGMFGUnlock", nullptr)) {
+            ini.SetBoolValue("Experimental", "SourceDLSSGMFGUnlock", settings.sourceDLSSGMFGUnlock);
+        }
     }
     template<class Ini> void StoreUIComposition(Ini& ini) const
     {

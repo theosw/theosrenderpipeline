@@ -118,6 +118,7 @@ bool RenderPipeline::SaveINI()
     ini.SetValue("Experimental", "SourceDLSSGStreamlineDirectory", sourceSettings.sourceDLSSGStreamlineDirectory.c_str());
     ini.SetValue("Experimental", "NeuralRenderingRuntimePath", sourceSettings.neuralRenderingRuntimePath.c_str());
     frameGeneration->StoreUIComposition(ini);
+    frameGeneration->StoreCompatibilityPreference(ini);
     TheosRenderPipeline::SourceDLSSG::StorePreferences(ini, sourceSettings.sourceDLSSG);
 	ini.SetBoolValue("Debug", "LogMenuMetrics", mLogMenuMetrics);
 	const auto rc = ini.SaveFile(L"Data\\SKSE\\Plugins\\TheosRenderPipeline.ini");

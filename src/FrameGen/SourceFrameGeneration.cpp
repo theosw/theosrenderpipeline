@@ -6,8 +6,12 @@ void SourceFrameGeneration::LoadINI()
 {
     CSimpleIniA ini;
     ini.SetUnicode();
-    ini.LoadFile(L"Data\\SKSE\\Plugins\\TheosRenderPipeline.ini");
+    const auto result = ini.LoadFile(L"Data\\SKSE\\Plugins\\TheosRenderPipeline.ini");
     LoadStartupPreferences(ini);
+    logger::info("[NvidiaHost] startup INI=Data/SKSE/Plugins/TheosRenderPipeline.ini readResult={} SourceDLSSGMFGUnlock={} origin={} raw={}",
+        static_cast<int>(result), settings.sourceDLSSGMFGUnlock,
+        settings.sourceDLSSGMFGUnlockPresent ? "INI" : "packaged-default",
+        ini.GetValue("Experimental", "SourceDLSSGMFGUnlock", "<missing>"));
     logger::info("[NvidiaHost] required; startup interpolation={} UI composition mode={}", settings.enabled, settings.nativeUICompositionMode);
 }
 

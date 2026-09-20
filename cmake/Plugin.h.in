@@ -19,4 +19,6 @@ namespace Plugin
 	inline constexpr auto VERSION_STRING = "@PROJECT_VERSION@"sv;
 	inline constexpr auto DISPLAY_NAME = "Theo's Render Pipeline"sv;
 	inline constexpr auto RELEASE_VERSION = "@ARP_RELEASE_LABEL@"sv;
+	inline constexpr auto EDITION = "@TRP_EDITION@"sv;
+	inline constexpr auto SOURCE_REVISION = "@TRP_SOURCE_REVISION@"sv;
 }

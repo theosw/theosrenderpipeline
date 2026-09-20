@@ -27,8 +27,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 	[[noreturn]] void MFGUnlock::Fail(const char* reason)
 	{
 		state_.failed = true; state_.status = reason;
-		const auto guidance = state_.UsesAmpereUnlock() ?
-			std::string("RTX 30-series frame generation requires the Full compatibility path.\n"
+		spdlog::error("[SourceDLSSG MFG] startup/verification failed: {}", reason);
+		const auto guidance = state_.adapter == midpoint_fix::AdapterKind::Ampere ?
+			std::string("RTX 30-series frame generation requires the Universal compatibility path.\n"
 				"Keep SourceDLSSGMFGUnlock=true and include TheosRenderPipeline.log when reporting this startup failure.\n") :
 			std::format("Temporal error: {}. Attempts: {}.\n\n"
 				"Set SourceDLSSGMFGUnlock=false in SKSE/Plugins/TheosRenderPipeline.ini to use the unmodified NVIDIA runtime.\n",
@@ -44,17 +45,23 @@ namespace TheosRenderPipeline::SourceDLSSG
 	{
 		if (state_.route != MFGRoute::Unselected) { Fail("MFG startup adapter selection was repeated"); }
 		state_.status = "selecting NVIDIA MFG path";
+		spdlog::info("[SourceDLSSG MFG] stage=adapter-selection compatibilityRequested={}", state_.requested);
 		midpoint_fix::SetLogCallback([](const wchar_t* text) {
 			// Upstream callback is noexcept; diagnostics must not terminate the game.
 			try { spdlog::info("[SourceDLSSG MFG] {}", std::filesystem::path(text).string()); } catch (...) {}
 		});
-		const auto adapter = state_.requested ? midpoint_fix::ObserveD3D12Adapter(device) : midpoint_fix::AdapterKind::Unavailable;
+		const auto adapter = midpoint_fix::ObserveD3D12Adapter(device);
 		if (!state_.SelectRoute(adapter)) {
 			state_.temporalFailure = midpoint_fix::FailureCode();
 			Fail("active rendering adapter could not be identified; no patches applied");
 		}
 		spdlog::info("[SourceDLSSG MFG] selected route={} compatibilityRequested={}",
 			state_.UsesAmpereUnlock() ? "Ampere" : state_.UsesAdaUnlock() ? "Ada" : "Native", state_.requested);
+		if (adapter == midpoint_fix::AdapterKind::Ampere && !state_.requested) {
+			Fail("RTX 30-series detected, but SourceDLSSGMFGUnlock=false disables its compatibility path. "
+				"Set it to true in the winning MO2 INI (including Overwrite) and restart. "
+				"Turning frame generation off does not remove the required NVIDIA host.");
+		}
 		if (state_.UsesAmpereUnlock()) {
 			spdlog::info("[SourceDLSSG Ampere] separate runtime bundles permitted={}", CommunityShaders::Active());
 			if (!trp::ampere::Start(device, directory, [](const char* message) { spdlog::info("[SourceDLSSG Ampere] {}", message); }, CommunityShaders::Active())) {
@@ -80,7 +87,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			return;
 		}
 		if (!state_.UsesAdaUnlock()) {
-			state_.status = state_.requested ? "native NVIDIA runtime; Ada unlock not applicable" : "native NVIDIA runtime; Ada unlock disabled by configuration";
+			state_.status = state_.requested ? "native NVIDIA runtime; compatibility not applicable" : "native NVIDIA runtime; compatibility disabled by configuration";
 			spdlog::info("[SourceDLSSG MFG] startup path: {}; runtime capabilities remain authoritative", state_.status);
 			return;
 		}
