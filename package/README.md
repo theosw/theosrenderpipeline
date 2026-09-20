@@ -1,17 +1,22 @@
-# Theo's Render Pipeline — Full, 0.2.0
+# Theo's Render Pipeline — Universal, 0.2.0
 
 Adds ReShade support and fixes RTX 30 runtime loading with MO2 and Community
-Shaders. Full includes the RTX 40 MFG unlock and experimental RTX 30 compatibility.
+Shaders. Universal includes the RTX 40 MFG unlock and experimental RTX 30 compatibility.
 
 DLSS/DLAA, frame generation, Neural Rendering and native-resolution UI for Skyrim.
 This package includes the full renderer, configuration and sharpening shader.
 It requires no other Theo's Render Pipeline package. NVIDIA DLLs are supplied
 separately: download the SR/FG files below, and the NR runtime if you want NR.
-Alternatively, install matching 0.2.0 Standard first and Full after it in MO2; the NR-enabled
+Alternatively, install matching 0.2.0 Standard first and Universal below it in MO2's left pane; the NR-enabled
 Standard download supplies all eight runtimes, including NR. In that setup,
 skip the runtime downloads below.
 
 ## Install
+
+Use **Theo's Render Pipeline - Universal** as the mod name. Keep it
+separate from **Theo's Render Pipeline - Standard**; do not merge the editions.
+If using Standard for the NVIDIA DLLs, enable both and let Universal win conflicts.
+When updating, replace the same edition, then check your saved settings.
 
 1. Install and enable this ZIP in **MO2**. Disable other upscaler and
    frame-generation mods. Keep Community Shaders enabled if you use it; follow
@@ -19,7 +24,7 @@ skip the runtime downloads below.
 2. Download the **SDK ZIP** under **Assets** on the
    [NVIDIA Streamline 2.14.1 page](https://github.com/NVIDIA-RTX/Streamline/releases/tag/v2.14.1).
    Extract it and open its `bin/x64` folder.
-3. In MO2, right-click **Theo's Render Pipeline → Open in Explorer**.
+3. In MO2, right-click **Theo's Render Pipeline - Universal → Open in Explorer**.
    Copy the seven DLLs into the existing folders shown below.
 
 | Files from `bin/x64` | Folder inside this mod |
@@ -92,7 +97,7 @@ report of an invisible TRP menu and inactive frame generation.
 
 Earlier 0.1.4 builds have positive Skyrim 1.6.1170/RTX 4080 SUPER reports with Cabbage
 ENB and Bottle's Community Shaders build/Effects 11, including logged x4 and
-both NR placements in each setup. Full also logged x6 in the CS run. Recurring
+both NR placements in each setup. Universal also logged x6 in the CS run. Recurring
 Streamline RSYNC errors remain recorded in some tests; physical frame cadence
 has not been validated.
 Other CS builds, RTX 30 execution, native RTX 50 operation and HDR appearance
