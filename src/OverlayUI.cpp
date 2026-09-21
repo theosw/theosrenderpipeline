@@ -174,6 +174,8 @@ void OverlayUI::UpdateControlCapture()
 void OverlayUI::ApplyNeuralRenderingStateForSession(int state)
 {
     auto result = TheosRenderPipeline::RendererSettingsController::Current().SetNeuralRenderingEnabled(state != 0);
+    logger::info("[Overlay] NR shortcut requested={} applied={} error={} detail={}",
+        state != 0, result.applied, result.error, result.message);
     actionMessage = std::move(result.message);
     actionMessageIsError = result.error;
     if (result.applied)
@@ -191,7 +193,8 @@ void OverlayUI::HandleHotkey()
 {
 	const auto toggleKey = static_cast<UINT>(RenderPipeline::GetSingleton()->mToggleOverlayHotkey);
 	for (const auto key : hotkeys.TakePending()) {
-		const auto actions = ActionsForHotkey(key, toggleKey, visible && ImGui::GetIO().WantTextInput);
+		const auto actions = ActionsForHotkey(key, toggleKey, visible && ImGui::GetIO().WantTextInput,
+            RenderPipeline::GetSingleton()->mEnableNRHotkeys);
 		if (actions.neuralState >= 0) { ApplyNeuralRenderingStateForSession(actions.neuralState); }
 		if (actions.toggle) {
 			SetVisible(!visible);

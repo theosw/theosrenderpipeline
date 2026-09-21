@@ -13,12 +13,18 @@ namespace TheosRenderPipeline::Overlay
         bool toggle{};
     };
 
-    inline HotkeyActions ActionsForHotkey(UINT key, UINT toggleKey, bool editing)
+    template<class Ini>
+    bool LoadNRHotkeysEnabled(const Ini& ini)
+    {
+        return ini.GetBoolValue("Hotkeys", "EnableNRHotkeys", false);
+    }
+
+    inline HotkeyActions ActionsForHotkey(UINT key, UINT toggleKey, bool editing, bool enableNRHotkeys)
     {
         HotkeyActions actions;
 #if !defined(TRP_NO_NEURAL_RENDERING)
-        if (!editing && key == VK_OEM_4) { actions.neuralState = 0; }
-        if (!editing && key == VK_OEM_6) { actions.neuralState = 1; }
+        if (enableNRHotkeys && !editing && key == VK_OEM_4) { actions.neuralState = 0; }
+        if (enableNRHotkeys && !editing && key == VK_OEM_6) { actions.neuralState = 1; }
 #endif
         // End can close an active text field; a numeric binding must not toggle
         // the menu while that number is being typed.

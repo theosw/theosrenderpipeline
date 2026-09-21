@@ -1,3 +1,9 @@
+# Unreleased
+
+- Disabled the NR bracket shortcuts by default to avoid shared-key conflicts.
+  Set `EnableNRHotkeys=true` under `[Hotkeys]` to restore them; the NR menu
+  checkbox remains available. Shortcut requests now appear in the log.
+
 # 0.2.3
 
 - Fixed settings-menu keyboard input on tested Nolvus setups while retaining

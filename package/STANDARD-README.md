@@ -103,6 +103,17 @@ OAR/IED loading panels have a known resolution limitation; the test log retains
 two Streamline RSYNC errors, and physical cadence remains unverified.
 See [PR #33](https://github.com/theosw/theosrenderpipeline/pull/33) for candidate status.
 
+## NR shortcuts
+
+The NR menu checkbox works independently of keyboard shortcuts. Bracket
+shortcuts are disabled by default, including for older INIs without the new key.
+To opt in, set `EnableNRHotkeys=true` under `[Hotkeys]` in the winning
+`TheosRenderPipeline.ini` and restart Skyrim. On a US keyboard, `[` turns NR
+off and `]` turns it on for the session, even with the TRP menu closed.
+They are suppressed while editing text in TRP's menu. Other mods can share
+these keys. Use Save as default to retain an NR state for future launches.
+The existing `ToggleOverlay` menu binding is independent.
+
 ## Compatibility and reports
 
 Standard 0.1.4 has positive reports with Cabbage ENB and the CS setup above,
