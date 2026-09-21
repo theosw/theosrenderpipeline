@@ -1,25 +1,10 @@
-# NR bottleneck reuse feasibility probe
+# NR bottleneck reuse experiment
 
-Standalone research only. This directory is not part of the plugin build,
-installed package, settings or menu. It cannot launch or attach to Skyrim.
-The comparison script refuses to measure while SkyrimSE is running.
-
-The experiment leaves NR's encoder and decoder active on every frame but omits
-the coarsest transformer block on alternate frames, retaining its last output.
-It investigates the technique published by
-[janblade's OptiScaler fork, v0.1.13](https://github.com/janblade/OptiScaler-DLSSNR-PreSR-Multipass/releases/tag/v0.1.13-dlssnr-vit-reuse),
-specifically [34e33c6](https://github.com/janblade/OptiScaler-DLSSNR-PreSR-Multipass/commit/34e33c6a2a1083b01a7d12807f8e0703e64f8dff).
-Credit goes to that project for the reuse technique. This probe's observer,
-strict scheduling checks and comparison harness are implemented separately;
-it does not import OptiScaler's hybrid model or launch filter.
-
-The minimal experimental NvAPI ABI declarations correspond to
-[NVIDIA/nvapi 87dca625, nvapi.h](https://github.com/NVIDIA/nvapi/blob/87dca625e83fd89a983e19b904e5f3a580da90d2/nvapi.h).
-They are private/experimental interfaces, not a supported NVIDIA NR option.
-No runtime, weights or device program is included. Supply the existing NR
-310.8 DLL, SHA256
-`8270B350CD82DE5CE89806872CDD6B6A9249B80836B91BBEB3573470744CC206`.
-Other NR DLLs are rejected by the observer.
+The standalone probe now has an **opt-in renderer integration** for a separate
+local game-test candidate. It remains experimental and off by default. See
+[renderer integration](INTEGRATION.md) for ownership, fallback, validation and
+acceptance limits. The original private `LaunchObserver` remains an independent
+comparison, not the implementation linked into the plugin.
 
 ## Build and compare
 

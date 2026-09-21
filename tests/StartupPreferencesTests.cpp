@@ -35,6 +35,8 @@ int main(int argc, char** argv)
         auto reconstruction=LoadReconstruction(spatial,"SourceDLSSG");
         Require(!reconstruction.fusedPreparation,"missing preparation key defaults off");
         Require(!LoadReconstruction(packaged,"SourceDLSSG").fusedPreparation,"combined preparation remains off in packages");
+        Require(!reconstruction.bottleneckReuse && !LoadReconstruction(packaged,"SourceDLSSG").bottleneckReuse,"bottleneck reuse defaults off");
+        reconstruction.bottleneckReuse=true;
         reconstruction.fusedPreparation=true;
         reconstruction.peripheralCompression=true; reconstruction.inputScale=.5f;
         StoreReconstruction(spatial,"SourceDLSSG",reconstruction);
@@ -45,6 +47,8 @@ int main(int argc, char** argv)
         Require(!LoadReconstruction(spatial,"SourceDLSSG").fusedPreparation,"explicit preparation opt-out wins");
         spatial.SetBoolValue("SourceDLSSG","NRPeripheralCompression",false);
         Require(!LoadReconstruction(spatial,"SourceDLSSG").peripheralCompression,"explicit spatial opt-out wins");
+        spatial.SetBoolValue("SourceDLSSG","NRBottleneckReuse",false);
+        Require(!LoadReconstruction(spatial,"SourceDLSSG").bottleneckReuse,"explicit bottleneck opt-out wins");
         owner.LoadStartupPreferences(packaged);
         Require(owner.settings.sourceDLSSGMFGUnlock && owner.settings.sourceDLSSGMFGUnlockPresent,
             "package must explicitly enable compatibility");

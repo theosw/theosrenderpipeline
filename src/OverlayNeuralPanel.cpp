@@ -30,6 +30,10 @@ namespace
 		if (ImGui::SliderFloat("NR input resolution", &percent, 25, 100, "%.1f%%")) { value.inputScale = percent / 100; }
 		ImGui::Checkbox("Peripheral compression (experimental)", &value.peripheralCompression);
 		ImGui::Checkbox("Combined preparation (experimental)", &value.fusedPreparation);
+		ImGui::Checkbox("Bottleneck reuse (test)", &value.bottleneckReuse);
+		if (value.bottleneckReuse) {
+			ImGui::TextWrapped("Reuses NR's coarse stage on alternate frames. May change fine detail or motion stability. Unsupported runtime/kernel layouts keep ordinary NR. Apply may stall briefly while NR is recreated.");
+		}
 		if (value.fusedPreparation) {
 			ImGui::TextWrapped("Combines colour encoding with downsampling where needed, and depth/motion packing with peripheral compression. Some configurations have no preparation passes to combine.");
 		}

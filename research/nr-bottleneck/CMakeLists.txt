@@ -10,6 +10,7 @@ endif()
 set(REPO "${CMAKE_CURRENT_LIST_DIR}/../..")
 add_executable(TRPNRBottleneck Probe.cpp LaunchObserver.cpp
   "${REPO}/src/FrameGen/NeuralRenderingFeatureSession.cpp"
+  "${REPO}/src/FrameGen/NeuralRenderingBottleneck.cpp"
   "${REPO}/src/FrameGen/NeuralRenderingModulePathHook.cpp"
   "${REPO}/src/FrameGen/NeuralRenderingRuntimeIdentity.cpp")
 target_compile_features(TRPNRBottleneck PRIVATE cxx_std_20)
@@ -24,3 +25,8 @@ add_executable(TRPNRBottleneckPlanTests PlanTests.cpp)
 target_compile_features(TRPNRBottleneckPlanTests PRIVATE cxx_std_20)
 target_compile_options(TRPNRBottleneckPlanTests PRIVATE /W4 /EHsc)
 add_test(NAME BottleneckPlan COMMAND TRPNRBottleneckPlanTests)
+
+add_executable(TRPIntegratedBottleneckPlanTests "${REPO}/tests/nr-peripheral/BottleneckPlanTests.cpp")
+target_compile_features(TRPIntegratedBottleneckPlanTests PRIVATE cxx_std_20)
+target_include_directories(TRPIntegratedBottleneckPlanTests PRIVATE "${REPO}/src")
+add_test(NAME IntegratedBottleneckPlan COMMAND TRPIntegratedBottleneckPlanTests)

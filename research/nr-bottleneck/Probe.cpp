@@ -113,20 +113,22 @@ struct Context {
 
 int wmain(int argc, wchar_t** argv) try {
     SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
-    if (argc != 11) {
-        std::cerr << "TRPNRBottleneck <DLL> <input-dir> <output-dir> <width> <height> <frames> <reset-every> <style> <intensity> <baseline|observe|reuse>\n"; return 64;
+    if (argc != 11 && argc != 12) {
+        std::cerr << "TRPNRBottleneck <DLL> <input-dir> <output-dir> <width> <height> <frames> <reset-every> <style> <intensity> <baseline|observe|reuse|integrated> [steady|toggle|dual]\n"; return 64;
     }
+    const std::wstring scenario = argc == 12 ? argv[11] : L"steady";
+    require(scenario == L"steady" || scenario == L"toggle" || scenario == L"dual", "Invalid scenario");
     auto dll = fs::absolute(argv[1]); auto inputs = fs::absolute(argv[2]); auto outputs = fs::absolute(argv[3]);
     UINT width = std::stoul(argv[4]), height = std::stoul(argv[5]), frames = std::stoul(argv[6]);
     UINT resetEvery = std::stoul(argv[7]); int style = std::stoi(argv[8]); float intensity = std::stof(argv[9]);
-    require(width >= 64 && height >= 64 && width <= 2048 && height <= 2048 && frames > 0 && frames <= 256, "Invalid dimensions/frame count");
+    require(width >= 64 && height >= 64 && width <= 8192 && height <= 4096 && frames > 0 && frames <= 256, "Invalid dimensions/frame count");
     require(style >= 0 && style <= 7 && std::isfinite(intensity) && intensity >= 0 && intensity <= 2, "Invalid controls");
     const std::wstring mode = argv[10];
-    require(mode == L"baseline" || mode == L"observe" || mode == L"reuse", "Invalid probe mode");
+    require(mode == L"baseline" || mode == L"observe" || mode == L"reuse" || mode == L"integrated", "Invalid probe mode");
     require(!fs::exists(outputs), "Output directory already exists");
     fs::create_directories(outputs);
     std::unique_ptr<LaunchObserver> observer;
-    if (mode != L"baseline") observer = std::make_unique<LaunchObserver>(dll, outputs);
+    if (mode == L"observe" || mode == L"reuse") observer = std::make_unique<LaunchObserver>(dll, outputs);
     Context c;
     // Bootstrap the normal NGX loader, as the production host does before the feature session.
     auto cache = outputs / "ngx-cache"; fs::create_directories(cache);
@@ -134,10 +136,16 @@ int wmain(int argc, wchar_t** argv) try {
         "nr-recovery-oracle", cache.c_str(), c.device.Get(), nullptr, NVSDK_NGX_Version_API);
     require(NVSDK_NGX_SUCCEED(init) || init == NVSDK_NGX_Result_FAIL_FeatureAlreadyExists, "NGX bootstrap failed");
     {
-        NR::FeatureSession feature; NR::FeatureSession::CreateInfo info{};
+        auto feature = std::make_unique<NR::FeatureSession>(); NR::FeatureSession::CreateInfo info{};
         info.device = c.device.Get(); info.runtimePath = dll; info.displayWidth = info.renderWidth = width;
         info.displayHeight = info.renderHeight = height; info.networkPreset = 0; info.allowReconstructionRuntime = true;
-        require(feature.EnsureInitialized(info), feature.Status().c_str());
+        info.bottleneckReuse = mode == L"integrated" && scenario != L"toggle";
+        require(feature->EnsureInitialized(info), feature->Status().c_str());
+        std::unique_ptr<NR::FeatureSession> second;
+        if (scenario == L"dual") {
+            second = std::make_unique<NR::FeatureSession>();
+            require(second->EnsureInitialized(info), second->Status().c_str());
+        }
         auto color = c.texture(width, height, DXGI_FORMAT_R16G16B16A16_FLOAT);
         auto motion = c.texture(width, height, DXGI_FORMAT_R16G16_FLOAT);
         auto depth = c.texture(width, height, DXGI_FORMAT_R32_FLOAT);
@@ -154,6 +162,12 @@ int wmain(int argc, wchar_t** argv) try {
             auto mv = read(inputs / std::format("{:03}.motion16", frame), size_t(width)*height*4);
             std::vector<float> depths(size_t(width)*height, 0.5f);
             std::vector<char> depthBytes(depths.size()*sizeof(float)); std::memcpy(depthBytes.data(), depths.data(), depthBytes.size());
+            if (scenario == L"toggle" && frame && frame % 8 == 0) {
+                feature.reset(); // c.finish proved all prior work retired.
+                info.bottleneckReuse = mode == L"integrated" && (frame / 8) % 2 != 0;
+                feature = std::make_unique<NR::FeatureSession>();
+                require(feature->EnsureInitialized(info), feature->Status().c_str());
+            }
             auto start = std::chrono::steady_clock::now(); c.begin();
             auto upColor = c.upload(color.Get(), rgba, size_t(width)*8);
             auto upMotion = c.upload(motion.Get(), mv, size_t(width)*4);
@@ -163,12 +177,13 @@ int wmain(int argc, wchar_t** argv) try {
             input.commandList = c.list.Get(); input.color = color.Get(); input.motionVectors = motion.Get();
             input.depth = depth.Get(); input.output = output.Get(); input.backbuffer = backbuffer.Get();
             input.motionVectorScaleX = input.motionVectorScaleY = 1;
-            input.reset = frame == 0 || (resetEvery && frame % resetEvery == 0);
+            input.reset = frame == 0 || (resetEvery && frame % resetEvery == 0) || (scenario == L"toggle" && frame % 8 == 0);
             input.tuning.style = style; input.tuning.intensity = intensity; input.tuning.skinStructureStrength = -1;
             c.list->EndQuery(queries.Get(), D3D12_QUERY_TYPE_TIMESTAMP, 0);
             if (observer) observer->Begin(frame, input.reset, mode == L"reuse");
-            require(feature.RecordEvaluation(input), feature.Status().c_str());
+            require(feature->RecordEvaluation(input), feature->Status().c_str());
             if (observer) observer->End();
+            if (second) require(second->RecordEvaluation(input), second->Status().c_str());
             c.list->EndQuery(queries.Get(), D3D12_QUERY_TYPE_TIMESTAMP, 1);
             c.list->ResolveQueryData(queries.Get(), D3D12_QUERY_TYPE_TIMESTAMP, 0, 2, timings.Get(), 0);
             c.transition(output.Get(), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_SOURCE);
@@ -178,6 +193,11 @@ int wmain(int argc, wchar_t** argv) try {
             c.list->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
             c.transition(output.Get(), D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COMMON); c.finish();
             if (observer) observer->Retired();
+            feature->EvaluationSubmitted();
+            if (second) {
+                second->EvaluationSubmitted();
+                require(feature->BottleneckReused() == second->BottleneckReused(), "Independent feature reuse");
+            }
             auto elapsed = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now()-start).count();
             void* mapped{}; D3D12_RANGE range{0, 16}; check(timings->Map(0, &range, &mapped));
             auto* timestamps = static_cast<UINT64*>(mapped); double gpuMs = double(timestamps[1]-timestamps[0])*1000/double(c.frequency);
@@ -187,7 +207,7 @@ int wmain(int argc, wchar_t** argv) try {
             for (UINT y = 0; y < height; ++y) std::memcpy(pixels.data() + y*size_t(width)*8, static_cast<char*>(mapped) + y*layout.Footprint.RowPitch, size_t(width)*8);
             readback->Unmap(0, nullptr);
             write(outputs / std::format("{:03}.rgba16", frame), pixels.data(), pixels.size());
-            csv << frame << ',' << int(input.reset) << ',' << int(observer && observer->Reusing()) << ',' << gpuMs << ',' << elapsed << std::endl;
+            csv << frame << ',' << int(input.reset) << ',' << int((observer && observer->Reusing()) || feature->BottleneckReused()) << ',' << gpuMs << ',' << elapsed << std::endl;
             std::cerr << "frame=" << frame << " gpu_ms=" << gpuMs << std::endl;
         }
         std::cerr << "All readbacks retired; releasing feature" << std::endl;

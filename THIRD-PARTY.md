@@ -9,9 +9,9 @@ runtimes retain the license files accompanying their downloads.
 ## Source contributions
 
 - **OptiScaler DLSS-NR fork** — janblade and contributors, GPL-3.0.
-  The standalone `research/nr-bottleneck` experiment investigates the bottleneck
-  reuse technique published in v0.1.13; its observer and guards are implemented
-  separately and are not linked into the renderer.
+  The `research/nr-bottleneck` experiment and optional renderer integration
+  investigate the bottleneck reuse technique published in v0.1.13. The observers,
+  per-feature scheduling and contract guards are implemented separately.
   https://github.com/janblade/OptiScaler-DLSSNR-PreSR-Multipass/commit/34e33c6a2a1083b01a7d12807f8e0703e64f8dff
 
 - **ReShade public add-on API** — Patrick Mours, BSD-3-Clause. Unmodified

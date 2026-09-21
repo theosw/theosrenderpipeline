@@ -120,8 +120,9 @@ namespace TheosRenderPipeline::SourceDLSSG
             motion_.texture12.Get(), depth_.texture12.Get(), nullptr, earlyNeuralColor_.texture12.Get(), nullptr,
             neuralTimestampFrequency_)) { return FailNeuralRecording(); }
         if (!Check(Interop::RecordCopy(list, neuralPass_->Corrected(), earlyNeuralColor_.texture12.Get()), "early NR result copy") ||
-            !Check(interop_.Submit(Work::Upscaling), "submit NR before DLSS") ||
-            !Check(interop_.WaitD3D11(Work::Upscaling), "DLSS waits for NR")) { return false; }
+            !Check(interop_.Submit(Work::Upscaling), "submit NR before DLSS")) { return false; }
+        neuralPass_->EvaluationSubmitted();
+        if (!Check(interop_.WaitD3D11(Work::Upscaling), "DLSS waits for NR")) { return false; }
         // This copy and the subsequent NGX D3D11 call follow the GPU wait on
         // the same immediate context. No CPU-wide flush/drain on each frame.
         if (!Check(D3D11FrameCopy::Color(context11_.Get(), earlyNeuralColor_.texture11.Get(), color, colorExtent),

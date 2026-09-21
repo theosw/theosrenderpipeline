@@ -21,6 +21,7 @@ if(TRP_NR_VENDOR_BENCHMARK)
         ../../src/FrameGen/SourceDLSSGNeuralResolve.cpp
         ../../src/FrameGen/SourceDLSSGInterop.cpp
         ../../src/FrameGen/NeuralRenderingFeatureSession.cpp
+        ../../src/FrameGen/NeuralRenderingBottleneck.cpp
         ../../src/FrameGen/NeuralRenderingModulePathHook.cpp
         ../../src/FrameGen/NeuralRenderingRuntimeIdentity.cpp)
     target_compile_features(TRPNeuralPeripheralBenchmark PRIVATE cxx_std_23)
@@ -29,3 +30,8 @@ if(TRP_NR_VENDOR_BENCHMARK)
     target_link_libraries(TRPNeuralPeripheralBenchmark PRIVATE d3d12 d3d11 d3dcompiler dxgi bcrypt version
         "${NGX_SDK}/lib/Windows_x86_64/nvsdk_ngx_d.lib")
 endif()
+
+add_executable(TRPNeuralBottleneckPlanTests BottleneckPlanTests.cpp)
+target_compile_features(TRPNeuralBottleneckPlanTests PRIVATE cxx_std_20)
+target_include_directories(TRPNeuralBottleneckPlanTests PRIVATE ../../src)
+add_test(NAME NeuralBottleneckPlan COMMAND TRPNeuralBottleneckPlanTests)
