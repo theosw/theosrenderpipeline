@@ -27,6 +27,7 @@ namespace TheosRenderPipeline::NeuralRendering
 			// -1 selects the verified runtime's default. Old callers remain legacy-only.
 			std::int32_t networkPreset{ -1 };
 			bool allowReconstructionRuntime{ false };
+			bool bottleneckReuse{ false };
 		};
 
 		struct EvaluationInput
@@ -59,6 +60,8 @@ namespace TheosRenderPipeline::NeuralRendering
 		bool EnsureInitialized(const CreateInfo& a_info);
 		bool RecordEvaluation(const EvaluationInput& a_input);
 
+		void EvaluationSubmitted();
+		bool BottleneckReused() const;
 		bool IsInitialized() const;
 		RuntimeBuild Build() const;
 		std::uint64_t EvaluationsRecorded() const;

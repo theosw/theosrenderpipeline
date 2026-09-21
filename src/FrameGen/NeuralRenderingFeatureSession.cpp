@@ -1,6 +1,7 @@
 #include "NeuralRenderingFeatureSession.h"
 
 #include "NeuralRenderingCreationContext.h"
+#include "NeuralRenderingBottleneck.h"
 #include "NeuralRenderingModulePathHook.h"
 #include "NeuralRenderingRuntimeIdentity.h"
 
@@ -99,6 +100,10 @@ namespace TheosRenderPipeline::NeuralRendering
 	struct FeatureSession::State
 	{
 		std::unique_ptr<CreationContext> creationContext;
+		std::unique_ptr<BottleneckReuse> bottleneck;
+		bool bottleneckRequested{};
+		std::uint64_t bottleneckReused{};
+		std::string bottleneckStatus;
 		HMODULE module{ nullptr };
 		bool ownsModule{ false };
 		std::unique_ptr<ModulePathHook> modulePathHook;
@@ -155,6 +160,7 @@ namespace TheosRenderPipeline::NeuralRendering
 		auto& state = *state_;
 		if (state.initialized) {
 			const bool compatible = state.device == a_info.device &&
+				state.bottleneckRequested == a_info.bottleneckReuse &&
 				(!UsesReconstructionContract(state.contract.build) || a_info.allowReconstructionRuntime) &&
 				state.contract == MakeFeatureContract(state.contract.build, a_info.displayWidth,
 					a_info.displayHeight, a_info.renderWidth, a_info.renderHeight, a_info.networkPreset) &&
@@ -236,6 +242,13 @@ namespace TheosRenderPipeline::NeuralRendering
 			state.status = std::format("runtime LoadLibrary failed ({})", ::GetLastError());
 			return false;
 		}
+
+		// Observe creation even when reuse is off, since this runtime caches kernel
+		// handles across feature generations. No evaluation filtering without opt-in.
+		state.bottleneckRequested = a_info.bottleneckReuse;
+		const bool bridge = state.contract.build == RuntimeBuild::Nexus3108 && BottleneckReuse::Install(state.module);
+		if (a_info.bottleneckReuse && bridge) state.bottleneck = std::make_unique<BottleneckReuse>();
+		if (a_info.bottleneckReuse) logger::info("[NR Bottleneck] requested=true bridge={} build={}", bridge, RuntimeName(state.contract.build));
 
 		auto init = reinterpret_cast<D3D12Init>(
 			::GetProcAddress(state.module, "NVSDK_NGX_D3D12_Init"));
@@ -397,9 +410,24 @@ namespace TheosRenderPipeline::NeuralRendering
 		parameters->Set("DLSSNR.MVecScaleY", a_input.motionVectorScaleY);
 		WriteTuningParameters(*parameters, a_input.tuning, a_input.reset, a_input.depthInverted, state.contract.build);
 
+		if (state.bottleneck && !state.bottleneck->Begin(a_input.commandList, a_input.reset)) {
+			state.status = "NR bottleneck: " + state.bottleneck->Status(); return false;
+		}
 		const auto evaluateResult = state.evaluateFeature(
 			a_input.commandList, state.feature, parameters, nullptr);
 		state.lastEvaluateResult = static_cast<std::uint32_t>(evaluateResult);
+		if (state.bottleneck) {
+			const bool valid = state.bottleneck->End(NVSDK_NGX_SUCCEED(evaluateResult));
+			if (state.bottleneck->Reused()) ++state.bottleneckReused;
+			const auto& status = state.bottleneck->Status();
+			if (!valid || (status != state.bottleneckStatus && status != "full evaluation" && status != "reused 42 coarse-stage kernels") ||
+				(state.bottleneck->Reused() && state.bottleneckReused == 1) || state.evaluationsRecorded == 0 || state.evaluationsRecorded % 600 == 0) {
+				logger::info("[NR Bottleneck] feature={} evaluations={} reused={} status={}",
+					static_cast<void*>(state.feature), state.evaluationsRecorded + 1, state.bottleneckReused, status);
+			}
+			state.bottleneckStatus = status;
+			if (!valid) { state.status = "NR bottleneck: " + status; return false; }
+		}
 		if (NVSDK_NGX_FAILED(evaluateResult)) {
 			state.status = std::format(
 				"feature evaluation failed (0x{:08X})", state.lastEvaluateResult);
@@ -428,6 +456,14 @@ namespace TheosRenderPipeline::NeuralRendering
 		return true;
 	}
 
+	void FeatureSession::EvaluationSubmitted()
+	{
+		if (state_->bottleneck) state_->bottleneck->Submitted();
+	}
+	bool FeatureSession::BottleneckReused() const
+	{
+		return state_->bottleneck && state_->bottleneck->Reused();
+	}
 	bool FeatureSession::IsInitialized() const
 	{
 		return state_ && state_->initialized;

@@ -150,6 +150,7 @@ set(ARP_BASELINE_SOURCES
 # Neural Rendering is available independently of MFG compatibility.
 set(ARP_NEURAL_SOURCES
     src/FrameGen/NeuralRenderingFeatureSession.cpp
+    src/FrameGen/NeuralRenderingBottleneck.cpp
     src/FrameGen/NeuralRenderingModulePathHook.cpp
     src/FrameGen/NeuralRenderingRuntimeIdentity.cpp
     src/FrameGen/SourceDLSSGNeuralRendering.cpp

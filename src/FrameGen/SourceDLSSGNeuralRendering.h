@@ -26,6 +26,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 		ID3D12Resource* Corrected() const { return corrected_.Get(); }
 		NeuralTelemetrySnapshot Telemetry() const { return telemetry_.Snapshot(); }
 		void RetireTelemetry();
+		bool BottleneckReused() const { return feature_.BottleneckReused() && (passes_ == 1 || secondFeature_.BottleneckReused()); }
+		void EvaluationSubmitted() { feature_.EvaluationSubmitted(); if (passes_ == 2) secondFeature_.EvaluationSubmitted(); }
 		bool NeedsRecreation(const NeuralOptions& options, UINT guideWidth = 0, UINT guideHeight = 0) const
 		{
 			return feature_.IsInitialized() && (runtimePath_ != options.runtimePath || beforeUpscaling_ != options.beforeUpscaling || worldOnly_ != options.WorldOnly() || passes_ != options.passes ||

@@ -184,6 +184,7 @@ RWTexture2D<float4> output : register(u0);
 		NeuralRendering::FeatureSession::CreateInfo info;
 		info.device = device; info.runtimePath = options.runtimePath;
 		info.allowReconstructionRuntime = true;
+		info.bottleneckReuse = reconstruction.bottleneckReuse;
 		info.displayWidth = workWidth; info.displayHeight = workHeight;
 		info.renderWidth = reconstruction.peripheralCompression ? workWidth : static_cast<UINT>(motion->GetDesc().Width);
 		info.renderHeight = reconstruction.peripheralCompression ? workHeight : motion->GetDesc().Height;

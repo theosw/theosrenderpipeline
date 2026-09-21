@@ -403,8 +403,11 @@ namespace TheosRenderPipeline::SourceDLSSG
 		const auto transitionWarmup = transitionWarmupPresents_.load(std::memory_order_acquire);
 		const bool generationAllowed = enabled_ && !transitionBlocked && transitionWarmup == 0;
 		if (!Check(outputResult, "record native output copy/conversion") ||
-			!Check(interop_.Submit(Work::SwapChain), "submit native output copy") ||
-			(prepared && !CheckSession(session_.CompleteInputWrites())) ||
+			!Check(interop_.Submit(Work::SwapChain), "submit native output copy")) { return fault_; }
+#if !defined(TRP_NO_NEURAL_RENDERING)
+		if (lateActive) neuralPass_->EvaluationSubmitted();
+#endif
+		if ((prepared && !CheckSession(session_.CompleteInputWrites())) ||
 			!CheckSession(session_.BeforePresent(generationAllowed))) { return fault_; }
 		if (oldReflexRequest != session_.Snapshot().reflexRequested ||
 			oldReflexSubmitted != session_.Snapshot().reflexSubmitted || oldFrameLimit != session_.Snapshot().frameLimitSubmittedUs) {
