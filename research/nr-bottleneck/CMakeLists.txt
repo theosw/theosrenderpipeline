@@ -1,0 +1,26 @@
+cmake_minimum_required(VERSION 3.24)
+project(TRPNRBottleneck LANGUAGES CXX)
+if(NOT WIN32)
+  message(FATAL_ERROR "The standalone NR probe requires Windows/D3D12")
+endif()
+set(NGX_SDK "" CACHE PATH "Streamline external/ngx-sdk directory")
+if(NOT EXISTS "${NGX_SDK}/include/nvsdk_ngx.h")
+  message(FATAL_ERROR "Set NGX_SDK to the local NGX SDK")
+endif()
+set(REPO "${CMAKE_CURRENT_LIST_DIR}/../..")
+add_executable(TRPNRBottleneck Probe.cpp LaunchObserver.cpp
+  "${REPO}/src/FrameGen/NeuralRenderingFeatureSession.cpp"
+  "${REPO}/src/FrameGen/NeuralRenderingModulePathHook.cpp"
+  "${REPO}/src/FrameGen/NeuralRenderingRuntimeIdentity.cpp")
+target_compile_features(TRPNRBottleneck PRIVATE cxx_std_20)
+target_compile_definitions(TRPNRBottleneck PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+target_include_directories(TRPNRBottleneck PRIVATE "${CMAKE_CURRENT_LIST_DIR}" "${REPO}/src" "${NGX_SDK}/include")
+target_link_libraries(TRPNRBottleneck PRIVATE d3d12 dxgi bcrypt version
+  "${NGX_SDK}/lib/Windows_x86_64/nvsdk_ngx_d.lib")
+set_property(TARGET TRPNRBottleneck PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
+target_compile_options(TRPNRBottleneck PRIVATE /W4 /EHsc)
+include(CTest)
+add_executable(TRPNRBottleneckPlanTests PlanTests.cpp)
+target_compile_features(TRPNRBottleneckPlanTests PRIVATE cxx_std_20)
+target_compile_options(TRPNRBottleneckPlanTests PRIVATE /W4 /EHsc)
+add_test(NAME BottleneckPlan COMMAND TRPNRBottleneckPlanTests)
