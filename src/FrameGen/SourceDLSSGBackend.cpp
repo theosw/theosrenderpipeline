@@ -30,6 +30,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 			fault_ = a_result;
 			status_ = std::format("{} failed HRESULT=0x{:08X}", a_operation, static_cast<std::uint32_t>(a_result));
 			logger::error("[SourceDLSSG] {}", status_);
+			deviceLoss_.Report(a_result, a_operation, session_.Snapshot().frameIndex,
+				device11_.Get(), device12_.Get(), interop_.LastFailure());
 		}
 		return false;
 	}
@@ -151,6 +153,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		}
 		device11_ = a_device;
 		device11_->GetImmediateContext(&context11_);
+		deviceLoss_.Configure(DeviceLossDiagnostics::ReadDREDSetting());
 		ComPtr<IDXGIDevice> dxgiDevice;
 		ComPtr<IDXGIAdapter> adapter;
 		if (!Check(device11_.As(&dxgiDevice), "D3D11 DXGI device") ||

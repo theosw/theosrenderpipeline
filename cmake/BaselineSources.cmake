@@ -91,6 +91,8 @@ set(ARP_BASELINE_SOURCES
     src/FrameGen/SourceDLSSGHDR.h
     src/FrameGen/HDRColorimetry.h
     src/FrameGen/SourceDLSSGInterop.cpp
+    src/FrameGen/SourceDLSSGDeviceLoss.cpp
+    src/FrameGen/SourceDLSSGDeviceLoss.h
     src/FrameGen/SourceDLSSGInterop.h
     src/FrameGen/SourceDLSSGMFG.h
     src/FrameGen/SourceDLSSGMFGContract.h

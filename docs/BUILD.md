@@ -1,5 +1,9 @@
 # Building the plugin
 
+Both editions include [device-loss reporting](DEVICE_LOSS_DIAGNOSTICS.md).
+Optional DRED capture is enabled through a separate diagnostics INI for a
+reporter run; normal rendering settings and the default tracing policy remain.
+
 Requires Windows, Visual Studio 2022 C++ tools/Windows SDK, CMake and vcpkg.
 The build target and SKSE plugin identity are `TheosRenderPipeline`.
 
