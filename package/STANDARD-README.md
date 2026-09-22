@@ -1,14 +1,13 @@
-# Theo's Render Pipeline — Standard, 0.2.3
+# Theo's Render Pipeline — Standard, 0.2.4
 
 DLSS/DLAA, native NVIDIA frame generation, Neural Rendering, NVIDIA Reflex and
 native-resolution menus for Skyrim. All eight NVIDIA runtime DLLs are included.
 
-Version 0.2.3 adds the Nolvus keyboard-input fallback, optional NR peripheral
-compression and optional combined preparation. Both NR optimizations default
-to off; enable them separately in the Neural Rendering controls and use Apply now.
-It also corrects menu percentage text and prevents a renderer shutdown when
-NVIDIA returns a VRAM-budget warning after accepting frame-generation settings.
-This correction does not reduce memory pressure itself.
+Version 0.2.4 adds a reorganized menu with live measurements beside settings,
+a saved resizable layout and independent NR pass controls. NR keyboard shortcuts
+are now opt-in to avoid shared-key conflicts. Existing runtime DLLs, the Nolvus
+input correction and the VRAM-budget warning fix are retained. Peripheral
+compression and combined preparation remain optional and default to off.
 
 Version 0.2.2 enables NR with native DLAA, before or after anti-aliasing, and
 adds startup identification and configuration diagnostics. The 0.2.1 startup
@@ -40,10 +39,20 @@ input scaling and tuning remain available. NR and frame generation are independe
 Both NR placements now work with native DLAA. At 100% NR input scale, both
 process the native resolution, so placement alone does not reduce inference cost.
 
-Apply now changes this session. Save as default also saves settings. Discard
-changes drops unapplied edits. DLSS/DLAA mode and render scale need a restart.
+Apply changes this session. Save as default also saves settings and window
+layout. Discard drops unapplied edits. DLSS/DLAA mode and render scale need a restart.
 If the NR DLL is removed, its controls become unavailable until it is restored
 and Skyrim restarted; DLSS/frame generation remain available.
+
+Live FPS and related measurements stay beside the controls. Resize the window
+and drag the column divider to change the layout. The pipeline bar above the
+tabs shows the applied rendering order. Advanced contains Lab mode for detailed
+runtime information and the information needed for problem reports.
+
+With two NR passes, leave **Use Pass 1 settings** checked for linked controls,
+or uncheck it to tune Pass 2 resolution, network preset and appearance separately.
+**Copy Pass 1** copies the settings without relinking. Both passes use the same
+placement, and two passes can substantially increase inference cost.
 
 ## Community Shaders
 
@@ -62,7 +71,7 @@ menu invisible and frame generation inactive.
 
 Keep your existing ReShade installation, preset and hotkeys. **Disable SSE
 ReShade Helper.** TRP supplies the effects and overlay stages. Effects run after
-upscaling by default; use **Advanced → ReShade before upscaling** to change this.
+upscaling by default; use **Advanced → ReShade** to change this.
 Changing placement may reload shaders. Give ReShade, CS and TRP different menu keys.
 
 The shared ReShade integration passed offline checks in both editions. Gameplay
@@ -73,7 +82,7 @@ the tested world-only effects setup.
 
 ## With the Universal edition
 
-For the RTX 40 MFG unlock or experimental RTX 30 support, install the matching 0.2.3 Universal
+For the RTX 40 MFG unlock or experimental RTX 30 support, install the matching 0.2.4 Universal
 ZIP after Standard in MO2's left pane. Let Universal win file conflicts. Universal uses
 the NVIDIA runtimes included here, including NR.
 
@@ -81,13 +90,11 @@ Both editions contain settings files; the later mod's files win. Switching
 editions may change settings. Disable Universal to return to Standard. Both editions
 support NR; Standard excludes Ada/Ampere compatibility code.
 
-## Nolvus Awakening (candidate)
+## Nolvus Awakening
 
 Nolvus uses the same editions; RTX 30 and RTX 40 multipliers above x2 require
-Universal after Standard. The PR #33 Input Test ZIP, if supplied separately,
-goes below both and inherits their settings/runtimes. It is not included in
-the original 0.2.2 release ZIPs. Keep the base mods enabled, and disable the
-test overlay after closing Skyrim to restore the previous renderer.
+Universal after Standard. The keyboard fallback from PR #33 is included from
+0.2.3 onward; a separate Input Test ZIP is not needed for this release.
 
 Disable competing ENB Anti-Aliasing and ENB Frame Generation components,
 including their dedicated settings overrides where installed. Keep the base
@@ -101,7 +108,7 @@ feedback on Nolvus Awakening 6.0.20 / Skyrim 1.5.97 with Universal, RTX 4080
 SUPER, ENB 0.504 and ReShade 6.3.1. Standard gameplay remains untested. Early
 OAR/IED loading panels have a known resolution limitation; the test log retains
 two Streamline RSYNC errors, and physical cadence remains unverified.
-See [PR #33](https://github.com/theosw/theosrenderpipeline/pull/33) for candidate status.
+See [PR #33](https://github.com/theosw/theosrenderpipeline/pull/33) for the input fix.
 
 ## NR shortcuts
 

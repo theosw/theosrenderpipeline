@@ -1,8 +1,10 @@
 # Theo's Render Pipeline
 
-Version **0.2.3** adds the Nolvus keyboard-input fallback and two optional NR
-optimizations: peripheral compression and combined preparation. Both controls
-default to off. See [0.2.3 changes and validation](docs/RELEASE_0_2_3.md).
+Version **0.2.4** reorganizes the menu around live measurements beside settings,
+adds a saved resizable layout and independent NR pass controls, and makes NR
+keyboard shortcuts opt-in. See [0.2.4 changes and validation](docs/RELEASE_0_2_4.md).
+The Nolvus input correction, peripheral compression and combined preparation
+from 0.2.3 are retained; both NR optimizations still default to off.
 
 The 0.2.2 changes enable Neural Rendering with native DLAA, before or after
 anti-aliasing, and improves experimental RTX 30 compatibility. Missing
@@ -42,8 +44,8 @@ for tested configurations and remaining limits.
 - Native UI composition, inventory/spell previews, startup overlays, external
   ImGui integration and GPU measurements. HDR is not supported in this release.
 
-**End** opens settings. **Apply now** changes the session; **Save as default**
-persists settings; **Discard changes** drops unapplied edits. NR starts off.
+**End** opens settings. **Apply** changes the session; **Save as default**
+persists settings and window layout; **Discard** drops unapplied edits. NR starts off.
 The NVIDIA host remains required when interpolation is off.
 
 ## Build and install
