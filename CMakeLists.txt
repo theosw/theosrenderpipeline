@@ -44,7 +44,8 @@ else()
 endif()
 if(TRP_ENABLE_OPTIONAL_FEATURES)
     set(TRP_EDITION "Universal")
-    target_sources(TheosRenderPipeline PRIVATE src/FrameGen/SourceDLSSGMFG.cpp)
+    target_sources(TheosRenderPipeline PRIVATE src/FrameGen/SourceDLSSGMFG.cpp
+        src/FrameGen/SourceDLSSGModuleDiagnostics.cpp)
     add_library(TheosRenderPipelineRTX40MFG STATIC
         extern/RTX40MFG/midpoint_fix.cpp extern/RTX40MFG/dlssg_provider_policy.cpp
         extern/MFGAmpere/runtime.cpp)
@@ -264,11 +265,11 @@ if(TRP_BUILD_COMPATIBILITY_TESTS)
             RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/module-fixtures/${module}"
             ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/module-fixtures/${module}")
     endforeach()
-    add_executable(TRPPluginPathsTests tests/PluginPathsTests.cpp)
+    add_executable(TRPPluginPathsTests tests/PluginPathsTests.cpp src/FrameGen/SourceDLSSGModuleDiagnostics.cpp)
     target_compile_features(TRPPluginPathsTests PRIVATE cxx_std_23)
     target_compile_definitions(TRPPluginPathsTests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
     target_include_directories(TRPPluginPathsTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
-    target_link_libraries(TRPPluginPathsTests PRIVATE ARPDetours)
+    target_link_libraries(TRPPluginPathsTests PRIVATE ARPDetours spdlog::spdlog version)
     add_dependencies(TRPPluginPathsTests TRPModuleIdentityFixture1 TRPModuleIdentityFixture2)
     add_subdirectory(tests/ampere-loader)
     foreach(order IN ITEMS a-first b-first)

@@ -100,6 +100,9 @@ No precompiled Detours libraries are stored in this archive.
 
 ## Runtime files
 
+See [runtime startup diagnostics](RUNTIME_STARTUP_DIAGNOSTICS.md) for interpreting
+loaded-module paths and individual export checks in Universal startup logs.
+
 A complete installation also needs the configuration/shaders under `package/`,
 matching SKSE64/Address Library and the separately supplied NVIDIA runtimes:
 
