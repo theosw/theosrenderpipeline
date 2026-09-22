@@ -118,6 +118,22 @@ namespace TheosRenderPipeline::Overlay
 		ImGui::PopStyleColor(5);
 	}
 
+    void DrawSettingsHeading(const char* title, const char* behavior)
+    {
+        ImGui::Spacing();
+        ImGui::SeparatorText(title);
+        if (behavior && *behavior) {
+            ImGui::TextDisabled("%s", behavior);
+        }
+    }
+
+    void DrawSettingsHelp(const char* text)
+    {
+        ImGui::PushStyleColor(ImGuiCol_Text, kMuted);
+        ImGui::TextWrapped("%s", text);
+        ImGui::PopStyleColor();
+    }
+
 }
 
 namespace TheosRenderPipeline::Overlay

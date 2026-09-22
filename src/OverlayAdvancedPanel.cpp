@@ -1,59 +1,165 @@
-#include <PCH.h>
-#include "OverlayUI.h"
-#include "OverlayFrameView.h"
-#include "OverlayUIStyle.h"
-#include "RenderPipeline.h"
+#include "CommunityShaderIntegration.h"
+#include "DLSSBackend.h"
+#include "DLSSPreset.h"
 #include "FrameGen/NvidiaHost.h"
 #include "FrameGen/SourceDLSSGBackend.h"
-#include "DLSSBackend.h"
-#include "CommunityShaderIntegration.h"
+#include "OverlayFrameView.h"
+#include "OverlayUI.h"
+#include "OverlayUIStyle.h"
+#include "ReShadeIntegration.h"
+#include "RenderPipeline.h"
+#include <PCH.h>
 
 using namespace TheosRenderPipeline::Overlay;
 
-void OverlayUI::DrawAdvancedPanel(float advancedCardHeight, const FrameView& view)
+void OverlayUI::DrawCompatibilityPanel(float tabCardHeight)
 {
-    if (ImGui::BeginTabItem("Advanced"))
+    if (!ImGui::BeginTabItem("Compatibility", nullptr,
+                             requestedPage == SettingsPage::Compatibility ? ImGuiTabItemFlags_SetSelected : 0))
     {
-        ImGui::Checkbox("ReShade before upscaling", &settingsDraft.reShadeBeforeUpscaling);
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Runs ReShade effects before upscaling when checked, after upscaling otherwise.\n"
-                "Effects receive world color and depth before Skyrim UI. Changing placement reloads effects.\n"
-                "ReShade's own effects toggle and preset selection remain available.");
-        }
-        ImGui::TextWrapped("%s", TheosRenderPipeline::ReShadeIntegration::Get().Status().c_str());
-        ImGui::Checkbox("Request loading-screen artwork", &settingsDraft.requestLoadingArtwork);
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Requests artwork during cell transitions that would otherwise omit it.\n"
-                              "Skyrim still chooses the image. Startup loading is unchanged.\n"
-                              "Apply takes effect on the next eligible transition.");
-        }
-        ImGui::Checkbox("Lab mode for this session", &showDeveloperControls);
-        ImGui::SameLine();
-        ImGui::TextDisabled("Shows experiments and destructive renderer diagnostics.");
-        if (ImGui::BeginTabBar("##developerSections", ImGuiTabBarFlags_None))
-        {
-            DrawUIStatusPanel(advancedCardHeight);
-
-            DrawPerformancePanel(advancedCardHeight, view.sourceNeural);
-
-            DrawRuntimePanel(advancedCardHeight, view);
-            ImGui::EndTabBar();
-        }
-        ImGui::EndTabItem();
+        return;
     }
+    ImGui::BeginChild("##compatibilityPage", ImVec2(0, tabCardHeight), false);
+    ImGui::PushTextWrapPos(0.0f);
+    DrawSettingsHelp("Post-processing, menus and other mods");
+    DrawSettingsHeading("ReShade");
+    ImGui::TextUnformatted("Effect placement");
+    int placement = settingsDraft.reShadeBeforeUpscaling ? 0 : 1;
+    const char* placements[]{"Before upscaling", "After upscaling"};
+    ImGui::SetNextItemWidth(-1);
+    if (ImGui::Combo("##reshadePlacement", &placement, placements, 2))
+    {
+        settingsDraft.reShadeBeforeUpscaling = placement == 0;
+    }
+    DrawSettingsHelp("Processes world colour and depth before Skyrim UI. Changing placement reloads effects; presets "
+                     "and the effects toggle remain in ReShade.");
+    ImGui::Text("Session request: %s upscaling",
+                RenderPipeline::GetSingleton()->mReShadeBeforeUpscaling ? "before" : "after");
+    ImGui::TextWrapped("%s", TheosRenderPipeline::ReShadeIntegration::Get().Status().c_str());
+    DrawSettingsHeading("Menus and loading screens");
+    ImGui::Checkbox("Request loading-screen artwork", &settingsDraft.requestLoadingArtwork);
+    DrawSettingsHelp("Requests artwork on the next eligible cell transition. Skyrim chooses the image; startup loading "
+                     "is unchanged.");
+    DrawUIStatusPanel();
+    DrawSettingsHeading("Display and shared controls", "");
+    ImGui::TextUnformatted("HDR is not supported.");
+    const auto key = RenderPipeline::GetSingleton()->mToggleOverlayHotkey;
+    char keyName[64]{};
+    const UINT scan = MapVirtualKeyA(static_cast<UINT>(key), MAPVK_VK_TO_VSC_EX);
+    const LONG keyNameCode = static_cast<LONG>(((scan & 0xff) << 16) | ((scan & 0xff00) ? (1 << 24) : 0));
+    if (GetKeyNameTextA(keyNameCode, keyName, sizeof(keyName)))
+    {
+        ImGui::Text("TRP settings key: %s (configured in the INI)", keyName);
+    }
+    else
+    {
+        ImGui::Text("TRP settings key: virtual-key 0x%02X (configured in the INI)", key);
+    }
+    DrawSettingsHelp("Use separate menu keys for TRP, Community Shaders, KreatE and other overlays.");
+    if (TheosRenderPipeline::CommunityShaders::Active())
+    {
+        ImGui::TextWrapped("Keep Community Shaders' HDR, frame generation and Reflex disabled. TRP manages frame "
+                           "generation and Reflex.");
+    }
+    ImGui::PopTextWrapPos();
+    ImGui::EndChild();
+    ImGui::EndTabItem();
 }
 
-void OverlayUI::DrawUIStatusPanel(float advancedCardHeight)
+void OverlayUI::DrawDiagnosticsPanel(float tabCardHeight, const FrameView& view)
+{
+    if (!ImGui::BeginTabItem("Diagnostics", nullptr,
+                             requestedPage == SettingsPage::Diagnostics ? ImGuiTabItemFlags_SetSelected : 0))
+    {
+        return;
+    }
+    ImGui::BeginChild("##diagnosticsPage", ImVec2(0, tabCardHeight), false);
+    ImGui::PushTextWrapPos(0.0f);
+    DrawSettingsHelp("Active state, measurements and troubleshooting");
+    ImGui::Text("World renderer: %s",
+                TheosRenderPipeline::CommunityShaders::Active() ? "Community Shaders" : "Skyrim / ENB");
+    ImGui::Text("Raster-rendered: %.1f FPS | %s: %s", renderedFps, view.outputLabel, view.outputText.c_str());
+    ImGui::Text("Raster frame time: %.2f ms", view.avgMs);
+    ImGui::PlotLines("##frametimes", frameTimesMs, frameTimeCount, frameTimeIndex, nullptr, 0, 50, ImVec2(-1, 80));
+    DrawSettingsHelp(
+        "Output counts runtime presentations, not physical screen refreshes. Scanout cadence is not measured here.");
+    ImGui::Checkbox("Lab mode for this session", &showDeveloperControls);
+    DrawSettingsHelp(
+        "Shows output experiments in Image, UI-routing controls in Compatibility and diagnostic tools below.");
+    DrawRuntimePanel(view);
+    DrawPerformancePanel(view.sourceNeural);
+    if (ImGui::CollapsingHeader("GPU memory"))
+    {
+        auto* videoMemory = VideoMemoryTelemetry::GetSingleton();
+        if (view.memorySnapshot.available && view.memorySnapshot.budget > 0)
+        {
+            constexpr double kGiB = 1024.0 * 1024.0 * 1024.0;
+            const auto headroomBytes = view.memorySnapshot.currentUsage < view.memorySnapshot.budget
+                                           ? view.memorySnapshot.budget - view.memorySnapshot.currentUsage
+                                           : 0;
+            const float pressure = static_cast<float>(static_cast<double>(view.memorySnapshot.currentUsage) /
+                                                      static_cast<double>(view.memorySnapshot.budget));
+            const UIHealth memoryHealth = pressure >= 0.92f   ? UIHealth::kError
+                                          : pressure >= 0.80f ? UIHealth::kWarning
+                                                              : UIHealth::kHealthy;
+            ImGui::Spacing();
+            ImGui::SeparatorText("LOCAL GPU MEMORY");
+            DrawStatusLabel(pressure >= 0.92f   ? "BUDGET CRITICAL"
+                            : pressure >= 0.80f ? "BUDGET PRESSURE"
+                                                : "BUDGET HEALTHY",
+                            memoryHealth);
+            ImGui::Text("Current usage: %.2f GiB", static_cast<double>(view.memorySnapshot.currentUsage) / kGiB);
+            ImGui::Text("Driver budget: %.2f GiB", static_cast<double>(view.memorySnapshot.budget) / kGiB);
+            ImGui::Text("Budget headroom: %.2f GiB", static_cast<double>(headroomBytes) / kGiB);
+            if (view.memorySnapshot.dedicatedCapacity > 0)
+            {
+                ImGui::TextDisabled("Physical dedicated memory: %.2f GiB",
+                                    static_cast<double>(view.memorySnapshot.dedicatedCapacity) / kGiB);
+            }
+            char pressureLabel[32]{};
+            std::snprintf(pressureLabel, sizeof(pressureLabel), "%.1f%% of budget", pressure * 100.0f);
+            ImGui::ProgressBar(std::clamp(pressure, 0.0f, 1.0f), ImVec2(-1.0f, 0.0f), pressureLabel);
+        }
+        else
+        {
+            ImGui::Spacing();
+            ImGui::SeparatorText("LOCAL GPU MEMORY");
+            ImGui::TextDisabled("%s", videoMemory->Status());
+        }
+    }
+    if (ImGui::CollapsingHeader("Reporting a problem"))
+    {
+        const auto& upscaler = NvidiaHost::GetSingleton()->SourceUpscalerSettings().Effective();
+        const auto neural = TheosRenderPipeline::SourceDLSSG::Backend::Get().NeuralConfiguration();
+        if (!TheosRenderPipeline::CommunityShaders::Active())
+        {
+            ImGui::Text("Upscaling: %s | requested preset %s", ModeName(upscaler.mode),
+                        TheosRenderPipeline::DLSSPreset::ShortName(upscaler.preset));
+        }
+        ImGui::Text("Frame generation: %s | active x%u", view.frameGenerationRuntimeActive ? "active" : "inactive",
+                    view.activeDisplayMultiplier);
+        ImGui::Text("NR session request: %s | %s upscaling | %d %s", neural.enabled ? "on" : "off",
+                    neural.beforeUpscaling ? "before" : "after", neural.passes, neural.passes == 1 ? "pass" : "passes");
+        ImGui::TextWrapped(
+            "Include your GPU, driver, game and TRP versions, the active renderer, settings and reproduction steps.");
+        DrawSettingsHelp("Attach TheosRenderPipeline.log from Documents / My Games / Skyrim Special Edition / SKSE.");
+    }
+    ImGui::PopTextWrapPos();
+    ImGui::EndChild();
+    ImGui::EndTabItem();
+}
+
+void OverlayUI::DrawUIStatusPanel()
 {
     auto* upscaler = RenderPipeline::GetSingleton();
     auto* nvidiaHost = NvidiaHost::GetSingleton();
-    if (ImGui::BeginTabItem("UI status"))
+    if (ImGui::CollapsingHeader("UI integration"))
     {
-        ImGui::BeginChild("##compatibilityCard", ImVec2(0.0f, advancedCardHeight), true);
         ImGui::TextUnformatted("UI COMPOSITION");
         ImGui::Separator();
         if (showDeveloperControls && !TheosRenderPipeline::CommunityShaders::Active())
         {
+            DrawSettingsHelp("Save and restart after changing UI routing.");
             ImGui::Checkbox("Native-resolution Skyrim UI", &settingsDraft.nativeUI);
             ImGui::Checkbox("Startup overlays at native resolution", &settingsDraft.lateOverlayBridge);
             ImGui::Spacing();
@@ -68,32 +174,34 @@ void OverlayUI::DrawUIStatusPanel(float advancedCardHeight)
             ImGui::TableNextColumn();
             ImGui::TextUnformatted("Skyrim / Scaleform");
             ImGui::TableNextColumn();
-            DrawStatusLabel(TheosRenderPipeline::CommunityShaders::Active() ? "COMMUNITY SHADERS" : upscaler->mNativeUI ? "NATIVE COMPOSITION" : "RENDER-SPACE UI",
+            DrawStatusLabel(TheosRenderPipeline::CommunityShaders::Active() ? "COMMUNITY SHADERS"
+                            : upscaler->mNativeUI                           ? "NATIVE COMPOSITION"
+                                                                            : "RENDER-SPACE UI",
                             upscaler->mNativeUI ? UIHealth::kHealthy : UIHealth::kIdle);
             ImGui::TableNextColumn();
             ImGui::TextUnformatted("External ImGui overlays");
             ImGui::TableNextColumn();
-            DrawStatusLabel(TheosRenderPipeline::CommunityShaders::Active() ? "COMMUNITY SHADERS UI" : nvidiaHost->StartupConfigured() ? "NATIVE HOST / STARTUP FOREGROUND" : "HOST UNAVAILABLE",
+            DrawStatusLabel(TheosRenderPipeline::CommunityShaders::Active() ? "COMMUNITY SHADERS UI"
+                            : nvidiaHost->StartupConfigured()               ? "NATIVE HOST / STARTUP FOREGROUND"
+                                                                            : "HOST UNAVAILABLE",
                             nvidiaHost->StartupConfigured() ? UIHealth::kHealthy : UIHealth::kIdle);
             ImGui::EndTable();
         }
         ImGui::Spacing();
-        ImGui::TextWrapped(TheosRenderPipeline::CommunityShaders::Active() ?
-                           "Community Shaders owns the UI render targets. External menus retain their original draw paths." :
-                           "Supported startup overlays use a native-resolution foreground target. "
-                           "Their original render state is restored after each draw.");
-        ImGui::EndChild();
-        ImGui::EndTabItem();
+        ImGui::TextWrapped(
+            TheosRenderPipeline::CommunityShaders::Active()
+                ? "Community Shaders owns the UI render targets. External menus retain their original draw paths."
+                : "Supported startup overlays use a native-resolution foreground target. "
+                  "Their original render state is restored after each draw.");
     }
 }
 
-void OverlayUI::DrawRuntimePanel(float advancedCardHeight, const FrameView& view)
+void OverlayUI::DrawRuntimePanel(const FrameView& view)
 {
     auto* upscaler = RenderPipeline::GetSingleton();
     auto* backend = DLSSBackend::GetSingleton();
-    if (ImGui::BeginTabItem("Runtime"))
+    if (ImGui::CollapsingHeader("Runtime details"))
     {
-        ImGui::BeginChild("##diagnosticsCard", ImVec2(0.0f, advancedCardHeight), true);
         ImGui::TextUnformatted("RENDERER TELEMETRY");
         ImGui::Separator();
         ImGui::Text("Host Present calls: %.1f FPS | %s: %s", presentedFps, view.outputLabel, view.outputText.c_str());
@@ -104,15 +212,17 @@ void OverlayUI::DrawRuntimePanel(float advancedCardHeight, const FrameView& view
                     view.nativeWidth > 0
                         ? static_cast<float>(upscaler->mRenderSizeX) / static_cast<float>(view.nativeWidth) * 100.0f
                         : 100.0f);
-        if (!TheosRenderPipeline::CommunityShaders::Active()) {
+        if (!TheosRenderPipeline::CommunityShaders::Active())
+        {
             ImGui::Text("Jitter: (%.4f, %.4f) | phases: %d", upscaler->mJitterOffsets[0], upscaler->mJitterOffsets[1],
                         backend->GetJitterPhaseCount());
             ImGui::Text("Mip LOD bias: %.3f", upscaler->mMipLodBias);
             ImGui::Text("NGX evals ok/failed: %llu / %llu | last 0x%08X",
                         static_cast<unsigned long long>(backend->EvalSuccessCount()),
                         static_cast<unsigned long long>(backend->EvalFailCount()), backend->LastEvalResult());
-            ImGui::Text("Feature: %s | formats in/out: %d / %d | HDR: %s", backend->HasFeature() ? "created" : "none",
-                        backend->InputFormat(), backend->OutputFormat(), backend->IsHDRInput() ? "yes" : "no");
+            ImGui::Text("Feature: %s | formats in/out: %d / %d | Linear HDR input: %s",
+                        backend->HasFeature() ? "created" : "none", backend->InputFormat(), backend->OutputFormat(),
+                        backend->IsHDRInput() ? "yes" : "no");
         }
         if (upscaler->mGraphicsState)
         {
@@ -174,7 +284,5 @@ void OverlayUI::DrawRuntimePanel(float advancedCardHeight, const FrameView& view
                                 upscaler->mInventory3DLastObservedDraws.load(std::memory_order_relaxed),
                                 upscaler->mInventory3DLastSkippedDraws.load(std::memory_order_relaxed));
         }
-        ImGui::EndChild();
-        ImGui::EndTabItem();
     }
 }

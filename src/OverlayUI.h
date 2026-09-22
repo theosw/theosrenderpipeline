@@ -41,11 +41,13 @@ private:
     struct FrameView;
     FrameView CaptureFrameView();
     void DrawPipelineSummary(const FrameView& view);
-    void DrawImagePanel(float tabCardHeight, float nestedCardHeight, const FrameView& view);
-    void DrawTextureMemoryPanel(float nestedCardHeight, const FrameView& view);
-    void DrawAdvancedPanel(float advancedCardHeight, const FrameView& view);
-    void DrawUIStatusPanel(float advancedCardHeight);
-    void DrawRuntimePanel(float advancedCardHeight, const FrameView& view);
+    void DrawImagePanel(float tabCardHeight, const FrameView& view);
+    void DrawTextureMemoryPanel(const FrameView& view);
+    void DrawCompatibilityPanel(float tabCardHeight);
+    void DrawDiagnosticsPanel(float tabCardHeight, const FrameView& view);
+    void DrawOutputOptimizations();
+    void DrawUIStatusPanel();
+    void DrawRuntimePanel(const FrameView& view);
     void DrawSettingsActions();
 	void BuildUI();
 	void UpdateFrameStats();
@@ -61,7 +63,7 @@ private:
 	void ApplySettingsDraft(bool a_saveAsDefault);
 	void ApplyNeuralRenderingStateForSession(int a_state);
 	void DrawNeuralRenderingPanel(float tabCardHeight);
-	void DrawPerformancePanel(float advancedCardHeight, const TheosRenderPipeline::SourceDLSSG::NeuralSnapshot& sourceNeural);
+	void DrawPerformancePanel(const TheosRenderPipeline::SourceDLSSG::NeuralSnapshot& sourceNeural);
 
 	struct FrameGenerationView
 	{
@@ -72,7 +74,7 @@ private:
 		const std::string& outputText;
 		const TheosRenderPipeline::SourceDLSSG::NeuralSnapshot& sourceNeural;
 	};
-	void DrawFrameGenerationPanel(float tabCardHeight, float nestedCardHeight, const FrameGenerationView& view);
+	void DrawFrameGenerationPanel(float tabCardHeight, const FrameGenerationView& view);
 
 	bool initialized{ false };
 	bool visible{ false };

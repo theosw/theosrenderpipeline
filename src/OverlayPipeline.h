@@ -10,7 +10,9 @@ enum class SettingsPage
     None,
     Image,
     NeuralRendering,
-    FrameGeneration
+    FrameGeneration,
+    Compatibility,
+    Diagnostics
 };
 
 struct PipelineStage

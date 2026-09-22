@@ -324,22 +324,21 @@ void OverlayUI::BuildUI()
                                        ImGui::GetTextLineHeightWithSpacing() +
                                        layoutStyle.CellPadding.y * 2.0f + layoutStyle.ItemSpacing.y * 2.0f + 1.0f;
     const float tabCardHeight = (std::max)(220.0f, ImGui::GetContentRegionAvail().y - reservedActionHeight);
-    const float nestedCardHeight = (std::max)(190.0f, tabCardHeight - ImGui::GetFrameHeightWithSpacing());
-    const float advancedCardHeight = (std::max)(160.0f, nestedCardHeight - 2.0f * ImGui::GetFrameHeightWithSpacing());
 
     if (ImGui::BeginTabBar("##theosrenderpipelineTabs", ImGuiTabBarFlags_None))
     {
-        DrawImagePanel(tabCardHeight, nestedCardHeight, view);
+        DrawImagePanel(tabCardHeight, view);
 
 #if !defined(TRP_NO_NEURAL_RENDERING)
         DrawNeuralRenderingPanel(tabCardHeight);
 #endif
 
-        DrawFrameGenerationPanel(tabCardHeight, nestedCardHeight,
+        DrawFrameGenerationPanel(tabCardHeight,
                                  {view.sourceDLSSGActive, view.frameGenerationRuntimeActive,
                                   view.activeDisplayMultiplier, view.outputLabel, view.outputText, view.sourceNeural});
 
-        DrawAdvancedPanel(advancedCardHeight, view);
+        DrawCompatibilityPanel(tabCardHeight);
+        DrawDiagnosticsPanel(tabCardHeight, view);
         ImGui::EndTabBar();
     }
 
@@ -452,7 +451,7 @@ void OverlayUI::DrawSettingsActions()
         }
         else
         {
-            ImGui::TextDisabled("No staged changes | toggle overlay: END");
+            ImGui::TextDisabled("No unapplied changes");
         }
         ImGui::TableNextColumn();
         ImGui::BeginDisabled(stagedChanges == 0);
