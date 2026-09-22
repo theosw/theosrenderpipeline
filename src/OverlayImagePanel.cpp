@@ -174,12 +174,11 @@ void OverlayUI::DrawImagePanel(float tabCardHeight, const FrameView& view)
         ImGui::BeginDisabled(!settingsDraft.sharpening);
         ImGui::SliderFloat("Strength##sharpness", &settingsDraft.sharpness, 0, 1, "%.2f");
         ImGui::EndDisabled();
-        if (ImGui::CollapsingHeader("Advanced image settings"))
-        {
-            DrawSettingsHelp("Apply required");
-            ImGui::Checkbox("Auto exposure", &settingsDraft.autoExposure);
-            ImGui::Checkbox("Camera jitter", &settingsDraft.enableJitter);
-        }
+        ImGui::Separator();
+
+        ImGui::Checkbox("Auto exposure", &settingsDraft.autoExposure);
+        ImGui::Checkbox("Camera jitter", &settingsDraft.enableJitter);
+
         if (showDeveloperControls)
         {
             DrawOutputOptimizations();
@@ -196,50 +195,49 @@ void OverlayUI::DrawImagePanel(float tabCardHeight, const FrameView& view)
 void OverlayUI::DrawTextureMemoryPanel(const FrameView& view)
 {
     ImGui::Spacing();
-    if (ImGui::CollapsingHeader("Texture memory"))
+    ImGui::SeparatorText("Texture memory");
+
+    ImGui::TextDisabled("Applies to future texture loads");
+    ImGui::BeginDisabled(!view.textureProviderAvailable);
+    ImGui::Checkbox("Enable runtime mip caps", &settingsDraft.textureProviderSettings.enabled);
+    ImGui::TextDisabled("Preset");
+    const char* texturePresetNames[]{"Quality | 2048", "Balanced | 1024", "Performance | 1024 / 512", "Custom"};
+    int texturePreset = TexturePresetIndex(settingsDraft.textureProviderSettings);
+    ImGui::SetNextItemWidth(-1.0f);
+    if (ImGui::Combo("##texturePreset", &texturePreset, texturePresetNames,
+                     static_cast<int>(std::size(texturePresetNames))))
     {
-        ImGui::TextDisabled("Applies to future texture loads");
-        ImGui::BeginDisabled(!view.textureProviderAvailable);
-        ImGui::Checkbox("Enable runtime mip caps", &settingsDraft.textureProviderSettings.enabled);
-        ImGui::TextDisabled("Preset");
-        const char* texturePresetNames[]{"Quality | 2048", "Balanced | 1024", "Performance | 1024 / 512", "Custom"};
-        int texturePreset = TexturePresetIndex(settingsDraft.textureProviderSettings);
-        ImGui::SetNextItemWidth(-1.0f);
-        if (ImGui::Combo("##texturePreset", &texturePreset, texturePresetNames,
-                         static_cast<int>(std::size(texturePresetNames))))
+        ApplyTexturePreset(settingsDraft.textureProviderSettings, texturePreset);
+    }
+    ImGui::Spacing();
+    static constexpr const char* kTextureCategories[]{"Diffuse", "Normal", "Parallax", "Material", "Glow", "Mask"};
+    if (ImGui::BeginTable("##textureCaps", 2, ImGuiTableFlags_SizingStretchProp))
+    {
+        ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, 105.0f);
+        ImGui::TableSetupColumn("Maximum dimension", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+        for (std::size_t i = 0; i < settingsDraft.textureProviderSettings.maxSize.size(); ++i)
         {
-            ApplyTexturePreset(settingsDraft.textureProviderSettings, texturePreset);
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(kTextureCategories[i]);
+            ImGui::TableNextColumn();
+            ImGui::PushID(static_cast<int>(i));
+            DrawTextureCapCombo("##textureCap", settingsDraft.textureProviderSettings.maxSize[i]);
+            ImGui::PopID();
         }
-        ImGui::Spacing();
-        static constexpr const char* kTextureCategories[]{"Diffuse", "Normal", "Parallax", "Material", "Glow", "Mask"};
-        if (ImGui::BeginTable("##textureCaps", 2, ImGuiTableFlags_SizingStretchProp))
-        {
-            ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, 105.0f);
-            ImGui::TableSetupColumn("Maximum dimension", ImGuiTableColumnFlags_WidthStretch, 1.0f);
-            for (std::size_t i = 0; i < settingsDraft.textureProviderSettings.maxSize.size(); ++i)
-            {
-                ImGui::TableNextColumn();
-                ImGui::TextUnformatted(kTextureCategories[i]);
-                ImGui::TableNextColumn();
-                ImGui::PushID(static_cast<int>(i));
-                DrawTextureCapCombo("##textureCap", settingsDraft.textureProviderSettings.maxSize[i]);
-                ImGui::PopID();
-            }
-            ImGui::EndTable();
-        }
-        ImGui::EndDisabled();
-        ImGui::Spacing();
-        if (view.textureProviderAvailable && settingsDraft.textureProviderSettings.enabled &&
-            !view.textureTelemetry.hooksInstalled)
-        {
-            ImGui::TextColored(kOchre, "The provider started without hooks. Save the startup default and relaunch "
-                                       "to enable texture interception.");
-        }
-        else
-        {
-            ImGui::TextDisabled("Folder rules: TextureDownscaler menu");
-            DrawSettingsHelp("Existing textures stay unchanged until reloaded. Folder rules and exclusions are in "
-                             "TextureDownscaler's Menu Framework page.");
-        }
+        ImGui::EndTable();
+    }
+    ImGui::EndDisabled();
+    ImGui::Spacing();
+    if (view.textureProviderAvailable && settingsDraft.textureProviderSettings.enabled &&
+        !view.textureTelemetry.hooksInstalled)
+    {
+        ImGui::TextColored(kOchre, "The provider started without hooks. Save the startup default and relaunch "
+                                   "to enable texture interception.");
+    }
+    else
+    {
+        ImGui::TextDisabled("Folder rules: TextureDownscaler menu");
+        DrawSettingsHelp("Existing textures stay unchanged until reloaded. Folder rules and exclusions are in "
+                         "TextureDownscaler's Menu Framework page.");
     }
 }

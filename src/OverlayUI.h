@@ -43,7 +43,7 @@ private:
     void DrawPipelineSummary(const FrameView& view);
     void DrawImagePanel(float tabCardHeight, const FrameView& view);
     void DrawTextureMemoryPanel(const FrameView& view);
-    void DrawCompatibilityPanel(float tabCardHeight, const FrameView& view);
+    void DrawAdvancedPanel(float tabCardHeight, const FrameView& view);
     bool BeginSettingsColumns(const char* id, float height, const FrameView& view);
     void NextSettingsColumn(float height);
     void EndSettingsColumns();
@@ -51,7 +51,7 @@ private:
     void DrawImageMeasurements(const FrameView& view);
     void DrawStageMeasurements(TheosRenderPipeline::Overlay::SettingsPage page);
     void DrawMemoryMeasurements(const FrameView& view);
-    void DrawSupport(const FrameView& view);
+    void DrawReportingDetails(const FrameView& view);
     void DrawMeasurementControls();
     void DrawOutputOptimizations();
     void DrawUIStatusPanel();
@@ -75,7 +75,7 @@ private:
 	bool initialized{ false };
 	bool visible{ false };
 	bool showDeveloperControls{ false };
-    bool supportRequested{ false };
+    TheosRenderPipeline::Overlay::SettingsPage nextPageRequest{TheosRenderPipeline::Overlay::SettingsPage::None};
     TheosRenderPipeline::Overlay::SettingsPage requestedPage{TheosRenderPipeline::Overlay::SettingsPage::None};
 	TheosRenderPipeline::RendererSettingsDraft settingsDraft{};
     bool nrRuntimePresent{false};

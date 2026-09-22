@@ -16,8 +16,8 @@ bool OverlayUI::BeginSettingsColumns(const char* id, float height, const FrameVi
         ImGui::PopID();
         return false;
     }
-    ImGui::TableSetupColumn("##readings", ImGuiTableColumnFlags_WidthStretch, 0.85f);
-    ImGui::TableSetupColumn("##controls", ImGuiTableColumnFlags_WidthStretch, 1.45f);
+    ImGui::TableSetupColumn("##readings", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+    ImGui::TableSetupColumn("##controls", ImGuiTableColumnFlags_WidthStretch, 1.0f);
     ImGui::TableNextColumn();
     ImGui::BeginChild("##left", ImVec2(0, height), false,
                       ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
@@ -74,7 +74,7 @@ void OverlayUI::DrawStageMeasurements(SettingsPage page)
     if (!performance->TimingEnabled() || !timings.d3d11Samples)
     {
         ImGui::TextDisabled("%s", performance->TimingEnabled() ? "GPU timings: waiting" : "GPU timings: off");
-        DrawSettingsHelp("Enable stage timings in Support, then Apply.");
+        DrawSettingsHelp("Enable stage timings in Advanced, then Apply.");
         return;
     }
     using Stage = PerformanceTuning::D3D11Stage;
@@ -90,28 +90,25 @@ void OverlayUI::DrawStageMeasurements(SettingsPage page)
             row("DLSS", Stage::kDLSS);
             row("Sharpening", Stage::kRCAS);
         }
-        if (ImGui::CollapsingHeader("GPU stages"))
+
+        row("D3D11 frame", Stage::kFrame);
+        row("Input copy", Stage::kInputColorCopy);
+        row("Mask", Stage::kMaskEncode);
+        row("Output copy", Stage::kOutputCopy);
+        const auto& c = timings.gameFrameCadence;
+        const auto& g = timings.d3d11Frame;
+        if (c.samples == 0)
         {
-            row("D3D11 frame", Stage::kFrame);
-            row("Input copy", Stage::kInputColorCopy);
-            row("Mask", Stage::kMaskEncode);
-            row("Output copy", Stage::kOutputCopy);
-            const auto& c = timings.gameFrameCadence;
-            const auto& g = timings.d3d11Frame;
-            if (c.samples == 0)
-            {
-                ImGui::TextDisabled("Collecting percentile window");
-                return;
-            }
-            ImGui::TextWrapped("Raster ms: p50 %.2f | p95 %.2f | p99 %.2f", c.p50Ms, c.p95Ms, c.p99Ms);
-            ImGui::TextWrapped("GPU ms: p50 %.2f | p95 %.2f | p99 %.2f", g.p50Ms, g.p95Ms, g.p99Ms);
-            auto fps = [](float ms) { return ms > 0 ? 1000.0f / ms : 0.0f; };
-            ImGui::TextWrapped("FPS thresholds: p50 %.1f | 5%% %.1f | 1%% %.1f", fps(c.p50Ms), fps(c.p95Ms),
-                               fps(c.p99Ms));
-            DrawSettingsHelp("Rolling raster thresholds, not slow-frame averages or generated-frame cadence.");
-            ImGui::TextDisabled("%u / 1024 frames; %llu GPU samples", c.samples,
-                                static_cast<unsigned long long>(timings.d3d11Samples));
+            ImGui::TextDisabled("Collecting percentile window");
+            return;
         }
+        ImGui::TextWrapped("Raster ms: p50 %.2f | p95 %.2f | p99 %.2f", c.p50Ms, c.p95Ms, c.p99Ms);
+        ImGui::TextWrapped("GPU ms: p50 %.2f | p95 %.2f | p99 %.2f", g.p50Ms, g.p95Ms, g.p99Ms);
+        auto fps = [](float ms) { return ms > 0 ? 1000.0f / ms : 0.0f; };
+        ImGui::TextWrapped("FPS thresholds: p50 %.1f | 5%% %.1f | 1%% %.1f", fps(c.p50Ms), fps(c.p95Ms), fps(c.p99Ms));
+        DrawSettingsHelp("Rolling raster thresholds, not slow-frame averages or generated-frame cadence.");
+        ImGui::TextDisabled("%u / 1024 frames; %llu GPU samples", c.samples,
+                            static_cast<unsigned long long>(timings.d3d11Samples));
     }
     else if (page == SettingsPage::FrameGeneration)
     {
@@ -126,7 +123,7 @@ void OverlayUI::DrawStageMeasurements(SettingsPage page)
                 "CPU Present includes waits. NVIDIA generation GPU cost and physical cadence are not measured.");
         }
     }
-    else if (page == SettingsPage::Compatibility)
+    else if (page == SettingsPage::Advanced)
     {
         row("UI composition", Stage::kNativeUIComposition);
         row("Startup overlays", Stage::kStartupOverlayComposition);
@@ -135,8 +132,7 @@ void OverlayUI::DrawStageMeasurements(SettingsPage page)
 
 void OverlayUI::DrawOutputOptimizations()
 {
-    if (!ImGui::CollapsingHeader("Output optimizations (Lab)"))
-        return;
+    ImGui::Separator();
     ImGui::Checkbox("Direct RCAS output", &settingsDraft.directRCASOutput);
     DrawSettingsHelp("Writes sharpened output directly, avoiding its final copy. Apply required.");
     ImGui::Checkbox("Direct DLSS output", &settingsDraft.directDLSSOutput);

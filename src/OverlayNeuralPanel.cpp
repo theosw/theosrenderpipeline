@@ -168,7 +168,7 @@ void DrawSourceNeuralControls(TheosRenderPipeline::SourceDLSSG::Preferences& dra
     }
     else if (state.failed)
     {
-        unavailableReason = "NR failed. See runtime details in the left column for the reported error.";
+        unavailableReason = "NR failed. See the error in the left column.";
     }
     else if (!TheosRenderPipeline::SupportsNeuralRenderingMode(upscaleType,
                                                                TheosRenderPipeline::CommunityShaders::Active()))
@@ -177,7 +177,7 @@ void DrawSourceNeuralControls(TheosRenderPipeline::SourceDLSSG::Preferences& dra
     }
     else if (!TheosRenderPipeline::CommunityShaders::Active() && !NvidiaHost::GetSingleton()->DedicatedUITextureMode())
     {
-        unavailableReason = "NR requires dedicated native UI composition. Enable Native UI in Compatibility (Lab mode) "
+        unavailableReason = "NR requires dedicated native UI composition. Enable Native UI in Advanced (Lab mode) "
                             "and restart Skyrim.";
     }
     const bool unavailable = unavailableReason != nullptr;
@@ -286,11 +286,13 @@ void OverlayUI::DrawNeuralRenderingPanel(float height, const FrameView& view)
         DrawSettingsHelp("Combined model inference and inter-pass preparation. Excludes input preparation, final Pass "
                          "2 restoration, reconstruction, UI composition and the D3D11/D3D12 handoff.");
         DrawNRAppliedPasses(applied);
-        if (applied.enabled && !state.active)
+        if (state.failed || (applied.enabled && !state.active))
             ImGui::TextWrapped("%s", state.status.c_str());
-        if (ImGui::CollapsingHeader("Runtime details"))
+        if (showDeveloperControls)
         {
-            ImGui::TextWrapped("%s", state.status.c_str());
+            ImGui::Separator();
+            if (!state.failed && (!applied.enabled || state.active))
+                ImGui::TextWrapped("%s", state.status.c_str());
             ImGui::TextWrapped("Submitted frames %llu | history resets %llu",
                                static_cast<unsigned long long>(state.evaluations),
                                static_cast<unsigned long long>(state.resets));

@@ -12,6 +12,11 @@ column shows applied pass dimensions and network requests, inference timing, and
 live FPS. It remains visible while scrolling the controls on the right.
 Use Apply, Save as default or Discard for edits to either pass.
 
+Enable **Lab mode** in **Advanced** to show detailed runtime counters in the
+related tabs. Lab mode starts off and only changes menu visibility; normal FPS,
+inference timing and errors remain visible. Advanced also contains measurement
+controls, the rendering path and information for reporting a problem.
+
 Both resolution percentages refer to the selected placement's scene size: the
 render size before upscaling or output size after upscaling. Pass 2 processes
 pass 1's result. Both retain separate model histories and remain on the same side

@@ -333,13 +333,13 @@ void OverlayUI::BuildUI()
 #endif
 
         DrawFrameGenerationPanel(tabCardHeight, view);
-        DrawCompatibilityPanel(tabCardHeight, view);
+        DrawAdvancedPanel(tabCardHeight, view);
         ImGui::EndTabBar();
     }
 
-    requestedPage = SettingsPage::None;
+    requestedPage = nextPageRequest;
+    nextPageRequest = SettingsPage::None;
     DrawSettingsActions();
-    DrawSupport(view);
 
     ImGui::End();
 }
@@ -438,11 +438,6 @@ void OverlayUI::DrawSettingsActions()
         ImGui::TableSetupColumn("##actionStatus", ImGuiTableColumnFlags_WidthStretch, 1.0f);
         ImGui::TableSetupColumn("##actions", ImGuiTableColumnFlags_WidthFixed, 450.0f);
         ImGui::TableNextColumn();
-        if (ImGui::Button("Support"))
-        {
-            supportRequested = true;
-        }
-        ImGui::SameLine();
         if (stagedChanges > 0)
         {
             ImGui::TextColored(kAmber, "%d pending change%s", stagedChanges, stagedChanges == 1 ? "" : "s");

@@ -27,46 +27,38 @@ void OverlayUI::DrawImageMeasurements(const FrameView& view)
                                                 host->SourceUpscalerSettings().Effective().preset));
     ImGui::Separator();
     DrawStageMeasurements(SettingsPage::Image);
-    if (view.memorySnapshot.available)
-    {
-        constexpr double gib = 1024.0 * 1024.0 * 1024.0;
-        DrawSettingsValue("GPU memory", std::format("{:.2f} / {:.2f} GiB", view.memorySnapshot.currentUsage / gib,
-                                                    view.memorySnapshot.budget / gib)
-                                            .c_str());
-    }
     DrawMemoryMeasurements(view);
     if (view.textureProviderAvailable)
     {
-        if (ImGui::CollapsingHeader("Texture residency"))
-        {
-            DrawStatusLabel(view.textureProviderAvailable
-                                ? (view.textureTelemetry.hooksInstalled ? "PROVIDER ACTIVE" : "RELAUNCH REQUIRED")
-                                : "PROVIDER UNAVAILABLE",
-                            view.textureProviderAvailable
-                                ? (view.textureTelemetry.hooksInstalled ? UIHealth::kHealthy : UIHealth::kWarning)
-                                : UIHealth::kIdle);
-            ImGui::Spacing();
-            ImGui::Text("Textures reduced: %llu",
-                        static_cast<unsigned long long>(view.textureTelemetry.reducedTextures));
-            ImGui::Text("Estimated allocation avoided: %.2f GiB",
-                        static_cast<double>(view.textureTelemetry.estimatedBytesAvoided) / (1024.0 * 1024.0 * 1024.0));
-            const double nameCoverage = view.textureTelemetry.nameLookups > 0
-                                            ? static_cast<double>(view.textureTelemetry.namesResolved) * 100.0 /
-                                                  static_cast<double>(view.textureTelemetry.nameLookups)
-                                            : 0.0;
-            ImGui::Text("Texture names resolved: %llu / %llu (%.1f%%)",
-                        static_cast<unsigned long long>(view.textureTelemetry.namesResolved),
-                        static_cast<unsigned long long>(view.textureTelemetry.nameLookups), nameCoverage);
-            ImGui::Spacing();
-            ImGui::TextWrapped("The provider lowers the authored top mip before Skyrim allocates eligible file-backed "
-                               "textures. Avoided allocation is an independent estimate; actual GPU memory usage is "
-                               "shown in the left column.");
-            ImGui::Spacing();
-            ImGui::TextDisabled("%s", TextureProviderBridge::GetSingleton()->Status());
-        }
+        ImGui::SeparatorText("Texture residency");
+
+        DrawStatusLabel(view.textureProviderAvailable
+                            ? (view.textureTelemetry.hooksInstalled ? "PROVIDER ACTIVE" : "RELAUNCH REQUIRED")
+                            : "PROVIDER UNAVAILABLE",
+                        view.textureProviderAvailable
+                            ? (view.textureTelemetry.hooksInstalled ? UIHealth::kHealthy : UIHealth::kWarning)
+                            : UIHealth::kIdle);
+        ImGui::Spacing();
+        ImGui::Text("Textures reduced: %llu", static_cast<unsigned long long>(view.textureTelemetry.reducedTextures));
+        ImGui::Text("Estimated allocation avoided: %.2f GiB",
+                    static_cast<double>(view.textureTelemetry.estimatedBytesAvoided) / (1024.0 * 1024.0 * 1024.0));
+        const double nameCoverage = view.textureTelemetry.nameLookups > 0
+                                        ? static_cast<double>(view.textureTelemetry.namesResolved) * 100.0 /
+                                              static_cast<double>(view.textureTelemetry.nameLookups)
+                                        : 0.0;
+        ImGui::Text("Texture names resolved: %llu / %llu (%.1f%%)",
+                    static_cast<unsigned long long>(view.textureTelemetry.namesResolved),
+                    static_cast<unsigned long long>(view.textureTelemetry.nameLookups), nameCoverage);
+        ImGui::Spacing();
+        ImGui::TextWrapped("The provider lowers the authored top mip before Skyrim allocates eligible file-backed "
+                           "textures. Avoided allocation is an independent estimate; actual GPU memory usage is "
+                           "shown in the left column.");
+        ImGui::Spacing();
+        ImGui::TextDisabled("%s", TextureProviderBridge::GetSingleton()->Status());
     }
-    if (ImGui::CollapsingHeader("Runtime details"))
+    if (showDeveloperControls)
     {
+        ImGui::Separator();
         ImGui::Text("Host Present calls: %.1f FPS | %s: %s", presentedFps, view.outputLabel, view.outputText.c_str());
         ImGui::Text("Active path: %s%s", view.activeUpscaleStage,
                     TheosRenderPipeline::CommunityShaders::Active() || upscaler->IsEnabled() ? "" : " (inactive)");
@@ -118,51 +110,45 @@ void OverlayUI::DrawImageMeasurements(const FrameView& view)
 
 void OverlayUI::DrawMemoryMeasurements(const FrameView& view)
 {
-    if (ImGui::CollapsingHeader("GPU memory"))
+    ImGui::Separator();
+    if (!view.memorySnapshot.available || view.memorySnapshot.budget == 0)
     {
-        auto* videoMemory = VideoMemoryTelemetry::GetSingleton();
-        if (view.memorySnapshot.available && view.memorySnapshot.budget > 0)
-        {
-            constexpr double kGiB = 1024.0 * 1024.0 * 1024.0;
-            const auto headroomBytes = view.memorySnapshot.currentUsage < view.memorySnapshot.budget
-                                           ? view.memorySnapshot.budget - view.memorySnapshot.currentUsage
-                                           : 0;
-            const float pressure = static_cast<float>(static_cast<double>(view.memorySnapshot.currentUsage) /
-                                                      static_cast<double>(view.memorySnapshot.budget));
-            const UIHealth memoryHealth = pressure >= 0.92f   ? UIHealth::kError
-                                          : pressure >= 0.80f ? UIHealth::kWarning
-                                                              : UIHealth::kHealthy;
-            ImGui::Spacing();
-            DrawStatusLabel(pressure >= 0.92f   ? "BUDGET CRITICAL"
-                            : pressure >= 0.80f ? "BUDGET PRESSURE"
-                                                : "BUDGET HEALTHY",
-                            memoryHealth);
-            ImGui::Text("Current usage: %.2f GiB", static_cast<double>(view.memorySnapshot.currentUsage) / kGiB);
-            ImGui::Text("Driver budget: %.2f GiB", static_cast<double>(view.memorySnapshot.budget) / kGiB);
-            ImGui::Text("Budget headroom: %.2f GiB", static_cast<double>(headroomBytes) / kGiB);
-            if (view.memorySnapshot.dedicatedCapacity > 0)
-            {
-                ImGui::TextDisabled("Physical dedicated memory: %.2f GiB",
-                                    static_cast<double>(view.memorySnapshot.dedicatedCapacity) / kGiB);
-            }
-            char pressureLabel[32]{};
-            std::snprintf(pressureLabel, sizeof(pressureLabel), "%.1f%% of budget", pressure * 100.0f);
-            ImGui::ProgressBar(std::clamp(pressure, 0.0f, 1.0f), ImVec2(-1.0f, 0.0f), pressureLabel);
-        }
-        else
-        {
-            ImGui::Spacing();
-            ImGui::TextDisabled("%s", videoMemory->Status());
-        }
+        DrawSettingsValue("GPU memory", VideoMemoryTelemetry::GetSingleton()->Status());
+        return;
     }
+    constexpr double gib = 1024.0 * 1024.0 * 1024.0;
+    const auto& memory = view.memorySnapshot;
+    const auto headroom = memory.currentUsage < memory.budget ? memory.budget - memory.currentUsage : 0;
+    const float pressure = static_cast<float>(static_cast<double>(memory.currentUsage) / memory.budget);
+    const UIHealth health = pressure >= 0.92f   ? UIHealth::kError
+                            : pressure >= 0.80f ? UIHealth::kWarning
+                                                : UIHealth::kHealthy;
+    DrawSettingsValue("GPU memory",
+                      std::format("{:.2f} / {:.2f} GiB", memory.currentUsage / gib, memory.budget / gib).c_str());
+    DrawSettingsHelp("Current usage / Windows GPU memory budget. The budget can be lower than physical VRAM.");
+    char label[32]{};
+    std::snprintf(label, sizeof(label), "%.1f%% of budget", pressure * 100);
+    ImGui::PushStyleColor(ImGuiCol_PlotHistogram, HealthColor(health));
+    ImGui::ProgressBar(std::clamp(pressure, 0.0f, 1.0f), ImVec2(-1, 0), label);
+    ImGui::PopStyleColor();
+    if (ImGui::IsItemHovered())
+    {
+        ImGui::BeginTooltip();
+        ImGui::Text("Budget headroom: %.2f GiB", headroom / gib);
+        if (memory.dedicatedCapacity > 0)
+            ImGui::Text("Physical dedicated memory: %.2f GiB", memory.dedicatedCapacity / gib);
+        ImGui::EndTooltip();
+    }
+    if (pressure >= 0.80f)
+        DrawStatusLabel(pressure >= 0.92f ? "GPU memory budget critical" : "GPU memory budget pressure", health);
 }
 
-void OverlayUI::DrawCompatibilityPanel(float height, const FrameView& view)
+void OverlayUI::DrawAdvancedPanel(float height, const FrameView& view)
 {
-    if (!ImGui::BeginTabItem("Compatibility", nullptr,
-                             requestedPage == SettingsPage::Compatibility ? ImGuiTabItemFlags_SetSelected : 0))
+    if (!ImGui::BeginTabItem("Advanced", nullptr,
+                             requestedPage == SettingsPage::Advanced ? ImGuiTabItemFlags_SetSelected : 0))
         return;
-    if (BeginSettingsColumns("compatibility", height, view))
+    if (BeginSettingsColumns("advanced", height, view))
     {
         auto* pipeline = RenderPipeline::GetSingleton();
         const bool cs = TheosRenderPipeline::CommunityShaders::Active();
@@ -171,7 +157,8 @@ void OverlayUI::DrawCompatibilityPanel(float height, const FrameView& view)
                           pipeline->mReShadeBeforeUpscaling ? "Before upscaling" : "After upscaling");
         ImGui::TextWrapped("%s", TheosRenderPipeline::ReShadeIntegration::Get().Status().c_str());
         DrawUIStatusPanel();
-        DrawStageMeasurements(SettingsPage::Compatibility);
+        DrawStageMeasurements(SettingsPage::Advanced);
+        DrawReportingDetails(view);
         NextSettingsColumn(height);
         int placement = settingsDraft.reShadeBeforeUpscaling ? 0 : 1;
         const char* placements[]{"Before upscaling", "After upscaling"};
@@ -180,6 +167,10 @@ void OverlayUI::DrawCompatibilityPanel(float height, const FrameView& view)
         DrawSettingsHelp("Processes world colour/depth before Skyrim UI. Changing placement reloads effects.");
         ImGui::Checkbox("Request loading artwork", &settingsDraft.requestLoadingArtwork);
         DrawSettingsHelp("Requests artwork at the next eligible cell transition; Skyrim selects the image.");
+        ImGui::Separator();
+        ImGui::Checkbox("Lab mode", &showDeveloperControls);
+        DrawSettingsHelp("Show runtime details and experimental controls. This changes menu visibility only.");
+        DrawMeasurementControls();
         if (showDeveloperControls && !cs && ImGui::CollapsingHeader("UI integration (Lab)"))
         {
             ImGui::TextDisabled("Save and restart");
@@ -250,27 +241,12 @@ void OverlayUI::DrawUIStatusPanel()
     }
 }
 
-void OverlayUI::DrawSupport(const FrameView& view)
+void OverlayUI::DrawReportingDetails(const FrameView& view)
 {
-    if (supportRequested)
-    {
-        ImGui::OpenPopup("Support##TRP");
-        supportRequested = false;
-    }
-    const auto display = ImGui::GetIO().DisplaySize;
-    ImGui::SetNextWindowSizeConstraints(ImVec2(300, 0),
-                                        ImVec2((std::max)(300.0f, display.x - 40), (std::max)(200.0f, display.y - 40)));
-    ImGui::SetNextWindowSize(ImVec2(650, 0), ImGuiCond_Appearing);
-    if (!ImGui::BeginPopup("Support##TRP"))
-        return;
-    ImGui::PushTextWrapPos(0);
-    ImGui::Checkbox("Lab mode", &showDeveloperControls);
-    DrawMeasurementControls();
+    ImGui::Spacing();
     if (ImGui::CollapsingHeader("Rendering path"))
     {
         DrawPipelineSummary(view);
-        if (requestedPage != SettingsPage::None)
-            ImGui::CloseCurrentPopup();
     }
     if (ImGui::CollapsingHeader("Reporting a problem"))
     {
@@ -297,7 +273,4 @@ void OverlayUI::DrawSupport(const FrameView& view)
             "Include your GPU, driver, game and TRP versions, the active renderer, settings and reproduction steps.");
         ImGui::TextWrapped("Attach TheosRenderPipeline.log from Documents / My Games / Skyrim Special Edition / SKSE.");
     }
-
-    ImGui::PopTextWrapPos();
-    ImGui::EndPopup();
 }

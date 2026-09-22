@@ -15,6 +15,45 @@ SettingsPage DrawPipelineDiagram(const PipelineDiagram& diagram)
     const float padding = style.FramePadding.x;
     const float gap = lineHeight * 2.0f;
     const float stageCount = static_cast<float>(diagram.stages.size());
+    // Advanced can be much narrower than the full-width diagram. Keep every
+    // stage readable and clickable instead of clipping labels into tiny nodes.
+    if (width < lineHeight * 10.0f * stageCount + gap * (stageCount - 1.0f))
+    {
+        SettingsPage requested = SettingsPage::None;
+        ImGui::PushID("pipelineDiagram");
+        ImGui::TextColored(diagram.statusColor, "%s", diagram.status);
+        DrawSettingsValue("Native UI", diagram.nativeUI ? diagram.nativeDetail : "Off");
+        DrawSettingsHelp("Native UI joins the processed scene before frame generation.");
+        if (ImGui::BeginTable("##stages", 2, ImGuiTableFlags_SizingStretchProp))
+        {
+            ImGui::TableSetupColumn("Stage", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+            ImGui::TableSetupColumn("Applied", ImGuiTableColumnFlags_WidthStretch, 1.25f);
+            for (std::size_t i = 0; i < diagram.stages.size(); ++i)
+            {
+                const auto& stage = diagram.stages[i];
+                ImGui::PushID(static_cast<int>(i));
+                ImGui::TableNextColumn();
+                ImGui::PushStyleColor(ImGuiCol_Text, stage.muted ? kMuted : kIvory);
+                if (stage.page != SettingsPage::None)
+                {
+                    if (ImGui::Selectable(stage.title, false, ImGuiSelectableFlags_SpanAllColumns))
+                        requested = stage.page;
+                }
+                else
+                {
+                    ImGui::TextWrapped("%s", stage.title);
+                }
+                DrawSettingsHelp(stage.tooltip);
+                ImGui::TableNextColumn();
+                ImGui::TextWrapped("%s", stage.detail);
+                ImGui::PopStyleColor();
+                ImGui::PopID();
+            }
+            ImGui::EndTable();
+        }
+        ImGui::PopID();
+        return requested;
+    }
     const float nodeWidth = (width - gap * (stageCount - 1.0f)) / stageCount;
     const float textWidth = (std::max)(1.0f, nodeWidth - padding * 2.0f);
     std::string uiLabel = std::string("Native UI | ") + (diagram.nativeUI ? diagram.nativeDetail : "off");
@@ -65,7 +104,8 @@ SettingsPage DrawPipelineDiagram(const PipelineDiagram& diagram)
                           "diagram shows applied settings; controls below may contain unapplied edits.");
     }
 
-    const float branchX = origin.x + static_cast<float>(PipelineDiagram::GenerationStage) * (nodeWidth + gap) - gap * 0.5f;
+    const float branchX =
+        origin.x + static_cast<float>(PipelineDiagram::GenerationStage) * (nodeWidth + gap) - gap * 0.5f;
     if (diagram.nativeUI)
     {
         const float branchY = origin.y + headerHeight * 0.5f;
@@ -105,13 +145,11 @@ SettingsPage DrawPipelineDiagram(const PipelineDiagram& diagram)
         draw->AddRectFilled(start, end,
                             ImGui::GetColorU32(interactiveHover ? ImGuiCol_FrameBgHovered : ImGuiCol_ChildBg),
                             style.FrameRounding);
-        draw->AddRect(start, end, interactiveHover ? amber : ImGui::GetColorU32(ImGuiCol_Border),
-                      style.FrameRounding);
+        draw->AddRect(start, end, interactiveHover ? amber : ImGui::GetColorU32(ImGuiCol_Border), style.FrameRounding);
         draw->PushClipRect(start, end, true);
         const auto titleSize = ImGui::CalcTextSize(stage.title);
         draw->AddText(ImVec2(start.x + (nodeWidth - titleSize.x) * 0.5f, start.y + style.FramePadding.y),
-                      stage.muted ? muted : ivory,
-                      stage.title);
+                      stage.muted ? muted : ivory, stage.title);
         const auto detailSize = ImGui::CalcTextSize(details[i].c_str(), nullptr, false, textWidth);
         draw->AddText(ImGui::GetFont(), ImGui::GetFontSize(),
                       ImVec2(start.x + (nodeWidth - detailSize.x) * 0.5f,

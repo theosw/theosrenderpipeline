@@ -183,5 +183,5 @@ void OverlayUI::DrawPipelineSummary(const FrameView& view)
         std::swap(diagram.stages[1], diagram.stages[2]);
     }
 #endif
-    requestedPage = DrawPipelineDiagram(diagram);
+    nextPageRequest = DrawPipelineDiagram(diagram);
 }

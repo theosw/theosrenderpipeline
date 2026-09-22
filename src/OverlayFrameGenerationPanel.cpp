@@ -57,7 +57,7 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& v
             ImGui::TextColored(kOchre, "NVIDIA VRAM budget warning");
         if (nvidiaHost->WarmupPresentsRemaining() > 0)
             ImGui::Text("Warmup: %d frames", nvidiaHost->WarmupPresentsRemaining());
-        if (ImGui::CollapsingHeader("Runtime details"))
+        if (showDeveloperControls && ImGui::CollapsingHeader("Runtime details"))
         {
             ImGui::Text("Evaluations: %llu", static_cast<unsigned long long>(nvidiaHost->EvaluationCount()));
             ImGui::Text("Host Presents: %llu | failures %llu | last 0x%08X",
