@@ -10,6 +10,7 @@
 #include "PerformanceTuning.h"
 #include "SettingsFile.h"
 #include "OverlayHotkeys.h"
+#include "OverlayLayout.h"
 
 #include <SimpleIni.h>
 
@@ -83,7 +84,7 @@ void RenderPipeline::LoadINI()
 	}
 }
 
-bool RenderPipeline::SaveINI()
+bool RenderPipeline::SaveINI(const TheosRenderPipeline::Overlay::Layout* layout)
 {
 	CSimpleIniA ini;
 	ini.SetUnicode();
@@ -124,6 +125,7 @@ bool RenderPipeline::SaveINI()
     frameGeneration->StoreCompatibilityPreference(ini);
     TheosRenderPipeline::SourceDLSSG::StorePreferences(ini, sourceSettings.sourceDLSSG);
 	ini.SetBoolValue("Debug", "LogMenuMetrics", mLogMenuMetrics);
+    if (layout) { TheosRenderPipeline::Overlay::StoreLayout(ini, *layout); }
 	const auto rc = ini.SaveFile(L"Data\\SKSE\\Plugins\\TheosRenderPipeline.ini");
 	if (rc < 0) {
 		logger::error("Could not save Data\\SKSE\\Plugins\\TheosRenderPipeline.ini (rc={})", static_cast<int>(rc));

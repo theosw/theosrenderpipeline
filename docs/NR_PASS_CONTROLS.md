@@ -17,6 +17,13 @@ related tabs. Lab mode starts off and only changes menu visibility; normal FPS,
 inference timing and errors remain visible. Advanced also contains measurement
 controls, the rendering path and information for reporting a problem.
 
+Drag the window edges or corner to resize it and drag the divider to balance
+the columns. The graph grows with the available space. **Save as default** also
+remembers the window position, size and shared divider in the INI's `[Overlay]`
+section. Moving or resizing is immediate and lasts for the session without
+saving; Apply and Discard concern rendering edits. Saved layouts are kept
+on-screen when the output resolution changes.
+
 Both resolution percentages refer to the selected placement's scene size: the
 render size before upscaling or output size after upscaling. Pass 2 processes
 pass 1's result. Both retain separate model histories and remain on the same side

@@ -4,6 +4,7 @@
 #include "PerformanceTuning.h"
 #include "FrameTrace.h"
 #include "CommunityShaderIntegration.h"
+#include <cstdio>
 #include <PCH.h>
 
 using namespace TheosRenderPipeline::Overlay;
@@ -11,17 +12,10 @@ using namespace TheosRenderPipeline::Overlay;
 bool OverlayUI::BeginSettingsColumns(const char* id, float height, const FrameView& view)
 {
     ImGui::PushID(id);
-    if (!ImGui::BeginTable("##columns", 2, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_BordersInnerV))
-    {
-        ImGui::PopID();
-        return false;
-    }
-    ImGui::TableSetupColumn("##readings", ImGuiTableColumnFlags_WidthStretch, 1.0f);
-    ImGui::TableSetupColumn("##controls", ImGuiTableColumnFlags_WidthStretch, 1.0f);
-    ImGui::TableNextColumn();
-    ImGui::BeginChild("##left", ImVec2(0, height), false,
+    const auto columns = DrawColumnSplitter(ImGui::GetContentRegionAvail().x, height, layout.leftFraction);
+    ImGui::BeginChild("##left", ImVec2(columns.left, height), false,
                       ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-    DrawFrameMeasurements(view);
+    DrawFrameMeasurements(view, height);
     ImGui::BeginChild("##details", ImVec2(0, 0), false);
     ImGui::PushTextWrapPos(0);
     return true;
@@ -32,7 +26,7 @@ void OverlayUI::NextSettingsColumn(float height)
     ImGui::PopTextWrapPos();
     ImGui::EndChild();
     ImGui::EndChild();
-    ImGui::TableNextColumn();
+    ImGui::SameLine(0, ColumnGap);
     ImGui::BeginChild("##right", ImVec2(0, height), false);
     ImGui::PushTextWrapPos(0);
     ImGui::PushItemWidth(-180.0f);
@@ -43,11 +37,10 @@ void OverlayUI::EndSettingsColumns()
     ImGui::PopItemWidth();
     ImGui::PopTextWrapPos();
     ImGui::EndChild();
-    ImGui::EndTable();
     ImGui::PopID();
 }
 
-void OverlayUI::DrawFrameMeasurements(const FrameView& view)
+void OverlayUI::DrawFrameMeasurements(const FrameView& view, float columnHeight)
 {
     if (ImGui::BeginTable("##rates", 2, ImGuiTableFlags_SizingStretchSame))
     {
@@ -63,7 +56,13 @@ void OverlayUI::DrawFrameMeasurements(const FrameView& view)
     }
     ImGui::TextDisabled("Frame time: %.2f ms", view.avgMs);
     DrawSettingsHelp("Game-facing Present cadence, before generated frames. This is not GPU execution time.");
-    ImGui::PlotLines("##frameTimes", frameTimesMs, frameTimeCount, frameTimeIndex, nullptr, 0, 50, ImVec2(-1, 65));
+    float graphMaxMs = 50.0f;
+    for (int i = 0; i < frameTimeCount; ++i)
+        graphMaxMs = (std::max)(graphMaxMs, frameTimesMs[i] * 1.1f);
+    char graphScale[32]{};
+    std::snprintf(graphScale, sizeof(graphScale), "0-%.0f ms", graphMaxMs);
+    ImGui::PlotLines("##frameTimes", frameTimesMs, frameTimeCount, frameTimeIndex, graphScale, 0, graphMaxMs,
+                     ImVec2(-1, GraphHeight(columnHeight)));
     ImGui::Spacing();
 }
 

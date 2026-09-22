@@ -11,6 +11,7 @@
 #include "OverlayHotkeys.h"
 #include "RendererSettings.h"
 #include "OverlayPipeline.h"
+#include "OverlayLayout.h"
 
 namespace TheosRenderPipeline::SourceDLSSG { struct NeuralSnapshot; }
 
@@ -47,7 +48,7 @@ private:
     bool BeginSettingsColumns(const char* id, float height, const FrameView& view);
     void NextSettingsColumn(float height);
     void EndSettingsColumns();
-    void DrawFrameMeasurements(const FrameView& view);
+    void DrawFrameMeasurements(const FrameView& view, float columnHeight);
     void DrawImageMeasurements(const FrameView& view);
     void DrawStageMeasurements(TheosRenderPipeline::Overlay::SettingsPage page);
     void DrawMemoryMeasurements(const FrameView& view);
@@ -79,6 +80,9 @@ private:
     TheosRenderPipeline::Overlay::SettingsPage requestedPage{TheosRenderPipeline::Overlay::SettingsPage::None};
 	TheosRenderPipeline::RendererSettingsDraft settingsDraft{};
     bool nrRuntimePresent{false};
+    TheosRenderPipeline::Overlay::Layout layout;
+    bool layoutPending{true};
+    float layoutDisplayWidth{}, layoutDisplayHeight{};
 	std::string actionMessage;
 	bool actionMessageIsError{ false };
 

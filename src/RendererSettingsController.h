@@ -7,6 +7,7 @@ class RenderPipeline;
 class SourceFrameGeneration;
 class NvidiaHost;
 class PerformanceTuning;
+namespace TheosRenderPipeline::Overlay { struct Layout; }
 
 namespace TheosRenderPipeline
 {
@@ -25,7 +26,7 @@ class RendererSettingsController
     static RendererSettingsController Current();
     RendererSettingsDraft Capture(bool nrRuntimePresent, bool readTextures = true) const;
     int CountChanges(const RendererSettingsDraft& draft, bool nrRuntimePresent) const;
-    RendererSettingsResult Apply(const RendererSettingsDraft& draft, bool save);
+    RendererSettingsResult Apply(const RendererSettingsDraft& draft, bool save, const Overlay::Layout* layout = nullptr);
     RendererSettingsResult SetNeuralRenderingEnabled(bool enabled);
 
   private:

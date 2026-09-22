@@ -73,7 +73,7 @@ int RendererSettingsController::CountChanges(const RendererSettingsDraft& draft,
 }
 
 RendererSettingsResult RendererSettingsController::Apply(const RendererSettingsDraft& settingsDraft,
-                                                         bool a_saveAsDefault)
+                                                         bool a_saveAsDefault, const Overlay::Layout* layout)
 {
     if (!settingsDraft.valid)
     {
@@ -140,7 +140,7 @@ RendererSettingsResult RendererSettingsController::Apply(const RendererSettingsD
     }
     if (a_saveAsDefault)
     {
-        const bool saved = upscaler_.SaveINI();
+        const bool saved = upscaler_.SaveINI(layout);
         actionMessage =
             saved ? "Startup defaults saved." : "Could not write TheosRenderPipeline.ini; settings remain active for this session.";
         actionMessageIsError = !saved;

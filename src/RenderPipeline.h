@@ -11,6 +11,8 @@
 #include <d3d11.h>
 #include <dxgi.h>
 
+namespace TheosRenderPipeline::Overlay { struct Layout; }
+
 // Owner of the game's TAA toggle; identified and named by the upstream
 // Skyrim-Upscaler project.
 struct UnkOuterStruct
@@ -144,7 +146,7 @@ public:
 	void LoadINI();
 	// Returns false when the live MO2-projected INI could not be written. The
 	// overlay surfaces this result so persistence failures are never silent.
-	bool SaveINI();
+	bool SaveINI(const TheosRenderPipeline::Overlay::Layout* layout = nullptr);
 	void MessageHandler(SKSE::MessagingInterface::Message* a_msg);
 
 	bool IsEnabled();

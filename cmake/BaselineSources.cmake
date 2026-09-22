@@ -122,6 +122,8 @@ set(ARP_BASELINE_SOURCES
     src/OverlayFrameView.h
     src/OverlayPipeline.cpp
     src/OverlayPipeline.h
+    src/OverlayLayout.cpp
+    src/OverlayLayout.h
     src/OverlayImagePanel.cpp
     src/OverlayAdvancedPanel.cpp
     src/OverlayUIStyle.cpp
