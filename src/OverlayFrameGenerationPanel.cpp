@@ -79,7 +79,6 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& v
             ImGui::TextWrapped("%s", nvidiaHost->Status().c_str());
             if (view.sourceDLSSGActive)
             {
-                const auto& sourceBackend = TheosRenderPipeline::SourceDLSSG::Backend::Get();
                 ImGui::Text("Configured multiplier: x%u", sourceBackend.Snapshot().options.numFramesToGenerate + 1);
                 ImGui::Text("Output limit submitted interval: %u us", sourceBackend.Snapshot().frameLimitSubmittedUs);
                 ImGui::TextWrapped("MFG: %s", sourceBackend.MFGState().status);
