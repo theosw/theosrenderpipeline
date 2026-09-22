@@ -71,6 +71,11 @@ transport code. The latter two remove only a verified software WARP device,
 with tracing respectively unrequested and requested before device creation.
 They check real device reasons/DRED query results, retained stage/slot evidence,
 original HRESULT, one report, healthy operation and later failure retention.
+The fixture records copy work and leaves a copy queued at removal. On the tested
+WARP runtime, explicit RemoveDevice returns successful DRED queries with empty
+breadcrumb/allocation lists; this does not validate physical-GPU breadcrumb
+collection. The log preserves that absence instead of treating it as success
+evidence for the faulting operation. Nonempty serialization is covered below.
 Synthetic DRED lists cover missing pointers, invalid completion counts, 64K
 history wrapping, cyclic lists, allocation lists and string sanitization.
 These tests do not reproduce a physical GPU/driver failure or validate Skyrim

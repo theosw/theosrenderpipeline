@@ -4,6 +4,7 @@
 #include <spdlog/spdlog.h>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -11,10 +12,14 @@
 
 using namespace TheosRenderPipeline::SourceDLSSG;
 using Microsoft::WRL::ComPtr;
+static std::ostringstream* capturedLog{};
 
 static void Require(bool value, const char* reason)
 {
-    if (!value) { std::fprintf(stderr, "FAIL: %s\n", reason); std::exit(1); }
+    if (!value) {
+        if (capturedLog) { std::fputs(capturedLog->str().c_str(), stderr); }
+        std::fprintf(stderr, "FAIL: %s\n", reason); std::exit(1);
+    }
 }
 static void Check(HRESULT result, const char* reason)
 {
@@ -110,6 +115,9 @@ static void SoftwareDeviceLoss(std::ostringstream& log, bool dredEnabled)
     Require((desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) != 0, "device-removal fixture must use only a software adapter");
     ComPtr<ID3D12Device> device12;
     Check(D3D12CreateDevice(warp.Get(), D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(&device12)), "WARP D3D12");
+    D3D12_FEATURE_DATA_EXISTING_HEAPS existingHeaps{};
+    const auto heapSupport = device12->CheckFeatureSupport(D3D12_FEATURE_EXISTING_HEAPS, &existingHeaps, sizeof(existingHeaps));
+    std::printf("WARP ExistingHeaps result=0x%08X supported=%u\n", static_cast<unsigned>(heapSupport), existingHeaps.Supported);
     ComPtr<ID3D11Device> device11;
     Check(D3D11CreateDevice(warp.Get(), D3D_DRIVER_TYPE_UNKNOWN, nullptr, 0, nullptr, 0,
         D3D11_SDK_VERSION, &device11, nullptr, nullptr), "WARP D3D11");
@@ -119,10 +127,31 @@ static void SoftwareDeviceLoss(std::ostringstream& log, bool dredEnabled)
     Check(device12->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&queue)), "WARP queue");
     Interop interop;
     Check(interop.Initialize(device11.Get(), device12.Get(), queue.Get()), "production interop");
+    D3D12_RESOURCE_DESC buffer{};
+    buffer.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    buffer.Width = 256;
+    buffer.Height = 1;
+    buffer.DepthOrArraySize = buffer.MipLevels = 1;
+    buffer.SampleDesc.Count = 1;
+    buffer.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    D3D12_HEAP_PROPERTIES uploadHeap{};
+    uploadHeap.Type = D3D12_HEAP_TYPE_UPLOAD;
+    D3D12_HEAP_PROPERTIES gpuHeap{};
+    gpuHeap.Type = D3D12_HEAP_TYPE_DEFAULT;
+    ComPtr<ID3D12Resource> upload, destination;
+    Check(device12->CreateCommittedResource(&uploadHeap, D3D12_HEAP_FLAG_NONE, &buffer,
+        D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&upload)), "WARP copy input");
+    Check(device12->CreateCommittedResource(&gpuHeap, D3D12_HEAP_FLAG_NONE, &buffer,
+        D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&destination)), "WARP copy output");
+    void* data = nullptr;
+    Check(upload->Map(0, nullptr, &data), "map copy input");
+    std::memset(data, 0x5A, 256);
+    upload->Unmap(0, nullptr);
     for (unsigned i = 0; i < 3; ++i) {
         ID3D12GraphicsCommandList* list = nullptr;
         Check(interop.SignalD3D11(Work::Upscaling), "produce inputs");
         Check(interop.Begin(Work::Upscaling, &list), "begin healthy NR transport");
+        list->CopyBufferRegion(destination.Get(), 0, upload.Get(), 0, 256);
         Check(interop.Submit(Work::Upscaling), "submit healthy work");
         Check(interop.Drain(), "retire healthy work");
     }
@@ -130,6 +159,16 @@ static void SoftwareDeviceLoss(std::ostringstream& log, bool dredEnabled)
     DeviceLossDiagnostics healthy;
     Require(healthy.Report(E_INVALIDARG, "validation rejection", 2, device11.Get(), device12.Get(), {}), "non-removal failure report");
     Require(Contains(log, "reason12=0x00000000 (S_OK)"), "healthy device reason explicit");
+
+    // Keep a named command list outstanding at removal. Completed/retired
+    // work may legitimately have no retained DRED breadcrumb node.
+    ComPtr<ID3D12Fence> gate;
+    Check(device12->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&gate)), "WARP pending-work gate");
+    Check(queue->Wait(gate.Get(), 1), "block only the software queue");
+    ID3D12GraphicsCommandList* pendingList = nullptr;
+    Check(interop.Begin(Work::Upscaling, &pendingList), "record pending copy");
+    pendingList->CopyBufferRegion(destination.Get(), 0, upload.Get(), 0, 256);
+    Check(interop.Submit(Work::Upscaling), "submit pending copy");
 
     ComPtr<ID3D12Device5> removable;
     Check(device12.As(&removable), "WARP removable device");
@@ -146,12 +185,16 @@ static void SoftwareDeviceLoss(std::ostringstream& log, bool dredEnabled)
     Require(diagnostic.Report(result, "begin NR before DLSS", 12580, device11.Get(), device12.Get(), retained), "real device failure captured");
     Require(GetLastError() == 9876, "real device diagnostics preserve last error");
     Require(Contains(log, "operation=begin NR before DLSS sessionFrame=12580 result=0x887A0005"), "reporter boundary represented");
-    Require(Contains(log, "retainedInteropFailure=true") && Contains(log, "work=upscaling slot=0"), "interop context written");
+    Require(Contains(log, "retainedInteropFailure=true") && Contains(log, "work=upscaling slot=1"), "interop context written");
     Require(Contains(log, "DRED interfaceResult=0x00000000"), "actual DRED interface queried");
     Require(Contains(log, "DRED breadcrumbsResult="), "actual DRED result or unavailability logged");
     if (dredEnabled) {
         Require(Contains(log, "DRED requested=true configured=true"), "DRED configured before device creation");
         Require(Contains(log, "DRED breadcrumbsResult=0x00000000"), "enabled WARP breadcrumbs accessible");
+        // Explicit RemoveDevice can return successful queries with empty data,
+        // including with work pending. Do not fabricate a breadcrumb acceptance.
+        Require(Contains(log, "name=CopyBufferRegion") || Contains(log, "DRED breadcrumbLists=0 truncated=false"),
+            "captured work or explicit empty breadcrumb result");
     }
     const auto size = log.str().size();
     Require(!diagnostic.Report(result, "outer Present", 12581, device11.Get(), device12.Get(), retained), "follow-on Present failure suppressed");
@@ -159,6 +202,9 @@ static void SoftwareDeviceLoss(std::ostringstream& log, bool dredEnabled)
     (void)interop.Drain();
     Require(interop.LastFailure().stage == retained.stage && interop.LastFailure().result == result,
         "later retirement failure cannot overwrite first evidence");
+    // No completion proof after removal: keep pending fixture resources alive
+    // until process exit, matching production's retained-ownership boundary.
+    (void)gate.Detach(); (void)upload.Detach(); (void)destination.Detach();
     std::printf("PASS: production WARP interop removal, native reasons, DRED=%u, first-failure retention\n", dredEnabled);
 }
 
@@ -166,6 +212,7 @@ int main(int argc, char** argv)
 {
     SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
     std::ostringstream log;
+    capturedLog = &log;
     auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(log);
     spdlog::set_default_logger(std::make_shared<spdlog::logger>("device-loss-test", sink));
     if (argc > 1 && std::string_view(argv[1]) == "contracts") { Contracts(log); }
