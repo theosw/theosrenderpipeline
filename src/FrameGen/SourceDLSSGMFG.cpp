@@ -3,6 +3,7 @@
 #include "../PluginPaths.h"
 #include "CommunityShaderIntegration.h"
 #include "SourceDLSSGMFGPatch.h"
+#include "SourceDLSSGModuleDiagnostics.h"
 #include "../../extern/RTX40MFG/midpoint_fix.h"
 #include "../../extern/RTX40MFG/dlssg_provider_policy.h"
 #include "../../extern/MFGAmpere/runtime.hpp"
@@ -22,6 +23,22 @@ namespace TheosRenderPipeline::SourceDLSSG
 		HMODULE RetainConfiguredModule(const std::filesystem::path& directory, const wchar_t* name)
 		{
 			return PluginPaths::RetainLoadedModule(directory / name);
+		}
+		void LogConfiguredModules(const std::filesystem::path& directory, HMODULE wrapper, HMODULE provider,
+			bool checkAdaExports = true) noexcept
+		{
+			try {
+				constexpr ModuleDiagnostics::ExportRequirement wrapperExports[]{ { "slGetPluginFunction" } };
+				constexpr ModuleDiagnostics::ExportRequirement providerExports[]{
+					{ dlssg_provider_policy::kD3d12ImplementationExport },
+					{ dlssg_provider_policy::kDirectSrImplementationExport, false },
+					{ "NVSDK_NGX_GetGPUArchitecture" }, { "NVSDK_NGX_D3D12_CreateFeature" }
+				};
+				ModuleDiagnostics::Log(directory / L"sl.dlss_g.dll", wrapper,
+					checkAdaExports ? std::span(wrapperExports) : std::span<const ModuleDiagnostics::ExportRequirement>{});
+				ModuleDiagnostics::Log(directory / L"nvngx_dlssg.dll", provider,
+					checkAdaExports ? std::span(providerExports) : std::span<const ModuleDiagnostics::ExportRequirement>{});
+			} catch (...) {} // Diagnostic path construction must not change startup.
 		}
 	}
 	[[noreturn]] void MFGUnlock::Fail(const char* reason)
@@ -79,6 +96,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (state_.UsesAmpereUnlock()) {
 			wrapper_ = RetainConfiguredModule(directory, L"sl.dlss_g.dll");
 			provider_ = RetainConfiguredModule(directory, L"nvngx_dlssg.dll");
+			// Ada export expectations must not be reported as Ampere policy.
+			LogConfiguredModules(directory, wrapper_, provider_, false);
 			if (!wrapper_ || !provider_) { Fail("prepared Ampere modules changed during Streamline initialization"); }
 			const auto snapshot = trp::ampere::Snapshot();
 			state_.wrapperPatched = state_.providerPatched = state_.temporalReady = snapshot.prepared && snapshot.bridgeInstalled;
@@ -96,6 +115,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		wrapper_ = RetainConfiguredModule(directory, L"sl.dlss_g.dll");
 		provider_ = RetainConfiguredModule(directory, L"nvngx_dlssg.dll");
 		providerPath_ = directory / L"nvngx_dlssg.dll";
+		LogConfiguredModules(directory, wrapper_, provider_);
 		if (!wrapper_ || !provider_ || !GetProcAddress(wrapper_, "slGetPluginFunction") ||
 			!dlssg_provider_policy::IsDlssgImplementationModule(provider_) ||
 			!GetProcAddress(provider_, "NVSDK_NGX_GetGPUArchitecture") ||

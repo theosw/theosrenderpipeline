@@ -1,16 +1,38 @@
 #include "PluginPaths.h"
+#include "FrameGen/SourceDLSSGModuleDiagnostics.h"
 #include <detours/Detours.h>
+#include <spdlog/spdlog.h>
+#include <spdlog/sinks/ostream_sink.h>
 
 #include <algorithm>
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <sstream>
 
 namespace Paths = TheosRenderPipeline::PluginPaths;
+namespace Diagnostics = TheosRenderPipeline::SourceDLSSG::ModuleDiagnostics;
 
 void Require(bool condition, const char* message)
 {
 	if (!condition) { throw std::runtime_error(message); }
+}
+
+std::string Diagnostic(const std::filesystem::path& path, HMODULE module)
+{
+	std::ostringstream output;
+	const auto previous = spdlog::default_logger();
+	auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(output);
+	spdlog::set_default_logger(std::make_shared<spdlog::logger>("module-diagnostic-test", sink));
+	constexpr Diagnostics::ExportRequirement exports[]{
+		{ "ModuleIdentity" }, { "MissingExport" }, { "ModuleIdentity", false }, { "AbsentExport", false }
+	};
+	SetLastError(ERROR_CANCELLED);
+	Diagnostics::Log(path, module, exports);
+	const auto preservedError = GetLastError();
+	spdlog::set_default_logger(previous);
+	Require(preservedError == ERROR_CANCELLED, "diagnostics must preserve caller Win32 error");
+	return output.str();
 }
 
 struct Module
@@ -65,6 +87,12 @@ int wmain(int argc, wchar_t** argv)
 		auto pathA = Paths::Normalize(argv[1]);
 		auto pathB = Paths::Normalize(argv[2]);
 		Require(pathA.filename() == pathB.filename() && pathA != pathB, "same filename in different directories required");
+		const auto unloaded = Diagnostic(pathA, nullptr);
+		Require(unloaded.find("fileAccessible=true") != std::string::npos &&
+			unloaded.find("retained=false") != std::string::npos &&
+			unloaded.find("sameNameCandidates=0") != std::string::npos,
+			"present-on-disk but unloaded DLL must be distinguished");
+		Require(!GetModuleHandleW(pathA.c_str()), "diagnostics must not load the configured DLL");
 		Module a, b;
 		if (std::wstring_view(argv[3]) == L"a-first") {
 			a.handle = LoadLibraryW(pathA.c_str()); b.handle = LoadLibraryW(pathB.c_str());
@@ -88,6 +116,24 @@ int wmain(int argc, wchar_t** argv)
 		Module retainedB{Paths::RetainLoadedModule(pathB)};
 		Require(retainedA.handle == a.handle && retainedB.handle == b.handle, "configured module selected regardless of load order");
 		Require(Identity(retainedA.handle) == 1 && Identity(retainedB.handle) == 2, "selected exports retain distinct module state");
+		const auto loaded = Diagnostic(pathA, retainedA.handle);
+		Require(loaded.find("reported=" + pathA.string()) != std::string::npos &&
+			loaded.find("configuredMatch=true") != std::string::npos && loaded.find("diskVersion=") != std::string::npos,
+			"diagnostics must identify the retained module in direct and virtual modes");
+		Require(loaded.find("export=ModuleIdentity present=true expectedPresent=true passed=true win32=0") != std::string::npos &&
+			loaded.find("export=MissingExport present=false expectedPresent=true passed=false win32=127") != std::string::npos &&
+			loaded.find("export=ModuleIdentity present=true expectedPresent=false passed=false win32=0") != std::string::npos &&
+			loaded.find("export=AbsentExport present=false expectedPresent=false passed=true") != std::string::npos,
+			"diagnostics must distinguish required, missing and forbidden exports without changing admission");
+		const auto missingPath = pathA.parent_path() / L"missing" / pathA.filename();
+		const auto foreign = Diagnostic(missingPath, nullptr);
+		Require(foreign.find("fileAccessible=false") != std::string::npos &&
+			foreign.find("sameNameCandidates=2") != std::string::npos &&
+			foreign.find("configuredMatch=false") != std::string::npos &&
+			foreign.find("reported=" + pathA.string()) != std::string::npos &&
+			foreign.find("reported=" + pathB.string()) != std::string::npos &&
+			foreign.find("status=not-checked reason=module-not-retained") != std::string::npos,
+			"diagnostics must report both foreign DLLs without treating them as selected modules");
 		Require(!Paths::RetainLoadedModule(pathA.parent_path() / L"missing" / pathA.filename()), "missing path must not fall back to same-named DLL");
 		Require(!Paths::RetainLoadedModule(pathA.filename()), "relative name must not select a runtime");
 		Require(!Paths::RetainLoadedModule({}), "empty path must not select the executable");
@@ -102,7 +148,9 @@ int wmain(int argc, wchar_t** argv)
 		Require(Identity(retainedB.handle) == 2, "releasing first instance does not unload second");
 		b.Release(); retainedB.Release();
 		Require(!Paths::RetainLoadedModule(pathB), "all fixture references released");
-		std::cout << "Configured module selection and independent lifetime passed\n";
+		Require(Diagnostic(pathB, nullptr).find("sameNameCandidates=0") != std::string::npos,
+			"diagnostic enumeration must release all temporary module references");
+		std::cout << "Configured module selection, diagnostics and independent lifetime passed\n";
 		return 0;
 	} catch (const std::exception& e) {
 		std::cerr << e.what() << '\n';
