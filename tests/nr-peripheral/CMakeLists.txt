@@ -29,3 +29,10 @@ if(TRP_NR_VENDOR_BENCHMARK)
     target_link_libraries(TRPNeuralPeripheralBenchmark PRIVATE d3d12 d3d11 d3dcompiler dxgi bcrypt version
         "${NGX_SDK}/lib/Windows_x86_64/nvsdk_ngx_d.lib")
 endif()
+# Header-only configuration contract; the main build already supplies SimpleIni.
+if(TRP_SIMPLEINI_INCLUDE_DIR)
+    add_executable(TRPNeuralPassSettingsTests ../NeuralPassSettingsTests.cpp)
+    target_compile_features(TRPNeuralPassSettingsTests PRIVATE cxx_std_20)
+    target_include_directories(TRPNeuralPassSettingsTests PRIVATE ../../src "${TRP_SIMPLEINI_INCLUDE_DIR}")
+    add_test(NAME NeuralPassSettings COMMAND TRPNeuralPassSettingsTests)
+endif()

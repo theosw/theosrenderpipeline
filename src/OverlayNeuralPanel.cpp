@@ -16,13 +16,10 @@ namespace
 {
 void DrawNRReconstructionControls(TheosRenderPipeline::NeuralRendering::Reconstruction& value, bool producerColor)
 {
-    if (!ImGui::CollapsingHeader("Advanced reconstruction"))
+    if (!ImGui::CollapsingHeader("Shared reconstruction"))
     {
         return;
     }
-    const char* presets[]{"Default", "Shipping"};
-    ImGui::Combo("Network preset", &value.preset, presets, IM_ARRAYSIZE(presets));
-    DrawSettingsHelp("NR network selection, separate from DLSS model presets.");
     const char* methods[]{"Auto | Reconstruct reduced input", "Residual | Add NR changes",
                           "Ratio | Transfer lighting and colour"};
     int method = static_cast<int>(value.method);
@@ -55,6 +52,81 @@ void DrawNRReconstructionControls(TheosRenderPipeline::NeuralRendering::Reconstr
                          ? "Scene normalization sets the brightness range NR sees. Changes restart its history and may "
                            "stall briefly."
                          : "HDR input is used by Ratio reconstruction; it does not change the display HDR mode.");
+}
+
+void DrawNRInputPreview(const char* label, std::uint32_t width, std::uint32_t height, float inputScale,
+                        const TheosRenderPipeline::NeuralRendering::Reconstruction& shared)
+{
+    if (!width || !height)
+    {
+        return;
+    }
+    auto reconstruction = shared;
+    reconstruction.inputScale = inputScale;
+    ImGui::Text("%s: %u x %u", label, TheosRenderPipeline::NeuralRendering::ModelExtent(width, reconstruction),
+                TheosRenderPipeline::NeuralRendering::ModelExtent(height, reconstruction));
+}
+
+void DrawNRPassControls(float& inputScale, int& preset, TheosRenderPipeline::NeuralRendering::Tuning& tuning,
+                        const TheosRenderPipeline::NeuralRendering::Reconstruction& shared, std::uint32_t width,
+                        std::uint32_t height, bool beforeUpscaling, bool readOnly = false)
+{
+    ImGui::BeginDisabled(readOnly);
+    float percent = inputScale * 100;
+    if (ImGui::SliderFloat("NR input resolution", &percent, 25, 100, "%.1f%%"))
+    {
+        inputScale = percent / 100;
+    }
+    const char* presets[]{"Default", "Shipping"};
+    ImGui::Combo("Network preset", &preset, presets, IM_ARRAYSIZE(presets));
+    ImGui::EndDisabled();
+    DrawNRInputPreview("Requested input at current stage size", width, height, inputScale, shared);
+    if (ImGui::CollapsingHeader("Appearance"))
+    {
+        ImGui::BeginDisabled(readOnly);
+        const char* styles[]{"Style 0", "Style 1", "Style 2", "Style 3", "Style 4", "Style 5", "Style 6", "Style 7"};
+        ImGui::Combo("Style", &tuning.style, styles, IM_ARRAYSIZE(styles));
+        ImGui::SliderFloat("Intensity", &tuning.intensity, 0, 2);
+        ImGui::SliderFloat("Local tone", &tuning.localToneStrength, 0, 2);
+        ImGui::SliderFloat("Local structure", &tuning.localStructureStrength, 0, 2);
+        ImGui::SliderFloat("Skin structure", &tuning.skinStructureStrength, -1, 2);
+        ImGui::Checkbox("Automatic skin mask", &tuning.useAutoSkinMask);
+        if (TheosRenderPipeline::CommunityShaders::Active())
+        {
+            DrawSettingsHelp("CS draws UI after NR in both placements.");
+        }
+        else
+        {
+            ImGui::BeginDisabled(beforeUpscaling);
+            ImGui::Checkbox("UI correction", &tuning.uiCorrection);
+            ImGui::EndDisabled();
+            if (beforeUpscaling)
+            {
+                DrawSettingsHelp("UI correction is unused before upscaling; native UI is added later.");
+            }
+        }
+        ImGui::EndDisabled();
+        DrawSettingsHelp("Skin -1 follows local structure. Ctrl-click a slider to type.");
+    }
+}
+
+void DrawNRAppliedPasses(const TheosRenderPipeline::SourceDLSSG::NeuralOptions& applied)
+{
+    const auto* host = NvidiaHost::GetSingleton();
+    const auto width = applied.beforeUpscaling ? host->RenderWidth() : host->OutputWidth();
+    const auto height = applied.beforeUpscaling ? host->RenderHeight() : host->OutputHeight();
+    ImGui::Text("Pass 1 session request: %.1f%% | network %s", applied.reconstruction.inputScale * 100,
+                applied.reconstruction.preset == 1 ? "Shipping" : "Default");
+    DrawNRInputPreview("Pass 1 input at current stage size", width, height, applied.reconstruction.inputScale,
+                       applied.reconstruction);
+    if (applied.passes == 2)
+    {
+        const auto second = applied.EffectiveSecond();
+        ImGui::Text("Pass 2 session request: %s | %.1f%% | network %s", second.linked ? "linked" : "custom",
+                    second.inputScale * 100, second.preset == 1 ? "Shipping" : "Default");
+        DrawNRInputPreview("Pass 2 input at current stage size", width, height, second.inputScale,
+                           applied.reconstruction);
+    }
 }
 
 void DrawSourceNeuralControls(TheosRenderPipeline::SourceDLSSG::Preferences& draft, int upscaleType,
@@ -104,15 +176,19 @@ void DrawSourceNeuralControls(TheosRenderPipeline::SourceDLSSG::Preferences& dra
                        state.failed      ? "NR failed"
                        : state.active    ? "NR active"
                        : unavailable     ? "NR unavailable"
-                       : applied.enabled ? "NR waiting for a world frame"
+                       : applied.enabled ? "NR inactive"
                                          : "NR off");
     if (unavailable)
     {
         ImGui::TextWrapped("%s", unavailableReason);
         ImGui::TextWrapped("NR runtime path: %s", frameGen->settings.neuralRenderingRuntimePath.c_str());
     }
+    if (applied.enabled && !state.active && !unavailable)
+    {
+        ImGui::TextWrapped("%s", state.status.c_str());
+    }
     ImGui::BeginDisabled(unavailable);
-    DrawSettingsHeading("Placement");
+    DrawSettingsHeading("Shared settings");
     ImGui::Checkbox("Enable Neural Rendering##sourceNR", &draft.neuralEnabled);
     int placement = draft.neuralBeforeUpscaling ? 0 : 1;
     const char* placements[]{"Before upscaling", "After upscaling"};
@@ -131,15 +207,7 @@ void DrawSourceNeuralControls(TheosRenderPipeline::SourceDLSSG::Preferences& dra
     {
         ImGui::TextWrapped("NR processes the world before DLSS. UI correction is unused; native UI is added later.");
     }
-    DrawSettingsHeading("Performance");
     auto& reconstruction = draft.neuralReconstruction;
-    float percent = reconstruction.inputScale * 100;
-    if (ImGui::SliderFloat("NR input resolution", &percent, 25, 100, "%.1f%%"))
-    {
-        reconstruction.inputScale = percent / 100;
-    }
-    DrawSettingsHelp("Percentage of width and height at the selected stage: render resolution before upscaling, output "
-                     "resolution after. Game and UI sizes stay unchanged.");
     int passChoice = draft.neuralPasses - 1;
     const char* passes[]{"One", "Two"};
     if (ImGui::Combo("Passes##sourceNR", &passChoice, passes, IM_ARRAYSIZE(passes)))
@@ -148,8 +216,9 @@ void DrawSourceNeuralControls(TheosRenderPipeline::SourceDLSSG::Preferences& dra
     }
     if (draft.neuralPasses == 2)
     {
-        ImGui::TextWrapped("The second pass processes the first result with separate history. It adds GPU time and "
-                           "memory; stronger processing may also amplify artifacts.");
+        ImGui::TextWrapped("Pass 2 processes Pass 1's result with separate history. Both passes run on the selected "
+                           "side of upscaling. "
+                           "The second evaluation adds GPU time and memory.");
     }
     ImGui::Checkbox("Peripheral compression (experimental)", &reconstruction.peripheralCompression);
     if (reconstruction.peripheralCompression)
@@ -164,45 +233,52 @@ void DrawSourceNeuralControls(TheosRenderPipeline::SourceDLSSG::Preferences& dra
         DrawSettingsHelp("Combines colour encoding with downsampling where needed, and depth/motion packing with "
                          "peripheral compression. Some configurations have no passes to combine.");
     }
+    DrawNRReconstructionControls(reconstruction,
+                                 TheosRenderPipeline::CommunityShaders::Active() && draft.neuralBeforeUpscaling);
+    DrawSettingsHelp("Reconstruction and optimization options are shared. Each input percentage uses the selected "
+                     "stage's width and height: render size before upscaling, output size after. NR network presets "
+                     "are separate from DLSS model presets.");
     const auto* host = NvidiaHost::GetSingleton();
     const auto width = draft.neuralBeforeUpscaling ? host->RenderWidth() : host->OutputWidth();
     const auto height = draft.neuralBeforeUpscaling ? host->RenderHeight() : host->OutputHeight();
-    if (width && height)
+
+    DrawSettingsHeading("Pass 1");
+    ImGui::PushID("nrPass1");
+    DrawNRPassControls(reconstruction.inputScale, reconstruction.preset, draft.neuralTuning, reconstruction, width,
+                       height, draft.neuralBeforeUpscaling);
+    ImGui::PopID();
+    if (draft.neuralPasses == 2)
     {
-        ImGui::Text("Input preview at current stage size: %u x %u",
-                    TheosRenderPipeline::NeuralRendering::ModelExtent(width, reconstruction),
-                    TheosRenderPipeline::NeuralRendering::ModelExtent(height, reconstruction));
-    }
-    DrawSettingsHelp(
-        "Placement, network or resolution changes recreate NR and may stall briefly. Ctrl-click sliders to type.");
-    if (ImGui::CollapsingHeader("Appearance##sourceNR"))
-    {
-        const char* styles[]{"Style 0", "Style 1", "Style 2", "Style 3", "Style 4", "Style 5", "Style 6", "Style 7"};
-        ImGui::Combo("Style##sourceNR", &draft.neuralTuning.style, styles, IM_ARRAYSIZE(styles));
-        ImGui::SliderFloat("Intensity##sourceNR", &draft.neuralTuning.intensity, 0, 2);
-        ImGui::SliderFloat("Local tone##sourceNR", &draft.neuralTuning.localToneStrength, 0, 2);
-        ImGui::SliderFloat("Local structure##sourceNR", &draft.neuralTuning.localStructureStrength, 0, 2);
-        ImGui::SliderFloat("Skin structure##sourceNR", &draft.neuralTuning.skinStructureStrength, -1, 2);
-        ImGui::Checkbox("Automatic skin mask##sourceNR", &draft.neuralTuning.useAutoSkinMask);
-        ImGui::BeginDisabled(draft.neuralBeforeUpscaling);
-        if (TheosRenderPipeline::CommunityShaders::Active())
+        DrawSettingsHeading("Pass 2");
+        ImGui::PushID("nrPass2");
+        auto& second = draft.neuralSecondPass;
+        ImGui::Checkbox("Use Pass 1 settings", &second.linked);
+        if (!second.linked && ImGui::Button("Copy Pass 1 settings"))
         {
-            ImGui::TextWrapped("CS draws UI after NR in both placements.");
+            second.inputScale = reconstruction.inputScale;
+            second.preset = reconstruction.preset;
+            second.tuning = draft.neuralTuning;
         }
-        else
-        {
-            ImGui::Checkbox("UI correction##sourceNR", &draft.neuralTuning.uiCorrection);
-        }
-        ImGui::EndDisabled();
-        ImGui::TextDisabled("Skin -1 follows local structure. Ctrl-click a slider to type.");
+        // Display linked values through a temporary; never overwrite saved custom settings.
+        auto inherited =
+            TheosRenderPipeline::NeuralRendering::EffectiveSecondPass(second, reconstruction, draft.neuralTuning);
+        auto& shown = second.linked ? inherited : second;
+        DrawNRPassControls(shown.inputScale, shown.preset, shown.tuning, reconstruction, width, height,
+                           draft.neuralBeforeUpscaling, second.linked);
+        DrawSettingsHelp(second.linked
+                             ? "Pass 2 follows Pass 1. Your custom Pass 2 settings are retained for later use."
+                             : "Pass 2's percentage uses the scene size, not Pass 1's reduced grid. "
+                               "Its colour changes are transferred back to preserve Pass 1's detail.");
+        ImGui::PopID();
     }
-    DrawNRReconstructionControls(draft.neuralReconstruction,
-                                 TheosRenderPipeline::CommunityShaders::Active() && draft.neuralBeforeUpscaling);
+    DrawSettingsHelp("Placement, network or resolution changes recreate NR and may pause briefly. "
+                     "Appearance changes reset its history.");
     ImGui::EndDisabled();
     ImGui::Spacing();
     if (ImGui::CollapsingHeader("NR runtime details##sourceNR"))
     {
         ImGui::TextWrapped("%s", state.status.c_str());
+        DrawNRAppliedPasses(applied);
         ImGui::Text("Submitted frames %llu | history resets %llu", static_cast<unsigned long long>(state.evaluations),
                     static_cast<unsigned long long>(state.resets));
         ImGui::TextWrapped("NR feeds both real and generated scene frames. Native UI is added afterwards. Frame "

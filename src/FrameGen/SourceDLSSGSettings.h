@@ -1,6 +1,6 @@
 #pragma once
 
-#include "NeuralRenderingTuning.h"
+#include "NeuralRenderingPassSettings.h"
 #include "NeuralRenderingReconstruction.h"
 #include "SourceDLSSGGeneration.h"
 
@@ -17,6 +17,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		int neuralPasses{ 1 };
 		NeuralRendering::Tuning neuralTuning{};
 		NeuralRendering::Reconstruction neuralReconstruction{};
+		NeuralRendering::SecondPassSettings neuralSecondPass{};
 		bool operator==(const Preferences&) const = default;
 	};
 
@@ -28,6 +29,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		value.neuralTuning = NeuralRendering::SanitizeBuild14Tuning(value.neuralTuning);
 		value.neuralPasses = std::clamp(value.neuralPasses, 1, 2);
 		value.neuralReconstruction = NeuralRendering::SanitizeReconstruction(value.neuralReconstruction);
+		value.neuralSecondPass = NeuralRendering::SanitizeSecondPass(value.neuralSecondPass);
 		return value;
 	}
 
@@ -55,6 +57,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		nr.useAutoSkinMask = ini.GetBoolValue(section, "NRAutoSkinMask", false);
 		nr.uiCorrection = ini.GetBoolValue(section, "NRUICorrection", false);
 		value.neuralReconstruction = NeuralRendering::LoadReconstruction(ini, section);
+		value.neuralSecondPass = NeuralRendering::LoadSecondPass(ini, section, value.neuralReconstruction, value.neuralTuning);
 		return SanitizePreferences(value);
 	}
 
@@ -80,5 +83,6 @@ namespace TheosRenderPipeline::SourceDLSSG
 		ini.SetBoolValue(section, "NRAutoSkinMask", nr.useAutoSkinMask);
 		ini.SetBoolValue(section, "NRUICorrection", nr.uiCorrection);
 		NeuralRendering::StoreReconstruction(ini, section, value.neuralReconstruction);
+		NeuralRendering::StoreSecondPass(ini, section, value.neuralSecondPass);
 	}
 }

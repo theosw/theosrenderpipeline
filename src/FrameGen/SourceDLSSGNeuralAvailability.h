@@ -29,6 +29,10 @@ namespace TheosRenderPipeline::SourceDLSSG
                     "This NR runtime cannot run before CS upscaling; use After upscaling, Auto, 100% input and peripheral compression off" :
                     "This NR runtime requires Auto reconstruction at 100% input with peripheral compression off; NR skipped";
             }
+            if (!NeuralRendering::UsesReconstructionContract(build_) && options.passes == 2 &&
+                options.EffectiveSecond().inputScale != NeuralRendering::NormalizeInputScale(options.reconstruction.inputScale)) {
+                return "Independent NR pass resolutions require the newer NR runtime; use linked settings or equal resolutions; NR skipped";
+            }
             return nullptr;
         }
 

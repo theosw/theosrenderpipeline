@@ -129,6 +129,11 @@ int main()
     Require(!availability.UnavailableReason(request, classify), "legacy direct mode remains available after disabling the experiment");
     request.reconstruction.inputScale = 0.5f;
     Require(availability.UnavailableReason(request, classify), "legacy reduced Auto requires unsupported residual reconstruction");
+    request.reconstruction.inputScale = 1; request.passes = 2;
+    request.secondPass.linked = false; request.secondPass.inputScale = .5f;
+    Require(availability.UnavailableReason(request, classify), "legacy custom pass resolution rejected before GPU work");
+    request.secondPass.linked = true;
+    Require(!availability.UnavailableReason(request, classify), "legacy linked passes recover without restart");
     request.reconstruction.inputScale = 1; request.reconstruction.method = ResolveMethod::Ratio;
     Require(availability.UnavailableReason(request, classify), "legacy explicit Ratio is rejected too");
     request.reconstruction.method = ResolveMethod::Auto; request.beforeUpscaling = true; request.worldOnly = false;

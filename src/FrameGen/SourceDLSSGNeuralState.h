@@ -1,7 +1,7 @@
 #pragma once
 
 #include "NeuralRenderingReconstruction.h"
-#include "NeuralRenderingTuning.h"
+#include "NeuralRenderingPassSettings.h"
 #include "SourceDLSSGNeuralTelemetry.h"
 #include <algorithm>
 #include <filesystem>
@@ -21,6 +21,13 @@ namespace TheosRenderPipeline::SourceDLSSG
 		std::filesystem::path runtimePath;
 		NeuralRendering::Tuning tuning{};
 		NeuralRendering::Reconstruction reconstruction{};
+		NeuralRendering::SecondPassSettings secondPass{};
+		NeuralRendering::SecondPassSettings EffectiveSecond() const
+		{
+			auto result = NeuralRendering::EffectiveSecondPass(secondPass, reconstruction, tuning);
+			if (WorldOnly()) { result.tuning.uiCorrection = false; }
+			return result;
+		}
 		bool operator==(const NeuralOptions&) const = default;
 	};
 
@@ -34,6 +41,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 	{
 		options.tuning = NeuralRendering::SanitizeBuild14Tuning(options.tuning);
 		options.passes = std::clamp(options.passes, 1, 2);
+		options.secondPass = NeuralRendering::SanitizeSecondPass(options.secondPass);
 		options.reconstruction = NeuralRendering::SanitizeReconstruction(options.reconstruction);
 		// Reject a missing optional runtime before any GPU work is recorded.
 		// Runtime identity and initialization checks still belong to the session.

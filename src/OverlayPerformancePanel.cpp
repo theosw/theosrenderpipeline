@@ -78,8 +78,9 @@ void OverlayUI::DrawPerformancePanel(const TheosRenderPipeline::SourceDLSSG::Neu
 
 #if !defined(TRP_NO_NEURAL_RENDERING)
         ImGui::TextWrapped(
-            "NVIDIA generation GPU cost is unavailable. NR timing covers its evaluation sequence, including inter-pass "
-            "work. It excludes input downsampling, final resolve/copies, UI composition and the D3D11/D3D12 handoff.");
+            "NVIDIA generation GPU cost is unavailable. NR timing covers the active model evaluations and inter-pass "
+            "preparation. It excludes input downsampling, final Pass 2 restoration/copy, final reconstruction, "
+            "UI composition and the D3D11/D3D12 handoff.");
         const auto& nrTiming = sourceNeural.telemetry;
         if (nrTiming.gpuSamples)
         {
