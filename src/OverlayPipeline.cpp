@@ -15,45 +15,6 @@ SettingsPage DrawPipelineDiagram(const PipelineDiagram& diagram)
     const float padding = style.FramePadding.x;
     const float gap = lineHeight * 2.0f;
     const float stageCount = static_cast<float>(diagram.stages.size());
-    // Advanced can be much narrower than the full-width diagram. Keep every
-    // stage readable and clickable instead of clipping labels into tiny nodes.
-    if (width < lineHeight * 10.0f * stageCount + gap * (stageCount - 1.0f))
-    {
-        SettingsPage requested = SettingsPage::None;
-        ImGui::PushID("pipelineDiagram");
-        ImGui::TextColored(diagram.statusColor, "%s", diagram.status);
-        DrawSettingsValue("Native UI", diagram.nativeUI ? diagram.nativeDetail : "Off");
-        DrawSettingsHelp("Native UI joins the processed scene before frame generation.");
-        if (ImGui::BeginTable("##stages", 2, ImGuiTableFlags_SizingStretchProp))
-        {
-            ImGui::TableSetupColumn("Stage", ImGuiTableColumnFlags_WidthStretch, 1.0f);
-            ImGui::TableSetupColumn("Applied", ImGuiTableColumnFlags_WidthStretch, 1.25f);
-            for (std::size_t i = 0; i < diagram.stages.size(); ++i)
-            {
-                const auto& stage = diagram.stages[i];
-                ImGui::PushID(static_cast<int>(i));
-                ImGui::TableNextColumn();
-                ImGui::PushStyleColor(ImGuiCol_Text, stage.muted ? kMuted : kIvory);
-                if (stage.page != SettingsPage::None)
-                {
-                    if (ImGui::Selectable(stage.title, false, ImGuiSelectableFlags_SpanAllColumns))
-                        requested = stage.page;
-                }
-                else
-                {
-                    ImGui::TextWrapped("%s", stage.title);
-                }
-                DrawSettingsHelp(stage.tooltip);
-                ImGui::TableNextColumn();
-                ImGui::TextWrapped("%s", stage.detail);
-                ImGui::PopStyleColor();
-                ImGui::PopID();
-            }
-            ImGui::EndTable();
-        }
-        ImGui::PopID();
-        return requested;
-    }
     const float nodeWidth = (width - gap * (stageCount - 1.0f)) / stageCount;
     const float textWidth = (std::max)(1.0f, nodeWidth - padding * 2.0f);
     std::string uiLabel = std::string("Native UI | ") + (diagram.nativeUI ? diagram.nativeDetail : "off");
@@ -64,10 +25,13 @@ SettingsPage DrawPipelineDiagram(const PipelineDiagram& diagram)
     const auto uiTextSize = ImGui::CalcTextSize(uiLabel.c_str(), nullptr, false, textWidth);
     const float headerHeight = uiTextSize.y + style.FramePadding.y * 2.0f;
     std::array<std::string, PipelineDiagram::StageCount> details;
+    float titleHeight = lineHeight;
     float detailHeight = lineHeight;
     for (std::size_t i = 0; i < diagram.stages.size(); ++i)
     {
         details[i] = diagram.stages[i].detail;
+        titleHeight =
+            (std::max)(titleHeight, ImGui::CalcTextSize(diagram.stages[i].title, nullptr, false, textWidth).y);
         const auto separator = details[i].find(" | ");
         if (separator != std::string::npos && ImGui::CalcTextSize(details[i].c_str()).x > textWidth)
         {
@@ -75,7 +39,7 @@ SettingsPage DrawPipelineDiagram(const PipelineDiagram& diagram)
         }
         detailHeight = (std::max)(detailHeight, ImGui::CalcTextSize(details[i].c_str(), nullptr, false, textWidth).y);
     }
-    const float nodeHeight = style.FramePadding.y * 2.0f + lineHeight + style.ItemInnerSpacing.y + detailHeight;
+    const float nodeHeight = style.FramePadding.y * 2.0f + titleHeight + style.ItemInnerSpacing.y + detailHeight;
     const float nodeTop = origin.y + headerHeight + style.ItemSpacing.y;
     const float middle = nodeTop + nodeHeight * 0.5f;
     const float height = headerHeight + style.ItemSpacing.y + nodeHeight;
@@ -147,13 +111,14 @@ SettingsPage DrawPipelineDiagram(const PipelineDiagram& diagram)
                             style.FrameRounding);
         draw->AddRect(start, end, interactiveHover ? amber : ImGui::GetColorU32(ImGuiCol_Border), style.FrameRounding);
         draw->PushClipRect(start, end, true);
-        const auto titleSize = ImGui::CalcTextSize(stage.title);
-        draw->AddText(ImVec2(start.x + (nodeWidth - titleSize.x) * 0.5f, start.y + style.FramePadding.y),
-                      stage.muted ? muted : ivory, stage.title);
+        const auto titleSize = ImGui::CalcTextSize(stage.title, nullptr, false, textWidth);
+        draw->AddText(ImGui::GetFont(), ImGui::GetFontSize(),
+                      ImVec2(start.x + (nodeWidth - titleSize.x) * 0.5f, start.y + style.FramePadding.y),
+                      stage.muted ? muted : ivory, stage.title, nullptr, textWidth);
         const auto detailSize = ImGui::CalcTextSize(details[i].c_str(), nullptr, false, textWidth);
         draw->AddText(ImGui::GetFont(), ImGui::GetFontSize(),
                       ImVec2(start.x + (nodeWidth - detailSize.x) * 0.5f,
-                             start.y + style.FramePadding.y + lineHeight + style.ItemInnerSpacing.y),
+                             start.y + style.FramePadding.y + titleHeight + style.ItemInnerSpacing.y),
                       muted, details[i].c_str(), nullptr, textWidth);
         draw->PopClipRect();
         if (hovered)

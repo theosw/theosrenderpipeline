@@ -337,6 +337,7 @@ void OverlayUI::BuildUI()
     layout.y = windowPos.y;
     layout.width = windowSize.x;
     layout.height = windowSize.y;
+    DrawPipelineSummary(view);
     const auto& layoutStyle = ImGui::GetStyle();
     const float reservedActionHeight = ImGui::GetFrameHeightWithSpacing() + ImGui::GetFrameHeight() +
                                        ImGui::GetTextLineHeightWithSpacing() +
@@ -356,8 +357,7 @@ void OverlayUI::BuildUI()
         ImGui::EndTabBar();
     }
 
-    requestedPage = nextPageRequest;
-    nextPageRequest = SettingsPage::None;
+    requestedPage = SettingsPage::None;
     DrawSettingsActions();
 
     ImGui::End();

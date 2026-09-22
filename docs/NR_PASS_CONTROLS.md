@@ -15,7 +15,9 @@ Use Apply, Save as default or Discard for edits to either pass.
 Enable **Lab mode** in **Advanced** to show detailed runtime counters in the
 related tabs. Lab mode starts off and only changes menu visibility; normal FPS,
 inference timing and errors remain visible. Advanced also contains measurement
-controls, the rendering path and information for reporting a problem.
+controls and information for reporting a problem. The full-width pipeline bar
+above the tabs shows the applied rendering order, resolutions and status. Click
+a stage to open its related tab.
 
 Drag the window edges or corner to resize it and drag the divider to balance
 the columns. The graph grows with the available space. **Save as default** also

@@ -76,7 +76,6 @@ private:
 	bool initialized{ false };
 	bool visible{ false };
 	bool showDeveloperControls{ false };
-    TheosRenderPipeline::Overlay::SettingsPage nextPageRequest{TheosRenderPipeline::Overlay::SettingsPage::None};
     TheosRenderPipeline::Overlay::SettingsPage requestedPage{TheosRenderPipeline::Overlay::SettingsPage::None};
 	TheosRenderPipeline::RendererSettingsDraft settingsDraft{};
     bool nrRuntimePresent{false};

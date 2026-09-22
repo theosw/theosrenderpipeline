@@ -244,10 +244,6 @@ void OverlayUI::DrawUIStatusPanel()
 void OverlayUI::DrawReportingDetails(const FrameView& view)
 {
     ImGui::Spacing();
-    if (ImGui::CollapsingHeader("Rendering path"))
-    {
-        DrawPipelineSummary(view);
-    }
     if (ImGui::CollapsingHeader("Reporting a problem"))
     {
         const auto& upscaler = NvidiaHost::GetSingleton()->SourceUpscalerSettings().Effective();
