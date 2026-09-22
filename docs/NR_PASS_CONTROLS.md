@@ -1,20 +1,21 @@
 # Independent NR pass controls
 
-Choose **Two** passes under Neural Rendering's **Shared settings**. The **Pass 1**
+Choose **Two** passes in **Neural Rendering**. The **Pass 1**
 and **Pass 2** sections each contain input resolution, network preset and
-**Appearance** controls. **Use Pass 1 settings** starts enabled; Pass 2 displays
+**Intensity** and expandable **Appearance** controls. **Use Pass 1 settings** starts enabled; Pass 2 displays
 the inherited values as read-only. Uncheck it to edit Pass 2 independently.
-**Copy Pass 1 settings** copies those controls without relinking them.
+**Copy Pass 1** copies those controls without relinking them.
 Relinking preserves your custom pass 2 values for later use.
 
-Input-size previews reflect the edited settings at the current stage size.
-**NR runtime details** shows the session's applied pass requests separately.
-Use Apply, Save as default or Discard changes for edits to either pass.
+Hover over an input-resolution slider to preview the edited model size. The left
+column shows applied pass dimensions and network requests, inference timing, and
+live FPS. It remains visible while scrolling the controls on the right.
+Use Apply, Save as default or Discard for edits to either pass.
 
 Both resolution percentages refer to the selected placement's scene size: the
 render size before upscaling or output size after upscaling. Pass 2 processes
 pass 1's result. Both retain separate model histories and remain on the same side
-of upscaling. Placement, **Shared reconstruction**, peripheral compression, and
+of upscaling. Placement, **Reconstruction**, peripheral compression, and
 combined preparation stay shared. Returning to one pass hides Pass 2 without
 erasing its custom settings.
 

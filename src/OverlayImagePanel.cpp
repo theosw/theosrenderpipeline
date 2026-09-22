@@ -77,8 +77,13 @@ void OverlayUI::DrawImagePanel(float tabCardHeight, const FrameView& view)
     {
         return;
     }
-    ImGui::BeginChild("##imagePage", ImVec2(0, tabCardHeight), false);
-    DrawSettingsHelp("Resolution, reconstruction and detail");
+    if (!BeginSettingsColumns("image", tabCardHeight, view))
+    {
+        ImGui::EndTabItem();
+        return;
+    }
+    DrawImageMeasurements(view);
+    NextSettingsColumn(tabCardHeight);
     if (TheosRenderPipeline::CommunityShaders::Active())
     {
         DrawSettingsHeading("Controlled by Community Shaders", "");
@@ -89,7 +94,7 @@ void OverlayUI::DrawImagePanel(float tabCardHeight, const FrameView& view)
     }
     else
     {
-        DrawSettingsHeading("Resolution", "Mode and scale: save and restart");
+        ImGui::TextDisabled("Mode / scale: save and restart");
         if (ImGui::BeginTable("##resolution", 2, ImGuiTableFlags_SizingStretchSame))
         {
             ImGui::TableNextColumn();
@@ -128,8 +133,6 @@ void OverlayUI::DrawImagePanel(float tabCardHeight, const FrameView& view)
         if (view.sourceDLSSGActive)
         {
             const auto& configuration = host->SourceUpscalerSettings();
-            ImGui::Text("Active: %s | %ux%u -> %dx%d", ModeName(configuration.Effective().mode), host->RenderWidth(),
-                        host->RenderHeight(), view.nativeWidth, view.nativeHeight);
             if (configuration.NeedsRestart())
             {
                 ImGui::TextColored(kAmber, "Mode/render scale awaiting restart");
@@ -140,7 +143,7 @@ void OverlayUI::DrawImagePanel(float tabCardHeight, const FrameView& view)
             }
             else if (configuration.NeedsLiveChange())
             {
-                DrawSettingsHelp("Feature update queued after this frame.");
+                ImGui::TextDisabled("Feature update queued");
             }
         }
         else
@@ -148,7 +151,7 @@ void OverlayUI::DrawImagePanel(float tabCardHeight, const FrameView& view)
             ImGui::TextColored(kRust, "NVIDIA host is unavailable.");
         }
 
-        DrawSettingsHeading("Reconstruction and detail");
+        ImGui::Separator();
         ImGui::TextUnformatted("DLSS model preset");
         ImGui::SetNextItemWidth(-1);
         if (ImGui::BeginCombo("##dlssPreset", TheosRenderPipeline::DLSSPreset::Label(settingsDraft.dlssPreset)))
@@ -162,24 +165,10 @@ void OverlayUI::DrawImagePanel(float tabCardHeight, const FrameView& view)
             }
             ImGui::EndCombo();
         }
-        DrawSettingsHelp(TheosRenderPipeline::DLSSPreset::Description(settingsDraft.dlssPreset));
         DrawSettingsHelp(
-            "Requested preset, not confirmation of the model used by NVIDIA. L/M require a supporting runtime.");
-        if (view.sourceDLSSGActive)
-        {
-            const auto& configuration = host->SourceUpscalerSettings();
-            ImGui::Text("Session request: %s | Saved: %s",
-                        TheosRenderPipeline::DLSSPreset::ShortName(configuration.Effective().preset),
-                        TheosRenderPipeline::DLSSPreset::ShortName(configuration.Persisted().preset));
-            if (settingsDraft.dlssPreset != configuration.Requested().preset)
-            {
-                ImGui::TextColored(kAmber, "Preset selection has not been applied.");
-            }
-            if (configuration.Unsaved())
-            {
-                DrawSettingsHelp("Session upscaler settings differ from saved defaults.");
-            }
-        }
+            std::format("{}\nRequested preset; NVIDIA chooses the actual model. L/M require a supporting runtime.",
+                        TheosRenderPipeline::DLSSPreset::Description(settingsDraft.dlssPreset))
+                .c_str());
         ImGui::Spacing();
         ImGui::Checkbox("Sharpening", &settingsDraft.sharpening);
         ImGui::BeginDisabled(!settingsDraft.sharpening);
@@ -195,57 +184,21 @@ void OverlayUI::DrawImagePanel(float tabCardHeight, const FrameView& view)
         {
             DrawOutputOptimizations();
         }
-        else
-        {
-            DrawSettingsHelp("Output experiments are available through Lab mode in Diagnostics.");
-        }
     }
     if (view.textureProviderAvailable)
     {
         DrawTextureMemoryPanel(view);
     }
-    ImGui::EndChild();
+    EndSettingsColumns();
     ImGui::EndTabItem();
 }
 
 void OverlayUI::DrawTextureMemoryPanel(const FrameView& view)
 {
-    auto* textureProvider = TextureProviderBridge::GetSingleton();
     ImGui::Spacing();
     if (ImGui::CollapsingHeader("Texture memory"))
     {
-        if (ImGui::CollapsingHeader("Texture provider status"))
-        {
-            ImGui::TextUnformatted("TEXTURE RESIDENCY");
-            ImGui::Separator();
-            DrawStatusLabel(view.textureProviderAvailable
-                                ? (view.textureTelemetry.hooksInstalled ? "PROVIDER ACTIVE" : "RELAUNCH REQUIRED")
-                                : "PROVIDER UNAVAILABLE",
-                            view.textureProviderAvailable
-                                ? (view.textureTelemetry.hooksInstalled ? UIHealth::kHealthy : UIHealth::kWarning)
-                                : UIHealth::kIdle);
-            ImGui::Spacing();
-            ImGui::Text("Textures reduced: %llu",
-                        static_cast<unsigned long long>(view.textureTelemetry.reducedTextures));
-            ImGui::Text("Estimated allocation avoided: %.2f GiB",
-                        static_cast<double>(view.textureTelemetry.estimatedBytesAvoided) / (1024.0 * 1024.0 * 1024.0));
-            const double nameCoverage = view.textureTelemetry.nameLookups > 0
-                                            ? static_cast<double>(view.textureTelemetry.namesResolved) * 100.0 /
-                                                  static_cast<double>(view.textureTelemetry.nameLookups)
-                                            : 0.0;
-            ImGui::Text("Texture names resolved: %llu / %llu (%.1f%%)",
-                        static_cast<unsigned long long>(view.textureTelemetry.namesResolved),
-                        static_cast<unsigned long long>(view.textureTelemetry.nameLookups), nameCoverage);
-            ImGui::Spacing();
-            ImGui::TextWrapped("The provider lowers the authored top mip before Skyrim allocates eligible file-backed "
-                               "textures. Avoided allocation is an independent estimate; actual GPU memory usage is "
-                               "shown in Diagnostics.");
-            ImGui::Spacing();
-            ImGui::TextDisabled("%s", textureProvider->Status());
-        }
-        DrawSettingsHelp("Apply or Save as default; affects future texture loads.");
-        ImGui::TextUnformatted("LOAD POLICY");
-        ImGui::Separator();
+        ImGui::TextDisabled("Applies to future texture loads");
         ImGui::BeginDisabled(!view.textureProviderAvailable);
         ImGui::Checkbox("Enable runtime mip caps", &settingsDraft.textureProviderSettings.enabled);
         ImGui::TextDisabled("Preset");
@@ -284,9 +237,9 @@ void OverlayUI::DrawTextureMemoryPanel(const FrameView& view)
         }
         else
         {
-            ImGui::TextWrapped("Applied limits affect the next load of each texture; resources already resident in "
-                               "memory are unchanged. Folder rules and exclusions remain available in "
-                               "TextureDownscaler's advanced Menu Framework page.");
+            ImGui::TextDisabled("Folder rules: TextureDownscaler menu");
+            DrawSettingsHelp("Existing textures stay unchanged until reloaded. Folder rules and exclusions are in "
+                             "TextureDownscaler's Menu Framework page.");
         }
     }
 }

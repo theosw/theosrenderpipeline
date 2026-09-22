@@ -43,11 +43,18 @@ private:
     void DrawPipelineSummary(const FrameView& view);
     void DrawImagePanel(float tabCardHeight, const FrameView& view);
     void DrawTextureMemoryPanel(const FrameView& view);
-    void DrawCompatibilityPanel(float tabCardHeight);
-    void DrawDiagnosticsPanel(float tabCardHeight, const FrameView& view);
+    void DrawCompatibilityPanel(float tabCardHeight, const FrameView& view);
+    bool BeginSettingsColumns(const char* id, float height, const FrameView& view);
+    void NextSettingsColumn(float height);
+    void EndSettingsColumns();
+    void DrawFrameMeasurements(const FrameView& view);
+    void DrawImageMeasurements(const FrameView& view);
+    void DrawStageMeasurements(TheosRenderPipeline::Overlay::SettingsPage page);
+    void DrawMemoryMeasurements(const FrameView& view);
+    void DrawSupport(const FrameView& view);
+    void DrawMeasurementControls();
     void DrawOutputOptimizations();
     void DrawUIStatusPanel();
-    void DrawRuntimePanel(const FrameView& view);
     void DrawSettingsActions();
 	void BuildUI();
 	void UpdateFrameStats();
@@ -62,23 +69,13 @@ private:
 	int CountStagedChanges() const;
 	void ApplySettingsDraft(bool a_saveAsDefault);
 	void ApplyNeuralRenderingStateForSession(int a_state);
-	void DrawNeuralRenderingPanel(float tabCardHeight);
-	void DrawPerformancePanel(const TheosRenderPipeline::SourceDLSSG::NeuralSnapshot& sourceNeural);
-
-	struct FrameGenerationView
-	{
-		bool sourceDLSSGActive;
-		bool frameGenerationRuntimeActive;
-		unsigned activeDisplayMultiplier;
-		const char* outputLabel;
-		const std::string& outputText;
-		const TheosRenderPipeline::SourceDLSSG::NeuralSnapshot& sourceNeural;
-	};
-	void DrawFrameGenerationPanel(float tabCardHeight, const FrameGenerationView& view);
+	void DrawNeuralRenderingPanel(float tabCardHeight, const FrameView& view);
+	void DrawFrameGenerationPanel(float tabCardHeight, const FrameView& view);
 
 	bool initialized{ false };
 	bool visible{ false };
 	bool showDeveloperControls{ false };
+    bool supportRequested{ false };
     TheosRenderPipeline::Overlay::SettingsPage requestedPage{TheosRenderPipeline::Overlay::SettingsPage::None};
 	TheosRenderPipeline::RendererSettingsDraft settingsDraft{};
     bool nrRuntimePresent{false};

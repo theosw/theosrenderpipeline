@@ -122,17 +122,36 @@ namespace TheosRenderPipeline::Overlay
     {
         ImGui::Spacing();
         ImGui::SeparatorText(title);
-        if (behavior && *behavior) {
+        if (behavior && *behavior)
+        {
             ImGui::TextDisabled("%s", behavior);
         }
     }
 
+    void DrawSettingsValue(const char* label, const char* value)
+    {
+        const float width = ImGui::GetContentRegionAvail().x;
+        const float start = ImGui::GetCursorPosX();
+        const float labelWidth = width * 0.46f;
+        ImGui::PushTextWrapPos(start + labelWidth - ImGui::GetStyle().ItemInnerSpacing.x);
+        ImGui::TextDisabled("%s", label);
+        ImGui::PopTextWrapPos();
+        ImGui::SameLine(start + labelWidth);
+        ImGui::TextWrapped("%s", value);
+    }
+
     void DrawSettingsHelp(const char* text)
     {
-        ImGui::PushStyleColor(ImGuiCol_Text, kMuted);
-        ImGui::TextWrapped("%s", text);
-        ImGui::PopStyleColor();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        {
+            ImGui::BeginTooltip();
+            ImGui::PushTextWrapPos(ImGui::GetFontSize() * 30.0f);
+            ImGui::TextUnformatted(text);
+            ImGui::PopTextWrapPos();
+            ImGui::EndTooltip();
+        }
     }
+
 
 }
 

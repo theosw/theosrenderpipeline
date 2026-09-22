@@ -318,7 +318,6 @@ void OverlayUI::BuildUI()
         return;
     }
 
-    DrawPipelineSummary(view);
     const auto& layoutStyle = ImGui::GetStyle();
     const float reservedActionHeight = ImGui::GetFrameHeightWithSpacing() + ImGui::GetFrameHeight() +
                                        ImGui::GetTextLineHeightWithSpacing() +
@@ -330,19 +329,17 @@ void OverlayUI::BuildUI()
         DrawImagePanel(tabCardHeight, view);
 
 #if !defined(TRP_NO_NEURAL_RENDERING)
-        DrawNeuralRenderingPanel(tabCardHeight);
+        DrawNeuralRenderingPanel(tabCardHeight, view);
 #endif
 
-        DrawFrameGenerationPanel(tabCardHeight,
-                                 {view.sourceDLSSGActive, view.frameGenerationRuntimeActive,
-                                  view.activeDisplayMultiplier, view.outputLabel, view.outputText, view.sourceNeural});
-
-        DrawCompatibilityPanel(tabCardHeight);
-        DrawDiagnosticsPanel(tabCardHeight, view);
+        DrawFrameGenerationPanel(tabCardHeight, view);
+        DrawCompatibilityPanel(tabCardHeight, view);
         ImGui::EndTabBar();
     }
 
+    requestedPage = SettingsPage::None;
     DrawSettingsActions();
+    DrawSupport(view);
 
     ImGui::End();
 }
@@ -439,23 +436,30 @@ void OverlayUI::DrawSettingsActions()
     if (ImGui::BeginTable("##actionBar", 2, ImGuiTableFlags_SizingStretchProp))
     {
         ImGui::TableSetupColumn("##actionStatus", ImGuiTableColumnFlags_WidthStretch, 1.0f);
-        ImGui::TableSetupColumn("##actions", ImGuiTableColumnFlags_WidthFixed, 520.0f);
+        ImGui::TableSetupColumn("##actions", ImGuiTableColumnFlags_WidthFixed, 450.0f);
         ImGui::TableNextColumn();
+        if (ImGui::Button("Support"))
+        {
+            supportRequested = true;
+        }
+        ImGui::SameLine();
         if (stagedChanges > 0)
         {
-            ImGui::TextColored(kAmber, "%d staged change%s", stagedChanges, stagedChanges == 1 ? "" : "s");
+            ImGui::TextColored(kAmber, "%d pending change%s", stagedChanges, stagedChanges == 1 ? "" : "s");
         }
         else if (!actionMessage.empty())
         {
+            ImGui::PushTextWrapPos(0);
             ImGui::TextColored(actionMessageIsError ? kRust : kSage, "%s", actionMessage.c_str());
+            ImGui::PopTextWrapPos();
         }
         else
         {
-            ImGui::TextDisabled("No unapplied changes");
+            ImGui::TextDisabled("No changes");
         }
         ImGui::TableNextColumn();
         ImGui::BeginDisabled(stagedChanges == 0);
-        if (ImGui::Button("Discard changes", ImVec2(150.0f, 0.0f)))
+        if (ImGui::Button("Discard", ImVec2(110.0f, 0.0f)))
         {
             CaptureSettingsDraft();
             actionMessage = "Unapplied edits discarded.";
@@ -463,16 +467,18 @@ void OverlayUI::DrawSettingsActions()
         }
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
         {
-            ImGui::SetTooltip("Discard edits you have not applied. Applied settings and saved defaults stay as they are.");
+            ImGui::SetTooltip(
+                "Discard edits you have not applied. Applied settings and saved defaults stay as they are.");
         }
         ImGui::SameLine();
-        if (ImGui::Button("Apply now", ImVec2(140.0f, 0.0f)))
+        if (ImGui::Button("Apply", ImVec2(100.0f, 0.0f)))
         {
             ApplySettingsDraft(false);
         }
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
         {
-            ImGui::SetTooltip("Apply live settings for this session. Saved defaults stay unchanged.\nMode and render scale changes require Save and restart.");
+            ImGui::SetTooltip("Apply live settings for this session. Saved defaults stay unchanged.\nMode and render "
+                              "scale changes require Save and restart.");
         }
         ImGui::EndDisabled();
         ImGui::SameLine();
@@ -487,9 +493,9 @@ void OverlayUI::DrawSettingsActions()
         ImGui::PopStyleColor(4);
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
         {
-            ImGui::SetTooltip("Apply live settings and save your choices for future launches.\nMode and render scale changes take effect after restarting.");
+            ImGui::SetTooltip("Apply live settings and save your choices for future launches.\nMode and render scale "
+                              "changes take effect after restarting.");
         }
         ImGui::EndTable();
     }
-    ImGui::TextDisabled("Discard: unapplied edits | Apply: this session | Save: also keep for next launch");
 }
