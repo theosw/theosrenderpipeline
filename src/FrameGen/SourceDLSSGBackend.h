@@ -1,6 +1,7 @@
 #pragma once
 
 #include "SourceDLSSGInterop.h"
+#include "SourceDLSSGDeviceLoss.h"
 #include "D3D11FrameCopy.h"
 #include "SourceDLSSGSession.h"
 #include "SourceDLSSGNeuralState.h"
@@ -134,6 +135,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		mutable std::mutex generationMutex_;
 		GenerationRequest generationRequest_;
 		Interop interop_;
+		DeviceLossDiagnostics deviceLoss_;
 #if defined(ARP_DEVELOPER_DIAGNOSTICS)
 		TheosRenderPipeline::SourceOutputCapture outputCapture_;
 #endif

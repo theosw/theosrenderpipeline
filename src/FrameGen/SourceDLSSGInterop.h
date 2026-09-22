@@ -16,6 +16,25 @@ namespace TheosRenderPipeline::SourceDLSSG
 	inline constexpr std::size_t kCommandSlots = 3;
 	inline constexpr std::size_t kPresentationSlots = 2;
 	enum class Work : std::size_t { Upscaling, FrameGeneration, SwapChain, Count };
+	inline constexpr const char* WorkName(Work work)
+	{
+		switch (work) {
+		case Work::Upscaling: return "upscaling";
+		case Work::FrameGeneration: return "frame-generation";
+		case Work::SwapChain: return "swapchain";
+		default: return "unavailable";
+		}
+	}
+	struct InteropFailureDiagnostics
+	{
+		const char* stage{"unavailable"};
+		Work work{Work::Count};
+		std::size_t slot{};
+		std::uint64_t fenceValue{}, submitted{}, waitTarget{}, completed{};
+		DWORD timeoutMs{}, waitResult{WAIT_FAILED};
+		HRESULT result{S_OK};
+		bool completedAvailable{}, waitPerformed{}, valid{};
+	};
 
 	struct AllocatorWaitTiming
 	{
@@ -69,6 +88,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		HRESULT Submit(Work a_work);
 		HRESULT Drain(DWORD a_timeoutMs = 2000);
 		HRESULT Fault() const { return fault_; }
+		const InteropFailureDiagnostics& LastFailure() const { return failure_; }
 		bool Ready() const { return ready_ && SUCCEEDED(fault_); }
 		std::uint64_t LastValue(Work a_work) const;
 		std::size_t CurrentSlot(Work a_work) const;
@@ -91,6 +111,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			bool recording{ false };
 		};
 		WorkContext* Get(Work a_work);
+		void Observe(const char* stage, Work work = Work::Count);
 		HRESULT Check(HRESULT a_result);
 		HRESULT WaitCPU(WorkContext& a_work, std::uint64_t a_value, DWORD a_timeoutMs,
 			AllocatorWaitTiming* a_timing = nullptr);
@@ -103,6 +124,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		Microsoft::WRL::ComPtr<IUnknown> fenceDeviceIdentity_;
 		std::array<WorkContext, static_cast<std::size_t>(Work::Count)> work_;
 		InputWaitDiagnostics inputWait_;
+		InteropFailureDiagnostics observation_, failure_;
 		HRESULT fault_{ S_OK };
 		bool ready_{ false };
 	};
