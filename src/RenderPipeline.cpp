@@ -9,6 +9,7 @@
 #include "FrameGen/SourceDLSSGBackend.h"
 #include "PerformanceTuning.h"
 #include "SettingsFile.h"
+#include "OverlayHotkeys.h"
 
 #include <SimpleIni.h>
 
@@ -52,6 +53,8 @@ void RenderPipeline::LoadINI()
 			"[DynRes] ignored unsupported DynamicResolution request: TheosRenderPipeline's scaled-proxy path upscales at Present and requires a fixed full proxy input");
 	}
 	mToggleOverlayHotkey = (int)ini.GetLongValue("Hotkeys", "ToggleOverlay", 0x23);
+	mEnableNRHotkeys = TheosRenderPipeline::Overlay::LoadNRHotkeysEnabled(ini);
+	logger::info("[Overlay Input] NR shortcuts enabled={}", mEnableNRHotkeys);
 	mLogMenuMetrics = ini.GetBoolValue("Debug", "LogMenuMetrics", false);
 	mQualityLevel = std::clamp(mQualityLevel, 0, 4);
 

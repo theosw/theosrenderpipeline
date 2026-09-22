@@ -1,6 +1,7 @@
 #include "FrameGen/SourceFrameGeneration.h"
 #include "FrameGen/SourceDLSSGMFG.h"
 #include <SimpleIni.h>
+#include "OverlayHotkeys.h"
 #include <iostream>
 #include <stdexcept>
 
@@ -27,6 +28,14 @@ int main(int argc, char** argv)
         auto& owner = *SourceFrameGeneration::GetSingleton();
         CSimpleIniA packaged;
         Require(packaged.LoadFile(argv[1]) >= 0, "packaged INI must load");
+        using TheosRenderPipeline::Overlay::LoadNRHotkeysEnabled;
+        Require(!LoadNRHotkeysEnabled(packaged), "packaged NR shortcuts default off");
+        CSimpleIniA hotkeys;
+        Require(!LoadNRHotkeysEnabled(hotkeys), "old INIs without the key disable NR shortcuts");
+        hotkeys.SetBoolValue("Hotkeys", "EnableNRHotkeys", true);
+        Require(LoadNRHotkeysEnabled(hotkeys), "explicit NR shortcut opt-in respected");
+        hotkeys.SetBoolValue("Hotkeys", "EnableNRHotkeys", false);
+        Require(!LoadNRHotkeysEnabled(hotkeys), "explicit NR shortcut opt-out respected");
         using namespace TheosRenderPipeline::NeuralRendering;
         Require(!LoadReconstruction(packaged,"SourceDLSSG").peripheralCompression,
             "peripheral experiment must remain off in packages");
