@@ -3,10 +3,10 @@
 #include <nvsdk_ngx.h>
 
 int wmain(int argc,wchar_t** argv){
-    Require(argc==5,"usage: benchmark absolute-NR-DLL native|uniform|peripheral width height");
+    Require(argc==5,"usage: benchmark absolute-NR-DLL native|uniform|peripheral|passes width height");
     SetErrorMode(SEM_FAILCRITICALERRORS|SEM_NOGPFAULTERRORBOX|SEM_NOOPENFILEERRORBOX);
     const std::wstring mode=argv[2];
-    Require(mode==L"native" || mode==L"uniform" || mode==L"peripheral","benchmark mode");
+    Require(mode==L"native" || mode==L"uniform" || mode==L"peripheral" || mode==L"passes","benchmark mode");
     const auto w=static_cast<unsigned>(std::stoul(argv[3])),h=static_cast<unsigned>(std::stoul(argv[4]));
     Require(w>=64 && h>=64 && w<=5120 && h<=2880,"bounded benchmark dimensions");
     GPU gpu(true);
@@ -21,8 +21,11 @@ int wmain(int argc,wchar_t** argv){
     std::vector<Pixel> pixels(size_t(w)*h);
     for(unsigned y=0;y<h;++y)for(unsigned x=0;x<w;++x)
         pixels[y*w+x]={.1f+.6f*x/w,.1f+.6f*y/h,.2f+.3f*((x/8+y/8)%2),1};
-    auto original=gpu.Texture(w,h,pixels,DXGI_FORMAT_R16G16B16A16_FLOAT);
-    auto scene=gpu.Texture(w,h,{},DXGI_FORMAT_R16G16B16A16_FLOAT);
+    const auto format=mode==L"passes"?DXGI_FORMAT_R8G8B8A8_UNORM:DXGI_FORMAT_R16G16B16A16_FLOAT;
+    auto original=gpu.Texture(w,h,pixels,format);
+    auto scene=gpu.Texture(w,h,{},format);
+    auto composed=gpu.Texture(w,h,pixels,format);
+    auto ui=gpu.Texture(w,h,std::vector<Pixel>(size_t(w)*h,{}),format);
     auto motion=gpu.Texture(w,h,std::vector<Pixel>(size_t(w)*h,{}),DXGI_FORMAT_R32G32_FLOAT);
     auto depth=gpu.Texture(w,h,std::vector<Pixel>(size_t(w)*h,{.5f,0,0,0}),DXGI_FORMAT_R32_FLOAT);
     ComPtr<ID3D12QueryHeap> query;D3D12_QUERY_HEAP_DESC q{};q.Type=D3D12_QUERY_HEAP_TYPE_TIMESTAMP;q.Count=2;
@@ -30,25 +33,40 @@ int wmain(int argc,wchar_t** argv){
     auto timestamps=gpu.Buffer(16,D3D12_HEAP_TYPE_READBACK);UINT64 frequency{};
     Check(gpu.queue->GetTimestampFrequency(&frequency),"timestamp frequency");
     {
-    NeuralPass pass;std::vector<double> total,inference;
+    auto pass=std::make_unique<NeuralPass>();std::vector<double> total,inference;
     for(unsigned frame=0;frame<50;++frame){
+        const bool recreate=(mode==L"passes") && frame%10==0;
+        if(recreate){
+            options.beforeUpscaling=(frame/10)%2==0;
+            options.passes=2;options.reconstruction.inputScale=frame==20?.5f:.75f;
+            options.reconstruction.peripheralCompression=frame>=20;
+            options.reconstruction.fusedPreparation=frame>=30;
+            options.secondPass.linked=frame==0;
+            options.secondPass.inputScale=frame==10 || frame==30?.25f:1.f;
+            options.secondPass.preset=frame>=30?1:0;
+            options.secondPass.tuning.intensity=.7f;
+            options.tuning.uiCorrection=!options.beforeUpscaling;
+            options.secondPass.tuning.uiCorrection=!options.beforeUpscaling;
+            pass=std::make_unique<NeuralPass>(); // Last GPU.End completed every submission.
+        }
         gpu.Begin();Check(Interop::RecordCopy(gpu.list.Get(),original.Get(),scene.Get()),"fresh scene");
         gpu.list->EndQuery(query.Get(),D3D12_QUERY_TYPE_TIMESTAMP,0);
-        const bool recorded=pass.Record(gpu.device.Get(),gpu.list.Get(),frame%kCommandSlots,options,frame==0,true,float(w),float(h),
-            motion.Get(),depth.Get(),nullptr,scene.Get(),nullptr,frequency);
-        Require(recorded,pass.Status().c_str());
+        const bool recorded=pass->Record(gpu.device.Get(),gpu.list.Get(),frame%kCommandSlots,options,frame==0 || recreate,true,float(w),float(h),
+            motion.Get(),depth.Get(),options.beforeUpscaling?nullptr:ui.Get(),scene.Get(),options.beforeUpscaling?nullptr:composed.Get(),frequency);
+        Require(recorded,pass->Status().c_str());
         gpu.list->EndQuery(query.Get(),D3D12_QUERY_TYPE_TIMESTAMP,1);
         gpu.list->ResolveQueryData(query.Get(),D3D12_QUERY_TYPE_TIMESTAMP,0,2,timestamps.Get(),0);gpu.End();
-        pass.RetireTelemetry();
+        if(recreate)std::printf("CASE frame=%u %s\n",frame,pass->Status().c_str());
+        pass->RetireTelemetry();
         if(frame>=10){
             void* data{};D3D12_RANGE range{0,16};Check(timestamps->Map(0,&range,&data),"query readback");
             auto* t=static_cast<UINT64*>(data);Require(t[1]>=t[0],"monotonic timestamps");total.push_back((t[1]-t[0])*1000.0/frequency);
             D3D12_RANGE noWrite{};timestamps->Unmap(0,&noWrite);
-            const auto sample=pass.Telemetry().newestFirst[0];
+            const auto sample=pass->Telemetry().newestFirst[0];
             Require(sample.gpuFrequency==frequency,"inference clock domain");inference.push_back(sample.gpuTicks*1000.0/frequency);
         }
     }
-    auto result=gpu.Read(pass.Corrected());size_t changed=0;
+    auto result=gpu.Read(pass->Corrected());size_t changed=0;
     for(size_t i=0;i<result.size();++i)for(unsigned ch=0;ch<4;++ch){
         Require(std::isfinite(result[i][ch]),"finite real NR output");
         if(ch<3 && std::abs(result[i][ch]-pixels[i][ch])>.01f)++changed;
@@ -58,7 +76,7 @@ int wmain(int argc,wchar_t** argv){
     std::printf("RESULT mode=%ls source=%ux%u model=%ux%u samples=%zu NR_total_ms=%.6f inference_ms=%.6f changed=%zu\n",mode.c_str(),w,h,
         TheosRenderPipeline::NeuralRendering::ModelExtent(w,options.reconstruction),TheosRenderPipeline::NeuralRendering::ModelExtent(h,options.reconstruction),
         total.size(),mean(total),mean(inference),changed);
-    std::printf("STATE %s\n",pass.Status().c_str());
+    std::printf("STATE %s\n",pass->Status().c_str());
     for(size_t i=0;i<total.size();++i)std::printf("SAMPLE %zu %.6f %.6f\n",i,total[i],inference[i]);
     std::puts("CLEANUP begin: all frame work retired, releasing NeuralPass");
     std::fflush(stdout);

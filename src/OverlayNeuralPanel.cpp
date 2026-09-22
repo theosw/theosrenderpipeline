@@ -55,6 +55,28 @@ namespace
 		}
 	}
 
+	void DrawNRTuning(TheosRenderPipeline::NeuralRendering::Tuning& tuning, bool beforeUpscaling)
+	{
+		if (ImGui::TreeNode("Image tuning##sourceNR")) {
+			const char* styles[]{ "Style 0", "Style 1", "Style 2", "Style 3", "Style 4", "Style 5", "Style 6", "Style 7" };
+			ImGui::Combo("Style##sourceNR", &tuning.style, styles, IM_ARRAYSIZE(styles));
+			ImGui::SliderFloat("Intensity##sourceNR", &tuning.intensity, 0, 2);
+			ImGui::SliderFloat("Local tone##sourceNR", &tuning.localToneStrength, 0, 2);
+			ImGui::SliderFloat("Local structure##sourceNR", &tuning.localStructureStrength, 0, 2);
+			ImGui::SliderFloat("Skin structure##sourceNR", &tuning.skinStructureStrength, -1, 2);
+			ImGui::Checkbox("Automatic skin mask##sourceNR", &tuning.useAutoSkinMask);
+			ImGui::BeginDisabled(beforeUpscaling);
+			if (TheosRenderPipeline::CommunityShaders::Active()) {
+				ImGui::TextWrapped("CS draws UI after NR in both placements.");
+			} else {
+				ImGui::Checkbox("UI correction##sourceNR", &tuning.uiCorrection);
+			}
+			ImGui::EndDisabled();
+			ImGui::TextDisabled("Skin -1 follows local structure. Ctrl-click a slider to type.");
+			ImGui::TreePop();
+		}
+	}
+
 	void DrawSourceNeuralControls(TheosRenderPipeline::SourceDLSSG::Preferences& draft, int upscaleType, bool nrRuntimePresent)
 	{
 		auto& backend = TheosRenderPipeline::SourceDLSSG::Backend::Get();
@@ -94,24 +116,30 @@ namespace
 		const char* passes[]{ "One", "Two" };
 		if (ImGui::Combo("Passes##sourceNR", &passChoice, passes, IM_ARRAYSIZE(passes))) { draft.neuralPasses = passChoice + 1; }
 		if (draft.neuralPasses == 2) { ImGui::TextWrapped("The second pass processes the first result with separate history. It adds GPU time and memory; stronger processing may also amplify artifacts."); }
+		if (draft.neuralPasses == 2) { ImGui::TextUnformatted("Pass 1 and shared reconstruction"); }
 		DrawNRReconstructionControls(draft.neuralReconstruction, TheosRenderPipeline::CommunityShaders::Active() && draft.neuralBeforeUpscaling);
-		if (ImGui::TreeNode("Image tuning##sourceNR")) {
-			const char* styles[]{ "Style 0", "Style 1", "Style 2", "Style 3", "Style 4", "Style 5", "Style 6", "Style 7" };
-			ImGui::Combo("Style##sourceNR", &draft.neuralTuning.style, styles, IM_ARRAYSIZE(styles));
-			ImGui::SliderFloat("Intensity##sourceNR", &draft.neuralTuning.intensity, 0, 2);
-			ImGui::SliderFloat("Local tone##sourceNR", &draft.neuralTuning.localToneStrength, 0, 2);
-			ImGui::SliderFloat("Local structure##sourceNR", &draft.neuralTuning.localStructureStrength, 0, 2);
-			ImGui::SliderFloat("Skin structure##sourceNR", &draft.neuralTuning.skinStructureStrength, -1, 2);
-			ImGui::Checkbox("Automatic skin mask##sourceNR", &draft.neuralTuning.useAutoSkinMask);
-			ImGui::BeginDisabled(draft.neuralBeforeUpscaling);
-			if (TheosRenderPipeline::CommunityShaders::Active()) {
-				ImGui::TextWrapped("CS draws UI after NR in both placements.");
-			} else {
-				ImGui::Checkbox("UI correction##sourceNR", &draft.neuralTuning.uiCorrection);
+		DrawNRTuning(draft.neuralTuning, draft.neuralBeforeUpscaling);
+		if (draft.neuralPasses == 2) {
+			ImGui::Separator();
+			ImGui::TextUnformatted("Pass 2");
+			auto& second = draft.neuralSecondPass;
+			ImGui::Checkbox("Use the same settings for both passes", &second.linked);
+			if (!second.linked) {
+				ImGui::PushID("pass2");
+				if (ImGui::Button("Copy pass 1 settings")) {
+					second.inputScale = draft.neuralReconstruction.inputScale;
+					second.preset = draft.neuralReconstruction.preset;
+					second.tuning = draft.neuralTuning;
+				}
+				const char* presets[]{ "Default", "Shipping" };
+				ImGui::Combo("NR network preset", &second.preset, presets, IM_ARRAYSIZE(presets));
+				float percent = second.inputScale * 100;
+				if (ImGui::SliderFloat("NR input resolution", &percent, 25, 100, "%.1f%%")) { second.inputScale = percent / 100; }
+				ImGui::TextWrapped("Relative to the selected stage, just like pass 1. Pass 2 processes pass 1's result; lowering its resolution preserves pass 1's detail and transfers the second pass's changes.");
+				DrawNRTuning(second.tuning, draft.neuralBeforeUpscaling);
+				ImGui::PopID();
 			}
-			ImGui::EndDisabled();
-			ImGui::TextDisabled("Skin -1 follows local structure. Ctrl-click a slider to type.");
-			ImGui::TreePop();
+			ImGui::TextWrapped("Placement, reconstruction and optimization options apply to both passes. Resolution or preset changes may pause briefly while NR is recreated.");
 		}
 		ImGui::EndDisabled();
 		ImGui::TextColored(state.failed ? kRust : state.active ? kSage : kMuted, "%s",

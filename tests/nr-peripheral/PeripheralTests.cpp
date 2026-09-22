@@ -117,4 +117,58 @@ static void Passes(GPU& gpu){
     }
     std::printf("PASS: %u full production-pass cases, scripted identity NR, off/on, native early/late and CS producer, one/two passes, repeated retired slots\n",cases);
 }
-int main(){GPU gpu;Kernels(gpu);Passes(gpu);CombinedPreparation(gpu);PreparationRecorder(gpu);}
+static void IndependentPasses(GPU& gpu){
+    using namespace TheosRenderPipeline::NeuralRendering;
+    unsigned cases=0;
+    for(bool peripheral:{false,true})for(int route:{0,1,2,3})for(float secondScale:{.25f,.65f,1.f})for(bool transform:{false,true}){
+        if(transform && route>=2)continue;
+        const bool world=route!=0,producer=route==2;
+        const unsigned w=103,h=61,gw=51,gh=30;
+        NeuralOptions options;options.enabled=true;options.runtimePath="scripted.dll";
+        options.beforeUpscaling=route==1 || route==2;options.worldOnly=route>=2;options.passes=2;
+        options.tuning.uiCorrection=!world;options.reconstruction.peripheralCompression=peripheral;
+        options.reconstruction.producerColor=producer;options.reconstruction.inputScale=.65f;
+        options.secondPass.linked=false;options.secondPass.inputScale=secondScale;
+        options.secondPass.preset=1;options.secondPass.tuning.uiCorrection=!world;
+        if(transform){options.tuning.intensity=.8f;options.secondPass.tuning.intensity=.6f;}
+        Fixture::peripheral=peripheral;Fixture::worldOnly=world;Fixture::sourceWidth=w;Fixture::sourceHeight=h;
+        Fixture::guideWidth=gw;Fixture::guideHeight=gh;
+        Fixture::workWidth=ModelExtent(w,options.reconstruction);Fixture::workHeight=ModelExtent(h,options.reconstruction);
+        auto second=options.reconstruction;second.inputScale=secondScale;
+        Fixture::secondWidth=ModelExtent(w,second);Fixture::secondHeight=ModelExtent(h,second);Fixture::transform=transform;
+        Fixture::creations=Fixture::evaluations=Fixture::resets=0;
+        auto motion=gpu.Texture(gw,gh,std::vector<Pixel>(gw*gh,{}),DXGI_FORMAT_R32G32_FLOAT);
+        auto depth=gpu.Texture(gw,gh,std::vector<Pixel>(gw*gh,{.4f,0,0,0}),DXGI_FORMAT_R32_FLOAT);
+        auto ui=gpu.Texture(w,h,std::vector<Pixel>(w*h,{.05f,.025f,0,.25f})),composed=gpu.Texture(w,h);
+        NeuralPass pass;NeuralHistory history;
+        for(unsigned frame=0;frame<4;++frame){
+            auto pixels=transform?std::vector<Pixel>(w*h,{.2f,.3f,.4f,.5f}):Pattern(w,h,producer);
+            auto scene=gpu.Texture(w,h,pixels);
+            if(frame==2)history.Invalidate();
+            gpu.Begin();Require(pass.Record(gpu.device.Get(),gpu.list.Get(),frame%kCommandSlots,options,history.ResetFor(options,true,false),true,float(gw),float(gh),
+                motion.Get(),depth.Get(),world?nullptr:ui.Get(),scene.Get(),world?nullptr:composed.Get()),pass.Status().c_str());gpu.End();
+            auto actual=gpu.Read(pass.Corrected());
+            for(size_t i=0;i<actual.size();++i)for(unsigned ch=0;ch<4;++ch){
+                const auto expected=transform && ch<3?(pixels[i][ch]*.8f+.01f)*.6f+.02f:pixels[i][ch];
+                Near(actual[i][ch],expected,.0004,"custom pass 2 chains nonidentity output or preserves all original detail with identity");
+            }
+            if(!world){auto real=gpu.Read(pass.Composed()),tag=gpu.Read(scene.Get());
+                for(size_t i=0;i<actual.size();++i)for(unsigned ch=0;ch<4;++ch){
+                    Near(tag[i][ch],actual[i][ch],0,"custom passes feed same real and FG scene");
+                    if(ch<3)Near(real[i][ch],actual[i][ch]*.75f+std::array<float,3>{.05f,.025f,0}[ch],.0002,"native UI after both passes");
+                }
+            }
+        }
+        Require(Fixture::creations==2 && Fixture::evaluations==8 && Fixture::resets==4,"independent histories reset after eligibility break");
+        Require(!pass.NeedsRecreation(options,gw,gh),"custom settings stable");
+        auto changed=options;changed.secondPass.tuning.intensity=.1f;
+        Require(!pass.NeedsRecreation(changed,gw,gh),"tuning resets history without recreating feature");
+        Require(history.ResetFor(changed,true,false),"second tuning change resets histories");
+        changed=options;changed.secondPass.preset=0;Require(pass.NeedsRecreation(changed,gw,gh),"second preset requires retirement");
+        changed=options;changed.secondPass.inputScale=.8f;Require(pass.NeedsRecreation(changed,gw,gh),"second resolution requires retirement");
+        ++cases;
+    }
+    Fixture::secondWidth=Fixture::secondHeight=0;Fixture::transform=false;
+    std::printf("PASS: %u independent pass configurations; rounded sizes, larger/smaller/equal second grid, per-pass tuning/preset, identity detail, chained transform and UI/history contracts\n",cases);
+}
+int main(){GPU gpu;Kernels(gpu);Passes(gpu);CombinedPreparation(gpu);PreparationRecorder(gpu);IndependentPasses(gpu);}

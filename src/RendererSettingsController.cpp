@@ -133,6 +133,7 @@ RendererSettingsResult RendererSettingsController::Apply(const RendererSettingsD
         options.runtimePath = frameGen_.settings.neuralRenderingRuntimePath;
         options.tuning = frameGen_.settings.sourceDLSSG.neuralTuning;
         options.reconstruction = frameGen_.settings.sourceDLSSG.neuralReconstruction;
+        options.secondPass = frameGen_.settings.sourceDLSSG.neuralSecondPass;
         options.beforeUpscaling = frameGen_.settings.sourceDLSSG.neuralBeforeUpscaling;
         options.passes = frameGen_.settings.sourceDLSSG.neuralPasses;
         source.ConfigureNeuralRendering(std::move(options));
