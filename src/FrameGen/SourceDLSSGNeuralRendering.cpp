@@ -115,6 +115,12 @@ RWTexture2D<float4> output : register(u0);
 		const auto method = NeuralRendering::EffectiveResolve(reconstruction);
 		const auto workWidth = NeuralRendering::ModelExtent(static_cast<UINT>(sceneDesc.Width), reconstruction);
 		const auto workHeight = NeuralRendering::ModelExtent(sceneDesc.Height, reconstruction);
+		const auto secondSettings = options.EffectiveSecond();
+		auto secondReconstruction = reconstruction;
+		secondReconstruction.inputScale = secondSettings.inputScale;
+		const auto secondWidth = NeuralRendering::ModelExtent(static_cast<UINT>(sceneDesc.Width), secondReconstruction);
+		const auto secondHeight = NeuralRendering::ModelExtent(sceneDesc.Height, secondReconstruction);
+		const bool resizeSecond = options.passes == 2 && (secondWidth != workWidth || secondHeight != workHeight);
 		if (NeedsRecreation(options, static_cast<UINT>(motion->GetDesc().Width), motion->GetDesc().Height)) {
 			status_ = "NR settings or guide dimensions changed without retiring the previous pass"; return false;
 		}
@@ -136,8 +142,20 @@ RWTexture2D<float4> output : register(u0);
 			};
 			if (!create(sceneDesc, corrected_) || (!options.WorldOnly() && !create(outputDesc, composed_))) { return false; }
 			if (options.passes == 2) {
-				auto secondDesc = sceneDesc; secondDesc.Width = workWidth; secondDesc.Height = workHeight;
+				auto secondDesc = sceneDesc; secondDesc.Width = secondWidth; secondDesc.Height = secondHeight;
 				if (!create(secondDesc, secondOutput_)) { return false; }
+				if (resizeSecond) {
+					if (!check(resolve_.Initialize(device), "NR pass 2 resize kernels") || !create(secondDesc, secondInput_)) { return false; }
+					auto restoredDesc = sceneDesc; restoredDesc.Width = workWidth; restoredDesc.Height = workHeight;
+					if (!create(restoredDesc, secondRestored_)) { return false; }
+					if (reconstruction.peripheralCompression) {
+						auto guideDesc = secondDesc; guideDesc.Format = DXGI_FORMAT_R32G32_FLOAT;
+						if (!create(guideDesc, secondMotion_)) { return false; }
+						guideDesc.Format = DXGI_FORMAT_R32_FLOAT;
+						if (!create(guideDesc, secondDepth_)) { return false; }
+						if (!options.WorldOnly() && !create(secondDesc, secondUI_)) { return false; }
+					}
+				}
 			}
 			if (method != NeuralRendering::ResolveMethod::Auto) {
 				if (!check(resolve_.Initialize(device), "NR resolve kernels")) { return false; }
@@ -190,9 +208,16 @@ RWTexture2D<float4> output : register(u0);
 		// Each identified runtime contract selects its own default preset.
 		info.networkPreset = reconstruction.preset == 0 ? -1 : reconstruction.preset;
 		if (!feature_.EnsureInitialized(info)) { status_ = feature_.Status(); return false; }
-		if (options.passes == 2 && !secondFeature_.EnsureInitialized(info)) {
-			status_ = "NR second feature: " + secondFeature_.Status(); return false;
+		if (options.passes == 2) {
+			info.displayWidth = secondWidth; info.displayHeight = secondHeight;
+			info.networkPreset = secondSettings.preset == 0 ? -1 : secondSettings.preset;
+			if (reconstruction.peripheralCompression) { info.renderWidth = secondWidth; info.renderHeight = secondHeight; }
+			if (!secondFeature_.EnsureInitialized(info)) { status_ = "NR second feature: " + secondFeature_.Status(); return false; }
+			if (resizeSecond && !NeuralRendering::UsesReconstructionContract(secondFeature_.Build())) {
+				status_ = "Independent NR pass resolutions require the reconstruction runtime"; return false;
+			}
 		}
+		secondSettings_ = secondSettings;
 		if (method != NeuralRendering::ResolveMethod::Auto && !NeuralRendering::UsesReconstructionContract(feature_.Build())) {
 			status_ = "Legacy NR supports Auto reconstruction only"; return false;
 		}
@@ -205,6 +230,8 @@ RWTexture2D<float4> output : register(u0);
 		passes_ = options.passes;
 		return true;
 	}
+
+#include "SourceDLSSGNeuralSecondPass.inl"
 
 	bool NeuralPass::Record(ID3D12Device* device, ID3D12GraphicsCommandList* list, std::size_t slot,
 		const NeuralOptions& options, bool reset, bool depthInverted, float scaleX, float scaleY,
@@ -300,25 +327,11 @@ RWTexture2D<float4> output : register(u0);
 		const auto query = static_cast<UINT>(slot * 2);
 		if (gpuTiming) { list->EndQuery(timestampHeap_.Get(), D3D12_QUERY_TYPE_TIMESTAMP, query); }
 		const auto cpuBegin = std::chrono::steady_clock::now();
+		auto second = input;
 		bool evaluated = feature_.RecordEvaluation(input);
 		if (!evaluated) { status_ = feature_.Status(); }
 		if (evaluated && options.passes == 2) {
-			// Each temporal feature sees one evaluation per frame. Feed the first
-			// result into a distinct output; never evaluate the same history twice.
-			Transition(list, featureOutput, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
-			if (options.tuning.uiCorrection &&
-				FAILED(Interop::RecordCopy(list, featureOutput, secondOutput_.Get()))) {
-				status_ = "NR second-pass background copy rejected"; return false;
-			}
-			Transition(list, featureOutput, D3D12_RESOURCE_STATE_COMMON, read);
-			Transition(list, secondOutput_.Get(), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-			auto second = input;
-			second.color = featureOutput;
-			second.output = secondOutput_.Get();
-			second.backbuffer = NeuralRendering::UsesReconstructionContract(secondFeature_.Build()) ? second.output : input.backbuffer;
-			second.reset = reset || secondFeature_.EvaluationsRecorded() == 0;
-			evaluated = secondFeature_.RecordEvaluation(second);
-			if (!evaluated) { status_ = "NR second pass: " + secondFeature_.Status(); }
+			evaluated = RecordSecond(device, list, slot, options, input, constants, motion, depth, ui, second);
 		}
 		const auto cpuRecordNanoseconds = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
 			std::chrono::steady_clock::now() - cpuBegin).count());
@@ -334,16 +347,9 @@ RWTexture2D<float4> output : register(u0);
 		} else {
 			telemetry_.RecordCPUOnly(cpuRecordNanoseconds);
 		}
-		if (options.passes == 2) {
-			Transition(list, featureOutput, read, D3D12_RESOURCE_STATE_COMMON);
-			Transition(list, secondOutput_.Get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
-			// Keep the existing resolve/composition endpoint stable. Resolve runs
-			// once, comparing the original input with the final NR result.
-			if (FAILED(Interop::RecordCopy(list, secondOutput_.Get(), featureOutput))) {
-				status_ = "NR second-pass result copy rejected"; return false;
-			}
-			Transition(list, featureOutput, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-		}
+
+		if (options.passes == 2 && !FinishSecond(device, list, slot, input, second, constants)) { return false; }
+
 		if (resolving) {
 			Transition(list, featureOutput, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
 			if (featureColor != hudless) { Transition(list, featureColor, read, D3D12_RESOURCE_STATE_COMMON); }
@@ -363,6 +369,8 @@ RWTexture2D<float4> output : register(u0);
 			Transition(list, corrected_.Get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS, read);
 		}
 
+		const auto secondStatus = options.passes == 2 ? std::format("; pass2={}x{} preset={} linked={} intensity={:.3f}",
+			secondOutput_->GetDesc().Width, secondOutput_->GetDesc().Height, secondSettings_.preset, options.secondPass.linked, secondSettings_.tuning.intensity) : std::string{};
 		if (options.WorldOnly()) {
 			Transition(list, corrected_.Get(), read, D3D12_RESOURCE_STATE_COMMON);
 			for (auto* texture : { featureMotion, featureDepth, hudless }) { Transition(list, texture, read, D3D12_RESOURCE_STATE_COMMON); }
@@ -372,6 +380,7 @@ RWTexture2D<float4> output : register(u0);
 				reconstruction.producerColor ? "producer RGB reconstruction" : "user reconstruction",
 				reconstruction.peripheralCompression ? "peripheral 80/90" : "uniform",
 				reconstruction.fusedPreparation, fusedColor_, reconstruction.fusedPreparation && reconstruction.peripheralCompression);
+			if (options.passes == 2) { status_ += secondStatus; }
 			return true;
 		}
 
@@ -409,6 +418,7 @@ RWTexture2D<float4> output : register(u0);
 			method == NeuralRendering::ResolveMethod::Ratio ? "ratio" : method == NeuralRendering::ResolveMethod::Residual ? "residual" : "direct",
 			reconstruction.peripheralCompression ? "peripheral 80/90" : "uniform",
 			reconstruction.fusedPreparation, fusedColor_, reconstruction.fusedPreparation && reconstruction.peripheralCompression);
+		if (options.passes == 2) { status_ += secondStatus; }
 		return true;
 	}
 }

@@ -77,6 +77,8 @@ set(ARP_BASELINE_SOURCES
     src/FrameGen/NeuralRenderingReconstruction.h
     src/FrameGen/NeuralRenderingRuntimeContract.h
     src/FrameGen/NeuralRenderingRuntimeIdentity.h
+    src/FrameGen/NeuralRenderingPassSettings.h
+    src/FrameGen/SourceDLSSGNeuralSecondPass.inl
     src/FrameGen/NeuralRenderingTuning.h
     src/FrameGen/SourceDLSSGMFGPatch.h
     src/FrameGen/SourceDLSSGBackend.cpp

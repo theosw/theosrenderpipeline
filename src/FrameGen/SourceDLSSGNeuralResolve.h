@@ -5,7 +5,7 @@
 
 namespace TheosRenderPipeline::SourceDLSSG
 {
-	enum class ResolveKernel : unsigned { Downsample, Residual, Ratio, PackDepth, PackMotion, PrepareColor, PackGuides };
+	enum class ResolveKernel : unsigned { Downsample, Residual, Ratio, PackDepth, PackMotion, PrepareColor, PackGuides, ResizeColor, RestoreSecond };
 	struct ResolveConstants
 	{
 		UINT sourceWidth{}, sourceHeight{}, targetWidth{}, targetHeight{};
@@ -22,14 +22,14 @@ namespace TheosRenderPipeline::SourceDLSSG
 	class NeuralResolveKernels
 	{
 	public:
-		static constexpr unsigned kStages = 7;
+		static constexpr unsigned kStages = 11;
 		HRESULT Initialize(ID3D12Device* device);
 		HRESULT Record(ID3D12Device* device, ID3D12GraphicsCommandList* list, std::size_t slot, unsigned stage,
 			ResolveKernel kernel, const ResolveConstants& constants, ID3D12Resource* a, ID3D12Resource* b,
 			ID3D12Resource* original, ID3D12Resource* output, ID3D12Resource* secondOutput = nullptr);
 	private:
 		Microsoft::WRL::ComPtr<ID3D12RootSignature> root_;
-		std::array<Microsoft::WRL::ComPtr<ID3D12PipelineState>, 7> pipelines_;
+		std::array<Microsoft::WRL::ComPtr<ID3D12PipelineState>, 9> pipelines_;
 		std::array<std::array<Microsoft::WRL::ComPtr<ID3D12DescriptorHeap>, kStages>, kCommandSlots> heaps_;
 	};
 }

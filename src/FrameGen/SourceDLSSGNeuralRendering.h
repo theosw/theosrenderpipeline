@@ -30,12 +30,20 @@ namespace TheosRenderPipeline::SourceDLSSG
 		{
 			return feature_.IsInitialized() && (runtimePath_ != options.runtimePath || beforeUpscaling_ != options.beforeUpscaling || worldOnly_ != options.WorldOnly() || passes_ != options.passes ||
 				!NeuralRendering::SameReconstructionResources(reconstruction_, options.reconstruction) ||
+				(options.passes == 2 && (secondSettings_.inputScale != options.EffectiveSecond().inputScale || secondSettings_.preset != options.EffectiveSecond().preset)) ||
 				((guideWidth || guideHeight) && (guideWidth != guideWidth_ || guideHeight != guideHeight_)));
 		}
 		const std::string& Status() const { return status_; }
 	private:
 		bool Initialize(ID3D12Device* device, const NeuralOptions& options,
 			ID3D12Resource* motion, ID3D12Resource* hudless, ID3D12Resource* composed);
+		bool RecordSecond(ID3D12Device* device, ID3D12GraphicsCommandList* list, std::size_t slot,
+			const NeuralOptions& options, const NeuralRendering::FeatureSession::EvaluationInput& first,
+			const ResolveConstants& constants, ID3D12Resource* motion, ID3D12Resource* depth, ID3D12Resource* ui,
+			NeuralRendering::FeatureSession::EvaluationInput& second);
+		bool FinishSecond(ID3D12Device* device, ID3D12GraphicsCommandList* list, std::size_t slot,
+			const NeuralRendering::FeatureSession::EvaluationInput& first,
+			const NeuralRendering::FeatureSession::EvaluationInput& second, const ResolveConstants& originalConstants);
 		void InitializeTelemetry(ID3D12Device* device, std::uint64_t timestampFrequency);
 		void HarvestTelemetry(std::size_t slot);
 		struct PendingTiming
@@ -47,7 +55,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 		NeuralRendering::FeatureSession feature_;
 		// Each session owns a runtime reference, including failed creation work.
 		NeuralRendering::FeatureSession secondFeature_;
-		Microsoft::WRL::ComPtr<ID3D12Resource> secondOutput_;
+		Microsoft::WRL::ComPtr<ID3D12Resource> secondOutput_, secondInput_, secondRestored_;
+		Microsoft::WRL::ComPtr<ID3D12Resource> secondMotion_, secondDepth_, secondUI_;
+		NeuralRendering::SecondPassSettings secondSettings_;
 		Microsoft::WRL::ComPtr<ID3D12Resource> corrected_, composed_;
 		Microsoft::WRL::ComPtr<ID3D12Resource> encoded_, workColor_, workOutput_, residual_;
 		Microsoft::WRL::ComPtr<ID3D12Resource> packedMotion_, packedDepth_, packedUI_;

@@ -88,6 +88,44 @@ void FilterColor(uint3 p, bool encode) {
 }
 [numthreads(8,8,1)] void Downsample(uint3 p : SV_DispatchThreadID) { FilterColor(p,false); }
 [numthreads(8,8,1)] void PrepareColor(uint3 p : SV_DispatchThreadID) { FilterColor(p,true); }
+// Resize already prepared colour. Area filtering when reducing; bilinear
+// reconstruction when increasing. Neither path performs colour conversion.
+[numthreads(8,8,1)] void ResizeColor(uint3 p : SV_DispatchThreadID) {
+    if (p.x>=TargetWidth || p.y>=TargetHeight) return;
+    if (SourceWidth>=TargetWidth && SourceHeight>=TargetHeight) { FilterColor(p,false); return; }
+    float2 q=(p.xy+0.5)*float2(SourceWidth,SourceHeight)/float2(TargetWidth,TargetHeight)-0.5;
+    int2 base=(int2)floor(q); float2 f=frac(q); float4 sum=0;
+    [unroll] for (int y=0;y<2;++y) [unroll] for (int x=0;x<2;++x) {
+        float w=(x?f.x:1-f.x)*(y?f.y:1-f.y);
+        sum+=Tex0.Load(int3(ClampPixel(base+int2(x,y),uint2(SourceWidth,SourceHeight)),0))*w;
+    }
+    OutputColor[p.xy]=sum;
+}
+[numthreads(8,8,1)] void RestoreSecond(uint3 p : SV_DispatchThreadID) {
+    if (p.x>=TargetWidth || p.y>=TargetHeight) return;
+    float2 q=(p.xy+0.5)*float2(SourceWidth,SourceHeight)/float2(TargetWidth,TargetHeight)-0.5;
+    float3 delta=0; float weight=0;
+    if (SourceWidth>TargetWidth || SourceHeight>TargetHeight) {
+        // Area-average the change when pass 2 has the larger model grid.
+        float2 a=p.xy*float2(SourceWidth,SourceHeight)/float2(TargetWidth,TargetHeight);
+        float2 b=(p.xy+1)*float2(SourceWidth,SourceHeight)/float2(TargetWidth,TargetHeight);
+        for (int y=(int)floor(a.y);y<(int)ceil(b.y);++y) for (int x=(int)floor(a.x);x<(int)ceil(b.x);++x) {
+            float w=max(0,min(b.x,x+1.0)-max(a.x,(float)x))*max(0,min(b.y,y+1.0)-max(a.y,(float)y));
+            int3 tap=int3(ClampPixel(int2(x,y),uint2(SourceWidth,SourceHeight)),0);
+            delta+=(Tex1.Load(tap).rgb-Tex0.Load(tap).rgb)*w; weight+=w;
+        }
+    } else {
+        // Reconstruct the change, not the image: an identity second model
+        // leaves the first result exactly unchanged, including sharp detail.
+        [unroll] for (int y=-2;y<=3;++y) [unroll] for (int x=-2;x<=3;++x) {
+            int2 tap=(int2)floor(q)+int2(x,y); float w=Lanczos(q.x-tap.x)*Lanczos(q.y-tap.y);
+            int3 at=int3(ClampPixel(tap,uint2(SourceWidth,SourceHeight)),0);
+            delta+=(Tex1.Load(at).rgb-Tex0.Load(at).rgb)*w; weight+=w;
+        }
+    }
+    float4 original=Tex2.Load(int3(p.xy,0));
+    OutputColor[p.xy]=float4(original.rgb+delta/max(weight,0.000001),original.a);
+}
 [numthreads(8,8,1)] void PackDepth(uint3 p : SV_DispatchThreadID) {
     if (p.x>=WorkWidth || p.y>=WorkHeight) return;
     float2 native=UnpackPosition(p.xy+0.5);

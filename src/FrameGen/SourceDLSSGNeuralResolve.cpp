@@ -28,7 +28,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		ComPtr<ID3D12RootSignature> root;
 		hr = device->CreateRootSignature(0, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&root));
 		if (FAILED(hr)) { return hr; }
-		const char* entries[]{ "Downsample", "Residual", "Ratio", "PackDepth", "PackMotion", "PrepareColor", "PackGuides" };
+		const char* entries[]{ "Downsample", "Residual", "Ratio", "PackDepth", "PackMotion", "PrepareColor", "PackGuides", "ResizeColor", "RestoreSecond" };
 		for (unsigned i = 0; i < pipelines_.size(); ++i) {
 			ComPtr<ID3DBlob> shader;
 			hr = D3DCompile(kNeuralResolveShader, sizeof(kNeuralResolveShader) - 1, "TheosRenderPipeline-NR-resolve", nullptr, nullptr,

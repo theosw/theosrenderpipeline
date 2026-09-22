@@ -56,6 +56,11 @@ namespace TheosRenderPipeline::SourceDLSSG
             options.beforeUpscaling ? "before DLSS" : "after DLSS", options.passes, options.reconstruction.preset,
             options.reconstruction.inputScale, static_cast<unsigned>(options.reconstruction.method), options.reconstruction.colorIsHDR,
             options.reconstruction.producerColor, options.reconstruction.peripheralCompression, options.reconstruction.fusedPreparation);
+        if (options.passes == 2) {
+            const auto second = options.EffectiveSecond();
+            logger::info("[SourceDLSSG NR] pass2 linked={} preset={} inputScale={} intensity={}",
+                options.secondPass.linked, second.preset, second.inputScale, second.tuning.intensity);
+        }
         return true;
     }
 
