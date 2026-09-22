@@ -70,7 +70,7 @@ template <class Ini> void StoreLayout(Ini& ini, Layout value)
     ini.SetDoubleValue("Overlay", "LeftColumnFraction", value.leftFraction);
 }
 
-inline constexpr float ColumnGap = 12.0f;
+inline constexpr float ColumnGap = 24.0f;
 struct ColumnSizes
 {
     float left, right;
