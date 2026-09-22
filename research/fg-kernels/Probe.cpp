@@ -61,8 +61,8 @@ int wmain(int argc,wchar_t** argv) try {
     const auto id=Identity::VerifyExpected(dll,7460976,"FF6E90EB78B827927DFF5B4ECC6B1C870C2E9BCA29ED9F48C7D348CC9E170B82");
     require(id.matched,"Unrecognized provider");
     std::ofstream manifest(out/"identity.txt");manifest<<id.path.string()<<'\n'<<id.version<<'\n'<<id.sha256<<'\n';
-    const auto executable=Identity::VerifyExpected(Identity::ModulePath(nullptr),0,"");
-    require(!executable.sha256.empty(),"Cannot identify probe executable");
+    const auto executable=Identity::VerifyExpected(Identity::ModulePath(GetModuleHandleW(nullptr)),0,"");
+    require(executable.present && executable.sha256.size()==64,"Cannot identify probe executable");
     manifest<<"probe_sha256="<<executable.sha256<<'\n';
     Context c;
     manifest<<c.adapterIdentity<<'\n';
