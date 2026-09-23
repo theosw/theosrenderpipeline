@@ -5,6 +5,8 @@
 #include "RenderPipeline.h"
 #include "OverlayUI.h"
 #include "PerformanceTuning.h"
+#include "HookInstallation.h"
+#include "SkyrimRuntime.h"
 
 namespace TheosRenderPipeline::CommunityShaders
 {
@@ -23,7 +25,9 @@ namespace TheosRenderPipeline::CommunityShaders
         IDXGISwapChain* gameSwapChain{};
         std::uintptr_t Callsite()
         {
-            return REL::RelocationID(100430, 107148).address() + REL::Relocate(0x1F0, 0x1E7);
+            const auto* profile = SkyrimRuntime::Find(REL::Module::get().version());
+            if (!profile) { util::report_and_fail("No verified CS postprocessing profile for this Skyrim runtime."); }
+            return REL::RelocationID(100430, 107148).address() + profile->hooks.csPostProcessing;
         }
         ID3D11Texture2D* World()
         {
@@ -113,9 +117,8 @@ namespace TheosRenderPipeline::CommunityShaders
     void RememberEngineBoundary()
     {
         const auto site = Callsite();
-        if (*reinterpret_cast<const std::uint8_t*>(site) != 0xE8) { return; }
-        std::int32_t displacement{}; std::memcpy(&displacement, reinterpret_cast<const void*>(site + 1), 4);
-        const auto target = site + 5 + displacement;
+        const auto target = HookSafety::DirectCallTarget(site);
+        if (!target) { return; }
         HMODULE owner{};
         if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
             reinterpret_cast<LPCWSTR>(target), &owner) && owner == GetModuleHandleW(nullptr)) { engineTarget = target; }
@@ -128,7 +131,7 @@ namespace TheosRenderPipeline::CommunityShaders
     void InstallEngineHooks()
     {
         if (!active || installed) { return; }
-        if (!engineTarget || *reinterpret_cast<const std::uint8_t*>(Callsite()) != 0xE8) {
+        if (!engineTarget || !HookSafety::DirectCallTarget(Callsite())) {
             util::report_and_fail("Community Shaders postprocessing boundary is unavailable; no frame adapter hooks were installed.");
         }
         engineOriginal = reinterpret_cast<PostProcessing>(Detours::X64::DetourFunction(engineTarget,
@@ -140,12 +143,9 @@ namespace TheosRenderPipeline::CommunityShaders
     }
     void InstallDeviceHooks(ID3D11DeviceContext* context, IDXGISwapChain* chain)
     {
-        dispatchOriginal = reinterpret_cast<CommunityShaderFrame::Dispatch>(Detours::X64::DetourClassVTable(
-            *reinterpret_cast<std::uintptr_t*>(context), &Dispatch, 41));
-        copyOriginal = reinterpret_cast<Copy>(Detours::X64::DetourClassVTable(
-            *reinterpret_cast<std::uintptr_t*>(context), &CopyResource, 47));
-        presentOriginal = reinterpret_cast<Present>(Detours::X64::DetourClassVTable(
-            *reinterpret_cast<std::uintptr_t*>(chain), &TopPresent, 8));
+        InstallVTableHook(context, 41, &Dispatch, dispatchOriginal);
+        InstallVTableHook(context, 47, &CopyResource, copyOriginal);
+        InstallVTableHook(chain, 8, &TopPresent, presentOriginal);
         gameSwapChain = chain;
         if (!dispatchOriginal || !copyOriginal || !presentOriginal) {
             util::report_and_fail("Could not preserve the CS display/Present chain.");

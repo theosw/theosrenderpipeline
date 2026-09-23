@@ -1,5 +1,6 @@
 #pragma once
 #include "SourceDLSSGSettings.h"
+#include "RuntimePathSettings.h"
 #include <atomic>
 #include <dxgi.h>
 #include <string>
@@ -22,6 +23,7 @@ class SourceFrameGeneration
         TheosRenderPipeline::SourceDLSSG::Preferences sourceDLSSG;
         int nativeUICompositionMode{}; // 0 = dedicated UI; 1 = HUD-less detection.
         std::string neuralRenderingRuntimePath;
+        TheosRenderPipeline::RuntimePathSettings configuredRuntimePaths;
     };
     Settings settings;
 
@@ -34,11 +36,22 @@ class SourceFrameGeneration
         RequestRuntimeInterpolation(settings.enabled);
         settings.sourceDLSSGMFGUnlockPresent = ini.GetValue("Experimental", "SourceDLSSGMFGUnlock", nullptr) != nullptr;
         settings.sourceDLSSGMFGUnlock = ini.GetBoolValue("Experimental", "SourceDLSSGMFGUnlock", true);
-        settings.sourceDLSSGStreamlineDirectory = ini.GetValue("Experimental", "SourceDLSSGStreamlineDirectory", "");
+        settings.configuredRuntimePaths.Load(ini);
+        settings.sourceDLSSGStreamlineDirectory = settings.configuredRuntimePaths.streamline;
         settings.sourceDLSSG = TheosRenderPipeline::SourceDLSSG::LoadPreferences(ini);
         settings.nativeUICompositionMode = std::clamp(static_cast<int>(ini.GetLongValue(
             "Experimental", "NativeUICompositionMode", ini.GetLongValue("Experimental", "PureDarkHUDFixMethod", 0))), 0, 1);
-        settings.neuralRenderingRuntimePath = ini.GetValue("Experimental", "NeuralRenderingRuntimePath", "");
+        settings.neuralRenderingRuntimePath = settings.configuredRuntimePaths.neural;
+    }
+    void ResolveRuntimePaths(const std::filesystem::path& pluginDirectory)
+    {
+        const auto resolved = settings.configuredRuntimePaths.Resolve(pluginDirectory);
+        settings.sourceDLSSGStreamlineDirectory = resolved.streamline;
+        settings.neuralRenderingRuntimePath = resolved.neural;
+    }
+    template<class Ini> void StoreRuntimePaths(Ini& ini) const
+    {
+        settings.configuredRuntimePaths.Store(ini);
     }
     template<class Ini> void StoreCompatibilityPreference(Ini& ini) const
     {

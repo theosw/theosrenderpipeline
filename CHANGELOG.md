@@ -12,6 +12,9 @@
 - Disabled the NR bracket shortcuts by default to avoid shared-key conflicts.
   Set `EnableNRHotkeys=true` under `[Hotkeys]` to restore them; the NR menu
   checkbox remains available. Shortcut requests now appear in the log.
+- Keep configured runtime paths portable when saving default settings.
+- Preserve earlier renderer hook chains and check game-code patches before
+  installation, with clear errors for incompatible or repeated device setup.
 
 Existing NVIDIA runtime DLLs are unchanged. HDR remains unsupported and RTX 30
 compatibility remains experimental. Temporal and bottleneck reuse are excluded.
