@@ -134,7 +134,7 @@ namespace TheosRenderPipeline::CommunityShaders
         if (!engineTarget || !HookSafety::DirectCallTarget(Callsite())) {
             util::report_and_fail("Community Shaders postprocessing boundary is unavailable; no frame adapter hooks were installed.");
         }
-        engineOriginal = reinterpret_cast<PostProcessing>(Detours::X64::DetourFunction(engineTarget,
+        engineOriginal = reinterpret_cast<PostProcessing>(HookSafety::InstallEntryDetour(engineTarget,
             reinterpret_cast<std::uintptr_t>(&EnginePostProcessing)));
         if (!engineOriginal) { util::report_and_fail("Could not preserve the engine postprocessing function for Community Shaders."); }
         producerOriginal = reinterpret_cast<PostProcessing>(SKSE::GetTrampoline().write_call<5>(Callsite(), &ProducerPostProcessing));

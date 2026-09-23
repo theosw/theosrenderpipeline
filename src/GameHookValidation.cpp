@@ -18,6 +18,20 @@ namespace TheosRenderPipeline
         }
         const auto require = [&](bool valid, const char* name, std::uintptr_t site) {
             if (!valid) {
+                std::array<std::uint8_t, 16> bytes{};
+                const bool readable = HookSafety::Read(site, bytes.data(), bytes.size());
+                std::string observed;
+                if (readable) { for (const auto byte : bytes) { observed += std::format("{:02X} ", byte); } }
+                const auto slot = HookSafety::ImportCallSlot(site);
+                auto target = slot ? HookSafety::ImportCallTarget(site) : HookSafety::DirectCallTarget(site);
+                if (!target) { target = HookSafety::EntryJumpTarget(site); }
+                HMODULE owner{};
+                std::array<wchar_t, 32768> path{};
+                if (target && GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                    reinterpret_cast<LPCWSTR>(target), &owner)) { GetModuleFileNameW(owner, path.data(), static_cast<DWORD>(path.size())); }
+                logger::error("[Hooks] rejected {} RVA=0x{:X} bytes={} slot=0x{:X} target=0x{:X} owner={}",
+                    name, site - base, readable ? observed : "unreadable", slot, target,
+                    path[0] ? std::filesystem::path(path.data()).string() : "unknown/private memory");
                 util::report_and_fail(std::format("Theo's Render Pipeline: {} does not match the verified Skyrim {} hook contract (RVA 0x{:X}). "
                     "No renderer game-code patches were installed. Check conflicting mods and see TheosRenderPipeline.log.",
                     name, profile->version.string(), site - base));
@@ -51,9 +65,7 @@ namespace TheosRenderPipeline
         call("Render world call", REL::RelocationID{35560,36559}, offsets.renderWorld, REL::RelocationID{100424,107142});
         const auto clientSite = REL::RelocationID(75460,77245).address() + offsets.rendererClientRect;
         const auto clientSlot = HookSafety::ImportSlot(base, "user32.dll", "GetClientRect");
-        std::uintptr_t client{};
-        require(clientSlot && HookSafety::ImportCallSlot(clientSite) == reinterpret_cast<std::uintptr_t>(clientSlot) &&
-            HookSafety::Read(reinterpret_cast<std::uintptr_t>(clientSlot), &client, sizeof(client)) && HookSafety::Executable(client),
+        require(HookSafety::ImportCall(clientSite, reinterpret_cast<std::uintptr_t>(clientSlot), base, image.SizeOfImage),
             "Renderer GetClientRect import call", clientSite);
         const auto jitterSite = REL::RelocationID(75709,77518).address() + offsets.jitterBranch;
         const auto cameraSite = REL::RelocationID(75711,77520).address() + offsets.cameraBranch;

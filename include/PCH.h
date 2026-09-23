@@ -5,6 +5,7 @@
 #include <xbyak/xbyak.h>
 
 #include <detours/Detours.h>
+#include "HookDetour.h"
 
 #include <spdlog/sinks/basic_file_sink.h>
 #include <spdlog/sinks/msvc_sink.h>
@@ -36,7 +37,9 @@ namespace stl
 	template <class T>
 	void detour_thunk(REL::RelocationID a_relId)
 	{
-		*(uintptr_t*)&T::func = Detours::X64::DetourFunction(a_relId.address(), (uintptr_t)&T::thunk);
+		const auto original = TheosRenderPipeline::HookSafety::InstallEntryDetour(a_relId.address(), (uintptr_t)&T::thunk);
+		if (!original) { SKSE::stl::report_and_fail("Could not preserve an existing renderer entry hook. See TheosRenderPipeline.log."); }
+		*(uintptr_t*)&T::func = original;
 	}
 }
 

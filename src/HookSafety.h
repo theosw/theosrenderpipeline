@@ -98,18 +98,40 @@ namespace TheosRenderPipeline::HookSafety
         // engine callee at this offset is a mismatched contract, not a chain.
         return target && (target == expectedTarget || OutsideImage(target, imageBase, imageSize));
     }
-    inline bool Entry(std::uintptr_t site, std::span<const std::uint8_t> expected,
-        std::uintptr_t imageBase, std::size_t imageSize)
+    inline std::uintptr_t EntryJumpTarget(std::uintptr_t site)
     {
-        if (Bytes(site, expected)) { return true; }
         std::array<std::uint8_t, 6> bytes{};
-        if (!Read(site, bytes.data(), bytes.size())) { return false; }
+        if (!Read(site, bytes.data(), bytes.size())) { return 0; }
         std::uintptr_t target{};
         if (bytes[0] == 0xE9) { target = RelativeTarget(site, 5, bytes.data() + 1); }
         else if (bytes[0] == 0xFF && bytes[1] == 0x25) {
-            if (!Read(RelativeTarget(site, 6, bytes.data() + 2), &target, sizeof(target))) { return false; }
+            if (!Read(RelativeTarget(site, 6, bytes.data() + 2), &target, sizeof(target))) { return 0; }
         }
-        return OutsideImage(target, imageBase, imageSize) && Executable(target);
+        return target != site && Executable(target) ? target : 0;
+    }
+    inline bool Entry(std::uintptr_t site, std::span<const std::uint8_t> expected,
+        std::uintptr_t imageBase, std::size_t imageSize)
+    {
+        return Bytes(site, expected) || OutsideImage(EntryJumpTarget(site), imageBase, imageSize);
+    }
+    inline std::uintptr_t ImportCallTarget(std::uintptr_t site)
+    {
+        std::uintptr_t target{};
+        return Read(ImportCallSlot(site), &target, sizeof(target)) && Executable(target) ? target : 0;
+    }
+    inline bool ImportCall(std::uintptr_t site, std::uintptr_t namedSlot,
+        std::uintptr_t imageBase, std::size_t imageSize)
+    {
+        const auto slot = ImportCallSlot(site);
+        const auto target = ImportCallTarget(site);
+        std::uintptr_t namedTarget{};
+        // Display Tweaks replaces this FF15 call's slot with its own trampoline.
+        // Preserve the callable predecessor while still rejecting other engine
+        // callees, unreadable slots and changed instruction forms.
+        // The named import is hooked separately, even when this call uses a
+        // replacement slot. Preflight it too, before either site is changed.
+        return Read(namedSlot, &namedTarget, sizeof(namedTarget)) && Executable(namedTarget) &&
+            target && (slot == namedSlot || OutsideImage(target, imageBase, imageSize));
     }
 
     // One host owns the game's device. Reject a second or reentrant creation
