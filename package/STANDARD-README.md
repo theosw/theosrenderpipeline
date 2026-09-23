@@ -1,4 +1,7 @@
-# Theo's Render Pipeline — Standard, 0.2.5
+# Theo's Render Pipeline — Standard, 0.3.0 candidate
+
+RTX 20 users need Universal's compatibility path installed after Standard.
+This edition supplies the retained runtime bundle and all 0.2.5 fixes.
 
 DLSS/DLAA, native NVIDIA frame generation, Neural Rendering, NVIDIA Reflex and
 native-resolution menus for Skyrim. All eight NVIDIA runtime DLLs are included.

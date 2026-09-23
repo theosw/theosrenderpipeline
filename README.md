@@ -1,7 +1,10 @@
 # Theo's Render Pipeline
 
-This branch adds experimental RTX 20 compatibility on the released 0.2.5 baseline.
-See [test setup](package/RTX20-TEST.md).
+Version **0.3.0 candidate** adds experimental RTX 20 DLSS-G/MFG compatibility
+on the released 0.2.5 baseline. The separate RTX 2060 candidate has positive
+x2/x3/x4/x6, NR and loading-recovery evidence. The combined build still needs
+its regression game test. See [validation](docs/RTX20_COMPATIBILITY.md) and
+[test setup](package/RTX20-TEST.md).
 
 Version **0.2.5** improves startup compatibility with existing renderer hooks,
 makes rejected Save/Apply actions visible, and explains conflicting NVIDIA
