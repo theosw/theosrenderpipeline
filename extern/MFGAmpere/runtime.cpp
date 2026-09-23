@@ -2,6 +2,7 @@
 #include "module_loader.hpp"
 #include "module_patch.hpp"
 #include "provider_retarget.hpp"
+#include "turing_network.hpp"
 #include "../RTX40MFG/midpoint_fix.h"
 #include "../RTX40MFG/dlssg_provider_policy.h"
 #include "../../src/FrameGen/SourceDLSSGMFGPatch.h"
@@ -60,6 +61,7 @@ struct Owner {
     std::atomic_uint32_t moduleCalls{};
     struct Program { const void* address; std::size_t size; };
     std::vector<Program> programs;
+    std::array<std::uint8_t*,2> networkSites{};
     std::atomic<Requirements> requirements{};
     std::array<std::atomic<Parameters>, 2> parameters{};
     std::atomic<Create> create{};
@@ -121,15 +123,27 @@ int __cdecl CreateCuModule(ID3D12Device* device, const void* blob, std::uint32_t
     int program=-1;
     for(std::size_t i=0;i<s.programs.size();++i)if(s.programs[i].address==blob){program=static_cast<int>(i);break;}
     std::array<std::uint8_t,80> header{};
-    const bool readable=size>=header.size() && memory::Copy(header.data(),blob,header.size());
+    const auto headerBytes=(std::min)(std::size_t(size),header.size());
+    const bool readable=headerBytes>=4 && memory::Copy(header.data(),blob,headerBytes);
     std::uint64_t fingerprint{};const bool hashed=BlobFingerprint(blob,size,fingerprint);
-    char detail[512]{};
+    char format[256]{};
+    const auto magic=fatbin::ReadU32(header.data());
+    if(readable && magic==fatbin::kMagic && headerBytes==header.size()) {
+        std::snprintf(format,sizeof(format),"kind=fatbin payloadBytes=%llu firstKind=%u firstSM=%u firstCompressedBytes=%u firstFlags=%llx firstUnpackedBytes=%llu",
+            static_cast<unsigned long long>(fatbin::ReadU64(header.data()+8)),static_cast<unsigned>(fatbin::ReadU16(header.data()+16)),
+            fatbin::ReadU32(header.data()+44),fatbin::ReadU32(header.data()+32),
+            static_cast<unsigned long long>(fatbin::ReadU64(header.data()+56)),static_cast<unsigned long long>(fatbin::ReadU64(header.data()+72)));
+    } else if(readable && magic==0x464c457f && headerBytes>=64 && header[4]==2 && header[5]==1) {
+        // ELF e_flags encodings vary by CUDA toolkit. Report raw flags instead
+        // of interpreting an ELF header as a fatbin or guessing its SM target.
+        std::snprintf(format,sizeof(format),"kind=ELF64 machine=%u elfFlags=%08x",
+            static_cast<unsigned>(fatbin::ReadU16(header.data()+18)),fatbin::ReadU32(header.data()+48));
+    } else std::snprintf(format,sizeof(format),"kind=unknown headerBytes=%zu",headerBytes);
+    char detail[640]{};
     std::snprintf(detail,sizeof(detail),
-        "stage=cu-module-load target=SM%u call=%u program=%d bytes=%u status=%d handle=%s headerReadable=%s magic=%08x payloadBytes=%llu firstKind=%u firstSM=%u firstCompressedBytes=%u firstFlags=%llx firstUnpackedBytes=%llu fingerprintValid=%s blobFNV1a64=%016llx",
+        "stage=cu-module-load target=SM%u call=%u program=%d bytes=%u status=%d handle=%s headerReadable=%s magic=%08x %s fingerprintValid=%s blobFNV1a64=%016llx",
         s.targetSm,call,program,size,result,*output?"non-null":"null",readable?"true":"false",
-        fatbin::ReadU32(header.data()),static_cast<unsigned long long>(fatbin::ReadU64(header.data()+8)),
-        static_cast<unsigned>(fatbin::ReadU16(header.data()+16)),fatbin::ReadU32(header.data()+44),fatbin::ReadU32(header.data()+32),
-        static_cast<unsigned long long>(fatbin::ReadU64(header.data()+56)),static_cast<unsigned long long>(fatbin::ReadU64(header.data()+72)),hashed?"true":"false",static_cast<unsigned long long>(fingerprint));
+        magic,format,hashed?"true":"false",static_cast<unsigned long long>(fingerprint));
     Message(detail);
     constexpr auto reason="RTX20 frame-generation kernel loading failed. NVIDIA did not create a usable GPU module; restart required. See stage=cu-module-load in TheosRenderPipeline.log.";
     Fail(reason);
@@ -350,6 +364,9 @@ bool PlanProvider() {
         }
     }
     if (!s.fatbins) return Fail("Ampere provider has no retargetable programs");
+    if(s.targetSm==75 && !turing_network::Plan(image,s.data,s.networkSites,[&](const void* address,std::size_t bytes){
+        return std::any_of(s.programs.begin(),s.programs.end(),[&](const auto& p){return p.address==address && p.size==bytes;});
+    }))return Fail("Turing PTX network selection contract changed or a required program was not prepared");
     using namespace TheosRenderPipeline::SourceDLSSG;
     // Two independent MFG architecture decisions, qualified by surrounding
     // instructions. Unlike a bare immediate scan, unrelated 0x1b0 data is ignored.
@@ -421,6 +438,7 @@ bool Start(ID3D12Device* device,const std::filesystem::path& directory,Log log,b
         }
         Message("stage=provider-publication");
         if (!s.data.Commit()) return Fail(s.data.Unsafe() ? "Ampere provider rollback failed; restart required" : "Ampere provider preparation rolled back");
+        if(s.targetSm==75)Message("stage=network-selection target=SM75 networks=2 kernelLoads=39 source=prepared-PTX architecture=physical");
         s.prepared.store(true);
         Message("stage=resolver-publication");
         if (!s.imports.Commit()) return Fail(s.imports.Unsafe() ? "Ampere resolver rollback failed; restart required" : "Ampere resolver installation failed; restart required");
@@ -434,6 +452,7 @@ RuntimeStatus Snapshot() noexcept {
 }
 bool Verify() noexcept {
     auto& s=State(); if (!Prepared()) return false;
+    if(s.targetSm==75 && !turing_network::Selected(s.networkSites))return Fail("Turing network selection publication changed; restart required");
     std::uintptr_t descriptor{};
     if (!memory::Read(reinterpret_cast<void*>(s.temporal.slot),descriptor) || descriptor!=s.temporal.replacementDescriptor ||
         !s.minimumArch || s.minimumArch[1]!=static_cast<std::uint8_t>(s.nativeArchitecture)) return Fail("Ampere provider publication changed; restart required");

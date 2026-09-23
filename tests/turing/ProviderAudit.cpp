@@ -47,6 +47,26 @@ int wmain(int argc,wchar_t** argv) { try {
     Check(Load(directory,L"nvngx_dlssg.dll",s.provider,false),"load provider");
     Check(Load(directory,L"sl.dlss_g.dll",s.wrapper,false),"load wrapper");
     memory::Image image;Check(image.Open(s.provider),"provider image");
+    const auto& factory=turing_network::kCode.front();
+    std::vector<std::uint8_t> factoryBefore(factory.bytes);
+    Check(memory::Copy(factoryBefore.data(),image.base+factory.rva,factory.bytes),"network factory read");
+    if(target==75) {
+        for(const auto& code:turing_network::kCode) {
+            auto* address=image.base+code.rva+code.bytes-2;
+            const std::uint8_t original=*address,changed=original^1;
+            memory::Transaction mutation;mutation.Add(address,{&original,1},{&changed,1});
+            Check(mutation.Commit(),"change isolated code contract");
+            memory::Transaction refused;std::array<std::uint8_t*,2> sites{};
+            Check(!turing_network::Plan(image,refused,sites,[](const void*,std::size_t){return true;}) && refused.Count()==0,
+                "changed code contract refused before any selection write is planned");
+            Check(mutation.Rollback(),"restore isolated contract");
+        }
+        for(const auto missing:turing_network::kPrograms) {
+            memory::Transaction refused;std::array<std::uint8_t*,2> sites{};
+            Check(!turing_network::Plan(image,refused,sites,[&](const void* address,std::size_t){return address!=image.base+missing.rva;}) && refused.Count()==0,
+                "each required program must be prepared before selecting PTX networks");
+        }
+    }
     std::vector<Container> containers;
     for (const auto& section:image.sections) {
         if (!(section.Characteristics&IMAGE_SCN_MEM_READ) || (section.Characteristics&IMAGE_SCN_MEM_EXECUTE)) continue;
@@ -82,6 +102,19 @@ int wmain(int argc,wchar_t** argv) { try {
     Check(memory::Copy(temporal.data(),reinterpret_cast<const void*>(finalFatbin),temporal.size()),"temporal clone read");
     WritePtx(temporal,target,output/"temporal-final.ptx");
     Check(s.data.Commit(),"publish production transaction");
+    std::vector<std::uint8_t> factoryAfter(factory.bytes);
+    Check(memory::Copy(factoryAfter.data(),image.base+factory.rva,factory.bytes),"published network factory read");
+    auto expectedFactory=factoryBefore;
+    if(target==75) {
+        for(const auto rva:turing_network::kSites)
+            std::copy(turing_network::kSelected.begin(),turing_network::kSelected.end(),expectedFactory.begin()+rva-factory.rva);
+        Check(turing_network::Selected(s.networkSites),"Turing PTX selection retained");
+    } else Check(s.networkSites==std::array<std::uint8_t*,2>{},"Ampere has no network selection patch");
+    Check(factoryAfter==expectedFactory,"only qualified Turing branches changed; Ampere factory byte-identical");
+    for(const auto& [name,bytes]:{std::pair{"network-factory-before.bin",factoryBefore},std::pair{"network-factory-after.bin",factoryAfter}}) {
+        std::ofstream file(output/name,std::ios::binary);file.write(reinterpret_cast<const char*>(bytes.data()),bytes.size());
+        Check(static_cast<bool>(file),"factory evidence write");
+    }
     for(const auto& c:containers)Check(memory::Equal(c.address,c.after),"published provider matches checked PTX");
     std::uintptr_t descriptor{};
     Check(memory::Read(reinterpret_cast<const void*>(s.temporal.slot),descriptor) && descriptor==s.temporal.replacementDescriptor,
@@ -93,6 +126,7 @@ int wmain(int argc,wchar_t** argv) { try {
     Check(memory::Read(reinterpret_cast<const void*>(s.temporal.slot),descriptor) && descriptor==s.temporal.originalDescriptor,
         "original temporal descriptor restored");
     Check(s.minimumArch[1]==0x90,"original architecture gate restored");
+    Check(memory::Equal(image.base+factory.rva,factoryBefore),"original network factory restored");
     std::cout<<"PASS target=SM"<<target<<" programs="<<containers.size()<<" temporal=1 transactionWrites="<<s.data.Count()
         <<" publish=verified rollback=verified no GPU dispatch\n";
     return 0;

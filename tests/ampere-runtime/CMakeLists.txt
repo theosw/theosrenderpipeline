@@ -13,7 +13,7 @@ foreach(case IN ITEMS policies requirements capabilities capabilities-reject-ava
     add_test(NAME TuringRuntime-${case} COMMAND TRPAmpereRuntimeTests turing-${case})
     set_tests_properties(TuringRuntime-${case} PROPERTIES TIMEOUT 15)
 endforeach()
-foreach(case IN ITEMS module-success module-failure module-null-success)
+foreach(case IN ITEMS module-success module-failure module-null-success module-elf-failure module-fatbin-failure create-network-changed)
     add_test(NAME TuringRuntime-${case} COMMAND TRPAmpereRuntimeTests turing-${case})
     set_tests_properties(TuringRuntime-${case} PROPERTIES TIMEOUT 15)
 endforeach()

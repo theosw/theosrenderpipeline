@@ -103,10 +103,12 @@ struct Published {
     std::uintptr_t descriptor=0x12345678;
     std::array<std::uint8_t,6> arch{0xb8,0x70,1,0,0,0xc3};
     std::array<Resolver,3> imports{Resolve<0>,Resolve<1>,Resolve<2>};
+    std::array<std::array<std::uint8_t,2>,2> networks{turing_network::kSelected,turing_network::kSelected};
     Published() {
         auto& s=State();arch[1]=static_cast<std::uint8_t>(s.nativeArchitecture);s.log=CaptureLog;s.prepared=true;s.installed=true;s.arch=RealArch;s.gpu=reinterpret_cast<void*>(1);s.luid={17,3};
         s.temporal.slot=reinterpret_cast<std::uintptr_t>(&descriptor);s.temporal.replacementDescriptor=descriptor;
         s.minimumArch=arch.data();for(unsigned i=0;i<3;++i)s.importSlots[i]=reinterpret_cast<void**>(&imports[i]);
+        for(unsigned i=0;i<2;++i)s.networkSites[i]=networks[i].data();
     }
 };
 NVSDK_NGX_Result vendorResult=NVSDK_NGX_Result_Success;
@@ -220,6 +222,7 @@ void CreationCalls(const std::string& mode) {
         else if(mode=="create-descriptor-changed")published.descriptor++;
         else if(mode=="create-arch-changed")published.arch[1]=0x90;
         else if(mode=="create-import-changed")published.imports[1]=nullptr;
+        else if(mode=="create-network-changed")published.networks[1][0]=0x7e;
         else throw std::runtime_error("unknown creation fixture");
         Require(CreateFeature(commands,fg,&vendorParams,&output)==NVSDK_NGX_Result_FAIL_FeatureNotSupported && output==nullptr && vendorCalls==0,"incomplete or damaged preparation blocks vendor create and clears handle");
         Require(Snapshot().createSeen && Snapshot().createCalls==1 && !Verify(),"failed create boundary cannot report readiness");
@@ -293,6 +296,7 @@ void RepeatedCreation() {
 
 int moduleResult{};void* moduleHandle=reinterpret_cast<void*>(0x1234);
 unsigned moduleVendorCalls{};const void* moduleBlob{};std::uint32_t moduleSize{};
+std::string moduleMode;
 int __cdecl MockModule(ID3D12Device*,const void* blob,std::uint32_t size,void** output) {
     ++moduleVendorCalls;moduleBlob=blob;moduleSize=size;
     if(output)*output=moduleHandle;
@@ -302,6 +306,7 @@ void* __cdecl MockQuery(std::uint32_t id) {
     return id==0xad1a677d?reinterpret_cast<void*>(MockModule):reinterpret_cast<void*>(RealArch);
 }
 void ModuleCalls(const std::string& mode) {
+    moduleMode=mode;
     Published published;auto& s=State();s.query=MockQuery;s.createModule=MockModule;
     s.resolvers[2]=MockResolver;s.nvapi=reinterpret_cast<HMODULE>(0x7777);
     resolverOutput=reinterpret_cast<FARPROC>(MockQuery);
@@ -313,6 +318,12 @@ void ModuleCalls(const std::string& mode) {
     moduleResult=-5;
     Require(CreateCuModule(nullptr,nullptr,0,nullptr)==-5 && moduleVendorCalls==1 && !s.failed && s.moduleCalls==0,"null API-presence probe forwarded without failure");
     std::array<std::uint8_t,80> blob{};s.programs.push_back({blob.data(),blob.size()});
+    if(mode=="module-elf-failure") {
+        const std::uint32_t magic=0x464c457f,flags=0x560556;
+        std::memcpy(blob.data(),&magic,4);blob[4]=2;blob[5]=1;blob[18]=190;std::memcpy(blob.data()+48,&flags,4);
+    } else if(mode=="module-fatbin-failure") {
+        const auto magic=fatbin::kMagic;std::memcpy(blob.data(),&magic,4);blob[44]=75;
+    }
     auto* device=reinterpret_cast<ID3D12Device*>(0x9999);void* output{};
     if(mode=="module-success") {
         moduleResult=0;
@@ -323,6 +334,8 @@ void ModuleCalls(const std::string& mode) {
         s.fatal=[](const char* reason) {
             Require(State().failed && State().moduleCalls==1 && moduleVendorCalls==2,"failure is synchronous before returning to NVIDIA");
             Require(std::string(reason).find("kernel loading failed")!=std::string::npos && Saw("stage=cu-module-load") && Saw("program=0"),"precise failure recorded");
+            if(moduleMode=="module-elf-failure")Require(Saw("kind=ELF64 machine=190 elfFlags=00560556") && !Saw("firstSM="),"ELF diagnostics do not invent fatbin metadata");
+            if(moduleMode=="module-fatbin-failure")Require(Saw("kind=fatbin") && Saw("firstSM=75"),"fatbin metadata retained");
             std::cout<<"PASS synchronous module failure boundary; no GPU dispatch"<<std::endl;
             std::exit(0); // Model the real host's terminating callback.
         };

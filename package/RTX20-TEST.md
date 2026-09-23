@@ -1,13 +1,13 @@
-# RTX 20 kernel-load diagnostic — Universal 0.2.4
+# RTX 20 PTX network test — Universal 0.2.4
 
-This is a separate diagnostic build, not confirmed RTX 20 support or a proven
-fix. The previous RTX 2060 candidate failed when NVIDIA loaded FG kernels.
-This build captures the first failed module and stops with a clear message
-before NVIDIA can continue with an incomplete FG object. It does not change
-the GPU programs or introduce a fallback kernel implementation.
+This is a separate compatibility candidate, not confirmed RTX 20 support.
+The previous RTX 2060 diagnostic identified a precompiled RTX 30 kernel being
+selected on RTX 20. This build selects the matching PTX network implementations
+whose GPU programs we already convert to SM75. It keeps the synchronous error
+guard if NVIDIA still rejects a kernel. No NVIDIA runtime files are replaced.
 It includes the 0.2.4 menu and local startup/settings hardening. Its Turing
-frame-generation path has offline validation but currently fails on a tested
-RTX 2060. Driver loading on an RTX 4080 SUPER does not establish RTX20 support.
+frame-generation path has offline validation; this correction needs a fresh
+RTX 20 test. Driver loading on an RTX 4080 SUPER does not establish RTX20 support.
 The intended cards are RTX 2060, 2070 and 2080, including Super, Ti and laptop
 variants. GTX 16 cards and other Turing products are excluded from this test.
 
@@ -15,7 +15,7 @@ variants. GTX 16 cards and other Turing products are excluded from this test.
 
 1. Keep the regular **Standard 0.2.3 or 0.2.4** enabled for its NVIDIA runtimes.
    Install this ZIP as a separate MO2 mod named
-   **Theo's Render Pipeline - Universal RTX20 Diagnostic**. Enable it below Standard
+   **Theo's Render Pipeline - Universal Turing PTX Test**. Enable it below Standard
    in the left pane so this test DLL and INI win. Disable any previous Universal
    edition. If MO2 proposes merging/replacing the old mod, cancel and give the
    test its separate name.
@@ -31,7 +31,7 @@ variants. GTX 16 cards and other Turing products are excluded from this test.
 
 ## Short test
 
-For this diagnostic, keep NR off and FG at x2. Load a save once. If the new
+For the first test, keep NR off and FG at x2. Load a save once. If a
 kernel-loading error appears, close the message and send the log before another
 launch overwrites it. Look for `stage=cu-module-load`. Do not repeat quality-mode
 tests or reinstall. The instructions below only apply if kernel loading succeeds.
@@ -51,7 +51,9 @@ tests or reinstall. The instructions below only apply if kernel loading succeeds
 Send `Documents/My Games/Skyrim Special Edition/SKSE/TheosRenderPipeline.log`
 and this ZIP's `TRP-FULL-PACKAGE.txt`, plus an End-menu screenshot and the
 settings/stage where the problem occurred. Successful startup should select
-`route=Turing` and report preparation for `SM75`.
+`route=Turing`, preparation for `SM75`, and `stage=network-selection` with
+`networks=2 kernelLoads=39 source=prepared-PTX`. That startup line confirms the
+selected code path; it does not by itself prove successful frame generation.
 
 To roll back, disable this test mod, restore the backed-up INI and enable your
 previous Universal edition. Standard alone is not an RTX 20 fallback for TRP:
