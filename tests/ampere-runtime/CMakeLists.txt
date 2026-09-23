@@ -7,7 +7,13 @@ target_link_libraries(TRPAmpereRuntimeTests PRIVATE d3d12 dxgi bcrypt version)
 foreach(case IN ITEMS policies requirements capabilities capabilities-reject-availability
     capabilities-reject-capacity create-ready create-unprepared create-bridge-missing
     create-failed-owner create-descriptor-changed create-arch-changed create-import-changed
-    resolvers startup-reentry repeated-create)
+    resolvers startup-reentry repeated-create false-success)
     add_test(NAME AmpereRuntime-${case} COMMAND TRPAmpereRuntimeTests ${case})
     set_tests_properties(AmpereRuntime-${case} PROPERTIES TIMEOUT 15)
+    add_test(NAME TuringRuntime-${case} COMMAND TRPAmpereRuntimeTests turing-${case})
+    set_tests_properties(TuringRuntime-${case} PROPERTIES TIMEOUT 15)
+endforeach()
+foreach(case IN ITEMS module-success module-failure module-null-success module-elf-failure module-fatbin-failure create-network-changed)
+    add_test(NAME TuringRuntime-${case} COMMAND TRPAmpereRuntimeTests turing-${case})
+    set_tests_properties(TuringRuntime-${case} PROPERTIES TIMEOUT 15)
 endforeach()

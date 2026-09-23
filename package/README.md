@@ -1,4 +1,10 @@
-# Theo's Render Pipeline — Universal, 0.2.5
+# Theo's Render Pipeline — Universal, 0.3.0
+
+This release adds experimental RTX 20 DLSS-G/MFG compatibility and retains
+all 0.2.5 fixes. The separate RTX 2060 test records x2/x3/x4/x6, NR and loading
+recovery. The combined release has positive ENB/RTX 4080 SUPER regression feedback
+with x4/NR and loading recovery. Broader RTX 20 coverage remains unverified.
+See RTX20-TEST.md.
 
 Version 0.2.5 improves startup compatibility with existing renderer hooks,
 including SSE Display Tweaks BorderlessUpscale and Community Shaders. Rejected
@@ -21,7 +27,8 @@ DLSS/DLAA, frame generation, Neural Rendering and native-resolution UI for Skyri
 This package includes the full renderer, configuration and sharpening shader.
 It requires no other Theo's Render Pipeline package. NVIDIA DLLs are supplied
 separately: download the SR/FG files below, and the NR runtime if you want NR.
-Alternatively, install matching 0.2.5 Standard first and Universal after it in MO2; the NR-enabled
+Alternatively, install Standard first and Universal after it in MO2; Standard
+0.3.0 supplies the runtime bundle (0.2.5 retains the same DLLs). The NR-enabled
 Standard download supplies all eight runtimes, including NR. In that setup,
 skip the runtime downloads below.
 

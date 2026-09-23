@@ -1,4 +1,7 @@
-# Theo's Render Pipeline — Standard, 0.2.5
+# Theo's Render Pipeline — Standard, 0.3.0
+
+RTX 20 users need Universal's compatibility path installed after Standard.
+This edition supplies the retained runtime bundle and all 0.2.5 fixes.
 
 DLSS/DLAA, native NVIDIA frame generation, Neural Rendering, NVIDIA Reflex and
 native-resolution menus for Skyrim. All eight NVIDIA runtime DLLs are included.
@@ -88,13 +91,14 @@ the tested world-only effects setup.
 
 ## With the Universal edition
 
-For the RTX 40 MFG unlock or experimental RTX 30 support, install the matching 0.2.5 Universal
-ZIP after Standard in MO2's left pane. Let Universal win file conflicts. Universal uses
+For the RTX 40 MFG unlock or experimental RTX 20/30 support, install the matching
+0.3.0 Universal ZIP after Standard in MO2's left pane. Let Universal win file conflicts. Universal uses
 the NVIDIA runtimes included here, including NR.
 
 Both editions contain settings files; the later mod's files win. Switching
-editions may change settings. Disable Universal to return to Standard. Both editions
-support NR; Standard excludes Ada/Ampere compatibility code.
+editions may change settings. On cards with native FG support, disable Universal
+to return to Standard. RTX 20/30 still require Universal even with interpolation
+off. Both editions support NR; Standard excludes Ada/Ampere/Turing compatibility code.
 
 ## Nolvus Awakening
 

@@ -771,8 +771,7 @@ AdapterKind QueryAdapterKind(const LUID& activeLuid, const CudaDeviceAPI& api,
         return AdapterKind::Unavailable;
     major = matchedMajor;
     minor = matchedMinor;
-    if (major == 8 && minor == 9) return AdapterKind::Ada;
-    return major == 8 && minor == 6 ? AdapterKind::Ampere : AdapterKind::Other;
+    return ClassifyCUDAAdapter(major, minor);
 }
 
 AdapterKind IdentifyAdapter(const LUID& activeLuid, int& major, int& minor) noexcept
@@ -803,9 +802,10 @@ void SetLogCallback(LogCallback callback) noexcept
     gLogCallback.store(callback, std::memory_order_release);
 }
 
-bool BuildAmpereTemporalClone(HMODULE module, AmpereTemporalClone& output) noexcept
+bool BuildAmpereTemporalClone(HMODULE module, AmpereTemporalClone& output, uint32_t targetSm) noexcept
 {
     output = {};
+    if (targetSm != 86 && targetSm != 75) return false;
     uint32_t imageSize = 0;
     if (!ImageSize(module, imageSize)) return false;
     const auto base = reinterpret_cast<uintptr_t>(module);
@@ -840,9 +840,9 @@ bool BuildAmpereTemporalClone(HMODULE module, AmpereTemporalClone& output) noexc
         ReadU64(fatbin + entry + 40) != 0x41) return fail();
     const auto targetAt = FindUniqueBytes(fatbin + payload, outputBytes - payload, target, sizeof(target) - 1);
     if (targetAt == SIZE_MAX) return fail();
-    fatbin[payload + targetAt + sizeof(target) - 2] = '6';
-    const uint32_t sm86 = 86;
-    std::memcpy(fatbin + entry + 28, &sm86, sizeof(sm86));
+    fatbin[payload + targetAt + sizeof(target) - 3] = static_cast<uint8_t>('0' + targetSm / 10);
+    fatbin[payload + targetAt + sizeof(target) - 2] = static_cast<uint8_t>('0' + targetSm % 10);
+    std::memcpy(fatbin + entry + 28, &targetSm, sizeof(targetSm));
     std::memcpy(allocation, original.data(), original.size());
     const auto replacementFatbin = reinterpret_cast<uintptr_t>(fatbin);
     std::memcpy(allocation + 8, &replacementFatbin, sizeof(replacementFatbin));

@@ -51,25 +51,25 @@ struct Params final : NVSDK_NGX_Parameter {
     NVSDK_NGX_Result Get(const char*,void**) const override {return NVSDK_NGX_Result_FAIL_InvalidParameter;}
     void Reset() override {values.clear();}
 };
-int __cdecl RealArch(void*,ArchInfo* info) {if(info)info->architecture=kAmpere;return 0;}
+int __cdecl RealArch(void*,ArchInfo* info) {if(info)info->architecture=State().nativeArchitecture;return 0;}
 void Policies() {
     using namespace TheosRenderPipeline::SourceDLSSG;
-    for(auto adapter:{midpoint_fix::AdapterKind::Ada,midpoint_fix::AdapterKind::Ampere,midpoint_fix::AdapterKind::Other,midpoint_fix::AdapterKind::Unavailable}) {
+    for(auto adapter:{midpoint_fix::AdapterKind::Ada,midpoint_fix::AdapterKind::Ampere,midpoint_fix::AdapterKind::Turing,midpoint_fix::AdapterKind::Other,midpoint_fix::AdapterKind::Unavailable}) {
         MFGSnapshot state;Require(state.SelectRoute(adapter) && state.route==MFGRoute::Native,"disabled compatibility stays native");
         state.requested=true;const bool ok=state.SelectRoute(adapter);
         Require(ok==(adapter!=midpoint_fix::AdapterKind::Unavailable),"unavailable physical adapter fails");
-        if(ok) Require(state.route==(adapter==midpoint_fix::AdapterKind::Ada ? MFGRoute::AdaUnlock : adapter==midpoint_fix::AdapterKind::Ampere ? MFGRoute::AmpereUnlock : MFGRoute::Native),"physical architecture selects route");
+        if(ok) Require(state.route==(adapter==midpoint_fix::AdapterKind::Ada ? MFGRoute::AdaUnlock : adapter==midpoint_fix::AdapterKind::Ampere ? MFGRoute::AmpereUnlock : adapter==midpoint_fix::AdapterKind::Turing ? MFGRoute::TuringUnlock : MFGRoute::Native),"physical architecture selects route");
         Require(!state.Ready(),"routing alone cannot establish readiness");
     }
     auto& s=State();s.arch=RealArch;s.gpu=reinterpret_cast<void*>(1);
     ArchInfo a{0x20010,0,0,0};s.prepared=true;s.installed=true;
-    Architecture(s.gpu,&a);Require(a.architecture==kAmpere,"outside scope remains physical");
+    Architecture(s.gpu,&a);Require(a.architecture==State().nativeArchitecture,"outside scope remains physical");
     {ExposureScope scope(true);Architecture(s.gpu,&a);Require(a.architecture==kAda,"prepared matching GPU exposed in scope");
-      Architecture(reinterpret_cast<void*>(2),&a);Require(a.architecture==kAmpere,"other GPU remains physical");
-      {ExposureScope suppress(false);Architecture(s.gpu,&a);Require(a.architecture==kAmpere,"non-FG nested scope suppressed");}
+      Architecture(reinterpret_cast<void*>(2),&a);Require(a.architecture==State().nativeArchitecture,"other GPU remains physical");
+      {ExposureScope suppress(false);Architecture(s.gpu,&a);Require(a.architecture==State().nativeArchitecture,"non-FG nested scope suppressed");}
       Architecture(s.gpu,&a);Require(a.architecture==kAda,"nested scope restored");
-      a.version=0x30010;Architecture(s.gpu,&a);Require(a.architecture==kAmpere,"unknown ABI remains unchanged");a.version=0x20010;
-      s.prepared=false;Architecture(s.gpu,&a);Require(a.architecture==kAmpere,"unprepared provider remains physical");s.prepared=true;}
+      a.version=0x30010;Architecture(s.gpu,&a);Require(a.architecture==State().nativeArchitecture,"unknown ABI remains unchanged");a.version=0x20010;
+      s.prepared=false;Architecture(s.gpu,&a);Require(a.architecture==State().nativeArchitecture,"unprepared provider remains physical");s.prepared=true;}
     for(int available:{0,1})for(int driver:{0,1})for(int maximum:{0,1,5,9}) {
       Params p;p.values={{"FrameGeneration.Available",available},{"FrameGeneration.NeedsUpdatedDriver",driver},{"DLSSG.MultiFrameCountMax",maximum}};
       UpdateCapabilities(&p);const bool enabled=available || !driver;
@@ -102,11 +102,13 @@ struct Adapter final : IDXGIAdapter {
 struct Published {
     std::uintptr_t descriptor=0x12345678;
     std::array<std::uint8_t,6> arch{0xb8,0x70,1,0,0,0xc3};
-    std::array<Resolver,2> imports{Resolve<0>,Resolve<1>};
+    std::array<Resolver,3> imports{Resolve<0>,Resolve<1>,Resolve<2>};
+    std::array<std::array<std::uint8_t,2>,2> networks{turing_network::kSelected,turing_network::kSelected};
     Published() {
-        auto& s=State();s.log=CaptureLog;s.prepared=true;s.installed=true;s.arch=RealArch;s.gpu=reinterpret_cast<void*>(1);s.luid={17,3};
+        auto& s=State();arch[1]=static_cast<std::uint8_t>(s.nativeArchitecture);s.log=CaptureLog;s.prepared=true;s.installed=true;s.arch=RealArch;s.gpu=reinterpret_cast<void*>(1);s.luid={17,3};
         s.temporal.slot=reinterpret_cast<std::uintptr_t>(&descriptor);s.temporal.replacementDescriptor=descriptor;
-        s.minimumArch=arch.data();for(unsigned i=0;i<2;++i)s.importSlots[i]=reinterpret_cast<void**>(&imports[i]);
+        s.minimumArch=arch.data();for(unsigned i=0;i<3;++i)s.importSlots[i]=reinterpret_cast<void**>(&imports[i]);
+        for(unsigned i=0;i<2;++i)s.networkSites[i]=networks[i].data();
     }
 };
 NVSDK_NGX_Result vendorResult=NVSDK_NGX_Result_Success;
@@ -117,6 +119,7 @@ IDXGIAdapter* observedAdapter{};const NVSDK_NGX_FeatureDiscoveryInfo* observedDi
 ID3D12GraphicsCommandList* observedCommands{}; NVSDK_NGX_Feature observedFeature{};
 NVSDK_NGX_Parameter* observedParams{}; NVSDK_NGX_Handle** observedHandle{};
 NVSDK_NGX_Handle vendorHandle{};
+bool failInsideCreate{};
 void ObserveArchitecture() {ArchInfo a{0x20010,0,0,0};Architecture(State().gpu,&a);observedArchitecture=a.architecture;}
 NVSDK_NGX_Result NVSDK_CONV MockRequirements(IDXGIAdapter* adapter,const NVSDK_NGX_FeatureDiscoveryInfo* discovery,NVSDK_NGX_FeatureRequirement* out) {
     ++vendorCalls;observedAdapter=adapter;observedDiscovery=discovery;ObserveArchitecture();if(out)*out=vendorRequirement;return vendorResult;
@@ -125,6 +128,7 @@ NVSDK_NGX_Result NVSDK_CONV MockParameters(NVSDK_NGX_Parameter** out) {++vendorC
 NVSDK_NGX_Result NVSDK_CONV MockCreate(ID3D12GraphicsCommandList* commands,NVSDK_NGX_Feature feature,NVSDK_NGX_Parameter* params,NVSDK_NGX_Handle** out) {
     ++vendorCalls;observedCommands=commands;observedFeature=feature;observedParams=params;observedHandle=out;ObserveArchitecture();
     if(out)*out=vendorResult==NVSDK_NGX_Result_Success ? &vendorHandle : nullptr;
+    if(failInsideCreate)Fail("internal kernel creation failure");
     return vendorResult;
 }
 void RequirementCalls() {
@@ -141,9 +145,9 @@ void RequirementCalls() {
         Require(GetRequirements(&adapter,&discovery,&out)==NVSDK_NGX_Result_Success && vendorCalls==previous+1,"requirements forwarded exactly once");
         Require(observedAdapter==&adapter && observedDiscovery==&discovery,"requirements argument identity retained");
         const bool eligible=ready && fg && identity==0;
-        Require(observedArchitecture==(eligible ? kAda:kAmpere),"architecture exposure limited to prepared matching FG call");
+        Require(observedArchitecture==(eligible ? kAda:State().nativeArchitecture),"architecture exposure limited to prepared matching FG call");
         const bool amend=eligible && (flags==0 || flags==4);
-        Require(static_cast<unsigned>(out.FeatureSupported)==(amend ? 0:flags) && out.MinHWArchitecture==(amend ? kAmpere:kAda),"OS/driver/identity failures retained");
+        Require(static_cast<unsigned>(out.FeatureSupported)==(amend ? 0:flags) && out.MinHWArchitecture==(amend ? State().nativeArchitecture:kAda),"OS/driver/identity failures retained");
     }
     s.prepared=true;adapter.luid=s.luid;adapter.vendor=0x10de;adapter.status=S_OK;discovery.FeatureID=NVSDK_NGX_Feature_FrameGeneration;
     vendorRequirement.FeatureSupported=static_cast<NVSDK_NGX_Feature_Support_Result>(4);vendorRequirement.MinHWArchitecture=kAda;
@@ -151,8 +155,19 @@ void RequirementCalls() {
     Require(GetRequirements(&adapter,&discovery,&out)==vendorResult && out.MinHWArchitecture==kAda && static_cast<unsigned>(out.FeatureSupported)==4,"failed requirements result and payload preserved");
     vendorResult=NVSDK_NGX_Result_Success;vendorRequirement.MinHWArchitecture=0x1b0;
     GetRequirements(&adapter,&discovery,&out);Require(out.MinHWArchitecture==0x1b0 && static_cast<unsigned>(out.FeatureSupported)==4,"unrecognized minimum architecture preserved");
-    GetRequirements(nullptr,&discovery,&out);Require(observedArchitecture==kAmpere,"null adapter cannot receive exposure");
-    GetRequirements(&adapter,nullptr,&out);Require(observedArchitecture==kAmpere,"null discovery cannot receive exposure");
+    for (const auto minimum:{kAmpere,State().nativeArchitecture}) {
+        vendorRequirement.MinHWArchitecture=minimum;
+        vendorRequirement.FeatureSupported=static_cast<NVSDK_NGX_Feature_Support_Result>(4);
+        GetRequirements(&adapter,&discovery,&out);
+        Require(out.MinHWArchitecture==State().nativeArchitecture && static_cast<unsigned>(out.FeatureSupported)==0,
+            "prepared backport handles the provider's native or Ampere minimum");
+        vendorRequirement.FeatureSupported=static_cast<NVSDK_NGX_Feature_Support_Result>(2);
+        GetRequirements(&adapter,&discovery,&out);
+        Require(out.MinHWArchitecture==minimum && static_cast<unsigned>(out.FeatureSupported)==2,
+            "minimum architecture cannot erase a driver prerequisite");
+    }
+    GetRequirements(nullptr,&discovery,&out);Require(observedArchitecture==State().nativeArchitecture,"null adapter cannot receive exposure");
+    GetRequirements(&adapter,nullptr,&out);Require(observedArchitecture==State().nativeArchitecture,"null discovery cannot receive exposure");
     Require(GetRequirements(&adapter,&discovery,nullptr)==vendorResult,"null requirements output forwarded without dereference");
     Require(startupScope==0 && !suppressExposure,"requirements scope restored");
 }
@@ -169,7 +184,7 @@ void ParameterCalls(const std::string& mode) {
             Require(result==vendorResult && output==&vendorParams && vendorParams.values==before,"failed parameter call is not rewritten");
         }
         vendorResult=NVSDK_NGX_Result_Success;s.installed=false;
-        GetParameters<0>(&output);Require(vendorParams.values["FrameGeneration.Available"]==0 && observedArchitecture==kAmpere,"incomplete bridge cannot advertise support");
+        GetParameters<0>(&output);Require(vendorParams.values["FrameGeneration.Available"]==0 && observedArchitecture==State().nativeArchitecture,"incomplete bridge cannot advertise support");
         s.installed=true;GetParameters<1>(&output);
         Require(output==&vendorParams && vendorParams.values["FrameGeneration.Available"]==1 && vendorParams.values["DLSSG.MultiFrameCountMax"]==5,"prepared capability result and object retained");
         Require(GetParameters<0>(nullptr)==NVSDK_NGX_Result_Success,"null parameter output forwarded");
@@ -179,7 +194,7 @@ void ParameterCalls(const std::string& mode) {
         GetParameters<0>(&output);
         Require(Snapshot().failed && Snapshot().error && Saw("did not retain"),"vendor refusing a required value latches an explicit failure");
         Require(!Prepared() && !Verify(),"rejected preparation cannot remain ready");
-        ArchInfo a{0x20010,0,0,0};{ExposureScope scope(true);Architecture(s.gpu,&a);}Require(a.architecture==kAmpere,"failed owner stops architecture exposure");
+        ArchInfo a{0x20010,0,0,0};{ExposureScope scope(true);Architecture(s.gpu,&a);}Require(a.architecture==State().nativeArchitecture,"failed owner stops architecture exposure");
     }
     Require(startupScope==0 && !suppressExposure,"parameters scope restored");
 }
@@ -198,7 +213,7 @@ void CreationCalls(const std::string& mode) {
         vendorResult=NVSDK_NGX_Result_Success;
         Require(CreateFeature(commands,fg,&vendorParams,&output)==vendorResult && output==&vendorHandle && vendorCalls==2,"successful vendor create forwards exact handle");
         Require(Saw("feature created") && !Snapshot().failed,"successful forwarding recorded");
-        {ExposureScope startup(true);Require(CreateFeature(commands,NVSDK_NGX_Feature_SuperSampling,&vendorParams,&output)==vendorResult,"non-FG create forwarded inside startup scope");Require(observedArchitecture==kAmpere,"non-FG create suppresses nested exposure");}
+        {ExposureScope startup(true);Require(CreateFeature(commands,NVSDK_NGX_Feature_SuperSampling,&vendorParams,&output)==vendorResult,"non-FG create forwarded inside startup scope");Require(observedArchitecture==State().nativeArchitecture,"non-FG create suppresses nested exposure");}
         Require(Snapshot().createCalls==2 && vendorCalls==3,"non-FG call excluded from FG counters");
     } else {
         if(mode=="create-unprepared")s.prepared=false;
@@ -207,6 +222,7 @@ void CreationCalls(const std::string& mode) {
         else if(mode=="create-descriptor-changed")published.descriptor++;
         else if(mode=="create-arch-changed")published.arch[1]=0x90;
         else if(mode=="create-import-changed")published.imports[1]=nullptr;
+        else if(mode=="create-network-changed")published.networks[1][0]=0x7e;
         else throw std::runtime_error("unknown creation fixture");
         Require(CreateFeature(commands,fg,&vendorParams,&output)==NVSDK_NGX_Result_FAIL_FeatureNotSupported && output==nullptr && vendorCalls==0,"incomplete or damaged preparation blocks vendor create and clears handle");
         Require(Snapshot().createSeen && Snapshot().createCalls==1 && !Verify(),"failed create boundary cannot report readiness");
@@ -235,7 +251,7 @@ void StartupReentry() {
     Require(!Start(nullptr,std::filesystem::path("relative"),CaptureLog),"invalid startup device/path refused");
     Require(Snapshot().failed && Snapshot().error && !Snapshot().prepared && !Snapshot().bridgeInstalled && !Snapshot().createSeen,"invalid startup leaves provider unpublished");
     Require(!Start(nullptr,std::filesystem::absolute("."),CaptureLog) && Saw("cannot be repeated"),"startup cannot be repeated after failure");
-    Require(std::string(Snapshot().error)=="Ampere preparation requires the actual SM86 rendering adapter","startup preserves first failure");
+    Require(std::string(Snapshot().error)=="Compatibility preparation requires an actual SM86 or SM75 rendering adapter","startup preserves first failure");
 }
 
 void RepeatedCreation() {
@@ -255,7 +271,7 @@ void RepeatedCreation() {
             ExposureScope outer(true);
             Require(CreateFeature(nullptr, NVSDK_NGX_Feature_SuperSampling, &vendorParams, &output) == NVSDK_NGX_Result_Success,
                 "SR create during host startup must still forward");
-            Require(observedArchitecture == kAmpere, "SR must see the physical architecture even inside startup");
+            Require(observedArchitecture == State().nativeArchitecture, "SR must see the physical architecture even inside startup");
             unsigned peerArchitecture{};
             std::thread peer([&] {
                 ArchInfo info{0x20010, 0, 0, 0};
@@ -263,12 +279,12 @@ void RepeatedCreation() {
                 peerArchitecture = info.architecture;
             });
             peer.join();
-            Require(peerArchitecture == kAmpere, "FG exposure must not cross threads");
+            Require(peerArchitecture == State().nativeArchitecture, "FG exposure must not cross threads");
             ObserveArchitecture();
             Require(observedArchitecture == kAda, "nested SR call must restore the caller scope");
         }
         ObserveArchitecture();
-        Require(observedArchitecture == kAmpere && startupScope == 0 && !suppressExposure,
+        Require(observedArchitecture == State().nativeArchitecture && startupScope == 0 && !suppressExposure,
             "each recreation must leave physical architecture outside FG scope");
     }
     published.descriptor++;
@@ -278,8 +294,75 @@ void RepeatedCreation() {
         && !output && vendorCalls == calls, "changed publication must stop the next create before vendor dispatch");
 }
 
+int moduleResult{};void* moduleHandle=reinterpret_cast<void*>(0x1234);
+unsigned moduleVendorCalls{};const void* moduleBlob{};std::uint32_t moduleSize{};
+std::string moduleMode;
+int __cdecl MockModule(ID3D12Device*,const void* blob,std::uint32_t size,void** output) {
+    ++moduleVendorCalls;moduleBlob=blob;moduleSize=size;
+    if(output)*output=moduleHandle;
+    return moduleResult;
+}
+void* __cdecl MockQuery(std::uint32_t id) {
+    return id==0xad1a677d?reinterpret_cast<void*>(MockModule):reinterpret_cast<void*>(RealArch);
+}
+void ModuleCalls(const std::string& mode) {
+    moduleMode=mode;
+    Published published;auto& s=State();s.query=MockQuery;s.createModule=MockModule;
+    s.resolvers[2]=MockResolver;s.nvapi=reinterpret_cast<HMODULE>(0x7777);
+    resolverOutput=reinterpret_cast<FARPROC>(MockQuery);
+    Require(Resolve<2>(s.nvapi,"nvapi_QueryInterface")==reinterpret_cast<FARPROC>(ProviderQueryInterface),"provider-only query wrapper installed");
+    Require(Resolve<2>(nullptr,"nvapi_QueryInterface")==resolverOutput,"other NVAPI instance untouched");
+    Require(Resolve<2>(s.nvapi,"NVSDK_NGX_D3D12_CreateFeature")==resolverOutput,"provider resolver cannot intercept NGX");
+    Require(ProviderQueryInterface(0xd8265d24)==reinterpret_cast<void*>(RealArch),"provider architecture stays physical");
+    Require(ProviderQueryInterface(0xad1a677d)==reinterpret_cast<void*>(CreateCuModule),"only module loading intercepted");
+    moduleResult=-5;
+    Require(CreateCuModule(nullptr,nullptr,0,nullptr)==-5 && moduleVendorCalls==1 && !s.failed && s.moduleCalls==0,"null API-presence probe forwarded without failure");
+    std::array<std::uint8_t,80> blob{};s.programs.push_back({blob.data(),blob.size()});
+    if(mode=="module-elf-failure") {
+        const std::uint32_t magic=0x464c457f,flags=0x560556;
+        std::memcpy(blob.data(),&magic,4);blob[4]=2;blob[5]=1;blob[18]=190;std::memcpy(blob.data()+48,&flags,4);
+    } else if(mode=="module-fatbin-failure") {
+        const auto magic=fatbin::kMagic;std::memcpy(blob.data(),&magic,4);blob[44]=75;
+    }
+    auto* device=reinterpret_cast<ID3D12Device*>(0x9999);void* output{};
+    if(mode=="module-success") {
+        moduleResult=0;
+        Require(CreateCuModule(device,blob.data(),blob.size(),&output)==0 && output==moduleHandle && !s.failed,"success and handle preserved");
+        Require(moduleBlob==blob.data() && moduleSize==blob.size() && moduleVendorCalls==2 && s.moduleCalls==1,"exact inputs forwarded once");
+    } else {
+        moduleResult=mode=="module-null-success"?0:-1;moduleHandle=nullptr;
+        s.fatal=[](const char* reason) {
+            Require(State().failed && State().moduleCalls==1 && moduleVendorCalls==2,"failure is synchronous before returning to NVIDIA");
+            Require(std::string(reason).find("kernel loading failed")!=std::string::npos && Saw("stage=cu-module-load") && Saw("program=0"),"precise failure recorded");
+            if(moduleMode=="module-elf-failure")Require(Saw("kind=ELF64 machine=190 elfFlags=00560556") && !Saw("firstSM="),"ELF diagnostics do not invent fatbin metadata");
+            if(moduleMode=="module-fatbin-failure")Require(Saw("kind=fatbin") && Saw("firstSM=75"),"fatbin metadata retained");
+            std::cout<<"PASS synchronous module failure boundary; no GPU dispatch"<<std::endl;
+            std::exit(0); // Model the real host's terminating callback.
+        };
+        CreateCuModule(device,blob.data(),blob.size(),&output);
+        Require(false,"failed kernel creation must never return into vendor code");
+    }
+}
+void FalseSuccess() {
+    Published published;State().create=MockCreate;failInsideCreate=true;
+    NVSDK_NGX_Handle* output{};
+    Require(CreateFeature(nullptr,NVSDK_NGX_Feature_FrameGeneration,&vendorParams,&output)==NVSDK_NGX_Result_FAIL_FeatureNotSupported && !output,"outer success cannot publish handle after internal failure");
+    Require(vendorCalls==1 && Snapshot().failed && !Saw("feature created"),"false success is not logged as readiness");
+}
+
 int main(int argc,char** argv) {try {
-    Require(argc==2,"runtime_tests <case>");const std::string mode=argv[1];
+    Require(argc==2,"runtime_tests <case>");std::string mode=argv[1];
+    if(mode.starts_with("turing-")) { mode.erase(0,7);State().nativeArchitecture=kTuring;State().targetSm=75; }
+    Require(IsRTX20("NVIDIA GeForce RTX 2060") && IsRTX20("GeForce RTX 2070 SUPER") &&
+        IsRTX20("GeForce RTX 2080 Ti") && IsRTX20("GeForce RTX 2070 with Max-Q Design"), "RTX20 product admission");
+    Require(!IsRTX20("GeForce GTX 1660 Ti") && !IsRTX20("GeForce GTX 1650") && !IsRTX20("Quadro RTX 4000") &&
+        !IsRTX20("GeForce RTX 3060") && !IsRTX20("GeForce RTX 20600") && !IsRTX20(""), "unqualified SM75 products refused");
+    Require(midpoint_fix::ClassifyCUDAAdapter(7,5)==midpoint_fix::AdapterKind::Turing,"SM75 selects Turing");
+    Require(midpoint_fix::ClassifyCUDAAdapter(8,6)==midpoint_fix::AdapterKind::Ampere,"SM86 selects Ampere");
+    Require(midpoint_fix::ClassifyCUDAAdapter(8,9)==midpoint_fix::AdapterKind::Ada,"SM89 selects Ada");
+    Require(midpoint_fix::ClassifyCUDAAdapter(8,0)==midpoint_fix::AdapterKind::Other &&
+            midpoint_fix::ClassifyCUDAAdapter(7,0)==midpoint_fix::AdapterKind::Other &&
+            midpoint_fix::ClassifyCUDAAdapter(12,0)==midpoint_fix::AdapterKind::Other,"other GPUs keep native admission");
     if(mode=="policies"){Transactions();Policies();}
     else if(mode=="requirements")RequirementCalls();
     else if(mode.starts_with("capabilities"))ParameterCalls(mode);
@@ -287,6 +370,8 @@ int main(int argc,char** argv) {try {
     else if(mode=="resolvers")ResolverCalls();
     else if(mode=="repeated-create")RepeatedCreation();
     else if(mode=="startup-reentry")StartupReentry();
+    else if(mode.starts_with("module-"))ModuleCalls(mode);
+    else if(mode=="false-success")FalseSuccess();
     else throw std::runtime_error("unknown fixture case");
-    std::cout<<"PASS "<<checks<<" checks; no GPU dispatch or Ampere hardware claim"<<std::endl;return 0;
+    std::cout<<"PASS "<<checks<<" checks; no GPU dispatch or physical compatibility claim"<<std::endl;return 0;
 }catch(const std::exception& e){std::cerr<<"FAIL "<<e.what()<<" after "<<checks<<" checks"<<std::endl;return 1;}}

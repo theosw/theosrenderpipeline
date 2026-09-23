@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.21)
 
 project(
 	TheosRenderPipeline
-	VERSION 0.2.5
+	VERSION 0.3.0
 	LANGUAGES C CXX
 )
 
@@ -35,7 +35,7 @@ include(cmake/BaselineSources.cmake)
 target_sources(${PROJECT_NAME} PRIVATE ${ARP_BASELINE_SOURCES})
 
 option(TRP_ENABLE_NEURAL_RENDERING "Include Neural Rendering integration and controls" ON)
-option(TRP_ENABLE_OPTIONAL_FEATURES "Include optional Ada/Ampere MFG compatibility" ON)
+option(TRP_ENABLE_OPTIONAL_FEATURES "Include optional Ada/Ampere/Turing MFG compatibility" ON)
 if(TRP_ENABLE_NEURAL_RENDERING)
     target_sources(TheosRenderPipeline PRIVATE ${ARP_NEURAL_SOURCES})
 else()
@@ -248,6 +248,7 @@ if(TRP_BUILD_COMPATIBILITY_TESTS)
     target_include_directories(TRPRuntimeModuleDiagnosticTests PRIVATE src)
     add_test(NAME RuntimeModuleDiagnostics COMMAND TRPRuntimeModuleDiagnosticTests)
     add_subdirectory(tests/ampere-runtime)
+    add_subdirectory(tests/turing)
     add_executable(TRPSourceDLSSGSessionTests tests/SourceDLSSGSessionTests.cpp src/FrameGen/SourceDLSSGSession.cpp)
     target_compile_features(TRPSourceDLSSGSessionTests PRIVATE cxx_std_23)
     target_include_directories(TRPSourceDLSSGSessionTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src" "${TRP_STREAMLINE_INCLUDE_DIR}")

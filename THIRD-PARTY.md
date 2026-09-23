@@ -42,6 +42,9 @@ runtimes retain the license files accompanying their downloads.
 - **MFGAmpereUnlock-RenoDx** — ImDreamt, mavismmg and nefh, MIT; SM86 PTX
   preparation, provider architecture policy and scoped NGX/NVAPI compatibility
   techniques, adapted from revision dd349cdbbae6525188e71fbf2e6d3c648be40db9.
+  The experimental SM75 subset in extern/MFGTuring is from revision
+  93c5725a534840dc0fa7b1986b216e6b9da3877d, with strict instruction lowering
+  and compressed-container rebuilding. The same MIT notice below applies.
   https://github.com/nefh/MFGAmpereUnlock-RenoDx
 - **NVAPI** — NVIDIA, MIT; minimal public architecture-query ABI declarations,
   revision 87dca625e83fd89a983e19b904e5f3a580da90d2.
