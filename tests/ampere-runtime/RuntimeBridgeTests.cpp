@@ -102,11 +102,11 @@ struct Adapter final : IDXGIAdapter {
 struct Published {
     std::uintptr_t descriptor=0x12345678;
     std::array<std::uint8_t,6> arch{0xb8,0x70,1,0,0,0xc3};
-    std::array<Resolver,2> imports{Resolve<0>,Resolve<1>};
+    std::array<Resolver,3> imports{Resolve<0>,Resolve<1>,Resolve<2>};
     Published() {
         auto& s=State();arch[1]=static_cast<std::uint8_t>(s.nativeArchitecture);s.log=CaptureLog;s.prepared=true;s.installed=true;s.arch=RealArch;s.gpu=reinterpret_cast<void*>(1);s.luid={17,3};
         s.temporal.slot=reinterpret_cast<std::uintptr_t>(&descriptor);s.temporal.replacementDescriptor=descriptor;
-        s.minimumArch=arch.data();for(unsigned i=0;i<2;++i)s.importSlots[i]=reinterpret_cast<void**>(&imports[i]);
+        s.minimumArch=arch.data();for(unsigned i=0;i<3;++i)s.importSlots[i]=reinterpret_cast<void**>(&imports[i]);
     }
 };
 NVSDK_NGX_Result vendorResult=NVSDK_NGX_Result_Success;
@@ -117,6 +117,7 @@ IDXGIAdapter* observedAdapter{};const NVSDK_NGX_FeatureDiscoveryInfo* observedDi
 ID3D12GraphicsCommandList* observedCommands{}; NVSDK_NGX_Feature observedFeature{};
 NVSDK_NGX_Parameter* observedParams{}; NVSDK_NGX_Handle** observedHandle{};
 NVSDK_NGX_Handle vendorHandle{};
+bool failInsideCreate{};
 void ObserveArchitecture() {ArchInfo a{0x20010,0,0,0};Architecture(State().gpu,&a);observedArchitecture=a.architecture;}
 NVSDK_NGX_Result NVSDK_CONV MockRequirements(IDXGIAdapter* adapter,const NVSDK_NGX_FeatureDiscoveryInfo* discovery,NVSDK_NGX_FeatureRequirement* out) {
     ++vendorCalls;observedAdapter=adapter;observedDiscovery=discovery;ObserveArchitecture();if(out)*out=vendorRequirement;return vendorResult;
@@ -125,6 +126,7 @@ NVSDK_NGX_Result NVSDK_CONV MockParameters(NVSDK_NGX_Parameter** out) {++vendorC
 NVSDK_NGX_Result NVSDK_CONV MockCreate(ID3D12GraphicsCommandList* commands,NVSDK_NGX_Feature feature,NVSDK_NGX_Parameter* params,NVSDK_NGX_Handle** out) {
     ++vendorCalls;observedCommands=commands;observedFeature=feature;observedParams=params;observedHandle=out;ObserveArchitecture();
     if(out)*out=vendorResult==NVSDK_NGX_Result_Success ? &vendorHandle : nullptr;
+    if(failInsideCreate)Fail("internal kernel creation failure");
     return vendorResult;
 }
 void RequirementCalls() {
@@ -289,6 +291,52 @@ void RepeatedCreation() {
         && !output && vendorCalls == calls, "changed publication must stop the next create before vendor dispatch");
 }
 
+int moduleResult{};void* moduleHandle=reinterpret_cast<void*>(0x1234);
+unsigned moduleVendorCalls{};const void* moduleBlob{};std::uint32_t moduleSize{};
+int __cdecl MockModule(ID3D12Device*,const void* blob,std::uint32_t size,void** output) {
+    ++moduleVendorCalls;moduleBlob=blob;moduleSize=size;
+    if(output)*output=moduleHandle;
+    return moduleResult;
+}
+void* __cdecl MockQuery(std::uint32_t id) {
+    return id==0xad1a677d?reinterpret_cast<void*>(MockModule):reinterpret_cast<void*>(RealArch);
+}
+void ModuleCalls(const std::string& mode) {
+    Published published;auto& s=State();s.query=MockQuery;s.createModule=MockModule;
+    s.resolvers[2]=MockResolver;s.nvapi=reinterpret_cast<HMODULE>(0x7777);
+    resolverOutput=reinterpret_cast<FARPROC>(MockQuery);
+    Require(Resolve<2>(s.nvapi,"nvapi_QueryInterface")==reinterpret_cast<FARPROC>(ProviderQueryInterface),"provider-only query wrapper installed");
+    Require(Resolve<2>(nullptr,"nvapi_QueryInterface")==resolverOutput,"other NVAPI instance untouched");
+    Require(Resolve<2>(s.nvapi,"NVSDK_NGX_D3D12_CreateFeature")==resolverOutput,"provider resolver cannot intercept NGX");
+    Require(ProviderQueryInterface(0xd8265d24)==reinterpret_cast<void*>(RealArch),"provider architecture stays physical");
+    Require(ProviderQueryInterface(0xad1a677d)==reinterpret_cast<void*>(CreateCuModule),"only module loading intercepted");
+    moduleResult=-5;
+    Require(CreateCuModule(nullptr,nullptr,0,nullptr)==-5 && moduleVendorCalls==1 && !s.failed && s.moduleCalls==0,"null API-presence probe forwarded without failure");
+    std::array<std::uint8_t,80> blob{};s.programs.push_back({blob.data(),blob.size()});
+    auto* device=reinterpret_cast<ID3D12Device*>(0x9999);void* output{};
+    if(mode=="module-success") {
+        moduleResult=0;
+        Require(CreateCuModule(device,blob.data(),blob.size(),&output)==0 && output==moduleHandle && !s.failed,"success and handle preserved");
+        Require(moduleBlob==blob.data() && moduleSize==blob.size() && moduleVendorCalls==2 && s.moduleCalls==1,"exact inputs forwarded once");
+    } else {
+        moduleResult=mode=="module-null-success"?0:-1;moduleHandle=nullptr;
+        s.fatal=[](const char* reason) {
+            Require(State().failed && State().moduleCalls==1 && moduleVendorCalls==2,"failure is synchronous before returning to NVIDIA");
+            Require(std::string(reason).find("kernel loading failed")!=std::string::npos && Saw("stage=cu-module-load") && Saw("program=0"),"precise failure recorded");
+            std::cout<<"PASS synchronous module failure boundary; no GPU dispatch"<<std::endl;
+            std::exit(0); // Model the real host's terminating callback.
+        };
+        CreateCuModule(device,blob.data(),blob.size(),&output);
+        Require(false,"failed kernel creation must never return into vendor code");
+    }
+}
+void FalseSuccess() {
+    Published published;State().create=MockCreate;failInsideCreate=true;
+    NVSDK_NGX_Handle* output{};
+    Require(CreateFeature(nullptr,NVSDK_NGX_Feature_FrameGeneration,&vendorParams,&output)==NVSDK_NGX_Result_FAIL_FeatureNotSupported && !output,"outer success cannot publish handle after internal failure");
+    Require(vendorCalls==1 && Snapshot().failed && !Saw("feature created"),"false success is not logged as readiness");
+}
+
 int main(int argc,char** argv) {try {
     Require(argc==2,"runtime_tests <case>");std::string mode=argv[1];
     if(mode.starts_with("turing-")) { mode.erase(0,7);State().nativeArchitecture=kTuring;State().targetSm=75; }
@@ -309,6 +357,8 @@ int main(int argc,char** argv) {try {
     else if(mode=="resolvers")ResolverCalls();
     else if(mode=="repeated-create")RepeatedCreation();
     else if(mode=="startup-reentry")StartupReentry();
+    else if(mode.starts_with("module-"))ModuleCalls(mode);
+    else if(mode=="false-success")FalseSuccess();
     else throw std::runtime_error("unknown fixture case");
     std::cout<<"PASS "<<checks<<" checks; no GPU dispatch or physical compatibility claim"<<std::endl;return 0;
 }catch(const std::exception& e){std::cerr<<"FAIL "<<e.what()<<" after "<<checks<<" checks"<<std::endl;return 1;}}

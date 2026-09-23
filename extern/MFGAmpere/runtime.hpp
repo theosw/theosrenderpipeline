@@ -11,10 +11,13 @@ struct RuntimeStatus {
     const char* error{};
 };
 using Log = void (*)(const char*);
+// The Turing diagnostic candidate stops synchronously on a real kernel-load
+// failure, before NVIDIA can publish a partially initialized FG object.
+using Fatal = void (*)(const char*);
 // One host, one adapter, one provider. This owner and its published data remain
 // alive until process exit. Call only at the controlled pre-slInit boundary.
 // Separate modules are permitted only by the host's coordinated CS path.
-bool Start(ID3D12Device* device, const std::filesystem::path& directory, Log log, bool allowSeparateModules = false) noexcept;
+bool Start(ID3D12Device* device, const std::filesystem::path& directory, Log log, bool allowSeparateModules = false, Fatal fatal = nullptr) noexcept;
 RuntimeStatus Snapshot() noexcept;
 bool Verify() noexcept;
 void EnterStartupScope() noexcept;

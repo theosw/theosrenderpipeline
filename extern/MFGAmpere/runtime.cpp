@@ -11,6 +11,8 @@
 #include <atomic>
 #include <mutex>
 #include <string>
+#include <cstdio>
+#include <exception>
 
 namespace trp::ampere {
 namespace {
@@ -29,6 +31,8 @@ using Resolver = FARPROC (WINAPI*)(HMODULE, LPCSTR);
 using Requirements = decltype(&NVSDK_NGX_D3D12_GetFeatureRequirements);
 using Parameters = decltype(&NVSDK_NGX_D3D12_GetCapabilityParameters);
 using Create = decltype(&NVSDK_NGX_D3D12_CreateFeature);
+// NVIDIA public NVAPI ABI: nvapi.h / nvapi_interface.h, CreateCuModule.
+using CreateModule = int (__cdecl*)(ID3D12Device*, const void*, std::uint32_t, void**);
 constexpr std::uint32_t kAmpere = 0x170, kAda = 0x190, kTuring = 0x160;
 bool IsRTX20(std::string_view name) {
     // SM75 also includes GTX 16; do not expose RTX features based on SM alone.
@@ -45,12 +49,17 @@ struct Owner {
     std::atomic_uint32_t mask{}, requirementsCalls{}, capabilityCalls{}, createCalls{};
     std::uint32_t fatbins{}, targetSm{86}, nativeArchitecture{kAmpere};
     Log log{};
+    Fatal fatal{};
     LUID luid{};
     void* gpu{};
     HMODULE provider{}, common{}, wrapper{}, nvapi{}, core{};
     Query query{}; GetArch arch{};
-    std::array<Resolver, 2> resolvers{};
-    std::array<void**, 2> importSlots{};
+    std::array<Resolver, 3> resolvers{};
+    std::array<void**, 3> importSlots{};
+    std::atomic<CreateModule> createModule{};
+    std::atomic_uint32_t moduleCalls{};
+    struct Program { const void* address; std::size_t size; };
+    std::vector<Program> programs;
     std::atomic<Requirements> requirements{};
     std::array<std::atomic<Parameters>, 2> parameters{};
     std::atomic<Create> create{};
@@ -90,6 +99,57 @@ void* __cdecl QueryInterface(std::uint32_t id) {
     auto& s = State(); auto* result = s.query(id);
     if (id == 0xd8265d24 && result == reinterpret_cast<void*>(s.arch)) return reinterpret_cast<void*>(Architecture);
     return result;
+}
+bool BlobFingerprint(const void* blob,std::uint32_t size,std::uint64_t& hash) noexcept {
+    if(size>fatbin::kMaxFatbinBytes)return false;
+    __try {
+        hash=14695981039346656037ull;
+        const auto* bytes=static_cast<const std::uint8_t*>(blob);
+        for(std::uint32_t i=0;i<size;++i){hash^=bytes[i];hash*=1099511628211ull;}
+        return true;
+    } __except(EXCEPTION_EXECUTE_HANDLER){hash=0;return false;}
+}
+int __cdecl CreateCuModule(ID3D12Device* device, const void* blob, std::uint32_t size, void** output) {
+    auto& s=State();const auto real=s.createModule.load();
+    if(!real)return -3; // NVAPI_NO_IMPLEMENTATION
+    const auto result=real(device,blob,size,output);
+    // 310.9.1 calls (nullptr,nullptr,0,nullptr) to probe API presence. Its
+    // expected error must neither poison startup nor count as a kernel load.
+    if(!device || !blob || !size || !output)return result;
+    const auto call=++s.moduleCalls;
+    if(result==0 && *output)return result;
+    int program=-1;
+    for(std::size_t i=0;i<s.programs.size();++i)if(s.programs[i].address==blob){program=static_cast<int>(i);break;}
+    std::array<std::uint8_t,80> header{};
+    const bool readable=size>=header.size() && memory::Copy(header.data(),blob,header.size());
+    std::uint64_t fingerprint{};const bool hashed=BlobFingerprint(blob,size,fingerprint);
+    char detail[512]{};
+    std::snprintf(detail,sizeof(detail),
+        "stage=cu-module-load target=SM%u call=%u program=%d bytes=%u status=%d handle=%s headerReadable=%s magic=%08x payloadBytes=%llu firstKind=%u firstSM=%u firstCompressedBytes=%u firstFlags=%llx firstUnpackedBytes=%llu fingerprintValid=%s blobFNV1a64=%016llx",
+        s.targetSm,call,program,size,result,*output?"non-null":"null",readable?"true":"false",
+        fatbin::ReadU32(header.data()),static_cast<unsigned long long>(fatbin::ReadU64(header.data()+8)),
+        static_cast<unsigned>(fatbin::ReadU16(header.data()+16)),fatbin::ReadU32(header.data()+44),fatbin::ReadU32(header.data()+32),
+        static_cast<unsigned long long>(fatbin::ReadU64(header.data()+56)),static_cast<unsigned long long>(fatbin::ReadU64(header.data()+72)),hashed?"true":"false",static_cast<unsigned long long>(fingerprint));
+    Message(detail);
+    constexpr auto reason="RTX20 frame-generation kernel loading failed. NVIDIA did not create a usable GPU module; restart required. See stage=cu-module-load in TheosRenderPipeline.log.";
+    Fail(reason);
+    // Never unwind into NVIDIA or let it continue after this failure. A late
+    // Streamline log callback cannot provide this boundary. Modules/resources
+    // stay resident until process exit; there is no unsafe recovery/cleanup.
+    if(s.fatal)s.fatal(reason);
+    std::terminate(); // Host callback is required to terminate, never return.
+}
+void* __cdecl ProviderQueryInterface(std::uint32_t id) {
+    auto& s=State();auto* result=s.query(id);
+    if(id!=0xad1a677d || !result)return result;
+    auto typed=reinterpret_cast<CreateModule>(result);CreateModule empty{};
+    if(!s.createModule.compare_exchange_strong(empty,typed) && empty!=typed) {
+        Fail("provider CuModule export changed identity; restart required");
+        if(s.fatal)s.fatal(s.error.load());
+        std::terminate();
+    }
+    // Provider architecture queries deliberately pass through unchanged.
+    return reinterpret_cast<void*>(CreateCuModule);
 }
 NVSDK_NGX_Result NVSDK_CONV GetRequirements(IDXGIAdapter* adapter,
     const NVSDK_NGX_FeatureDiscoveryInfo* discovery, NVSDK_NGX_FeatureRequirement* output) {
@@ -153,6 +213,11 @@ NVSDK_NGX_Result NVSDK_CONV CreateFeature(ID3D12GraphicsCommandList* commands, N
         if (!Verify()) { if (handle) *handle = nullptr; return NVSDK_NGX_Result_FAIL_FeatureNotSupported; }
     }
     const auto result = real(commands, feature, parameters, handle);
+    if(fg && s.failed.load()) {
+        if(handle)*handle=nullptr;
+        Message("NGX frame-generation creation refused after an internal startup failure");
+        return NVSDK_NGX_Result_FAIL_FeatureNotSupported;
+    }
     if (fg) Message(result == NVSDK_NGX_Result_Success ? "Ampere NGX frame-generation feature created" : "Ampere NGX frame-generation creation failed");
     return result;
 }
@@ -175,7 +240,9 @@ template<unsigned I> FARPROC WINAPI Resolve(HMODULE module, LPCSTR name) {
     if (!result || reinterpret_cast<std::uintptr_t>(name) <= 65535) return result;
     try {
         if (module == s.nvapi && std::strcmp(name, "nvapi_QueryInterface") == 0 && reinterpret_cast<void*>(result) == reinterpret_cast<void*>(s.query)) {
-            s.mask.fetch_or(1u << (4 + I*5)); return reinterpret_cast<FARPROC>(QueryInterface);
+            s.mask.fetch_or(1u << (4 + I*5));
+            if constexpr(I==2)return reinterpret_cast<FARPROC>(ProviderQueryInterface);
+            return reinterpret_cast<FARPROC>(QueryInterface);
         }
         if constexpr (I != 0) return result;
         constexpr const char* names[]{"NVSDK_NGX_D3D12_GetFeatureRequirements", "NVSDK_NGX_D3D12_GetCapabilityParameters", "NVSDK_NGX_D3D12_GetParameters", "NVSDK_NGX_D3D12_CreateFeature"};
@@ -256,6 +323,7 @@ bool PlanProvider() {
             Plan plan; std::string reason; const auto result=RetargetForTarget(original.data(),original.size(),plan,reason,s.targetSm);
             if (result==trp::ampere::Status::Rejected) { Message(reason.c_str()); return Fail("Ampere provider program cannot be retargeted"); }
             if (result==trp::ampere::Status::Retargeted) {
+                s.programs.push_back({begin+p,bytes});
                 if (++s.fatbins>512 || bytes>64*1024*1024-total) return Fail("Ampere provider preparation exceeds its bounds");
                 total+=bytes;
                 if (plan.replacement.size()!=bytes) return Fail("provider replacement changed container allocation");
@@ -314,11 +382,14 @@ bool PlanProvider() {
         {reinterpret_cast<std::uint8_t*>(&s.temporal.replacementDescriptor),sizeof(void*)});
     const std::uint8_t minimumBefore=0x90;
     s.data.Add(s.minimumArch+1,{&minimumBefore,1},{&after,1});
+    std::uintptr_t temporalBlob{};
+    if(!memory::Read(reinterpret_cast<const void*>(s.temporal.replacementDescriptor+8),temporalBlob))return Fail("prepared temporal descriptor is unreadable");
+    s.programs.push_back({reinterpret_cast<const void*>(temporalBlob),s.temporal.outputBytes});
     return true;
 }
 } // namespace
 
-bool Start(ID3D12Device* device,const std::filesystem::path& directory,Log log,bool allowSeparateModules) noexcept {
+bool Start(ID3D12Device* device,const std::filesystem::path& directory,Log log,bool allowSeparateModules,Fatal fatal) noexcept {
     auto& s=State();
     if (s.started.exchange(true)) return Fail("Ampere startup cannot be repeated");
     s.log=log;
@@ -327,7 +398,10 @@ bool Start(ID3D12Device* device,const std::filesystem::path& directory,Log log,b
         const auto adapter=device ? midpoint_fix::ObserveD3D12Adapter(device) : midpoint_fix::AdapterKind::Unavailable;
         if (!device || !directory.is_absolute() || (adapter!=midpoint_fix::AdapterKind::Ampere && adapter!=midpoint_fix::AdapterKind::Turing))
             return Fail("Compatibility preparation requires an actual SM86 or SM75 rendering adapter");
-        if (adapter==midpoint_fix::AdapterKind::Turing) { s.targetSm=75; s.nativeArchitecture=kTuring; }
+        if (adapter==midpoint_fix::AdapterKind::Turing) {
+            s.targetSm=75; s.nativeArchitecture=kTuring;s.fatal=fatal;
+            if(!s.fatal)return Fail("Turing kernel failure guard requires a terminating host callback");
+        }
         Message(s.targetSm==75 ? "physical adapter=Turing target=SM75; experimental instruction lowering" : "physical adapter=Ampere target=SM86");
         if (!BindAdapter(device)) return false;
         if (!Load(directory,L"nvngx_dlssg.dll",s.provider,allowSeparateModules)) return false;
@@ -336,9 +410,9 @@ bool Start(ID3D12Device* device,const std::filesystem::path& directory,Log log,b
         Message("stage=provider-plan");
         if (!PlanProvider()) return false;
         Message("stage=resolver-plan");
-        const std::array<HMODULE,2> modules{s.common,s.wrapper};
-        const std::array<Resolver,2> replacements{Resolve<0>,Resolve<1>};
-        for (std::size_t i=0;i<modules.size();++i) {
+        const std::array<HMODULE,3> modules{s.common,s.wrapper,s.provider};
+        const std::array<Resolver,3> replacements{Resolve<0>,Resolve<1>,Resolve<2>};
+        for (std::size_t i=0;i<(s.targetSm==75?3u:2u);++i) {
             memory::Image image;
             if (!image.Open(modules[i]) || !(s.importSlots[i]=image.Import("GetProcAddress")) ||
                 !memory::Read(s.importSlots[i],s.resolvers[i]) || !s.resolvers[i]) return Fail("Ampere resolver import is missing or ambiguous");
@@ -363,8 +437,8 @@ bool Verify() noexcept {
     std::uintptr_t descriptor{};
     if (!memory::Read(reinterpret_cast<void*>(s.temporal.slot),descriptor) || descriptor!=s.temporal.replacementDescriptor ||
         !s.minimumArch || s.minimumArch[1]!=static_cast<std::uint8_t>(s.nativeArchitecture)) return Fail("Ampere provider publication changed; restart required");
-    const std::array<Resolver,2> expected{Resolve<0>,Resolve<1>};
-    for (std::size_t i=0;i<expected.size();++i) {
+    const std::array<Resolver,3> expected{Resolve<0>,Resolve<1>,Resolve<2>};
+    for (std::size_t i=0;i<(s.targetSm==75?3u:2u);++i) {
         Resolver observed{};
         if (!memory::Read(s.importSlots[i],observed) || observed!=expected[i]) return Fail("Ampere resolver publication changed; restart required");
     }

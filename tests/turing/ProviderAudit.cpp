@@ -8,6 +8,10 @@ using namespace trp::ampere;
 static void Check(bool value, const char* why) { if (!value) throw std::runtime_error(why); }
 static void WritePtx(std::span<const std::uint8_t> bytes, unsigned target,
                      const std::filesystem::path& output) {
+    auto containerPath=output; containerPath.replace_extension(".fatbin");
+    std::ofstream containerFile(containerPath,std::ios::binary);
+    containerFile.write(reinterpret_cast<const char*>(bytes.data()),bytes.size());
+    Check(static_cast<bool>(containerFile),"fatbin output write");
     std::vector<mfgunlock::fatbin::Entry> entries; std::size_t end{};
     Check(mfgunlock::fatbin::Parse(bytes,entries,end),"replacement container parse");
     unsigned found{};

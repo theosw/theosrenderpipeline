@@ -64,7 +64,13 @@ namespace TheosRenderPipeline::SourceDLSSG
 		}
 		if (state_.UsesProviderBackport()) {
 			spdlog::info("[SourceDLSSG Ampere] separate runtime bundles permitted={}", CommunityShaders::Active());
-			if (!trp::ampere::Start(device, directory, [](const char* message) { spdlog::info("[SourceDLSSG Ampere] {}", message); }, CommunityShaders::Active())) {
+            if (!trp::ampere::Start(device, directory, [](const char* message) { spdlog::info("[SourceDLSSG Ampere] {}", message); }, CommunityShaders::Active(),
+                [](const char* reason) {
+                    spdlog::critical("[SourceDLSSG Turing] {}", reason);
+                    spdlog::default_logger()->flush();
+                    util::report_and_fail(std::format("Theo's Render Pipeline: RTX20 test stopped.\n\n{}\n\n"
+                        "Send TheosRenderPipeline.log to the developer. Skyrim will close after this message.",reason));
+                })) {
 				const auto snapshot = trp::ampere::Snapshot();
 				Fail(snapshot.error ? snapshot.error : "Ampere startup preparation failed");
 			}
