@@ -7,7 +7,7 @@
 struct ID3D12Device;
 namespace TheosRenderPipeline::SourceDLSSG
 {
-	enum class MFGRoute { Unselected, Native, AdaUnlock, AmpereUnlock };
+	enum class MFGRoute { Unselected, Native, AdaUnlock, AmpereUnlock, TuringUnlock };
 	struct MFGSnapshot
 	{
 		// requested is the saved permission; route is the effective startup choice.
@@ -21,14 +21,17 @@ namespace TheosRenderPipeline::SourceDLSSG
 		{
 			adapter = observed;
 			if (requested && adapter == midpoint_fix::AdapterKind::Unavailable) { return false; }
-			adapterVerified = adapter == midpoint_fix::AdapterKind::Ada || adapter == midpoint_fix::AdapterKind::Ampere;
+			adapterVerified = adapter == midpoint_fix::AdapterKind::Ada || adapter == midpoint_fix::AdapterKind::Ampere || adapter == midpoint_fix::AdapterKind::Turing;
 			route = !requested || !adapterVerified ? MFGRoute::Native :
-				adapter == midpoint_fix::AdapterKind::Ampere ? MFGRoute::AmpereUnlock : MFGRoute::AdaUnlock;
+				adapter == midpoint_fix::AdapterKind::Ampere ? MFGRoute::AmpereUnlock :
+                adapter == midpoint_fix::AdapterKind::Turing ? MFGRoute::TuringUnlock : MFGRoute::AdaUnlock;
 			return true;
 		}
 		bool UsesAdaUnlock() const { return route == MFGRoute::AdaUnlock; }
 		bool UsesAmpereUnlock() const { return route == MFGRoute::AmpereUnlock; }
-		bool UsesCompatibilityUnlock() const { return UsesAdaUnlock() || UsesAmpereUnlock(); }
+		bool UsesTuringUnlock() const { return route == MFGRoute::TuringUnlock; }
+        bool UsesProviderBackport() const { return UsesAmpereUnlock() || UsesTuringUnlock(); }
+        bool UsesCompatibilityUnlock() const { return UsesAdaUnlock() || UsesProviderBackport(); }
 		bool Ready() const { return UsesCompatibilityUnlock() && !failed && !unsafeMemory && adapterVerified && wrapperPatched && providerPatched && temporalReady && wrapperBound; }
 	};
 	// Used only by the single source-owned Streamline instance. All mutations run

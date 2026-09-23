@@ -44,7 +44,8 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& v
                           sourceState.frameLimitSubmittedUs
                               ? std::format("{:.1f} FPS", 1000000.0 / sourceState.frameLimitSubmittedUs).c_str()
                               : "Off");
-        DrawSettingsValue("Path", unlock.UsesAmpereUnlock() ? "Ampere MFG (experimental)"
+        DrawSettingsValue("Path", unlock.UsesTuringUnlock() ? "Turing MFG (experimental)"
+                                  : unlock.UsesAmpereUnlock() ? "Ampere MFG (experimental)"
                                   : unlock.UsesAdaUnlock()  ? "Ada MFG"
                                                             : "Native NVIDIA");
         if (usableMaximum > 1)

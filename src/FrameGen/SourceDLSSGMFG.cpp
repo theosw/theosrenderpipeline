@@ -28,8 +28,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 	{
 		state_.failed = true; state_.status = reason;
 		spdlog::error("[SourceDLSSG MFG] startup/verification failed: {}", reason);
-		const auto guidance = state_.adapter == midpoint_fix::AdapterKind::Ampere ?
-			std::string("RTX 30-series frame generation requires the Universal compatibility path.\n"
+		const auto guidance = (state_.adapter == midpoint_fix::AdapterKind::Ampere || state_.adapter == midpoint_fix::AdapterKind::Turing) ?
+			std::string("RTX 20/30-series frame generation requires the Universal compatibility path.\n"
 				"Keep SourceDLSSGMFGUnlock=true and include TheosRenderPipeline.log when reporting this startup failure.\n") :
 			std::format("Temporal error: {}. Attempts: {}.\n\n"
 				"Set SourceDLSSGMFGUnlock=false in SKSE/Plugins/TheosRenderPipeline.ini to use the unmodified NVIDIA runtime.\n",
@@ -56,13 +56,13 @@ namespace TheosRenderPipeline::SourceDLSSG
 			Fail("active rendering adapter could not be identified; no patches applied");
 		}
 		spdlog::info("[SourceDLSSG MFG] selected route={} compatibilityRequested={}",
-			state_.UsesAmpereUnlock() ? "Ampere" : state_.UsesAdaUnlock() ? "Ada" : "Native", state_.requested);
-		if (adapter == midpoint_fix::AdapterKind::Ampere && !state_.requested) {
-			Fail("RTX 30-series detected, but SourceDLSSGMFGUnlock=false disables its compatibility path. "
+			state_.UsesTuringUnlock() ? "Turing" : state_.UsesAmpereUnlock() ? "Ampere" : state_.UsesAdaUnlock() ? "Ada" : "Native", state_.requested);
+		if ((adapter == midpoint_fix::AdapterKind::Ampere || adapter == midpoint_fix::AdapterKind::Turing) && !state_.requested) {
+			Fail("RTX 20/30-series detected, but SourceDLSSGMFGUnlock=false disables its compatibility path. "
 				"Set it to true in the winning MO2 INI (including Overwrite) and restart. "
 				"Turning frame generation off does not remove the required NVIDIA host.");
 		}
-		if (state_.UsesAmpereUnlock()) {
+		if (state_.UsesProviderBackport()) {
 			spdlog::info("[SourceDLSSG Ampere] separate runtime bundles permitted={}", CommunityShaders::Active());
 			if (!trp::ampere::Start(device, directory, [](const char* message) { spdlog::info("[SourceDLSSG Ampere] {}", message); }, CommunityShaders::Active())) {
 				const auto snapshot = trp::ampere::Snapshot();
@@ -76,13 +76,13 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (started_) { return; }
 		started_ = true;
 		if (state_.route == MFGRoute::Unselected) { Fail("MFG adapter was not selected before Streamline initialization"); }
-		if (state_.UsesAmpereUnlock()) {
+		if (state_.UsesProviderBackport()) {
 			wrapper_ = RetainConfiguredModule(directory, L"sl.dlss_g.dll");
 			provider_ = RetainConfiguredModule(directory, L"nvngx_dlssg.dll");
 			if (!wrapper_ || !provider_) { Fail("prepared Ampere modules changed during Streamline initialization"); }
 			const auto snapshot = trp::ampere::Snapshot();
 			state_.wrapperPatched = state_.providerPatched = state_.temporalReady = snapshot.prepared && snapshot.bridgeInstalled;
-			state_.status = "experimental Ampere MFG; provider and temporal program prepared";
+			state_.status = state_.UsesTuringUnlock() ? "experimental Turing MFG; SM75 provider and temporal program prepared" : "experimental Ampere MFG; provider and temporal program prepared";
 			Tick();
 			return;
 		}
@@ -126,7 +126,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 	}
 	void MFGUnlock::Tick()
 	{
-		if (state_.UsesAmpereUnlock()) {
+		if (state_.UsesProviderBackport()) {
 			const auto snapshot = trp::ampere::Snapshot();
 			if (!trp::ampere::Verify() || snapshot.failed) { Fail(snapshot.error ? snapshot.error : "Ampere publication verification failed"); }
 			if (state_.wrapperBound && (!snapshot.requirementsCalls || !snapshot.capabilityCalls || !(snapshot.resolverMask & 8))) {

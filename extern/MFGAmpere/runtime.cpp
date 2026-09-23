@@ -1,7 +1,7 @@
 #include "runtime.hpp"
 #include "module_loader.hpp"
 #include "module_patch.hpp"
-#include "ptx_retarget.hpp"
+#include "provider_retarget.hpp"
 #include "../RTX40MFG/midpoint_fix.h"
 #include "../RTX40MFG/dlssg_provider_policy.h"
 #include "../../src/FrameGen/SourceDLSSGMFGPatch.h"
@@ -23,17 +23,27 @@ using Query = void* (__cdecl*)(std::uint32_t);
 using GetArch = int (__cdecl*)(void*, ArchInfo*);
 using EnumGPUs = int (__cdecl*)(void**, std::uint32_t*);
 using GetLuid = int (__cdecl*)(void*, void*);
+using GetName = int (__cdecl*)(void*, char*);
 using Initialize = int (__cdecl*)();
 using Resolver = FARPROC (WINAPI*)(HMODULE, LPCSTR);
 using Requirements = decltype(&NVSDK_NGX_D3D12_GetFeatureRequirements);
 using Parameters = decltype(&NVSDK_NGX_D3D12_GetCapabilityParameters);
 using Create = decltype(&NVSDK_NGX_D3D12_CreateFeature);
-constexpr std::uint32_t kAmpere = 0x170, kAda = 0x190;
+constexpr std::uint32_t kAmpere = 0x170, kAda = 0x190, kTuring = 0x160;
+bool IsRTX20(std::string_view name) {
+    // SM75 also includes GTX 16; do not expose RTX features based on SM alone.
+    if (name.starts_with("NVIDIA ")) name.remove_prefix(7);
+    for (const auto model : {"GeForce RTX 2060", "GeForce RTX 2070", "GeForce RTX 2080"}) {
+        const std::string_view prefix(model);
+        if (name.starts_with(prefix) && (name.size()==prefix.size() || name[prefix.size()]==' ')) return true;
+    }
+    return false;
+}
 struct Owner {
     std::atomic_bool started{}, prepared{}, installed{}, failed{}, createSeen{};
     std::atomic<const char*> error{};
     std::atomic_uint32_t mask{}, requirementsCalls{}, capabilityCalls{}, createCalls{};
-    std::uint32_t fatbins{};
+    std::uint32_t fatbins{}, targetSm{86}, nativeArchitecture{kAmpere};
     Log log{};
     LUID luid{};
     void* gpu{};
@@ -95,8 +105,8 @@ NVSDK_NGX_Result NVSDK_CONV GetRequirements(IDXGIAdapter* adapter,
     // limited to this prepared provider on the host's actual rendering adapter.
     if (bound && Prepared() && result == NVSDK_NGX_Result_Success && output) {
         const auto flags = static_cast<std::uint32_t>(output->FeatureSupported);
-        if ((flags == 0 || flags == 4) && (output->MinHWArchitecture == kAda || (flags == 4 && output->MinHWArchitecture == kAmpere))) {
-            output->MinHWArchitecture = kAmpere;
+        if ((flags == 0 || flags == 4) && (output->MinHWArchitecture == kAda || (flags == 4 && (output->MinHWArchitecture == kAmpere || output->MinHWArchitecture == s.nativeArchitecture)))) {
+            output->MinHWArchitecture = s.nativeArchitecture;
             output->FeatureSupported = static_cast<NVSDK_NGX_Feature_Support_Result>(0);
         }
     }
@@ -212,7 +222,14 @@ bool BindAdapter(ID3D12Device* device) {
         s.gpu=gpus[i];
     }
     ArchInfo arch{0x20010,0,0,0};
-    if (!s.gpu || s.arch(s.gpu,&arch)!=0 || arch.architecture!=kAmpere) return Fail("NVAPI does not identify the rendering adapter as Ampere");
+    if (!s.gpu || s.arch(s.gpu,&arch)!=0 || arch.architecture!=s.nativeArchitecture) return Fail("NVAPI does not match the physical compatibility adapter");
+    if (s.targetSm==75) {
+        const auto getName=reinterpret_cast<GetName>(s.query(0xceee8e9f));
+        std::array<char,64> name{};
+        if (!getName || getName(s.gpu,name.data())!=0 || name.back()!=0 || !IsRTX20(name.data()))
+            return Fail("SM75 test requires a physical GeForce RTX 2060, 2070 or 2080; GTX 16 and other Turing products are not qualified");
+        Message(name.data());
+    }
     return true;
 }
 bool PlanProvider() {
@@ -222,7 +239,7 @@ bool PlanProvider() {
     const auto populate=reinterpret_cast<void*>(GetProcAddress(s.provider,"NVSDK_NGX_D3D12_PopulateDeviceParameters_Impl"));
     constexpr std::array<std::uint8_t,6> gate{0xb8,0x90,1,0,0,0xc3};
     if (!image.OwnCode(s.minimumArch,gate.size()) || !image.OwnCode(populate) || !memory::Equal(s.minimumArch,gate)) return Fail("Ampere provider minimum-architecture instruction is unsupported");
-    if (!midpoint_fix::BuildAmpereTemporalClone(s.provider,s.temporal)) return Fail("Ampere temporal clone could not be built from the original program");
+    if (!midpoint_fix::BuildAmpereTemporalClone(s.provider,s.temporal,s.targetSm)) return Fail("Ampere temporal clone could not be built from the original program");
     std::size_t total{};
     for (const auto& section:image.sections) {
         if (!(section.Characteristics&IMAGE_SCN_MEM_READ) || (section.Characteristics&IMAGE_SCN_MEM_EXECUTE)) continue;
@@ -236,14 +253,30 @@ bool PlanProvider() {
             const auto bytes=16+static_cast<std::size_t>(payload);
             std::vector<std::uint8_t> original(bytes);
             if (!memory::Copy(original.data(),begin+p,bytes)) return Fail("Ampere provider fatbin is unreadable");
-            Plan plan; std::string reason; const auto result=Retarget(original.data(),original.size(),plan,reason);
+            Plan plan; std::string reason; const auto result=RetargetForTarget(original.data(),original.size(),plan,reason,s.targetSm);
             if (result==trp::ampere::Status::Rejected) { Message(reason.c_str()); return Fail("Ampere provider program cannot be retargeted"); }
             if (result==trp::ampere::Status::Retargeted) {
                 if (++s.fatbins>512 || bytes>64*1024*1024-total) return Fail("Ampere provider preparation exceeds its bounds");
                 total+=bytes;
-                // Each changed byte lies in one protection region. Keep original
-                // and replacement bytes owned even if a later rollback fails.
-                for (std::size_t j=0;j<bytes;++j) if (original[j]!=plan.replacement[j]) s.data.Add(begin+p+j,{original.data()+j,1},{plan.replacement.data()+j,1});
+                if (plan.replacement.size()!=bytes) return Fail("provider replacement changed container allocation");
+                // SM75 rebuilds whole compressed programs. Region-bounded chunks
+                // keep startup writes practical and retain the same rollback owner.
+                // SM86 keeps its existing independent-literal writes unchanged.
+                if (s.targetSm==75) {
+                    for (std::size_t j=0;j<bytes;) {
+                        MEMORY_BASIC_INFORMATION region{};
+                        if (!VirtualQuery(begin+p+j,&region,sizeof(region)) || region.State!=MEM_COMMIT ||
+                            (region.Protect&(PAGE_GUARD|PAGE_NOACCESS))) return Fail("Turing provider region unreadable");
+                        const auto available=region.RegionSize-(reinterpret_cast<std::uintptr_t>(begin+p+j)-reinterpret_cast<std::uintptr_t>(region.BaseAddress));
+                        const auto count=(std::min)({bytes-j,available,std::size_t{4096}});
+                        if (!count) return Fail("Turing provider region empty");
+                        if (!std::equal(original.begin()+j,original.begin()+j+count,plan.replacement.begin()+j))
+                            s.data.Add(begin+p+j,{original.data()+j,count},{plan.replacement.data()+j,count});
+                        j+=count;
+                    }
+                } else {
+                    for (std::size_t j=0;j<bytes;++j) if (original[j]!=plan.replacement[j]) s.data.Add(begin+p+j,{original.data()+j,1},{plan.replacement.data()+j,1});
+                }
             }
             p+=bytes;
         }
@@ -269,7 +302,7 @@ bool PlanProvider() {
     const auto destination=static_cast<std::int64_t>(rva)+12+displacement;
     if (rva<function->BeginAddress || rva+17>function->EndAddress ||
         destination<function->BeginAddress || destination>=function->EndAddress) return Fail("Ampere MFG branch leaves its function");
-    const std::uint8_t before=0xb0,after=0x70;
+    const std::uint8_t before=0xb0,after=static_cast<std::uint8_t>(s.nativeArchitecture);
     s.data.Add(firstSite+2,{&before,1},{&after,1}); s.data.Add(secondSite+1,{&before,1},{&after,1});
     const auto clamp=MFGPatch::FindExecutable(s.wrapper,MFGContract::wrapperPattern.size(),MFGContract::MatchesWrapper);
     if (!clamp) return Fail("Ampere wrapper capacity instruction contract changed");
@@ -291,7 +324,11 @@ bool Start(ID3D12Device* device,const std::filesystem::path& directory,Log log,b
     s.log=log;
     try {
         Message("stage=adapter-binding");
-        if (!device || !directory.is_absolute() || midpoint_fix::ObserveD3D12Adapter(device)!=midpoint_fix::AdapterKind::Ampere) return Fail("Ampere preparation requires the actual SM86 rendering adapter");
+        const auto adapter=device ? midpoint_fix::ObserveD3D12Adapter(device) : midpoint_fix::AdapterKind::Unavailable;
+        if (!device || !directory.is_absolute() || (adapter!=midpoint_fix::AdapterKind::Ampere && adapter!=midpoint_fix::AdapterKind::Turing))
+            return Fail("Compatibility preparation requires an actual SM86 or SM75 rendering adapter");
+        if (adapter==midpoint_fix::AdapterKind::Turing) { s.targetSm=75; s.nativeArchitecture=kTuring; }
+        Message(s.targetSm==75 ? "physical adapter=Turing target=SM75; experimental instruction lowering" : "physical adapter=Ampere target=SM86");
         if (!BindAdapter(device)) return false;
         if (!Load(directory,L"nvngx_dlssg.dll",s.provider,allowSeparateModules)) return false;
         if (!Load(directory,L"sl.common.dll",s.common,allowSeparateModules)) return false;
@@ -314,7 +351,7 @@ bool Start(ID3D12Device* device,const std::filesystem::path& directory,Log log,b
         Message("stage=resolver-publication");
         if (!s.imports.Commit()) return Fail(s.imports.Unsafe() ? "Ampere resolver rollback failed; restart required" : "Ampere resolver installation failed; restart required");
         s.installed.store(true);
-        Message("Ampere provider and temporal program prepared before Streamline initialization");
+        Message(s.targetSm==75 ? "Turing provider and temporal program prepared before Streamline initialization" : "Ampere provider and temporal program prepared before Streamline initialization");
         return true;
     } catch (...) { return Fail("Ampere startup preparation raised an exception; restart required"); }
 }
@@ -325,7 +362,7 @@ bool Verify() noexcept {
     auto& s=State(); if (!Prepared()) return false;
     std::uintptr_t descriptor{};
     if (!memory::Read(reinterpret_cast<void*>(s.temporal.slot),descriptor) || descriptor!=s.temporal.replacementDescriptor ||
-        !s.minimumArch || s.minimumArch[1]!=0x70) return Fail("Ampere provider publication changed; restart required");
+        !s.minimumArch || s.minimumArch[1]!=static_cast<std::uint8_t>(s.nativeArchitecture)) return Fail("Ampere provider publication changed; restart required");
     const std::array<Resolver,2> expected{Resolve<0>,Resolve<1>};
     for (std::size_t i=0;i<expected.size();++i) {
         Resolver observed{};

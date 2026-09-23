@@ -1,5 +1,8 @@
 # Theo's Render Pipeline
 
+This branch adds experimental RTX 20 compatibility on the released 0.2.5 baseline.
+See [test setup](package/RTX20-TEST.md).
+
 Version **0.2.5** improves startup compatibility with existing renderer hooks,
 makes rejected Save/Apply actions visible, and explains conflicting NVIDIA
 frame-generation overrides. See [0.2.5 changes and validation](docs/RELEASE_0_2_5.md).
@@ -59,9 +62,10 @@ in Git.
 The plugin and SKSE identity are `TheosRenderPipeline`. Published `SolFG_*`
 companion exports retain their names and layouts in `TheosRenderPipeline.dll`.
 
+This candidate also selects experimental Turing compatibility on RTX 20-series.
 Full selects experimental Ampere compatibility on RTX 30-series, the Ada MFG
 unlock on RTX 40-series, and native capabilities on RTX 50-series. Standard
-includes NR and excludes both compatibility paths; RTX 40-series uses native x2.
+includes NR and excludes the compatibility paths; RTX 40-series uses native x2.
 
 **Skyrim 1.5.97, 1.6.640 and 1.7.104 remain experimental.** The Nolvus Awakening
 6.0.20 Universal input candidate has scoped positive F10, x5, both NR placements

@@ -156,6 +156,8 @@ int main(int argc, char** argv)
         using enum midpoint_fix::AdapterKind;
         using enum TheosRenderPipeline::SourceDLSSG::MFGRoute;
         CheckRoute(true, Ampere, AmpereUnlock);
+        CheckRoute(true, Turing, TuringUnlock);
+        CheckRoute(false, Turing, Native);
         CheckRoute(true, Ada, AdaUnlock);
         CheckRoute(true, Other, Native);
         for (const auto adapter : {Ampere, Ada, Other, Unavailable}) { CheckRoute(false, adapter, Native); }

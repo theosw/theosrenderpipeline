@@ -10,4 +10,6 @@ foreach(case IN ITEMS policies requirements capabilities capabilities-reject-ava
     resolvers startup-reentry repeated-create)
     add_test(NAME AmpereRuntime-${case} COMMAND TRPAmpereRuntimeTests ${case})
     set_tests_properties(AmpereRuntime-${case} PROPERTIES TIMEOUT 15)
+    add_test(NAME TuringRuntime-${case} COMMAND TRPAmpereRuntimeTests turing-${case})
+    set_tests_properties(TuringRuntime-${case} PROPERTIES TIMEOUT 15)
 endforeach()
