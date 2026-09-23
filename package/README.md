@@ -1,4 +1,10 @@
-# Theo's Render Pipeline — Universal, 0.2.4
+# Theo's Render Pipeline — Universal, 0.2.5
+
+Version 0.2.5 improves startup compatibility with existing renderer hooks,
+including SSE Display Tweaks BorderlessUpscale and Community Shaders. Rejected
+Save/Apply actions now show their reason, hidden dependent settings no longer
+block unrelated edits, and startup diagnostics explain observed NVIDIA App
+frame-generation override conflicts. NVIDIA runtimes and defaults are unchanged.
 
 Version 0.2.4 adds a reorganized menu with live measurements beside settings,
 a saved resizable layout and independent NR pass controls. NR keyboard shortcuts
@@ -15,7 +21,7 @@ DLSS/DLAA, frame generation, Neural Rendering and native-resolution UI for Skyri
 This package includes the full renderer, configuration and sharpening shader.
 It requires no other Theo's Render Pipeline package. NVIDIA DLLs are supplied
 separately: download the SR/FG files below, and the NR runtime if you want NR.
-Alternatively, install matching 0.2.4 Standard first and Universal after it in MO2; the NR-enabled
+Alternatively, install matching 0.2.5 Standard first and Universal after it in MO2; the NR-enabled
 Standard download supplies all eight runtimes, including NR. In that setup,
 skip the runtime downloads below.
 
