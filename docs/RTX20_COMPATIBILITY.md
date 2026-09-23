@@ -39,10 +39,13 @@ selection, failure handling, integration and validation. See
   transition-associated presentation warnings remain. Weapon jitter is unresolved;
   similar behavior was reported with the volunteer's previous FG setup.
 
-The combined 0.3.0 candidate needs its own regression game test. Other RTX 20
-models, CS on RTX 20, repeated restarts, image equivalence and physical cadence
-remain unverified. FP16 lowering changes accumulation order. NR stays optional
-and defaults off; HDR remains unsupported.
+The combined 0.3.0 release has positive ENB/RTX 4080 SUPER regression feedback
+with verified loaded DLL identity, x4/NR and loading recovery. Two recurring
+vendor RSYNC errors remain. See [release validation](RELEASE_0_3_0.md).
+This local Ada run does not add RTX 20 hardware coverage. Other RTX 20 models,
+CS on RTX 20, repeated restarts, image equivalence and physical cadence remain
+unverified. FP16 lowering changes accumulation order. NR stays optional and
+defaults off; HDR remains unsupported.
 
 ## Developer checks
 

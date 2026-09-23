@@ -1,4 +1,4 @@
-# 0.3.0 (candidate)
+# 0.3.0
 
 - Added experimental RTX 20 frame-generation compatibility in Universal.
 - Select compatible PTX endpoint networks on Turing instead of incompatible
@@ -7,10 +7,11 @@
   rejected program, preserving the runtime's API-presence probes.
 - Retained all released 0.2.5 startup, settings and runtime-diagnostic fixes.
 
-The separate RTX 2060 candidate has positive x2/x3/x4/x6, NR and loading-recovery
-evidence. This combined candidate still needs game regression testing. See
-[RTX 20 validation limits](docs/RTX20_COMPATIBILITY.md). NVIDIA runtimes and
-configuration defaults are unchanged. HDR remains unsupported.
+The RTX 2060 compatibility test has positive x2/x3/x4/x6, NR and loading-recovery
+evidence. The combined release has positive ENB/RTX 4080 SUPER regression feedback
+with x4/NR and loading recovery. RTX 20 support remains experimental; see
+[validation and limits](docs/RELEASE_0_3_0.md). NVIDIA runtimes and configuration
+defaults are unchanged. HDR remains unsupported.
 
 # 0.2.5
 

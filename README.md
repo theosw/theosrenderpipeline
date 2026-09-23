@@ -1,10 +1,11 @@
 # Theo's Render Pipeline
 
-Version **0.3.0 candidate** adds experimental RTX 20 DLSS-G/MFG compatibility
-on the released 0.2.5 baseline. The separate RTX 2060 candidate has positive
-x2/x3/x4/x6, NR and loading-recovery evidence. The combined build still needs
-its regression game test. See [validation](docs/RTX20_COMPATIBILITY.md) and
-[test setup](package/RTX20-TEST.md).
+Version **0.3.0** adds experimental RTX 20 DLSS-G/MFG compatibility on the
+released 0.2.5 baseline. The RTX 2060 compatibility test has positive
+x2/x3/x4/x6, NR and loading-recovery evidence. The combined release also has
+positive ENB/RTX 4080 SUPER regression feedback with verified x4/NR and loading
+recovery. See [release validation](docs/RELEASE_0_3_0.md),
+[RTX 20 limits](docs/RTX20_COMPATIBILITY.md) and [test setup](package/RTX20-TEST.md).
 
 Version **0.2.5** improves startup compatibility with existing renderer hooks,
 makes rejected Save/Apply actions visible, and explains conflicting NVIDIA
@@ -30,9 +31,9 @@ provide inference and generated-frame presentation.
 
 This source archive builds `TheosRenderPipeline.dll`, including external ImGui integration.
 Install packages are supplied separately and link their matching Git revision.
-The full-feature package contains NR integration and Ada/Ampere MFG compatibility, with
+The Universal package contains NR integration and Ada/Ampere/Turing MFG compatibility, with
 all NVIDIA runtimes supplied separately. It needs no other renderer package.
-Standard includes the SR/FG and NR runtimes, with NR off by default. Full can
+Standard includes the SR/FG and NR runtimes, with NR off by default. Universal can
 also use Standard's runtimes when installed after it in MO2.
 See the installation guides for each edition.
 
@@ -65,8 +66,8 @@ in Git.
 The plugin and SKSE identity are `TheosRenderPipeline`. Published `SolFG_*`
 companion exports retain their names and layouts in `TheosRenderPipeline.dll`.
 
-This candidate also selects experimental Turing compatibility on RTX 20-series.
-Full selects experimental Ampere compatibility on RTX 30-series, the Ada MFG
+Universal selects experimental Turing compatibility on RTX 20-series,
+experimental Ampere compatibility on RTX 30-series, the Ada MFG
 unlock on RTX 40-series, and native capabilities on RTX 50-series. Standard
 includes NR and excludes the compatibility paths; RTX 40-series uses native x2.
 
