@@ -100,6 +100,22 @@ int main(int argc, char** argv)
         Require(owner.settings.sourceDLSSGMFGUnlock && owner.settings.sourceDLSSGMFGUnlockPresent,
             "package must explicitly enable compatibility");
 
+        CSimpleIniA composition;
+        composition.SetLongValue("Experimental", "NativeUICompositionMode", 1);
+        owner.StoreUIComposition(composition);
+        Require(composition.GetLongValue("Experimental", "NativeUICompositionMode", -1) == 1,
+            "menu save preserves explicit composition edit made after startup");
+        composition.Delete("Experimental", "NativeUICompositionMode");
+        composition.SetLongValue("Experimental", "PureDarkHUDFixMethod", 1);
+        owner.StoreUIComposition(composition);
+        Require(composition.GetLongValue("Experimental", "NativeUICompositionMode", -1) == 1 &&
+            !composition.GetValue("Experimental", "PureDarkHUDFixMethod", nullptr),
+            "migrate legacy on-disk composition choice before removing old key");
+        composition.Delete("Experimental", "NativeUICompositionMode");
+        owner.StoreUIComposition(composition);
+        Require(composition.GetLongValue("Experimental", "NativeUICompositionMode", -1) == owner.settings.nativeUICompositionMode,
+            "seed missing composition choice from startup snapshot");
+
         CSimpleIniA older;
         older.SetBoolValue("FrameGeneration", "Enabled", false);
         older.SetLongValue("SourceDLSSG", "GeneratedFrames", 3);

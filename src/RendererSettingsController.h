@@ -1,6 +1,7 @@
 #pragma once
 
 #include "RendererSettings.h"
+#include "RendererSettingsAction.h"
 #include <string>
 
 class RenderPipeline;
@@ -11,13 +12,6 @@ namespace TheosRenderPipeline::Overlay { struct Layout; }
 
 namespace TheosRenderPipeline
 {
-struct RendererSettingsResult
-{
-    std::string message;
-    bool error{};
-    bool applied{};
-};
-
 // Borrows the current owners. Requested/effective/persisted state stays with
 // the host; the overlay supplies a draft and displays the result.
 class RendererSettingsController
