@@ -1,7 +1,13 @@
-# Theo's Render Pipeline — Standard, 0.2.4
+# Theo's Render Pipeline — Standard, 0.2.5
 
 DLSS/DLAA, native NVIDIA frame generation, Neural Rendering, NVIDIA Reflex and
 native-resolution menus for Skyrim. All eight NVIDIA runtime DLLs are included.
+
+Version 0.2.5 improves startup compatibility with existing renderer hooks,
+including SSE Display Tweaks BorderlessUpscale and Community Shaders. Rejected
+Save/Apply actions now show their reason, hidden dependent settings no longer
+block unrelated edits, and startup diagnostics explain observed NVIDIA App
+frame-generation override conflicts. NVIDIA runtimes and defaults are unchanged.
 
 Version 0.2.4 adds a reorganized menu with live measurements beside settings,
 a saved resizable layout and independent NR pass controls. NR keyboard shortcuts
@@ -82,7 +88,7 @@ the tested world-only effects setup.
 
 ## With the Universal edition
 
-For the RTX 40 MFG unlock or experimental RTX 30 support, install the matching 0.2.4 Universal
+For the RTX 40 MFG unlock or experimental RTX 30 support, install the matching 0.2.5 Universal
 ZIP after Standard in MO2's left pane. Let Universal win file conflicts. Universal uses
 the NVIDIA runtimes included here, including NR.
 

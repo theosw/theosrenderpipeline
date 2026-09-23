@@ -1,3 +1,21 @@
+# 0.2.5
+
+- Fixed startup compatibility with SSE Display Tweaks BorderlessUpscale and
+  existing renderer hooks, including Community Shaders postprocessing.
+- Save and Apply now show and log why a settings change was rejected.
+- Fixed hidden Dynamic frame-generation settings blocking unrelated edits or
+  resetting the selected multiplier.
+- Kept NR's off control available when its requirements are unavailable, and
+  allowed unchanged NR preferences to survive unrelated settings saves.
+- Preserved explicit startup composition settings when saving other options,
+  and clarified requested versus active upscaling settings in the log.
+- Added clearer startup diagnostics when an observed NVIDIA App FG override
+  prevents the configured frame-generation runtime from loading.
+
+NVIDIA runtime DLLs and packaged defaults are unchanged. HDR remains unsupported
+and RTX 30 compatibility remains experimental. The original remote DLAA reset
+has not been reproduced; these changes are not claimed to establish its cause.
+
 # 0.2.4
 
 - Reorganized settings into Image, Neural Rendering, Frame generation and

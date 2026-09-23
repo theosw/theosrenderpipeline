@@ -1,8 +1,10 @@
 # Theo's Render Pipeline
 
-Version **0.2.4** reorganizes the menu around live measurements beside settings,
-adds a saved resizable layout and independent NR pass controls, and makes NR
-keyboard shortcuts opt-in. See [0.2.4 changes and validation](docs/RELEASE_0_2_4.md).
+Version **0.2.5** improves startup compatibility with existing renderer hooks,
+makes rejected Save/Apply actions visible, and explains conflicting NVIDIA
+frame-generation overrides. See [0.2.5 changes and validation](docs/RELEASE_0_2_5.md).
+The 0.2.4 menu, saved resizable layout, independent NR pass controls and opt-in
+NR keyboard shortcuts are retained.
 The Nolvus input correction, peripheral compression and combined preparation
 from 0.2.3 are retained; both NR optimizations still default to off.
 
