@@ -177,8 +177,8 @@ void DrawSourceNeuralControls(TheosRenderPipeline::SourceDLSSG::Preferences& dra
     }
     else if (!TheosRenderPipeline::CommunityShaders::Active() && !NvidiaHost::GetSingleton()->DedicatedUITextureMode())
     {
-        unavailableReason = "NR requires dedicated native UI composition. Enable Native UI in Advanced (Lab mode) "
-                            "and restart Skyrim.";
+        unavailableReason = "NR requires dedicated UI composition. Set NativeUICompositionMode=0 in the INI and "
+                            "restart Skyrim. If it is already 0, check the log for a composition failure.";
     }
     const bool unavailable = unavailableReason != nullptr;
     const auto applied = backend.NeuralConfiguration();
@@ -191,8 +191,10 @@ void DrawSourceNeuralControls(TheosRenderPipeline::SourceDLSSG::Preferences& dra
     {
         ImGui::TextWrapped("%s", state.status.c_str());
     }
-    ImGui::BeginDisabled(unavailable);
+    ImGui::BeginDisabled(!TheosRenderPipeline::CanEditNeuralEnabled(draft.neuralEnabled, !unavailable));
     ImGui::Checkbox("Neural Rendering##sourceNR", &draft.neuralEnabled);
+    ImGui::EndDisabled();
+    ImGui::BeginDisabled(unavailable);
     int placement = draft.neuralBeforeUpscaling ? 0 : 1;
     const char* placements[]{"Before upscaling", "After upscaling"};
     if (ImGui::Combo("Placement##sourceNR", &placement, placements, IM_ARRAYSIZE(placements)))

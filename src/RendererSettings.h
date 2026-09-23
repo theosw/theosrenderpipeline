@@ -71,10 +71,34 @@ inline int CountRendererSettingsChanges(const RendererSettingsDraft& draft, cons
 struct RendererSettingsCapabilities
 {
     bool sourceHost{}, neuralRuntime{}, dedicatedUI{}, externalWorld{};
+    bool neuralOperational{true};
 };
 
+inline bool CanEditNeuralEnabled(bool enabled, bool available) { return enabled || available; }
+
+inline bool SameNeuralPreferences(const SourceDLSSG::Preferences& a, const SourceDLSSG::Preferences& b)
+{
+    return a.neuralEnabled == b.neuralEnabled && a.neuralBeforeUpscaling == b.neuralBeforeUpscaling &&
+        a.neuralPasses == b.neuralPasses && a.neuralTuning == b.neuralTuning &&
+        a.neuralReconstruction == b.neuralReconstruction && a.neuralSecondPass == b.neuralSecondPass;
+}
+
+inline const char* NeuralSettingsUnavailable(int mode, RendererSettingsCapabilities capabilities)
+{
+    if (!capabilities.neuralRuntime) {
+        return "NR runtime DLL not found. Install nvngx_dlssnr.dll at the configured path and restart Skyrim.";
+    }
+    if (!capabilities.neuralOperational) { return "NR is unavailable after a runtime failure; turn NR off or restart Skyrim."; }
+    if (!SupportsNeuralRenderingMode(mode, capabilities.externalWorld) ||
+        (!capabilities.externalWorld && !capabilities.dedicatedUI)) {
+        return "NR requires dedicated UI composition. Turn NR off to apply other changes, or set NativeUICompositionMode=0 in the INI and restart Skyrim.";
+    }
+    return nullptr;
+}
+
 inline const char* ValidateRendererSettings(const RendererSettingsDraft& draft,
-                                            RendererSettingsCapabilities capabilities)
+                                            RendererSettingsCapabilities capabilities,
+                                            const RendererSettingsDraft* current = nullptr)
 {
     if (!capabilities.sourceHost)
     {
@@ -89,15 +113,13 @@ inline const char* ValidateRendererSettings(const RendererSettingsDraft& draft,
         return "Dynamic target output FPS must be 0 or between 61 and 1000.";
     }
 #if !defined(TRP_NO_NEURAL_RENDERING)
-    if (draft.sourceDLSSG.neuralEnabled && !capabilities.neuralRuntime)
+    if (draft.sourceDLSSG.neuralEnabled)
     {
-        return "NR runtime DLL not found. Install nvngx_dlssnr.dll at the configured path and restart Skyrim.";
-    }
-    if (draft.sourceDLSSG.neuralEnabled &&
-        (!SupportsNeuralRenderingMode(draft.upscaleType, capabilities.externalWorld) ||
-         (!capabilities.externalWorld && !capabilities.dedicatedUI)))
-    {
-        return "Source NR requires DLSS or DLAA, dedicated UI Texture mode, and a configured NR runtime.";
+        if (const auto error = NeuralSettingsUnavailable(draft.upscaleType, capabilities)) {
+            // Preserve an unchanged startup request when saving unrelated edits.
+            // Apply separately gates execution, so this cannot restart failed NR.
+            if (!current || !SameNeuralPreferences(draft.sourceDLSSG, current->sourceDLSSG)) { return error; }
+        }
     }
 #endif
     return nullptr;

@@ -339,9 +339,13 @@ void OverlayUI::BuildUI()
     layout.height = windowSize.y;
     DrawPipelineSummary(view);
     const auto& layoutStyle = ImGui::GetStyle();
-    const float reservedActionHeight = ImGui::GetFrameHeightWithSpacing() + ImGui::GetFrameHeight() +
+    float reservedActionHeight = ImGui::GetFrameHeightWithSpacing() + ImGui::GetFrameHeight() +
                                        ImGui::GetTextLineHeightWithSpacing() +
                                        layoutStyle.CellPadding.y * 2.0f + layoutStyle.ItemSpacing.y * 2.0f + 1.0f;
+    if (actionMessageIsError && !actionMessage.empty()) {
+        const float statusWidth = (std::max)(1.0f, ImGui::GetContentRegionAvail().x - 450.0f - layoutStyle.CellPadding.x * 4.0f);
+        reservedActionHeight += (std::max)(0.0f, ImGui::CalcTextSize(actionMessage.c_str(), nullptr, false, statusWidth).y - ImGui::GetFrameHeight());
+    }
     const float tabCardHeight = (std::max)(220.0f, ImGui::GetContentRegionAvail().y - reservedActionHeight);
 
     if (ImGui::BeginTabBar("##theosrenderpipelineTabs", ImGuiTabBarFlags_None))
@@ -457,20 +461,13 @@ void OverlayUI::DrawSettingsActions()
         ImGui::TableSetupColumn("##actionStatus", ImGuiTableColumnFlags_WidthStretch, 1.0f);
         ImGui::TableSetupColumn("##actions", ImGuiTableColumnFlags_WidthFixed, 450.0f);
         ImGui::TableNextColumn();
-        if (stagedChanges > 0)
-        {
-            ImGui::TextColored(kAmber, "%d pending change%s", stagedChanges, stagedChanges == 1 ? "" : "s");
-        }
-        else if (!actionMessage.empty())
-        {
-            ImGui::PushTextWrapPos(0);
-            ImGui::TextColored(actionMessageIsError ? kRust : kSage, "%s", actionMessage.c_str());
-            ImGui::PopTextWrapPos();
-        }
-        else
-        {
-            ImGui::TextDisabled("No changes");
-        }
+        const auto status = TheosRenderPipeline::SettingsStatus(stagedChanges, actionMessage, actionMessageIsError);
+        using StatusKind = TheosRenderPipeline::SettingsStatusKind;
+        ImGui::PushTextWrapPos(0);
+        if (status.kind == StatusKind::Neutral) { ImGui::TextDisabled("%s", status.text.c_str()); }
+        else { ImGui::TextColored(status.kind == StatusKind::Error ? kRust :
+            status.kind == StatusKind::Pending ? kAmber : kSage, "%s", status.text.c_str()); }
+        ImGui::PopTextWrapPos();
         ImGui::TableNextColumn();
         ImGui::BeginDisabled(stagedChanges == 0);
         if (ImGui::Button("Discard", ImVec2(110.0f, 0.0f)))

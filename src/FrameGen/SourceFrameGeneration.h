@@ -63,7 +63,10 @@ class SourceFrameGeneration
     }
     template<class Ini> void StoreUIComposition(Ini& ini) const
     {
-        ini.SetLongValue("Experimental", "NativeUICompositionMode", settings.nativeUICompositionMode);
+        if (!ini.GetValue("Experimental", "NativeUICompositionMode", nullptr)) {
+            ini.SetLongValue("Experimental", "NativeUICompositionMode", std::clamp(static_cast<int>(
+                ini.GetLongValue("Experimental", "PureDarkHUDFixMethod", settings.nativeUICompositionMode)), 0, 1));
+        }
         ini.Delete("Experimental", "PureDarkHUDFixMethod");
     }
     static double GetRefreshRate(HWND window);

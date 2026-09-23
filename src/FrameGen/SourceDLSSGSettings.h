@@ -25,7 +25,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 	{
 		if (value.reflexMode < 0 || value.reflexMode > 2) { value.reflexMode = 1; }
 		value.outputFPSLimit = std::clamp(value.outputFPSLimit, 0, 1000);
-		if (!ValidGenerationRequest(value.generation)) { value.generation = {}; }
+		value.generation = SanitizeGenerationRequest(value.generation);
 		value.neuralTuning = NeuralRendering::SanitizeBuild14Tuning(value.neuralTuning);
 		value.neuralPasses = std::clamp(value.neuralPasses, 1, 2);
 		value.neuralReconstruction = NeuralRendering::SanitizeReconstruction(value.neuralReconstruction);
