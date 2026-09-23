@@ -19,6 +19,12 @@ rendering defaults and existing ENB/Community Shaders/ReShade routes are retaine
 - NR bracket shortcuts default off, including when an older INI lacks the new
   setting. The NR checkbox and End menu key remain available. Explicit
   `EnableNRHotkeys=true` restores the shortcuts.
+- Saving defaults preserves configured runtime paths, including relative paths
+  and intentional absolute overrides. Existing absolute paths are not guessed
+  at or rewritten automatically.
+- Startup verifies the selected route's game-code patches and preserves earlier
+  import hooks. Repeated slot installation cannot capture TRP as its own original;
+  unsupported second game-device creation fails before replacing the host.
 
 ## Validation and limits
 
@@ -26,8 +32,10 @@ The component builds passed Standard and Universal automated checks. The menu
 and independent-pass candidates have scoped positive LoreRim ENB/RTX 4080 SUPER
 feedback, with x4 and both NR placements covered across the recorded runs.
 The final menu test has zero TRP error entries and four recurring NVIDIA RSYNC
-flip-queue errors. The release preparation changes only version metadata and
-documentation from that visually accepted menu checkpoint.
+flip-queue errors. Initial release preparation changed only version metadata and
+documentation from that visually accepted menu checkpoint. The subsequent
+[startup/settings corrections](RELEASE_0_2_4_HARDENING.md) add source changes;
+their automated/static verification does not establish new game acceptance.
 
 Saved-layout serialization and actual ImGui dragging pass the existing fixture.
 Layout restoration after a game restart and individual physical-input sequences

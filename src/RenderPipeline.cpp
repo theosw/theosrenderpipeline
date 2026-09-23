@@ -119,8 +119,7 @@ bool RenderPipeline::SaveINI(const TheosRenderPipeline::Overlay::Layout* layout)
     const auto* frameGeneration = SourceFrameGeneration::GetSingleton();
     ini.SetBoolValue("FrameGeneration", "Enabled", frameGeneration->RuntimeInterpolationRequested());
     const auto& sourceSettings = frameGeneration->settings;
-    ini.SetValue("Experimental", "SourceDLSSGStreamlineDirectory", sourceSettings.sourceDLSSGStreamlineDirectory.c_str());
-    ini.SetValue("Experimental", "NeuralRenderingRuntimePath", sourceSettings.neuralRenderingRuntimePath.c_str());
+    frameGeneration->StoreRuntimePaths(ini);
     frameGeneration->StoreUIComposition(ini);
     frameGeneration->StoreCompatibilityPreference(ini);
     TheosRenderPipeline::SourceDLSSG::StorePreferences(ini, sourceSettings.sourceDLSSG);

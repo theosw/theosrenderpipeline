@@ -1,6 +1,7 @@
 #include <PCH.h>
 #include "PluginPaths.h"
 #include "SkyrimRuntime.h"
+#include "GameHookValidation.h"
 #include "OverlayGameInput.h"
 
 #include "DRS.h"
@@ -67,13 +68,17 @@ namespace
 			TheosRenderPipeline::Overlay::RegisterGameInput();
 		}
 		if (a_msg && a_msg->type == SKSE::MessagingInterface::kPostLoad) {
+			static bool hooksInstalled{};
+			if (hooksInstalled) { return; }
 			TheosRenderPipeline::CommunityShaders::SelectRenderer();
+			TheosRenderPipeline::ValidateGameHooks(TheosRenderPipeline::CommunityShaders::Active());
 			if (!TheosRenderPipeline::CommunityShaders::Active()) {
 				const auto runtime = GetPluginDirectory() / L"TheosRenderPipeline" / L"nvngx_dlss.dll";
 				logger::info("nvngx_dlss.dll preload from \"{}\": {}", runtime.string(), ::LoadLibraryW(runtime.c_str()) ? "ok" : "failed");
 				DRS::InstallHooks();
 			}
 			InstallUpscalerHooks();
+			hooksInstalled = true;
 		}
 		if (!TheosRenderPipeline::CommunityShaders::Active()) { DRS::GetSingleton()->MessageHandler(a_msg); }
 		RenderPipeline::GetSingleton()->MessageHandler(a_msg);
@@ -189,13 +194,9 @@ extern "C" DLLEXPORT bool __cdecl SKSEPlugin_Load(const SKSE::LoadInterface* a_s
 	// Load runtime paths and the initial interpolation request before the
 	// required NVIDIA host is constructed during device creation.
 	SourceFrameGeneration::GetSingleton()->LoadINI();
-	// Resolve package-relative runtime paths from this DLL, independent of the
-	// game working directory and the MO2 mod's physical installation location.
-	auto& baselineSettings = SourceFrameGeneration::GetSingleton()->settings;
-	baselineSettings.sourceDLSSGStreamlineDirectory = TheosRenderPipeline::ResolveRuntimePath(
-		baselineSettings.sourceDLSSGStreamlineDirectory, GetPluginDirectory()).string();
-	baselineSettings.neuralRenderingRuntimePath = TheosRenderPipeline::ResolveRuntimePath(
-		baselineSettings.neuralRenderingRuntimePath, GetPluginDirectory()).string();
+	// Resolve from the game's virtual Data tree, retaining configured spellings
+	// for Save as default and MO2's separate renderer/runtime mods.
+	SourceFrameGeneration::GetSingleton()->ResolveRuntimePaths(GetPluginDirectory());
 	PerformanceTuning::GetSingleton()->LoadStartupINI();
 #if defined(ARP_DEVELOPER_DIAGNOSTICS)
 	TheosRenderPipeline::SourceNRRegression::LoadINI();

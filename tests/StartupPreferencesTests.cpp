@@ -55,6 +55,48 @@ int main(int argc, char** argv)
         spatial.SetBoolValue("SourceDLSSG","NRPeripheralCompression",false);
         Require(!LoadReconstruction(spatial,"SourceDLSSG").peripheralCompression,"explicit spatial opt-out wins");
         owner.LoadStartupPreferences(packaged);
+        const std::string configuredStreamline = packaged.GetValue("Experimental", "SourceDLSSGStreamlineDirectory", "");
+        const std::string configuredNeural = packaged.GetValue("Experimental", "NeuralRenderingRuntimePath", "");
+        const std::filesystem::path firstRoot = "C:/First Game/Data/SKSE/Plugins";
+        const std::filesystem::path movedRoot = "D:/Moved Game/Data/SKSE/Plugins";
+        Require(!configuredStreamline.empty() && !configuredNeural.empty(), "packaged runtime paths present");
+        owner.ResolveRuntimePaths(firstRoot);
+        Require(std::filesystem::path(owner.settings.sourceDLSSGStreamlineDirectory).is_absolute() &&
+            std::filesystem::path(owner.settings.neuralRenderingRuntimePath).is_absolute(), "runtime uses resolved paths");
+        // Exercise the same load -> resolve -> save -> reload sequence as startup
+        // followed by Save as default, including a new settings file.
+        for (const bool seed : {false, true}) {
+            CSimpleIniA savedPaths;
+            if (!seed) { Require(savedPaths.LoadFile(argv[1]) >= 0, "reload packaged settings"); }
+            owner.StoreRuntimePaths(savedPaths);
+            std::string serialized;
+            Require(savedPaths.Save(serialized) >= 0, "save runtime paths");
+            CSimpleIniA pathsReloaded;
+            Require(pathsReloaded.LoadData(serialized.c_str()) >= 0, "reload saved paths");
+            Require(std::string(pathsReloaded.GetValue("Experimental", "SourceDLSSGStreamlineDirectory")) == configuredStreamline &&
+                std::string(pathsReloaded.GetValue("Experimental", "NeuralRenderingRuntimePath")) == configuredNeural,
+                "saving must preserve packaged relative spellings");
+            owner.LoadStartupPreferences(pathsReloaded);
+            owner.ResolveRuntimePaths(movedRoot);
+            Require(owner.settings.sourceDLSSGStreamlineDirectory == (movedRoot / configuredStreamline).lexically_normal().string() &&
+                owner.settings.neuralRenderingRuntimePath == (movedRoot / configuredNeural).lexically_normal().string(),
+                "saved relative paths follow a moved installation");
+        }
+        CSimpleIniA absolutePaths;
+        absolutePaths.SetValue("Experimental", "SourceDLSSGStreamlineDirectory", "E:/Custom/Streamline");
+        absolutePaths.SetValue("Experimental", "NeuralRenderingRuntimePath", "E:/Custom/nvngx_dlssnr.dll");
+        owner.LoadStartupPreferences(absolutePaths);
+        owner.ResolveRuntimePaths(firstRoot);
+        CSimpleIniA absoluteSaved;
+        owner.StoreRuntimePaths(absoluteSaved);
+        Require(owner.settings.sourceDLSSGStreamlineDirectory == "E:/Custom/Streamline" &&
+            std::string(absoluteSaved.GetValue("Experimental", "NeuralRenderingRuntimePath")) == "E:/Custom/nvngx_dlssnr.dll",
+            "intentional absolute runtime paths preserved");
+        absoluteSaved.SetValue("Experimental", "NeuralRenderingRuntimePath", "F:/Edited/nvngx_dlssnr.dll");
+        owner.StoreRuntimePaths(absoluteSaved);
+        Require(std::string(absoluteSaved.GetValue("Experimental", "NeuralRenderingRuntimePath")) == "F:/Edited/nvngx_dlssnr.dll",
+            "menu save must not undo a startup path edited on disk");
+        owner.LoadStartupPreferences(packaged);
         Require(owner.settings.sourceDLSSGMFGUnlock && owner.settings.sourceDLSSGMFGUnlockPresent,
             "package must explicitly enable compatibility");
 
