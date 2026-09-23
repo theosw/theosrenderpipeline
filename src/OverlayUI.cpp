@@ -5,6 +5,7 @@
 #include "OverlayRenderTarget.h"
 
 #include <imgui_internal.h>
+#include <SimpleIni.h>
 
 #include <PCH.h>
 
@@ -55,6 +56,11 @@ void OverlayUI::Init(IDXGISwapChain* a_swapChain, ID3D11Device* a_device, ID3D11
 	ImGui::CreateContext();
 	ImGuiIO& io = ImGui::GetIO();
 	io.IniFilename = nullptr;  // no imgui.ini clutter in the game directory
+    io.ConfigWindowsResizeFromEdges = true;
+    CSimpleIniA menuIni;
+    menuIni.SetUnicode();
+    if (menuIni.LoadFile(L"Data\\SKSE\\Plugins\\TheosRenderPipeline.ini") >= 0)
+        layout = LoadLayout(menuIni);
 	ImGui::StyleColorsDark();
 	ApplyRendererStyle();
 	ImGui_ImplWin32_Init(hwnd);
@@ -174,6 +180,8 @@ void OverlayUI::UpdateControlCapture()
 void OverlayUI::ApplyNeuralRenderingStateForSession(int state)
 {
     auto result = TheosRenderPipeline::RendererSettingsController::Current().SetNeuralRenderingEnabled(state != 0);
+    logger::info("[Overlay] NR shortcut requested={} applied={} error={} detail={}",
+        state != 0, result.applied, result.error, result.message);
     actionMessage = std::move(result.message);
     actionMessageIsError = result.error;
     if (result.applied)
@@ -191,7 +199,8 @@ void OverlayUI::HandleHotkey()
 {
 	const auto toggleKey = static_cast<UINT>(RenderPipeline::GetSingleton()->mToggleOverlayHotkey);
 	for (const auto key : hotkeys.TakePending()) {
-		const auto actions = ActionsForHotkey(key, toggleKey, visible && ImGui::GetIO().WantTextInput);
+		const auto actions = ActionsForHotkey(key, toggleKey, visible && ImGui::GetIO().WantTextInput,
+            RenderPipeline::GetSingleton()->mEnableNRHotkeys);
 		if (actions.neuralState >= 0) { ApplyNeuralRenderingStateForSession(actions.neuralState); }
 		if (actions.toggle) {
 			SetVisible(!visible);
@@ -289,7 +298,8 @@ void OverlayUI::ApplySettingsDraft(bool save)
     {
         return;
     }
-    auto result = TheosRenderPipeline::RendererSettingsController::Current().Apply(settingsDraft, save);
+    auto result = TheosRenderPipeline::RendererSettingsController::Current().Apply(
+        settingsDraft, save, save ? &layout : nullptr);
     actionMessage = std::move(result.message);
     actionMessageIsError = result.error;
     if (result.applied)
@@ -301,45 +311,57 @@ void OverlayUI::ApplySettingsDraft(bool save)
 void OverlayUI::BuildUI()
 {
     const auto view = CaptureFrameView();
-    ImGui::SetNextWindowSize(ImVec2(1100.0f, 720.0f), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowPos(ImVec2(40.0f, 40.0f), ImGuiCond_FirstUseEver);
-    // Keep the useful minimum, but let the current display be the natural upper
-    // bound. The old 1250x1050 cap forced tall diagnostic tabs to scroll even on
-    // the native 5120x1440 target and made window resizing appear ineffective.
     const auto displaySize = ImGui::GetIO().DisplaySize;
-    const ImVec2 maximumWindowSize{(std::max)(780.0f, displaySize.x), (std::max)(560.0f, displaySize.y)};
-    ImGui::SetNextWindowSizeConstraints(ImVec2(780.0f, 560.0f), maximumWindowSize);
+    if (displaySize.x <= 0 || displaySize.y <= 0)
+        return;
+    if (layoutPending || layoutDisplayWidth != displaySize.x || layoutDisplayHeight != displaySize.y)
+    {
+        layout = FitLayout(layout, displaySize.x, displaySize.y);
+        ImGui::SetNextWindowSize(ImVec2(layout.width, layout.height), ImGuiCond_Always);
+        ImGui::SetNextWindowPos(ImVec2(layout.x, layout.y), ImGuiCond_Always);
+        layoutDisplayWidth = displaySize.x;
+        layoutDisplayHeight = displaySize.y;
+        layoutPending = false;
+    }
+    ImGui::SetNextWindowSizeConstraints(
+        ImVec2((std::min)(780.0f, displaySize.x), (std::min)(560.0f, displaySize.y)), displaySize);
     if (!ImGui::Begin(Plugin::DISPLAY_NAME.data(), nullptr, ImGuiWindowFlags_NoCollapse))
     {
         ImGui::End();
         return;
     }
 
+    const auto windowPos = ImGui::GetWindowPos();
+    const auto windowSize = ImGui::GetWindowSize();
+    layout.x = windowPos.x;
+    layout.y = windowPos.y;
+    layout.width = windowSize.x;
+    layout.height = windowSize.y;
     DrawPipelineSummary(view);
     const auto& layoutStyle = ImGui::GetStyle();
-    const float reservedActionHeight = ImGui::GetFrameHeightWithSpacing() + ImGui::GetFrameHeight() +
+    float reservedActionHeight = ImGui::GetFrameHeightWithSpacing() + ImGui::GetFrameHeight() +
                                        ImGui::GetTextLineHeightWithSpacing() +
                                        layoutStyle.CellPadding.y * 2.0f + layoutStyle.ItemSpacing.y * 2.0f + 1.0f;
+    if (actionMessageIsError && !actionMessage.empty()) {
+        const float statusWidth = (std::max)(1.0f, ImGui::GetContentRegionAvail().x - 450.0f - layoutStyle.CellPadding.x * 4.0f);
+        reservedActionHeight += (std::max)(0.0f, ImGui::CalcTextSize(actionMessage.c_str(), nullptr, false, statusWidth).y - ImGui::GetFrameHeight());
+    }
     const float tabCardHeight = (std::max)(220.0f, ImGui::GetContentRegionAvail().y - reservedActionHeight);
-    const float nestedCardHeight = (std::max)(190.0f, tabCardHeight - ImGui::GetFrameHeightWithSpacing());
-    const float advancedCardHeight = (std::max)(160.0f, nestedCardHeight - 2.0f * ImGui::GetFrameHeightWithSpacing());
 
     if (ImGui::BeginTabBar("##theosrenderpipelineTabs", ImGuiTabBarFlags_None))
     {
-        DrawImagePanel(tabCardHeight, nestedCardHeight, view);
+        DrawImagePanel(tabCardHeight, view);
 
 #if !defined(TRP_NO_NEURAL_RENDERING)
-        DrawNeuralRenderingPanel(tabCardHeight);
+        DrawNeuralRenderingPanel(tabCardHeight, view);
 #endif
 
-        DrawFrameGenerationPanel(tabCardHeight, nestedCardHeight,
-                                 {view.sourceDLSSGActive, view.frameGenerationRuntimeActive,
-                                  view.activeDisplayMultiplier, view.outputLabel, view.outputText, view.sourceNeural});
-
-        DrawAdvancedPanel(advancedCardHeight, view);
+        DrawFrameGenerationPanel(tabCardHeight, view);
+        DrawAdvancedPanel(tabCardHeight, view);
         ImGui::EndTabBar();
     }
 
+    requestedPage = SettingsPage::None;
     DrawSettingsActions();
 
     ImGui::End();
@@ -437,23 +459,18 @@ void OverlayUI::DrawSettingsActions()
     if (ImGui::BeginTable("##actionBar", 2, ImGuiTableFlags_SizingStretchProp))
     {
         ImGui::TableSetupColumn("##actionStatus", ImGuiTableColumnFlags_WidthStretch, 1.0f);
-        ImGui::TableSetupColumn("##actions", ImGuiTableColumnFlags_WidthFixed, 520.0f);
+        ImGui::TableSetupColumn("##actions", ImGuiTableColumnFlags_WidthFixed, 450.0f);
         ImGui::TableNextColumn();
-        if (stagedChanges > 0)
-        {
-            ImGui::TextColored(kAmber, "%d staged change%s", stagedChanges, stagedChanges == 1 ? "" : "s");
-        }
-        else if (!actionMessage.empty())
-        {
-            ImGui::TextColored(actionMessageIsError ? kRust : kSage, "%s", actionMessage.c_str());
-        }
-        else
-        {
-            ImGui::TextDisabled("No staged changes | toggle overlay: END");
-        }
+        const auto status = TheosRenderPipeline::SettingsStatus(stagedChanges, actionMessage, actionMessageIsError);
+        using StatusKind = TheosRenderPipeline::SettingsStatusKind;
+        ImGui::PushTextWrapPos(0);
+        if (status.kind == StatusKind::Neutral) { ImGui::TextDisabled("%s", status.text.c_str()); }
+        else { ImGui::TextColored(status.kind == StatusKind::Error ? kRust :
+            status.kind == StatusKind::Pending ? kAmber : kSage, "%s", status.text.c_str()); }
+        ImGui::PopTextWrapPos();
         ImGui::TableNextColumn();
         ImGui::BeginDisabled(stagedChanges == 0);
-        if (ImGui::Button("Discard changes", ImVec2(150.0f, 0.0f)))
+        if (ImGui::Button("Discard", ImVec2(110.0f, 0.0f)))
         {
             CaptureSettingsDraft();
             actionMessage = "Unapplied edits discarded.";
@@ -461,16 +478,18 @@ void OverlayUI::DrawSettingsActions()
         }
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
         {
-            ImGui::SetTooltip("Discard edits you have not applied. Applied settings and saved defaults stay as they are.");
+            ImGui::SetTooltip(
+                "Discard edits you have not applied. Applied settings and saved defaults stay as they are.");
         }
         ImGui::SameLine();
-        if (ImGui::Button("Apply now", ImVec2(140.0f, 0.0f)))
+        if (ImGui::Button("Apply", ImVec2(100.0f, 0.0f)))
         {
             ApplySettingsDraft(false);
         }
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
         {
-            ImGui::SetTooltip("Apply live settings for this session. Saved defaults stay unchanged.\nMode and render scale changes require Save and restart.");
+            ImGui::SetTooltip("Apply live settings for this session. Saved defaults stay unchanged.\nMode and render "
+                              "scale changes require Save and restart.");
         }
         ImGui::EndDisabled();
         ImGui::SameLine();
@@ -485,9 +504,9 @@ void OverlayUI::DrawSettingsActions()
         ImGui::PopStyleColor(4);
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
         {
-            ImGui::SetTooltip("Apply live settings and save your choices for future launches.\nMode and render scale changes take effect after restarting.");
+            ImGui::SetTooltip("Apply live settings and save your choices, window layout and divider for future launches.\n"
+                              "Mode and render scale changes take effect after restarting.");
         }
         ImGui::EndTable();
     }
-    ImGui::TextDisabled("Discard: unapplied edits | Apply: this session | Save: also keep for next launch");
 }

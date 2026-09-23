@@ -28,4 +28,7 @@ namespace TheosRenderPipeline::Overlay
 	void DrawHealthDot(UIHealth a_health);
 	void DrawStatusLabel(const char* a_label, UIHealth a_health);
 	void DrawBadge(const char* a_label, const ImVec4& a_color);
+    void DrawSettingsHeading(const char* title, const char* behavior = "");
+    void DrawSettingsHelp(const char* text);
+    void DrawSettingsValue(const char* label, const char* value);
 }

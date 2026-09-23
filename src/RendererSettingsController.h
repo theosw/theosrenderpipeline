@@ -1,22 +1,17 @@
 #pragma once
 
 #include "RendererSettings.h"
+#include "RendererSettingsAction.h"
 #include <string>
 
 class RenderPipeline;
 class SourceFrameGeneration;
 class NvidiaHost;
 class PerformanceTuning;
+namespace TheosRenderPipeline::Overlay { struct Layout; }
 
 namespace TheosRenderPipeline
 {
-struct RendererSettingsResult
-{
-    std::string message;
-    bool error{};
-    bool applied{};
-};
-
 // Borrows the current owners. Requested/effective/persisted state stays with
 // the host; the overlay supplies a draft and displays the result.
 class RendererSettingsController
@@ -25,7 +20,7 @@ class RendererSettingsController
     static RendererSettingsController Current();
     RendererSettingsDraft Capture(bool nrRuntimePresent, bool readTextures = true) const;
     int CountChanges(const RendererSettingsDraft& draft, bool nrRuntimePresent) const;
-    RendererSettingsResult Apply(const RendererSettingsDraft& draft, bool save);
+    RendererSettingsResult Apply(const RendererSettingsDraft& draft, bool save, const Overlay::Layout* layout = nullptr);
     RendererSettingsResult SetNeuralRenderingEnabled(bool enabled);
 
   private:

@@ -2,6 +2,7 @@
 // (https://github.com/PureDark/Skyrim-Upscaler).
 
 #include <PCH.h>
+#include "HookInstallation.h"
 #include "UpscalerSamplerHooks.h"
 #include "RenderPipeline.h"
 #include <unordered_map>
@@ -161,21 +162,15 @@ namespace TheosRenderPipeline
 {
 void InstallPixelSamplerHook(ID3D11DeviceContext* deviceContext)
 {
-    *(uintptr_t*)&ptrPSSetSamplers =
-        Detours::X64::DetourClassVTable(*(uintptr_t*)deviceContext, &hk_ID3D11DeviceContext_PSSetSamplers, 10);
+    TheosRenderPipeline::InstallVTableHook(deviceContext, 10, &hk_ID3D11DeviceContext_PSSetSamplers, ptrPSSetSamplers);
 }
 
 void InstallAdditionalSamplerHooks(ID3D11DeviceContext* deviceContext)
 {
-    *(uintptr_t*)&ptrVSSetSamplers =
-        Detours::X64::DetourClassVTable(*(uintptr_t*)deviceContext, &hk_ID3D11DeviceContext_VSSetSamplers, 26);
-    *(uintptr_t*)&ptrGSSetSamplers =
-        Detours::X64::DetourClassVTable(*(uintptr_t*)deviceContext, &hk_ID3D11DeviceContext_GSSetSamplers, 32);
-    *(uintptr_t*)&ptrHSSetSamplers =
-        Detours::X64::DetourClassVTable(*(uintptr_t*)deviceContext, &hk_ID3D11DeviceContext_HSSetSamplers, 61);
-    *(uintptr_t*)&ptrDSSetSamplers =
-        Detours::X64::DetourClassVTable(*(uintptr_t*)deviceContext, &hk_ID3D11DeviceContext_DSSetSamplers, 65);
-    *(uintptr_t*)&ptrCSSetSamplers =
-        Detours::X64::DetourClassVTable(*(uintptr_t*)deviceContext, &hk_ID3D11DeviceContext_CSSetSamplers, 70);
+    TheosRenderPipeline::InstallVTableHook(deviceContext, 26, &hk_ID3D11DeviceContext_VSSetSamplers, ptrVSSetSamplers);
+    TheosRenderPipeline::InstallVTableHook(deviceContext, 32, &hk_ID3D11DeviceContext_GSSetSamplers, ptrGSSetSamplers);
+    TheosRenderPipeline::InstallVTableHook(deviceContext, 61, &hk_ID3D11DeviceContext_HSSetSamplers, ptrHSSetSamplers);
+    TheosRenderPipeline::InstallVTableHook(deviceContext, 65, &hk_ID3D11DeviceContext_DSSetSamplers, ptrDSSetSamplers);
+    TheosRenderPipeline::InstallVTableHook(deviceContext, 70, &hk_ID3D11DeviceContext_CSSetSamplers, ptrCSSetSamplers);
 }
 } // namespace TheosRenderPipeline

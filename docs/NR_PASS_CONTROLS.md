@@ -1,16 +1,37 @@
 # Independent NR pass controls
 
-Choose **Two** passes under Neural Rendering. **Use the same settings for both
-passes** starts enabled, preserving existing configurations. Uncheck it to set
-pass 2's input resolution, network preset, and image tuning independently.
-**Copy pass 1 settings** copies those controls without relinking them.
+Choose **Two** passes in **Neural Rendering**. The **Pass 1**
+and **Pass 2** sections each contain input resolution, network preset and
+**Intensity** and expandable **Appearance** controls. **Use Pass 1 settings** starts enabled; Pass 2 displays
+the inherited values as read-only. Uncheck it to edit Pass 2 independently.
+**Copy Pass 1** copies those controls without relinking them.
 Relinking preserves your custom pass 2 values for later use.
+
+Hover over an input-resolution slider to preview the edited model size. The left
+column shows applied pass dimensions and network requests, inference timing, and
+live FPS. It remains visible while scrolling the controls on the right.
+Use Apply, Save as default or Discard for edits to either pass.
+
+Enable **Lab mode** in **Advanced** to show detailed runtime counters in the
+related tabs. Lab mode starts off and only changes menu visibility; normal FPS,
+inference timing and errors remain visible. Advanced also contains measurement
+controls and information for reporting a problem. The full-width pipeline bar
+above the tabs shows the applied rendering order, resolutions and status. Click
+a stage to open its related tab.
+
+Drag the window edges or corner to resize it and drag the divider to balance
+the columns. The graph grows with the available space. **Save as default** also
+remembers the window position, size and shared divider in the INI's `[Overlay]`
+section. Moving or resizing is immediate and lasts for the session without
+saving; Apply and Discard concern rendering edits. Saved layouts are kept
+on-screen when the output resolution changes.
 
 Both resolution percentages refer to the selected placement's scene size: the
 render size before upscaling or output size after upscaling. Pass 2 processes
 pass 1's result. Both retain separate model histories and remain on the same side
-of upscaling. Placement, reconstruction, peripheral compression, and combined
-preparation stay shared.
+of upscaling. Placement, **Reconstruction**, peripheral compression, and
+combined preparation stay shared. Returning to one pass hides Pass 2 without
+erasing its custom settings.
 
 When the model sizes differ, TRP resizes the first result in its prepared colour
 space, evaluates the second model with its own guides, and transfers only that

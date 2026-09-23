@@ -6,6 +6,7 @@
 #include <PCH.h>
 
 #include <RE/BSGraphics.h>
+#include "SkyrimRuntime.h"
 
 class MenuOpenCloseEventHandler : public RE::BSTEventSink<RE::MenuOpenCloseEvent>
 {
@@ -55,7 +56,9 @@ protected:
 
 		static void Install()
 		{
-			stl::write_thunk_call<Main_SetDRS>(REL::RelocationID(35556, 36555).address() + REL::Relocate(0x2D, 0x2D, 0x25));  // 5B1020 (5B104D), 5D7CB0 (5D7CDD)
+			const auto* profile = TheosRenderPipeline::SkyrimRuntime::Find(REL::Module::get().version());
+			if (!profile) { util::report_and_fail("No verified DRS hook profile for this Skyrim runtime."); }
+			stl::write_thunk_call<Main_SetDRS>(REL::RelocationID(35556, 36555).address() + profile->hooks.drs);
 		}
 	};
 

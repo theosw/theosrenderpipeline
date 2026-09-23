@@ -73,11 +73,12 @@ int RendererSettingsController::CountChanges(const RendererSettingsDraft& draft,
 }
 
 RendererSettingsResult RendererSettingsController::Apply(const RendererSettingsDraft& settingsDraft,
-                                                         bool a_saveAsDefault)
+                                                         bool a_saveAsDefault, const Overlay::Layout* layout)
 {
     if (!settingsDraft.valid)
     {
-        return {};
+        return RejectSettingsAction(a_saveAsDefault, "Settings draft is unavailable; reopen the menu.",
+            [](const std::string& message) { logger::error("{}", message); });
     }
     std::string actionMessage;
     bool actionMessageIsError = false;
@@ -86,18 +87,19 @@ RendererSettingsResult RendererSettingsController::Apply(const RendererSettingsD
 #if !defined(TRP_NO_NEURAL_RENDERING)
     capabilities.neuralRuntime =
         TheosRenderPipeline::SourceDLSSG::NeuralRuntimePresent(frameGen_.settings.neuralRenderingRuntimePath);
+    capabilities.neuralOperational = SourceDLSSG::Backend::Get().Ready() && !SourceDLSSG::Backend::Get().NeuralState().failed;
 #endif
-    if (const char* error = ValidateRendererSettings(settingsDraft, capabilities))
+    const auto current = Capture(capabilities.neuralRuntime, false);
+    if (const char* error = ValidateRendererSettings(settingsDraft, capabilities, &current))
     {
-        return {error, true};
+        return RejectSettingsAction(a_saveAsDefault, error,
+            [](const std::string& message) { logger::error("{}", message); });
     }
     if (settingsDraft.textureProviderConnected &&
         !textures_.Apply(settingsDraft.textureProviderSettings, a_saveAsDefault))
     {
-        actionMessage = textures_.Status();
-        actionMessageIsError = true;
-        logger::error("[Overlay] texture provider apply/save failed: {}", actionMessage);
-        return {actionMessage, actionMessageIsError};
+        return RejectSettingsAction(a_saveAsDefault, textures_.Status(),
+            [](const std::string& message) { logger::error("{}", message); });
     }
     upscaler_.mUpscaleType = settingsDraft.upscaleType;
     upscaler_.mQualityLevel = std::clamp(settingsDraft.qualityLevel, 0, 4);
@@ -129,7 +131,7 @@ RendererSettingsResult RendererSettingsController::Apply(const RendererSettingsD
         source.ConfigureGeneration(frameGen_.settings.sourceDLSSG.generation);
         TheosRenderPipeline::SourceDLSSG::NeuralOptions options;
         options.enabled = frameGen_.settings.sourceDLSSG.neuralEnabled &&
-            SupportsNeuralRenderingMode(upscaler_.mUpscaleType, CommunityShaders::Active());
+            NeuralSettingsUnavailable(upscaler_.mUpscaleType, capabilities) == nullptr;
         options.runtimePath = frameGen_.settings.neuralRenderingRuntimePath;
         options.tuning = frameGen_.settings.sourceDLSSG.neuralTuning;
         options.reconstruction = frameGen_.settings.sourceDLSSG.neuralReconstruction;
@@ -140,7 +142,7 @@ RendererSettingsResult RendererSettingsController::Apply(const RendererSettingsD
     }
     if (a_saveAsDefault)
     {
-        const bool saved = upscaler_.SaveINI();
+        const bool saved = upscaler_.SaveINI(layout);
         actionMessage =
             saved ? "Startup defaults saved." : "Could not write TheosRenderPipeline.ini; settings remain active for this session.";
         actionMessageIsError = !saved;
@@ -150,8 +152,9 @@ RendererSettingsResult RendererSettingsController::Apply(const RendererSettingsD
         actionMessage = "Session settings applied.";
         actionMessageIsError = false;
     }
-    logger::info("[Overlay] source settings applied save={} mode={} quality={} preset={}", a_saveAsDefault,
-                 upscaler_.mUpscaleType, upscaler_.mQualityLevel, upscaler_.mDLSSPreset);
+    logger::info("[Overlay] source settings applied save={} mode={} quality={} preset={} requestedMode={} requestedQuality={} requestedPreset={}", a_saveAsDefault,
+                 upscaler_.mUpscaleType, upscaler_.mQualityLevel, upscaler_.mDLSSPreset,
+                 settingsDraft.upscaleType, settingsDraft.qualityLevel, settingsDraft.dlssPreset);
     logger::info("[LoadingArtwork] request setting={} save={}", settingsDraft.requestLoadingArtwork, a_saveAsDefault);
     if (sourceUpscaler && !actionMessageIsError)
     {
@@ -177,6 +180,10 @@ RendererSettingsResult RendererSettingsController::Apply(const RendererSettingsD
         {
             actionMessage = a_saveAsDefault ? "Settings saved." : "Session settings applied.";
         }
+    }
+    if (!actionMessageIsError && settingsDraft.sourceDLSSG.neuralEnabled &&
+        NeuralSettingsUnavailable(settingsDraft.upscaleType, capabilities)) {
+        actionMessage += " NR remains unavailable; its saved request is unchanged.";
     }
     return {std::move(actionMessage), actionMessageIsError, true};
 }

@@ -10,6 +10,11 @@ set(ARP_BASELINE_SOURCES
     include/SolFGStartupOverlayAPI.h
     include/SolFGTextureProviderAPI.h
     src/DLSSBackend.cpp
+    src/GameHookValidation.cpp
+    src/GameHookValidation.h
+    src/HookSafety.h
+    src/HookInstallation.h
+    src/RuntimePathSettings.h
     src/CommunityShaderIntegration.cpp
     src/CommunityShaderIntegration.h
     src/DLSSBackend.h
@@ -122,6 +127,8 @@ set(ARP_BASELINE_SOURCES
     src/OverlayFrameView.h
     src/OverlayPipeline.cpp
     src/OverlayPipeline.h
+    src/OverlayLayout.cpp
+    src/OverlayLayout.h
     src/OverlayImagePanel.cpp
     src/OverlayAdvancedPanel.cpp
     src/OverlayUIStyle.cpp

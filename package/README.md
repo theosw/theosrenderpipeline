@@ -1,11 +1,16 @@
-# Theo's Render Pipeline — Universal, 0.2.3
+# Theo's Render Pipeline — Universal, 0.2.5
 
-Version 0.2.3 adds the Nolvus keyboard-input fallback, optional NR peripheral
-compression and optional combined preparation. Both NR optimizations default
-to off; enable them separately in the Neural Rendering controls and use Apply now.
-It also corrects menu percentage text and prevents a renderer shutdown when
-NVIDIA returns a VRAM-budget warning after accepting frame-generation settings.
-This correction does not reduce memory pressure itself.
+Version 0.2.5 improves startup compatibility with existing renderer hooks,
+including SSE Display Tweaks BorderlessUpscale and Community Shaders. Rejected
+Save/Apply actions now show their reason, hidden dependent settings no longer
+block unrelated edits, and startup diagnostics explain observed NVIDIA App
+frame-generation override conflicts. NVIDIA runtimes and defaults are unchanged.
+
+Version 0.2.4 adds a reorganized menu with live measurements beside settings,
+a saved resizable layout and independent NR pass controls. NR keyboard shortcuts
+are now opt-in to avoid shared-key conflicts. Existing runtime DLLs, the Nolvus
+input correction and the VRAM-budget warning fix are retained. Peripheral
+compression and combined preparation remain optional and default to off.
 
 Version 0.2.2 enables NR with DLAA, before or after anti-aliasing, and improves
 experimental RTX 30 compatibility. Older INIs now use the packaged compatibility
@@ -16,7 +21,7 @@ DLSS/DLAA, frame generation, Neural Rendering and native-resolution UI for Skyri
 This package includes the full renderer, configuration and sharpening shader.
 It requires no other Theo's Render Pipeline package. NVIDIA DLLs are supplied
 separately: download the SR/FG files below, and the NR runtime if you want NR.
-Alternatively, install matching 0.2.3 Standard first and Universal after it in MO2; the NR-enabled
+Alternatively, install matching 0.2.5 Standard first and Universal after it in MO2; the NR-enabled
 Standard download supplies all eight runtimes, including NR. In that setup,
 skip the runtime downloads below.
 
@@ -65,9 +70,19 @@ Newer runtimes use the same filenames and folders; compatibility may vary.
 
 ## Controls
 
-**End** opens settings. **Apply now** changes this session. **Save as default**
-also saves settings; **Discard changes** drops unapplied edits. DLSS/DLAA mode
+**End** opens settings. **Apply** changes this session. **Save as default**
+also saves settings and window layout; **Discard** drops unapplied edits. DLSS/DLAA mode
 and render scale changes take effect after restarting Skyrim.
+
+Live FPS and related measurements stay beside the controls. Resize the window
+and drag the column divider to change the layout. The pipeline bar above the
+tabs shows the applied rendering order. Advanced contains Lab mode for detailed
+runtime information and the information needed for problem reports.
+
+With two NR passes, leave **Use Pass 1 settings** checked for linked controls,
+or uncheck it to tune Pass 2 resolution, network preset and appearance separately.
+**Copy Pass 1** copies the settings without relinking. Both passes use the same
+placement, and two passes can substantially increase inference cost.
 
 - DLSS starts at 67%, preset K, with sharpening enabled.
 - Frame generation starts on at x2. Choose x4 or another supported multiplier
@@ -118,7 +133,7 @@ pass before upscaling and reduce NR input resolution if needed.
 
 Keep your existing ReShade installation, preset and hotkeys. **Disable SSE
 ReShade Helper.** TRP supplies the effects and overlay stages. Effects run after
-upscaling by default; use **Advanced → ReShade before upscaling** to change this.
+upscaling by default; use **Advanced → ReShade** to change this.
 Changing placement may reload shaders. Give ReShade, CS and TRP different menu keys.
 
 The renderer was tested with and without ReShade 6.3.3.1921 on Skyrim 1.6.1170,
@@ -126,14 +141,12 @@ Cabbage ENB and RTX 4080 SUPER, with x4 and NR before upscaling. CS with ReShade
 other ReShade versions and other effect/NR placements still need game testing.
 Keep Native UI enabled for the tested world-only effects setup.
 
-## Nolvus Awakening (candidate)
+## Nolvus Awakening
 
 The keyboard fallback in PR #33 has scoped positive Nolvus Awakening 6.0.20 /
 Skyrim 1.5.97 feedback: Universal, RTX 4080 SUPER, ENB 0.504, ReShade 6.3.1,
-F10 input, x5, both NR placements and Wheeler. It is not in the original 0.2.2 release ZIPs.
-If supplied as a separate Input Test ZIP, install it below your existing TRP
-mods and keep them enabled; disabling it after closing Skyrim restores the
-previous renderer without replacing your INIs or runtimes.
+F10 input, x5, both NR placements and Wheeler. The fix is included from 0.2.3
+onward; a separate Input Test ZIP is not needed for this release.
 
 Disable competing ENB Anti-Aliasing and ENB Frame Generation components,
 including their dedicated settings overrides where installed. Keep the base
@@ -144,7 +157,18 @@ Click outside an active text field before closing with F10.
 Early OAR/IED loading panels remain a known resolution limitation. The test log
 retains two Streamline RSYNC errors; physical cadence and unreported menu/cell
 transitions remain unverified.
-See [PR #33](https://github.com/theosw/theosrenderpipeline/pull/33) for candidate status.
+See [PR #33](https://github.com/theosw/theosrenderpipeline/pull/33) for the input fix.
+
+## NR shortcuts
+
+The NR menu checkbox works independently of keyboard shortcuts. Bracket
+shortcuts are disabled by default, including for older INIs without the new key.
+To opt in, set `EnableNRHotkeys=true` under `[Hotkeys]` in the winning
+`TheosRenderPipeline.ini` and restart Skyrim. On a US keyboard, `[` turns NR
+off and `]` turns it on for the session, even with the TRP menu closed.
+They are suppressed while editing text in TRP's menu. Other mods can share
+these keys. Use Save as default to retain an NR state for future launches.
+The existing `ToggleOverlay` menu binding is independent.
 
 ## Experimental game versions
 

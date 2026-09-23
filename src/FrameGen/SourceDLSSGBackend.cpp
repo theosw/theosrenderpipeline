@@ -3,6 +3,7 @@
 #include <PCH.h>
 #include "CommunityShaderIntegration.h"
 #include "SourceDLSSGSwapChain.h"
+#include "SourceRuntimeModuleDiagnostic.h"
 #include "../PluginPaths.h"
 #include <d3dcompiler.h>
 
@@ -185,7 +186,14 @@ namespace TheosRenderPipeline::SourceDLSSG
 			const auto* name = kStreamlineModules[index];
 			runtimeModules_[index] = TheosRenderPipeline::PluginPaths::RetainLoadedModule(directory_ / name);
 			if (!runtimeModules_[index]) {
-				Check(E_FAIL, std::format("{} was not loaded from the configured Streamline directory", std::filesystem::path(name).string()).c_str());
+				const auto configured = directory_ / name;
+				const auto attributes = GetFileAttributesW(configured.c_str());
+				const bool exists = attributes != INVALID_FILE_ATTRIBUTES && !(attributes & FILE_ATTRIBUTE_DIRECTORY);
+				const auto otherPath = PluginPaths::ModulePath(GetModuleHandleW(name));
+				const bool overrideObserved = runtimeDiagnostics_.FrameGenerationOverrideObserved();
+				logger::error("[SourceDLSSG] module retention failed configured={} filePresent={} sameNameLoadedPath={} fgOverrideObserved={}",
+					configured.string(), exists, otherPath.empty() ? "none" : otherPath.string(), overrideObserved);
+				Check(E_FAIL, RuntimeModuleFailureMessage(std::filesystem::path(name).string(), overrideObserved).c_str());
 				return fault_;
 			}
 			logger::info("[SourceDLSSG] loaded {}", (directory_ / name).string());

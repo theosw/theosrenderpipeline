@@ -25,10 +25,13 @@ SettingsPage DrawPipelineDiagram(const PipelineDiagram& diagram)
     const auto uiTextSize = ImGui::CalcTextSize(uiLabel.c_str(), nullptr, false, textWidth);
     const float headerHeight = uiTextSize.y + style.FramePadding.y * 2.0f;
     std::array<std::string, PipelineDiagram::StageCount> details;
+    float titleHeight = lineHeight;
     float detailHeight = lineHeight;
     for (std::size_t i = 0; i < diagram.stages.size(); ++i)
     {
         details[i] = diagram.stages[i].detail;
+        titleHeight =
+            (std::max)(titleHeight, ImGui::CalcTextSize(diagram.stages[i].title, nullptr, false, textWidth).y);
         const auto separator = details[i].find(" | ");
         if (separator != std::string::npos && ImGui::CalcTextSize(details[i].c_str()).x > textWidth)
         {
@@ -36,7 +39,7 @@ SettingsPage DrawPipelineDiagram(const PipelineDiagram& diagram)
         }
         detailHeight = (std::max)(detailHeight, ImGui::CalcTextSize(details[i].c_str(), nullptr, false, textWidth).y);
     }
-    const float nodeHeight = style.FramePadding.y * 2.0f + lineHeight + style.ItemInnerSpacing.y + detailHeight;
+    const float nodeHeight = style.FramePadding.y * 2.0f + titleHeight + style.ItemInnerSpacing.y + detailHeight;
     const float nodeTop = origin.y + headerHeight + style.ItemSpacing.y;
     const float middle = nodeTop + nodeHeight * 0.5f;
     const float height = headerHeight + style.ItemSpacing.y + nodeHeight;
@@ -65,7 +68,8 @@ SettingsPage DrawPipelineDiagram(const PipelineDiagram& diagram)
                           "diagram shows applied settings; controls below may contain unapplied edits.");
     }
 
-    const float branchX = origin.x + static_cast<float>(PipelineDiagram::GenerationStage) * (nodeWidth + gap) - gap * 0.5f;
+    const float branchX =
+        origin.x + static_cast<float>(PipelineDiagram::GenerationStage) * (nodeWidth + gap) - gap * 0.5f;
     if (diagram.nativeUI)
     {
         const float branchY = origin.y + headerHeight * 0.5f;
@@ -105,17 +109,16 @@ SettingsPage DrawPipelineDiagram(const PipelineDiagram& diagram)
         draw->AddRectFilled(start, end,
                             ImGui::GetColorU32(interactiveHover ? ImGuiCol_FrameBgHovered : ImGuiCol_ChildBg),
                             style.FrameRounding);
-        draw->AddRect(start, end, interactiveHover ? amber : ImGui::GetColorU32(ImGuiCol_Border),
-                      style.FrameRounding);
+        draw->AddRect(start, end, interactiveHover ? amber : ImGui::GetColorU32(ImGuiCol_Border), style.FrameRounding);
         draw->PushClipRect(start, end, true);
-        const auto titleSize = ImGui::CalcTextSize(stage.title);
-        draw->AddText(ImVec2(start.x + (nodeWidth - titleSize.x) * 0.5f, start.y + style.FramePadding.y),
-                      stage.muted ? muted : ivory,
-                      stage.title);
+        const auto titleSize = ImGui::CalcTextSize(stage.title, nullptr, false, textWidth);
+        draw->AddText(ImGui::GetFont(), ImGui::GetFontSize(),
+                      ImVec2(start.x + (nodeWidth - titleSize.x) * 0.5f, start.y + style.FramePadding.y),
+                      stage.muted ? muted : ivory, stage.title, nullptr, textWidth);
         const auto detailSize = ImGui::CalcTextSize(details[i].c_str(), nullptr, false, textWidth);
         draw->AddText(ImGui::GetFont(), ImGui::GetFontSize(),
                       ImVec2(start.x + (nodeWidth - detailSize.x) * 0.5f,
-                             start.y + style.FramePadding.y + lineHeight + style.ItemInnerSpacing.y),
+                             start.y + style.FramePadding.y + titleHeight + style.ItemInnerSpacing.y),
                       muted, details[i].c_str(), nullptr, textWidth);
         draw->PopClipRect();
         if (hovered)

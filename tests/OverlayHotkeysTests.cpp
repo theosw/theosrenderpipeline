@@ -174,9 +174,21 @@ int main()
     Require(VirtualKeyFromGameScanCode(0xC5) == VK_PAUSE, "Pause special scan code");
     Require(VirtualKeyFromGameScanCode(0x45) == VK_NUMLOCK, "Num Lock special scan code");
     Require(VirtualKeyFromGameScanCode(256) == 0, "mouse IDs cannot become keyboard keys");
-    Require(ActionsForHotkey(VK_END, VK_END, true).toggle, "End still closes during editing");
-    Require(!ActionsForHotkey('2', '2', true).toggle, "numeric binding remains typing during editing");
-    Require(ActionsForHotkey(VK_OEM_4, VK_F10, true).neuralState == -1, "editing protects NR shortcut");
+    for (bool enabled : {false, true}) {
+        Require(ActionsForHotkey(VK_END, VK_END, true, enabled).toggle, "End still closes during editing");
+        Require(!ActionsForHotkey('2', '2', true, enabled).toggle, "numeric binding remains typing during editing");
+        Require(ActionsForHotkey(VK_OEM_4, VK_F10, true, enabled).neuralState == -1, "editing protects NR off");
+        Require(ActionsForHotkey(VK_OEM_6, VK_F10, true, enabled).neuralState == -1, "editing protects NR on");
+        Require(ActionsForHotkey(VK_OEM_COMMA, VK_END, false, enabled).neuralState == -1, "comma remains unbound");
+    }
+    for (UINT bracket : {VK_OEM_4, VK_OEM_6}) {
+        Require(ActionsForHotkey(bracket, VK_END, false, false).neuralState == -1,
+            "disabled NR shortcuts cannot change the session");
+        const auto rebound = ActionsForHotkey(bracket, bracket, false, false);
+        Require(rebound.toggle && rebound.neuralState == -1, "bracket can still be the configured menu key");
+    }
+    Require(ActionsForHotkey(VK_OEM_4, VK_END, false, true).neuralState == 0, "opt-in NR off");
+    Require(ActionsForHotkey(VK_OEM_6, VK_END, false, true).neuralState == 1, "opt-in NR on");
     keys.Uninstall();
     keys.ObserveGameKeys({VK_F10});
     Expect({}, "uninstalled observer rejects game input");

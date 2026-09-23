@@ -6,6 +6,7 @@
 #include "UpscalerSamplerHooks.h"
 
 #include <PCH.h>
+#include "HookInstallation.h"
 #include "CommunityShaderIntegration.h"
 
 #include "DLSSBackend.h"
@@ -697,24 +698,16 @@ void WINAPI hk_ID3D11DeviceContext_Draw(
 // architecture, ffx_api runtime).
 void InstallUpscalerContextHooks(ID3D11Device* device, ID3D11DeviceContext* deviceContext)
 {
-    *(uintptr_t*)&ptrCreateTexture2D =
-        Detours::X64::DetourClassVTable(*(uintptr_t*)device, &hk_ID3D11Device_CreateTexture2D, 5);
+    TheosRenderPipeline::InstallVTableHook(device, 5, &hk_ID3D11Device_CreateTexture2D, ptrCreateTexture2D);
     TheosRenderPipeline::InstallPixelSamplerHook(deviceContext);
-    *(uintptr_t*)&ptrPSSetShaderResources =
-        Detours::X64::DetourClassVTable(*(uintptr_t*)deviceContext, &hk_ID3D11DeviceContext_PSSetShaderResources, 8);
+    TheosRenderPipeline::InstallVTableHook(deviceContext, 8, &hk_ID3D11DeviceContext_PSSetShaderResources, ptrPSSetShaderResources);
     TheosRenderPipeline::InstallAdditionalSamplerHooks(deviceContext);
-    *(uintptr_t*)&ptrOMSetRenderTargets =
-        Detours::X64::DetourClassVTable(*(uintptr_t*)deviceContext, &hk_ID3D11DeviceContext_OMSetRenderTargets, 33);
-    *(uintptr_t*)&ptrOMSetBlendState =
-        Detours::X64::DetourClassVTable(*(uintptr_t*)deviceContext, &hk_ID3D11DeviceContext_OMSetBlendState, 35);
-    *(uintptr_t*)&ptrRSSetViewports =
-        Detours::X64::DetourClassVTable(*(uintptr_t*)deviceContext, &hk_ID3D11DeviceContext_RSSetViewports, 44);
-    *(uintptr_t*)&ptrRSSetScissorRects =
-        Detours::X64::DetourClassVTable(*(uintptr_t*)deviceContext, &hk_ID3D11DeviceContext_RSSetScissorRects, 45);
-    *(uintptr_t*)&ptrDrawIndexed =
-        Detours::X64::DetourClassVTable(*(uintptr_t*)deviceContext, &hk_ID3D11DeviceContext_DrawIndexed, 12);
-    *(uintptr_t*)&ptrDraw =
-        Detours::X64::DetourClassVTable(*(uintptr_t*)deviceContext, &hk_ID3D11DeviceContext_Draw, 13);
+    TheosRenderPipeline::InstallVTableHook(deviceContext, 33, &hk_ID3D11DeviceContext_OMSetRenderTargets, ptrOMSetRenderTargets);
+    TheosRenderPipeline::InstallVTableHook(deviceContext, 35, &hk_ID3D11DeviceContext_OMSetBlendState, ptrOMSetBlendState);
+    TheosRenderPipeline::InstallVTableHook(deviceContext, 44, &hk_ID3D11DeviceContext_RSSetViewports, ptrRSSetViewports);
+    TheosRenderPipeline::InstallVTableHook(deviceContext, 45, &hk_ID3D11DeviceContext_RSSetScissorRects, ptrRSSetScissorRects);
+    TheosRenderPipeline::InstallVTableHook(deviceContext, 12, &hk_ID3D11DeviceContext_DrawIndexed, ptrDrawIndexed);
+    TheosRenderPipeline::InstallVTableHook(deviceContext, 13, &hk_ID3D11DeviceContext_Draw, ptrDraw);
 }
 
 struct UpscalerHooks
@@ -933,7 +926,7 @@ struct UpscalerHooks
 		}
 		const auto& offsets = profile->hooks;
 		if (TheosRenderPipeline::CommunityShaders::Active()) {
-			stl::write_thunk_call<BSGraphics_Renderer_Init_InitD3D>(REL::RelocationID(75595, 77226).address() + REL::Relocate(0x50, 0x2BC));
+			stl::write_thunk_call<BSGraphics_Renderer_Init_InitD3D>(REL::RelocationID(75595, 77226).address() + offsets.initD3D);
 			TheosRenderPipeline::InstallUpscalerDeviceHooks(reinterpret_cast<std::uintptr_t>(GetModuleHandleW(nullptr)));
 			TheosRenderPipeline::LoadingArtwork::Install();
 			return;
@@ -941,11 +934,11 @@ struct UpscalerHooks
 		{
 			// Validate all sites before publishing
 			// any patch; retain the original calling convention through a tail jump.
-			const auto mouseSite = REL::RelocationID(50604, 51498).address() + 0xB;
-			const auto screenSite = REL::RelocationID(75590, 77397).address() + 0x102;
-			const auto dimensionsSite = REL::RelocationID(99938, 106583).address() + REL::Relocate(0x8E, 0x84);
+			const auto mouseSite = REL::RelocationID(50604, 51498).address() + offsets.cursorBounds;
+			const auto screenSite = REL::RelocationID(75590, 77397).address() + offsets.screenSize;
+			const auto dimensionsSite = REL::RelocationID(99938, 106583).address() + offsets.engineDimensions;
 			const auto mistSite = REL::RelocationID(51855, 52727).address() + offsets.mistBackground;
-			const auto worldSite = REL::RelocationID(79947, 82084).address() + REL::Relocate(0x16F, 0x17A);
+			const auto worldSite = REL::RelocationID(79947, 82084).address() + offsets.worldCompletion;
 			if (*reinterpret_cast<const std::uint8_t*>(mouseSite) != 0xE8 ||
 				*reinterpret_cast<const std::uint8_t*>(screenSite) != 0xE8 ||
 				*reinterpret_cast<const std::uint8_t*>(dimensionsSite) != 0xE8 ||
@@ -980,16 +973,15 @@ struct UpscalerHooks
 		}
 		// InitD3D runs after the swapchain exists; used to register the menu
 		// handler and create the DLSS feature.
-		stl::write_thunk_call<BSGraphics_Renderer_Init_InitD3D>(REL::RelocationID(75595, 77226).address() + REL::Relocate(0x50, 0x2BC));
+		stl::write_thunk_call<BSGraphics_Renderer_Init_InitD3D>(REL::RelocationID(75595, 77226).address() + offsets.initD3D);
 		// Hook swapchain creation through the IAT so CreateTexture2D is
 		// detoured before the depth and motion vector targets are created.
 		auto moduleBase = (uintptr_t)GetModuleHandleW(nullptr);
 		TheosRenderPipeline::InstallUpscalerDeviceHooks(moduleBase);
-		*(FARPROC*)&ptrGetClientRect = GetProcAddress(GetModuleHandleA("user32.dll"), "GetClientRect");
 		const auto clientRectOffset = offsets.rendererClientRect;
 		stl::write_thunk_call<BSGraphics_Renderer_GetClientRect, 6>(
 			REL::RelocationID(75460, 77245).address() + clientRectOffset);
-		Detours::IATHook(moduleBase, "user32.dll", "GetClientRect", (uintptr_t)hk_GetClientRect);
+		TheosRenderPipeline::InstallImportHook(moduleBase, "user32.dll", "GetClientRect", &hk_GetClientRect, ptrGetClientRect);
 
 		// Setup our own jitters
 		stl::write_thunk_call<BSGraphics_Renderer_Begin_UpdateJitter>(REL::RelocationID(75460, 77245).address() + offsets.updateJitter);
@@ -998,7 +990,7 @@ struct UpscalerHooks
 		static REL::Relocation<uintptr_t> buildCameraStateDataHook{ REL::RelocationID(75711, 77520) };  // D7D130, DB9850
 		uint8_t                           patch1[] = { 0x90, 0x90, 0x90, 0x90, 0x90, 0x90 };
 		uint8_t                           patch2[] = { 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90 };
-		REL::safe_write<uint8_t>(updateJitterHook.address() + REL::Relocate(0xE, 0x11), patch1);
+		REL::safe_write<uint8_t>(updateJitterHook.address() + offsets.jitterBranch, patch1);
 		REL::safe_write<uint8_t>(buildCameraStateDataHook.address() + offsets.cameraBranch, patch2);
 
 		// Frame generation input capture points.

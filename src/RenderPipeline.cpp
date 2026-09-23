@@ -9,6 +9,8 @@
 #include "FrameGen/SourceDLSSGBackend.h"
 #include "PerformanceTuning.h"
 #include "SettingsFile.h"
+#include "OverlayHotkeys.h"
+#include "OverlayLayout.h"
 
 #include <SimpleIni.h>
 
@@ -52,6 +54,8 @@ void RenderPipeline::LoadINI()
 			"[DynRes] ignored unsupported DynamicResolution request: TheosRenderPipeline's scaled-proxy path upscales at Present and requires a fixed full proxy input");
 	}
 	mToggleOverlayHotkey = (int)ini.GetLongValue("Hotkeys", "ToggleOverlay", 0x23);
+	mEnableNRHotkeys = TheosRenderPipeline::Overlay::LoadNRHotkeysEnabled(ini);
+	logger::info("[Overlay Input] NR shortcuts enabled={}", mEnableNRHotkeys);
 	mLogMenuMetrics = ini.GetBoolValue("Debug", "LogMenuMetrics", false);
 	mQualityLevel = std::clamp(mQualityLevel, 0, 4);
 
@@ -80,7 +84,7 @@ void RenderPipeline::LoadINI()
 	}
 }
 
-bool RenderPipeline::SaveINI()
+bool RenderPipeline::SaveINI(const TheosRenderPipeline::Overlay::Layout* layout)
 {
 	CSimpleIniA ini;
 	ini.SetUnicode();
@@ -115,12 +119,12 @@ bool RenderPipeline::SaveINI()
     const auto* frameGeneration = SourceFrameGeneration::GetSingleton();
     ini.SetBoolValue("FrameGeneration", "Enabled", frameGeneration->RuntimeInterpolationRequested());
     const auto& sourceSettings = frameGeneration->settings;
-    ini.SetValue("Experimental", "SourceDLSSGStreamlineDirectory", sourceSettings.sourceDLSSGStreamlineDirectory.c_str());
-    ini.SetValue("Experimental", "NeuralRenderingRuntimePath", sourceSettings.neuralRenderingRuntimePath.c_str());
+    frameGeneration->StoreRuntimePaths(ini);
     frameGeneration->StoreUIComposition(ini);
     frameGeneration->StoreCompatibilityPreference(ini);
     TheosRenderPipeline::SourceDLSSG::StorePreferences(ini, sourceSettings.sourceDLSSG);
 	ini.SetBoolValue("Debug", "LogMenuMetrics", mLogMenuMetrics);
+    if (layout) { TheosRenderPipeline::Overlay::StoreLayout(ini, *layout); }
 	const auto rc = ini.SaveFile(L"Data\\SKSE\\Plugins\\TheosRenderPipeline.ini");
 	if (rc < 0) {
 		logger::error("Could not save Data\\SKSE\\Plugins\\TheosRenderPipeline.ini (rc={})", static_cast<int>(rc));

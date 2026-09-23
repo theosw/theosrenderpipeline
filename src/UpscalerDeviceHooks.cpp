@@ -12,6 +12,7 @@
 #include "OverlayUI.h"
 #include "PerformanceTuning.h"
 #include "CommunityShaderIntegration.h"
+#include "HookInstallation.h"
 
 decltype(&D3D11CreateDeviceAndSwapChain) ptrD3D11CreateDeviceAndSwapChain;
 decltype(&IDXGIFactory::CreateSwapChain) ptrFactoryCreateSwapChain;
@@ -105,6 +106,10 @@ HRESULT WINAPI hk_D3D11CreateDeviceAndSwapChain(IDXGIAdapter* pAdapter, D3D_DRIV
                                                 D3D_FEATURE_LEVEL* pFeatureLevel,
                                                 ID3D11DeviceContext** ppImmediateContext)
 {
+    static TheosRenderPipeline::HookSafety::DeviceAdmission gameDevice;
+    if (!gameDevice.Begin()) {
+        util::report_and_fail("Theo's Render Pipeline already owns a game-device creation request. A second or reentrant request cannot replace the active NVIDIA host. Restart Skyrim and check TheosRenderPipeline.log.");
+    }
     logger::info("Calling original D3D11CreateDeviceAndSwapChain");
     TheosRenderPipeline::CommunityShaders::InstallEngineHooks();
 
@@ -137,8 +142,7 @@ HRESULT WINAPI hk_D3D11CreateDeviceAndSwapChain(IDXGIAdapter* pAdapter, D3D_DRIV
         {
             // Class-level vtable patch: affects the factory instance DXGI uses
             // internally for this same factory type.
-            *(uintptr_t*)&ptrFactoryCreateSwapChain =
-                Detours::X64::DetourClassVTable(*(uintptr_t*)factory.Get(), &hk_IDXGIFactory_CreateSwapChain, 10);
+            TheosRenderPipeline::InstallVTableHook(factory.Get(), 10, &hk_IDXGIFactory_CreateSwapChain, ptrFactoryCreateSwapChain);
             if (!ptrFactoryCreateSwapChain)
             {
                 util::report_and_fail("Theo's Render Pipeline could not install its required NVIDIA swapchain hook.");
@@ -212,9 +216,8 @@ void InstallUpscalerDeviceHooks(std::uintptr_t moduleBase)
 {
     // Continue through the previous import target so an earlier renderer's
     // device setup still runs before control returns to our completion boundary.
-    ptrD3D11CreateDeviceAndSwapChain = reinterpret_cast<decltype(ptrD3D11CreateDeviceAndSwapChain)>(
-        Detours::IATHook(moduleBase, "d3d11.dll", "D3D11CreateDeviceAndSwapChain",
-                         reinterpret_cast<uintptr_t>(hk_D3D11CreateDeviceAndSwapChain)));
+    InstallImportHook(moduleBase, "d3d11.dll", "D3D11CreateDeviceAndSwapChain",
+        &hk_D3D11CreateDeviceAndSwapChain, ptrD3D11CreateDeviceAndSwapChain);
     if (!ptrD3D11CreateDeviceAndSwapChain)
     {
         util::report_and_fail("Theo's Render Pipeline could not hook D3D11 device creation for its required NVIDIA host.");

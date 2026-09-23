@@ -11,10 +11,20 @@ namespace TheosRenderPipeline::SourceDLSSG
 		bool dynamic{ false };
 		bool operator==(const GenerationRequest&) const = default;
 	};
+	constexpr bool ValidDynamicTarget(std::uint32_t target)
+	{
+		return target == 0 || (target > 60 && target <= 1000);
+	}
 	constexpr bool ValidGenerationRequest(const GenerationRequest& value)
 	{
 		return value.generatedFrames >= 1 && value.generatedFrames <= 5 &&
-			(value.dynamicTargetFPS == 0 || (value.dynamicTargetFPS > 60 && value.dynamicTargetFPS <= 1000));
+			(!value.dynamic || ValidDynamicTarget(value.dynamicTargetFPS));
+	}
+	constexpr GenerationRequest SanitizeGenerationRequest(GenerationRequest value)
+	{
+		if (value.generatedFrames < 1 || value.generatedFrames > 5) { value.generatedFrames = 1; }
+		if (!ValidDynamicTarget(value.dynamicTargetFPS)) { value.dynamicTargetFPS = 0; }
+		return value;
 	}
 	struct GenerationSelection
 	{
