@@ -1,5 +1,7 @@
 # Theo's Render Pipeline
 
+Development: [current baseline](docs/BASELINE.md) and [build instructions](docs/BUILD.md).
+
 Version **0.3.0** adds experimental RTX 20 DLSS-G/MFG compatibility on the
 released 0.2.5 baseline. The RTX 2060 compatibility test has positive
 x2/x3/x4/x6, NR and loading-recovery evidence. The combined release also has

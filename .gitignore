@@ -12,3 +12,6 @@ __pycache__/
 /AGENTS.md
 /.agents/
 /.codex/
+
+# Private workstation tooling, knowledge and configuration
+/local/
