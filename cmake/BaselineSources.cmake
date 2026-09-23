@@ -74,6 +74,7 @@ set(ARP_BASELINE_SOURCES
     src/ReShadeSwapChain.h
     src/SettingsFile.h
     src/PluginPaths.h
+    src/LoggingPolicy.h
     src/SkyrimRuntime.h
     src/UpscaleType.h
     src/FrameGen/NeuralRenderingFeatureSession.h

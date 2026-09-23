@@ -3,6 +3,7 @@
 #include "LoadingArtwork.h"
 #include "RenderPipeline.h"
 #include "PerformanceTuning.h"
+#include "LoggingPolicy.h"
 #include <utility>
 
 namespace
@@ -56,6 +57,7 @@ void NvidiaHost::LogSourceContextHook(unsigned hook, ID3D11DeviceContext* contex
 
 bool NvidiaHost::TakeNativeUITraceSlot()
 {
+    if (!TheosRenderPipeline::Logging::NativeUITraceEnabled()) { return false; }
     // Capture a few frames on each menu transition, plus periodic samples.
     // Every sampled frame has a fixed budget shared by all hook diagnostics.
     static std::uint64_t lastFrame = ~std::uint64_t{}, untilFrame{};
@@ -119,9 +121,11 @@ bool NvidiaHost::PrepareSourceNativeUITargets()
     auto* upscaler = RenderPipeline::GetSingleton();
     const auto hr = nativeUIAttachments_.Ensure(device_.Get(), context_.Get(),
         upscaler->mMotionVectors.mImage, upscaler->mDepthBuffer.mImage, outputWidth_, outputHeight_);
-    if (FAILED(hr) && TakeNativeUITraceSlot()) {
+    static HRESULT reportedAttachmentFailure = S_OK;
+    if (FAILED(hr) && hr != reportedAttachmentFailure) {
         logger::warn("[NativeUIRoute] native attachments unavailable result=0x{:08X}; keep background eligible for Present", static_cast<unsigned>(hr));
     }
+    reportedAttachmentFailure = hr;
     return SUCCEEDED(hr);
 }
 

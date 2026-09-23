@@ -128,3 +128,14 @@ MSVC 19.44.35215. CommonLib's diagnostic paths are also mapped when its source
 is supplied outside the checkout. Keep other dependencies under `.dependencies/`
 when reproducing the release's relative diagnostic paths. Plugin filenames and SKSE version
 identity remain separate from the release display version.
+
+## Logging diagnostics
+
+Routine log records are buffered with a one-second periodic flush. Warning and
+error records flush immediately. Runtime counters and GPU measurements remain
+available with normal logging.
+
+For detailed native-UI routing/state dumps, set `TRP_TRACE_NATIVE_UI=1` in the
+game's environment before launching through your mod manager. The value is read
+once per process; unset it for normal runs. This gates state collection itself,
+including menu lookups and graphics-resource inspection.
