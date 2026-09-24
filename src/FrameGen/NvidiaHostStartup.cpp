@@ -273,6 +273,16 @@ bool NvidiaHost::InitializeSourceUpscaler(const D3D11_TEXTURE2D_DESC& a_outputDe
         status_ = std::format("TheosRenderPipeline DLSS native handoff texture creation failed (0x{:08X})", static_cast<std::uint32_t>(outputResult));
         return false;
     }
+    {
+        // Whether the direct-output routes can be eligible at all is decided
+        // here, once, and is otherwise only observable as a per-session
+        // rejection after the user enables them.
+        D3D11_TEXTURE2D_DESC handoff{};
+        gameTargets_.UpscaleOutput()->GetDesc(&handoff);
+        logger::info("[NvidiaHost] native handoff target {}x{} format={} bind=0x{:X}; direct-output routes {}",
+                     handoff.Width, handoff.Height, static_cast<std::uint32_t>(handoff.Format), handoff.BindFlags,
+                     (handoff.BindFlags & D3D11_BIND_UNORDERED_ACCESS) ? "can be requested" : "unavailable for this format");
+    }
 
     auto* dlss = DLSSBackend::GetSingleton();
     dlss->SetupDevice(device_.Get(), context_.Get());

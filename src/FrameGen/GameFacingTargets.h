@@ -45,10 +45,25 @@ namespace TheosRenderPipeline
             return input;
         }
 
-        static D3D11_TEXTURE2D_DESC UpscaleOutputDesc(const D3D11_TEXTURE2D_DESC& output)
+        // DLSS evaluates into its own UAV and copies here by default. The
+        // opt-in direct-output routes instead bind this texture as the NGX or
+        // RCAS destination, which removes a full-resolution copy per frame but
+        // requires an unordered-access binding. Typed UAV support is optional
+        // for some presentation formats, so the capability is requested rather
+        // than assumed; without it this stays the proven plain SRV/RTV target.
+        static D3D11_TEXTURE2D_DESC UpscaleOutputDesc(
+            const D3D11_TEXTURE2D_DESC& output, bool unorderedAccess = false)
         {
-            // DLSS uses its own UAV output and copies to this plain SRV/RTV.
-            return UpscaleInputDesc(output, output.Width, output.Height);
+            auto desc = UpscaleInputDesc(output, output.Width, output.Height);
+            if (unorderedAccess) { desc.BindFlags |= D3D11_BIND_UNORDERED_ACCESS; }
+            return desc;
+        }
+
+        static bool SupportsTypedUnorderedAccess(ID3D11Device* device, DXGI_FORMAT format)
+        {
+            UINT support = 0;
+            return device && SUCCEEDED(device->CheckFormatSupport(format, &support)) &&
+                (support & D3D11_FORMAT_SUPPORT_TYPED_UNORDERED_ACCESS_VIEW) != 0;
         }
 
         HRESULT CreateGameFacingAfterRetirement(ID3D11Device* device,
@@ -67,10 +82,20 @@ namespace TheosRenderPipeline
             return device->CreateTexture2D(&desc, nullptr, upscaleInput_.ReleaseAndGetAddressOf());
         }
 
+        // A device that reports the capability can still reject the allocation,
+        // so a failed unordered-access attempt retries the proven descriptor
+        // before reporting failure. The direct-output routes remain opt-in;
+        // this only decides whether they can ever be eligible.
         HRESULT CreateUpscaleOutputAfterRetirement(ID3D11Device* device,
             const D3D11_TEXTURE2D_DESC& output)
         {
             if (!device) { return E_INVALIDARG; }
+            if (SupportsTypedUnorderedAccess(device, output.Format)) {
+                const auto capable = UpscaleOutputDesc(output, true);
+                if (SUCCEEDED(device->CreateTexture2D(&capable, nullptr, upscaleOutput_.ReleaseAndGetAddressOf()))) {
+                    return S_OK;
+                }
+            }
             const auto desc = UpscaleOutputDesc(output);
             return device->CreateTexture2D(&desc, nullptr, upscaleOutput_.ReleaseAndGetAddressOf());
         }
