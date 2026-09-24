@@ -29,7 +29,7 @@ namespace
         std::string otherOperation;
         std::vector<std::string> calls;
         unsigned optionsCalls{}, waits{};
-        bool waitOK{true}, lastReset{};
+        bool waitOK{true}, lastReset{}, lastDepthInverted{};
         sl::Result Call(const char* name)
         {
             calls.emplace_back(name);
@@ -73,6 +73,7 @@ namespace
     sl::Result Constants(const sl::Constants& constants, const sl::FrameToken&, const sl::ViewportHandle&)
     {
         runtime->lastReset = constants.reset == sl::eTrue;
+        runtime->lastDepthInverted = constants.depthInverted == sl::eTrue;
         return runtime->Call("constants");
     }
     sl::Result Tags(const sl::ViewportHandle&, const sl::ResourceTag*, std::uint32_t, sl::CommandBuffer*)
@@ -94,7 +95,7 @@ namespace
         api.setReflexOptions = Reflex; api.reflexSleep = Sleep; api.marker = Marker; api.context = &value;
         return api;
     }
-    bool TryPrepare(Session& session)
+    bool TryPrepare(Session& session, bool depthInverted = false)
     {
         sl::Constants c{};
         for (auto* m : {&c.cameraViewToClip, &c.clipToCameraView, &c.clipToPrevClip, &c.prevClipToClip}) {
@@ -106,7 +107,7 @@ namespace
         c.cameraPos = {0, 0, 0}; c.cameraUp = {0, 1, 0}; c.cameraRight = {1, 0, 0}; c.cameraFwd = {0, 0, 1};
         c.jitterOffset = {0, 0}; c.mvecScale = {1, 1};
         c.cameraNear = .1f; c.cameraFar = 1000; c.cameraFOV = 1; c.cameraAspectRatio = 2;
-        c.depthInverted = sl::eFalse; c.cameraMotionIncluded = sl::eTrue;
+        c.depthInverted = depthInverted ? sl::eTrue : sl::eFalse; c.cameraMotionIncluded = sl::eTrue;
         c.motionVectors3D = sl::eFalse; c.reset = sl::eFalse;
         FrameGuides guides{};
         guides.displayWidth = 2560; guides.displayHeight = 1440;
@@ -134,6 +135,15 @@ namespace
 
 int main()
 {
+    {
+        Runtime r; Session s;
+        Require(s.Start(API(r), 7), "depth convention scenario starts");
+        for (bool inverted : {false, true, false}) {
+            Require(TryPrepare(s, inverted), "both depth conventions are valid session inputs");
+            Require(r.lastDepthInverted == inverted, "producer depth convention reaches Streamline unchanged");
+            Require(s.BeforePresent(true) && s.AfterPresent(true), "depth convention frame completes");
+        }
+    }
     // Exact reported sequence: healthy x4, state warning, then options warning.
     for (bool withStateWarning : {false, true}) {
         Runtime r; Session s;

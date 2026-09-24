@@ -6,6 +6,8 @@
 #include <cstring>
 #include <vector>
 #include <string_view>
+#include <bit>
+#include <cstdint>
 
 using Microsoft::WRL::ComPtr;
 using TheosRenderPipeline::FrameExtent;
@@ -19,7 +21,8 @@ static ComPtr<ID3D11Texture2D> Texture(ID3D11Device* device, UINT width, UINT he
     D3D11_TEXTURE2D_DESC desc{};
     desc.Width = width; desc.Height = height; desc.MipLevels = desc.ArraySize = desc.SampleDesc.Count = 1;
     desc.Format = format; desc.BindFlags = bindings;
-    D3D11_SUBRESOURCE_DATA initial{}; initial.pSysMem = data; initial.SysMemPitch = width * 4;
+    D3D11_SUBRESOURCE_DATA initial{}; initial.pSysMem = data;
+    initial.SysMemPitch = width * (format == DXGI_FORMAT_R32G8X24_TYPELESS ? 8 : 4);
     ComPtr<ID3D11Texture2D> texture;
     Check(device->CreateTexture2D(&desc, data ? &initial : nullptr, &texture), "create texture");
     return texture;
@@ -122,20 +125,29 @@ int main(int argc, char** argv)
     context->CSSetUnorderedAccessViews(0, 1, savedUAV.GetAddressOf(), nullptr);
 
     Copy::Depth depthCopy;
-    for (const auto format : {DXGI_FORMAT_R32_FLOAT, DXGI_FORMAT_R32_TYPELESS, DXGI_FORMAT_R24G8_TYPELESS}) {
+    for (const auto format : {DXGI_FORMAT_R32_FLOAT, DXGI_FORMAT_R32_TYPELESS, DXGI_FORMAT_R24G8_TYPELESS, DXGI_FORMAT_R32G8X24_TYPELESS}) {
         std::vector<UINT> packed(scene.size());
+        auto depthValues = scene;
+        std::vector<std::uint64_t> packedFloatDepth(scene.size());
+        if (format == DXGI_FORMAT_R32G8X24_TYPELESS) {
+            for (size_t i = 0; i < scene.size(); ++i) {
+                depthValues[i] = 1.0f - scene[i];
+                packedFloatDepth[i] = std::bit_cast<std::uint32_t>(depthValues[i]) | (std::uint64_t{0xAB} << 32);
+            }
+        }
         if (format == DXGI_FORMAT_R24G8_TYPELESS) {
             for (size_t i = 0; i < scene.size(); ++i) { packed[i] = UINT(scene[i] * 16777215.0f) | 0xAB000000; }
         }
         const bool depthStencil = format != DXGI_FORMAT_R32_FLOAT;
         auto depth = Texture(device.Get(), width, height, format,
             D3D11_BIND_SHADER_RESOURCE | (depthStencil ? D3D11_BIND_DEPTH_STENCIL : 0),
-            format == DXGI_FORMAT_R24G8_TYPELESS ? static_cast<void*>(packed.data()) : static_cast<void*>(scene.data()));
+            format == DXGI_FORMAT_R24G8_TYPELESS ? static_cast<void*>(packed.data()) :
+                format == DXGI_FORMAT_R32G8X24_TYPELESS ? static_cast<void*>(packedFloatDepth.data()) : static_cast<void*>(depthValues.data()));
         for (const auto extent : {active, FrameExtent{7, 5}, FrameExtent{width, height}}) {
             auto target = Texture(device.Get(), extent.width, extent.height, DXGI_FORMAT_R32_FLOAT,
                 D3D11_BIND_UNORDERED_ACCESS | D3D11_BIND_SHADER_RESOURCE);
             Check(depthCopy.Copy(context.Get(), depth.Get(), target.Get(), extent), "capture typed/typeless depth");
-            ExpectRegion(Pixels(context.Get(), target.Get()), scene, extent, width, 0.0000002f);
+            ExpectRegion(Pixels(context.Get(), target.Get()), depthValues, extent, width, 0.0000002f);
             ComPtr<ID3D11ComputeShader> shader; ComPtr<ID3D11ShaderResourceView> srv, untouched;
             ComPtr<ID3D11UnorderedAccessView> uav;
             context->CSGetShader(&shader, nullptr, nullptr); context->CSGetShaderResources(0, 1, &srv);
@@ -150,14 +162,15 @@ int main(int argc, char** argv)
             Require(FAILED(depthCopy.Copy(otherContext.Get(), foreignSource.Get(), foreignTarget.Get(), extent)),
                 "cached shader cannot be reused on another otherwise valid device");
             Check(depthCopy.Copy(context.Get(), depth.Get(), target.Get(), extent), "legitimate reuse after foreign rejection");
-            ExpectRegion(Pixels(context.Get(), target.Get()), scene, extent, width, 0.0000002f);
+            ExpectRegion(Pixels(context.Get(), target.Get()), depthValues, extent, width, 0.0000002f);
             if (depthStencil && extent.width == width) {
                 ComPtr<ID3D11DepthStencilView> dsv;
                 D3D11_DEPTH_STENCIL_VIEW_DESC desc{}; desc.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;
-                desc.Format = format == DXGI_FORMAT_R24G8_TYPELESS ? DXGI_FORMAT_D24_UNORM_S8_UINT : DXGI_FORMAT_D32_FLOAT;
+                desc.Format = format == DXGI_FORMAT_R24G8_TYPELESS ? DXGI_FORMAT_D24_UNORM_S8_UINT :
+                    format == DXGI_FORMAT_R32G8X24_TYPELESS ? DXGI_FORMAT_D32_FLOAT_S8X24_UINT : DXGI_FORMAT_D32_FLOAT;
                 Check(device->CreateDepthStencilView(depth.Get(), &desc, &dsv), "source DSV");
                 context->ClearDepthStencilView(dsv.Get(), D3D11_CLEAR_DEPTH, 0.625f, 0);
-                ExpectRegion(Pixels(context.Get(), target.Get()), scene, extent, width, 0.0000002f);
+                ExpectRegion(Pixels(context.Get(), target.Get()), depthValues, extent, width, 0.0000002f);
                 Check(depthCopy.Copy(context.Get(), depth.Get(), target.Get(), extent), "refresh same cached views");
                 const auto refreshed = Pixels(context.Get(), target.Get());
                 for (auto pixel : refreshed) { Require(std::abs(pixel - 0.625f) < 0.0000002f, "next frame uses fresh depth"); }
@@ -166,5 +179,5 @@ int main(int argc, char** argv)
         depthCopy.ResetViews();
     }
     context->ClearState();
-    std::puts("Frame copies: cropped/full color, bounded return, source overwrite, three depth formats, resize, state restoration and invalid inputs passed.");
+    std::puts("Frame copies: cropped/full color, bounded return, source overwrite, four depth formats including float/stencil reverse Z, resize, state restoration and invalid inputs passed.");
 }

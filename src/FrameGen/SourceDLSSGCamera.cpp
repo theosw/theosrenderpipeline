@@ -21,6 +21,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		float jitterX, float jitterY, bool reset, bool jittered, sl::Constants& result, CameraHistory& candidate)
 	{
 		static std::string lastStatus;
+		static bool lastDepthInverted{};
 		auto unavailable = [&](const char* reason) {
 			candidate.Reset();
 			if (lastStatus != reason) { lastStatus = reason; logger::warn("[SourceDLSSG] camera unavailable: {}", reason); }
@@ -57,10 +58,11 @@ namespace TheosRenderPipeline::SourceDLSSG
 			camera->viewFrustum.fNear, camera->viewFrustum.fFar, jitterX, jitterY,
 			reinterpret_cast<std::uintptr_t>(camera), state->GetFrameCount(), reset, result);
 		if (!built) { return unavailable("invalid camera constants"); }
-		if (lastStatus != "ready") {
+		if (lastStatus != "ready" || lastDepthInverted != (result.depthInverted == sl::eTrue)) {
 			lastStatus = "ready";
-			logger::info("[SourceDLSSG] player camera ready jittered={} near={} far={} fov={} aspect={}",
-				jittered, result.cameraNear, result.cameraFar, result.cameraFOV, result.cameraAspectRatio);
+			lastDepthInverted = result.depthInverted == sl::eTrue;
+			logger::info("[SourceDLSSG] player camera ready jittered={} near={} far={} fov={} aspect={} depthInverted={}",
+				jittered, result.cameraNear, result.cameraFar, result.cameraFOV, result.cameraAspectRatio, lastDepthInverted);
 		}
 		return true;
 	}
