@@ -105,6 +105,9 @@ namespace TheosRenderPipeline::CommunityShaders
         HRESULT STDMETHODCALLTYPE TopPresent(IDXGISwapChain* chain, UINT interval, UINT flags)
         {
             if (chain == gameSwapChain && !(flags & DXGI_PRESENT_TEST)) {
+                // These direct-output routes only run in the non-CS backend.
+                // Clear stale activity even when CS skipped its world callback.
+                PerformanceTuning::GetSingleton()->BeginRouteFrame();
                 auto frame = Framebuffer();
                 NvidiaHost::GetSingleton()->CommunityFrame().SetUIBoundary(frame.Get());
                 OverlayUI::GetSingleton()->OnPresent(frame.Get());

@@ -853,7 +853,9 @@ struct UpscalerHooks
 			ScopedRenderDimensions renderSizeScope;
 			func(a_state);
 			auto upscaler = RenderPipeline::GetSingleton();
-			PerformanceTuning::GetSingleton()->BeginD3D11Frame(
+			auto* performance = PerformanceTuning::GetSingleton();
+			performance->BeginRouteFrame();
+			performance->BeginD3D11Frame(
 				upscaler->mDevice,
 				upscaler->mContext,
 				upscaler->mRenderedFrameCount + 1);

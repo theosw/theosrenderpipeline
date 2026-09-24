@@ -48,6 +48,76 @@ bool FrameTrace::Record(EventType type, std::uint16_t flags, std::int64_t qpc,
 void VideoMemoryTelemetry::Update() {}
 
 static auto& Timing() { return *PerformanceTuning::GetSingleton(); }
+static void RouteCPUChecks()
+{
+    using Route = PerformanceTuning::Optimization;
+    constexpr std::array routes{Route::kDirectRCASOutput, Route::kDirectDLSSOutput};
+    auto& p = Timing();
+    p.ApplySettings({false, false, true, true});
+    Require(!p.TimingEnabled(), "route bookkeeping does not require timings or tracing");
+    p.BeginRouteFrame();
+    for (auto route : routes) {
+        p.MarkRouteEligible(route, "compatible target");
+        p.MarkRouteActive(route);
+        const auto& status = p.GetRouteStatus(route);
+        Require(status.requested && status.eligible && status.activeLastFrame && status.activeFrames == 1,
+            "actual execution activates a requested route with timings disabled");
+    }
+    p.BeginD3D11Frame(nullptr, nullptr);
+    p.EndD3D11Frame(nullptr);
+    for (auto route : routes) {
+        Require(p.GetRouteStatus(route).activeLastFrame, "disabled timing callbacks do not erase current execution");
+    }
+    p.BeginRouteFrame();
+    for (auto route : routes) {
+        const auto& status = p.GetRouteStatus(route);
+        Require(status.requested && status.eligible && !status.activeLastFrame && status.activeFrames == 1 &&
+            status.fallbackCount == 0 && !status.sessionRejected,
+            "new frame clears only execution while retaining requests, capability and history");
+    }
+    // A skipped evaluation does not reactivate the route or increment history.
+    p.BeginRouteFrame();
+    for (auto route : routes) {
+        Require(!p.GetRouteStatus(route).activeLastFrame && p.GetRouteStatus(route).activeFrames == 1,
+            "skipped frame remains inactive without adding activity");
+    }
+
+    p.ApplySettings({true, false, true, true});
+    for (auto route : routes) { p.MarkRouteActive(route); }
+    p.BeginD3D11Frame(nullptr, nullptr);
+    Require(!p.BeginD3D11Stage(nullptr, Stage::kOutputCopy) && !p.EndD3D11Stage(nullptr, {}),
+        "null timing callbacks remain invalid");
+    p.EndD3D11Frame(nullptr);
+    for (auto route : routes) {
+        Require(p.GetRouteStatus(route).activeLastFrame && p.GetRouteStatus(route).activeFrames == 2,
+            "invalid timing callbacks cannot erase successful current-frame execution");
+    }
+    p.BeginRouteFrame();
+    p.BeginD3D11Frame(nullptr, nullptr);
+    for (auto route : routes) {
+        Require(!p.GetRouteStatus(route).activeLastFrame && p.GetRouteStatus(route).activeFrames == 2,
+            "real route boundary clears execution even when timing cannot start");
+    }
+    Require(p.GetTimingSnapshot().d3d11Samples == 0, "CPU route checks create no GPU measurements");
+
+    p.MarkRouteFallback(Route::kDirectRCASOutput, "unsupported target", true);
+    p.MarkRouteWaiting(Route::kDirectDLSSOutput, "loading reconstruction");
+    p.BeginRouteFrame();
+    const auto& rejected = p.GetRouteStatus(Route::kDirectRCASOutput);
+    const auto& waiting = p.GetRouteStatus(Route::kDirectDLSSOutput);
+    Require(rejected.requested && rejected.sessionRejected && !rejected.eligible && !rejected.activeLastFrame &&
+        rejected.activeFrames == 2 && rejected.fallbackCount == 1 && rejected.reason == "unsupported target" &&
+        !p.IsRouteAllowed(Route::kDirectRCASOutput), "frame reset preserves session fallback and cumulative history");
+    Require(waiting.requested && !waiting.eligible && !waiting.activeLastFrame && waiting.activeFrames == 2 &&
+        waiting.fallbackCount == 0 && waiting.reason == "loading reconstruction", "frame reset preserves useful waiting reason");
+    p.ApplySettings({false, false, true, false});
+    p.BeginRouteFrame();
+    Require(!waiting.requested && !waiting.eligible && !waiting.activeLastFrame && waiting.reason == "disabled" &&
+        waiting.activeFrames == 2 && rejected.sessionRejected && rejected.fallbackCount == 1,
+        "disabled route stays off while counters and other route's latch survive");
+    std::puts("PASS: production route state with timings off; skipped frames; execution until next boundary; invalid timing independence; preserved capability, requests, reasons, counters and fallback latch (CPU only; hook placement source-reviewed)");
+}
+
 static void CPUChecks()
 {
     static_assert(Index(Stage::kFrame) == 0 && Index(Stage::kFrameGenInputs) == 1 &&
@@ -67,6 +137,7 @@ static void CPUChecks()
     Require(p.GetScopeDiagnostics().rejectedEnds == 0, "rejected RAII start has no End side effect");
     Require(p.GetScopeDiagnostics().contextMismatches == 0, "inactive scopes are not misuse");
     std::puts("PASS: stable stage IDs; disabled/no-owner lifecycle (CPU only)");
+    RouteCPUChecks();
 }
 
 struct Device
