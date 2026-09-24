@@ -1,9 +1,9 @@
 # Upstream source and bundled decoder are provisioned in the ignored dependency
-# snapshot. See docs/BUILD.md for the pinned revision and THIRD-PARTY.md for notices.
+# snapshot. See README.md for the pinned revision and THIRD-PARTY.md for notices.
 set(ARP_DETOURS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/.dependencies/detours" CACHE PATH
     "Nukem9/Detours source checkout or snapshot")
 if(NOT EXISTS "${ARP_DETOURS_DIR}/detours/HideStaticLibSymbols.c")
-    message(FATAL_ERROR "Detours source missing at '${ARP_DETOURS_DIR}'. See docs/BUILD.md or set ARP_DETOURS_DIR.")
+    message(FATAL_ERROR "Detours source missing at '${ARP_DETOURS_DIR}'. See README.md or set ARP_DETOURS_DIR.")
 endif()
 
 add_library(ARPDetours STATIC

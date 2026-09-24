@@ -1,105 +1,101 @@
 # Theo's Render Pipeline
 
-Development: [current baseline](docs/BASELINE.md), [build instructions](docs/BUILD.md), and [development workflow](docs/WORKFLOW.md).
-
-Version **0.3.0** adds experimental RTX 20 DLSS-G/MFG compatibility on the
-released 0.2.5 baseline. The RTX 2060 compatibility test has positive
-x2/x3/x4/x6, NR and loading-recovery evidence. The combined release also has
-positive ENB/RTX 4080 SUPER regression feedback with verified x4/NR and loading
-recovery. See [release validation](docs/RELEASE_0_3_0.md),
-[RTX 20 limits](docs/RTX20_COMPATIBILITY.md) and [test setup](package/RTX20-TEST.md).
-
-Version **0.2.5** improves startup compatibility with existing renderer hooks,
-makes rejected Save/Apply actions visible, and explains conflicting NVIDIA
-frame-generation overrides. See [0.2.5 changes and validation](docs/RELEASE_0_2_5.md).
-The 0.2.4 menu, saved resizable layout, independent NR pass controls and opt-in
-NR keyboard shortcuts are retained.
-The Nolvus input correction, peripheral compression and combined preparation
-from 0.2.3 are retained; both NR optimizations still default to off.
-
-The 0.2.2 changes enable Neural Rendering with native DLAA, before or after
-anti-aliasing, and improves experimental RTX 30 compatibility. Missing
-compatibility keys now use the packaged default; explicit opt-outs remain
-respected. Startup diagnostics identify the effective renderer and settings.
-RTX 3060 Laptop testing with Community Shaders confirms frame generation and
-NR execution. The 0.2.1 Ultra Quality fix and ReShade/CS support are retained.
-CS keeps shading, upscaling and UI; TRP supplies
-frame generation, Reflex and optional world-only NR. Disable CS frame generation
-and Reflex when using TRP. See [setup and validation limits](docs/COMMUNITY_SHADERS.md).
-
-NVIDIA rendering integration for Skyrim: DLSS/DLAA, multi-frame generation,
-optional Neural Rendering and native-resolution menus and HUD. NVIDIA runtimes
-provide inference and generated-frame presentation.
-
-This source archive builds `TheosRenderPipeline.dll`, including external ImGui integration.
-Install packages are supplied separately and link their matching Git revision.
-The Universal package contains NR integration and Ada/Ampere/Turing MFG compatibility, with
-all NVIDIA runtimes supplied separately. It needs no other renderer package.
-Standard includes the SR/FG and NR runtimes, with NR off by default. Universal can
-also use Standard's runtimes when installed after it in MO2.
-See the installation guides for each edition.
+NVIDIA rendering integration for Skyrim: DLSS/DLAA, frame generation, optional
+Neural Rendering (NR), and native-resolution menus and HUD. Current version:
+**0.3.0**. See [CHANGELOG.md](CHANGELOG.md) for release changes.
 
 ## Features
 
-[ReShade integration](docs/RESHADE.md) adds source-frame effects, explicit depth
-and a before/after-upscaling choice. Keep SSE ReShade Helper disabled.
-Full has positive ENB gameplay reports with and without ReShade; see the guide
-for tested configurations and remaining limits.
-
 - DLSS Super Resolution, DLAA, model presets and sharpening.
-- Frame generation and native MFG capabilities. The full-feature build selects
-  its compatibility path using the rendering GPU; the existing opt-out remains available.
-- Both editions: NR before or after DLSS/DLAA, one or two passes, input scaling and tuning.
-- Spatial scaling for loading-screen backgrounds and an optional request for
-  transition artwork, enabled by default under Advanced. Skyrim chooses the art.
-- Native UI composition, inventory/spell previews, startup overlays, external
-  ImGui integration and GPU measurements. HDR is not supported in this release.
+- Frame generation and multi-frame generation (MFG).
+- NR before or after DLSS/DLAA, one or two independently configured passes,
+  input scaling and tuning, in both editions. NR defaults off.
+- Optional peripheral compression and combined NR preparation, both off by default.
+- ReShade source-frame effects, explicit depth and placement controls.
+- Native UI composition, inventory/spell previews, loading artwork and external
+  ImGui integration, with live GPU measurements beside the settings.
 
-**End** opens settings. **Apply** changes the session; **Save as default**
-persists settings and window layout; **Discard** drops unapplied edits. NR starts off.
-The NVIDIA host remains required when interpolation is off.
+**End** opens settings. **Apply** changes the session; **Save as default** persists
+settings and window layout; **Discard** drops unapplied edits. NR keyboard
+shortcuts are opt-in. HDR is unsupported.
 
-## Build and install
+## Install
 
-See [build instructions](docs/BUILD.md), [architecture](docs/ARCHITECTURE.md) and
-[installation and controls](package/README.md). Vendor runtimes are not included
-in Git.
+Use SKSE64 and Address Library matching your Skyrim executable. Install packages
+are supplied separately; this repository contains source, not the NVIDIA runtime
+DLLs. Follow the [Standard installation guide](package/STANDARD-README.md) or
+[Universal installation guide](package/README.md).
 
-The plugin and SKSE identity are `TheosRenderPipeline`. Published `SolFG_*`
-companion exports retain their names and layouts in `TheosRenderPipeline.dll`.
+Standard includes the SR/FG and NR runtime bundle. Universal adds the compatibility
+paths and can use Standard's runtimes when installed after it in MO2, or separately
+supplied matching runtimes. Both editions retain NR. Enable only one winning
+renderer DLL. The NVIDIA host is required even when interpolation is off.
 
-Universal selects experimental Turing compatibility on RTX 20-series,
-experimental Ampere compatibility on RTX 30-series, the Ada MFG
-unlock on RTX 40-series, and native capabilities on RTX 50-series. Standard
-includes NR and excludes the compatibility paths; RTX 40-series uses native x2.
+The DLL selects Community Shaders integration when CommunityShaders.dll is loaded;
+otherwise TRP owns upscaling, with optional ENB. With CS, disable its frame
+generation, Reflex and HDR; CS retains its shading, upscaling and UI. Keep SSE
+ReShade Helper disabled when using TRP's ReShade integration. Use one shading
+setup per profile and disable competing upscaler/frame-generation injectors.
 
-**Skyrim 1.5.97, 1.6.640 and 1.7.104 remain experimental.** The Nolvus Awakening
-6.0.20 Universal input candidate has scoped positive F10, x5, both NR placements
-and Wheeler feedback on 1.5.97. See [Nolvus setup and test limits](docs/NOLVUS.md).
-Skyrim 1.6.640 and 1.7.104 remain untested in-game.
-RTX 30 compatibility remains experimental: a 3060 Laptop/CS volunteer run records
-x2/x3/x4 outputs and NR inference, with grass-edge artifacting and occasional
-hitches still reported. Native RTX 50-series operation remains unverified.
-Both 0.1.4 editions received positive Skyrim 1.6.1170/RTX 4080 SUPER
-reports with Cabbage ENB and Bottle's Community Shaders build: native x2 in
-Standard, Ada x4 in Full, and both NR placements in each setup. Full also logged
-x6 in the CS run. Recurring Streamline RSYNC errors remain recorded in some
-runs; no physical frame-cadence claim is made. Individual UI/transition checks
-and compatibility with other CS builds are not inferred from overall feedback.
-The 0.2.2 DLAA/NR correction has positive ENB/RTX 4080 SUPER feedback at
-5120x1440 with x4 and NR before and after DLAA. This does not establish DLAA/NR
-acceptance on RTX 30 or every CS build. See [RTX 30 setup](docs/RTX30_TESTING.md).
+## Compatibility
 
-See the [1.7.104 port notes](docs/SKYRIM_1_7_104.md) and
-[1.6.640 port notes](docs/SKYRIM_1_6_640.md). World, DLSS and Output open Image
-settings; NR and Frame generation open their respective tabs.
+| Edition | Frame-generation capabilities |
+| --- | --- |
+| Standard | Native NVIDIA capabilities; RTX 40 uses native x2 |
+| Universal | Experimental RTX 20/30 compatibility, RTX 40 MFG unlock, native RTX 50 capabilities |
 
-Use SKSE64 and Address Library matching your Skyrim executable. Full and Standard
-remain separate feature editions; each supports all four game versions.
+The loader supports Steam Skyrim **1.5.97, 1.6.640, 1.6.1170 and 1.7.104**.
+Versions 1.5.97, 1.6.640 and 1.7.104 remain experimental; 1.6.640 and 1.7.104
+are untested in-game. Nolvus Awakening 6.0.20 has scoped positive Universal
+input/x5/NR feedback on 1.5.97. The plugin/SKSE identity is `TheosRenderPipeline`;
+existing `SolFG_*` companion exports retain their names and layouts.
 
-The same DLL supports ENB and Community Shaders installations. It selects the CS
-path when CommunityShaders.dll is loaded; otherwise TRP owns upscaling. ENB is
-optional. Use one shading setup per profile. CS setup is documented above.
+RTX 20 evidence is limited to an RTX 2060 volunteer run reporting x2/x3/x4/x6,
+NR and loading recovery; weapon jitter remains unresolved. GTX 16 is excluded.
+See [RTX 20 setup and test limits](package/RTX20-TEST.md). RTX 30 evidence includes
+a 3060 Laptop/CS run with x2/x3/x4 and NR, plus reported grass-edge artifacts and
+occasional hitches. Native RTX 50 operation remains unverified.
 
-See [LICENSE](LICENSE) and [third-party notices](THIRD-PARTY.md) for project and
-contribution terms. Vendor runtimes retain their own licenses.
+The combined 0.3.0 release has positive ENB/RTX 4080 SUPER feedback with verified
+x4/NR and loading recovery. Earlier runs cover Standard native x2, Universal MFG,
+ReShade/CS integration and DLAA with NR before/after at 5120x1440. These results
+do not establish every GPU, modlist or checkbox. Recurring vendor RSYNC errors
+remain recorded in some runs; generated-FPS counters do not establish physical
+display cadence. DLAA/NR on RTX 30 and every CS build remain unverified.
+
+## Build
+
+Requires Windows, Visual Studio 2022 C++ tools/Windows SDK, CMake and vcpkg.
+Use CommonLibSSE-NG 8.1.0 at `3c0f5a87c3b166c9a6712d5c3bd180e9ac5ad0fd`,
+Streamline 2.11.1 public headers and NGX SDK headers/import library, and
+Nukem9/detours at `cc5a2e4a58ef462821877b35ad30215f0e16bba1`. CommonLib's
+patch diagnostics fetch HDE64 from MinHook v1.3.4. Other libraries are listed
+in `vcpkg.json`; runtime DLLs are not needed to compile.
+
+Place supplied dependencies under ignored `.dependencies/`, and adjust these
+example paths to your installations:
+
+```powershell
+cmake --preset arp-nvidia `
+  "-DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake" `
+  "-DTRP_COMMONLIBSSE_NG_DIR=C:/deps/CommonLibSSE-NG" `
+  "-DTRP_NGX_SDK_DIR=C:/deps/Streamline/external/ngx-sdk" `
+  "-DTRP_STREAMLINE_INCLUDE_DIR=C:/deps/Streamline/include" `
+  "-DARP_DETOURS_DIR=C:/deps/detours"
+cmake --build --preset arp-nvidia --parallel 2
+```
+
+`ARPBaseline` builds the renderer in `out/build/nvidia/Release` without deploying
+or launching. Configure separate directories for Standard
+(`TRP_ENABLE_OPTIONAL_FEATURES=OFF`) and Universal (`ON`, default), keeping
+`TRP_ENABLE_NEURAL_RENDERING=ON` for both. Store workstation paths in ignored
+`CMakeUserPresets.json`. Set `TRP_NGX_LIB` if the NGX import library is elsewhere.
+
+Enable `TRP_BUILD_COMPATIBILITY_TESTS=ON` for the standalone checks, build all
+targets with `cmake --build <build-directory> --config Release`, then run
+`ctest --test-dir <build-directory> -C Release --output-on-failure`. These checks
+do not establish game acceptance. Build output alone is not a complete install;
+use the installation guides for configuration, shaders and required runtimes.
+
+See [LICENSE](LICENSE) and [third-party notices](THIRD-PARTY.md) for project,
+dependency and contribution terms. Vendor runtimes retain their own licenses.

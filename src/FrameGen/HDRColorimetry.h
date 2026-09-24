@@ -44,7 +44,9 @@ namespace TheosRenderPipeline::SourceDLSSG::HDRColorimetry
     }
 
     // ITU-R BT.709-6 table 1.3/1.4 and BT.2100-3 table 2; both use D65.
-    // Derivation and primary-source links: docs/ARCHITECTURE.md#hdr.
+    // Convert through RGB-to-XYZ; shared D65 needs no chromatic adaptation.
+    // https://www.itu.int/dms_pubrec/itu-r/rec/bt/R-REC-BT.709-6-201506-I!!PDF-E.pdf
+    // https://www.itu.int/dms_pubrec/itu-r/rec/bt/R-REC-BT.2100-3-202502-I!!PDF-E.pdf
     inline constexpr auto kWhiteD65 = XYZ(0.3127, 0.3290);
     inline constexpr auto k709ToXYZ = RGBToXYZ(XYZ(0.640, 0.330), XYZ(0.300, 0.600), XYZ(0.150, 0.060), kWhiteD65);
     inline constexpr auto k2020ToXYZ = RGBToXYZ(XYZ(0.708, 0.292), XYZ(0.170, 0.797), XYZ(0.131, 0.046), kWhiteD65);

@@ -118,14 +118,14 @@ if(NOT EXISTS "${TRP_COMMONLIBSSE_NG_DIR}/CMakeLists.txt")
 	message(
 		FATAL_ERROR
 		"CommonLibSSE-NG was not found at '${TRP_COMMONLIBSSE_NG_DIR}'. "
-		"See docs/BUILD.md or set TRP_COMMONLIBSSE_NG_DIR."
+		"See README.md or set TRP_COMMONLIBSSE_NG_DIR."
 	)
 endif()
 
 add_subdirectory("${TRP_COMMONLIBSSE_NG_DIR}" CommonLibSSE EXCLUDE_FROM_ALL)
 get_directory_property(TRP_COMMONLIB_VERSION DIRECTORY "${TRP_COMMONLIBSSE_NG_DIR}" DEFINITION PROJECT_VERSION)
 if(NOT TRP_COMMONLIB_VERSION VERSION_EQUAL "8.1.0")
-    message(FATAL_ERROR "This runtime port requires CommonLibSSE-NG 8.1.0; see docs/BUILD.md for the pinned revision.")
+    message(FATAL_ERROR "This runtime port requires CommonLibSSE-NG 8.1.0; see README.md for the pinned revision.")
 endif()
 
 if(ENABLE_SKYRIM_VR OR NOT ENABLE_SKYRIM_SE OR NOT ENABLE_SKYRIM_AE)

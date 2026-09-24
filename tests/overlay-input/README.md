@@ -37,7 +37,7 @@ F10 taps/holds, defocus-before-closing, movement and Alt-Tab checks on Skyrim
 positive feedback for shared End with KreatE, active-edit closure/movement and
 Alt-Tab recovery. Its log records six End open/close pairs and two releases of
 active text capture at closure. The exact input device was not separately
-identified. See [Nolvus status](../../docs/NOLVUS.md).
+identified.
 
 These are scoped input passes. Standard gameplay and the final release
 integration remain untested; arbitrary delayed delivery and complete dispatcher
