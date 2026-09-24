@@ -51,6 +51,37 @@ int main()
     const D3D_FEATURE_LEVEL levels[]{D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0};
     Check(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0, levels, 2,
         D3D11_SDK_VERSION, &device, nullptr, &context), "WARP device");
+    {
+        // Bottled's reverse-Z path replaces kMAIN with float depth plus stencil.
+        // Exercise the entire guide capture, including its source DSV isolation.
+        D3D11_TEXTURE2D_DESC desc{};
+        desc.Width = 8; desc.Height = 4; desc.MipLevels = desc.ArraySize = desc.SampleDesc.Count = 1;
+        desc.Format = DXGI_FORMAT_R32G8X24_TYPELESS;
+        desc.BindFlags = D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_SHADER_RESOURCE;
+        ComPtr<ID3D11Texture2D> reversed;
+        Check(device->CreateTexture2D(&desc, nullptr, &reversed), "reverse-Z depth texture");
+        D3D11_DEPTH_STENCIL_VIEW_DESC view{};
+        view.Format = DXGI_FORMAT_D32_FLOAT_S8X24_UINT; view.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;
+        ComPtr<ID3D11DepthStencilView> dsv;
+        Check(device->CreateDepthStencilView(reversed.Get(), &view, &dsv), "reverse-Z depth view");
+        auto motion = Texture(device.Get(), 8, 4, D3D11_BIND_SHADER_RESOURCE, std::vector<float>(32, 0.125f));
+        CommunityShaderFrame frame;
+        for (unsigned index = 0; index < 2; ++index) {
+            const float value = index ? 0.125f : 0.875f;
+            context->ClearDepthStencilView(dsv.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, value, 0xAB);
+            context->OMSetRenderTargets(0, nullptr, dsv.Get());
+            Check(frame.CaptureGuides(context.Get(), index + 1, motion.Get(), reversed.Get(), {5, 3}, {8, 4}),
+                "reverse-Z guides available");
+            const auto copied = Pixels(context.Get(), frame.Depth());
+            Require(copied.size() == 15, "reverse-Z active rectangle cropped");
+            for (float pixel : copied) { Require(pixel == value, "depth copied unchanged with stencil excluded"); }
+            ComPtr<ID3D11DepthStencilView> restored;
+            context->OMGetRenderTargets(0, nullptr, &restored);
+            Require(restored == dsv, "producer reverse-Z DSV binding restored");
+            frame.Consume();
+        }
+        context->ClearState();
+    }
     std::vector<float> values(32);
     for (UINT i = 0; i < values.size(); ++i) { values[i] = float(i + 1) / 64; }
     auto motion = Texture(device.Get(), 8, 4, D3D11_BIND_SHADER_RESOURCE, values);

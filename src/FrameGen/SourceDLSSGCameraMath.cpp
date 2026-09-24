@@ -14,7 +14,19 @@ namespace TheosRenderPipeline::SourceDLSSG
 		};
 		if (!cameraIdentity || !finite(projection) || !finite(view) ||
 			std::abs(projection._34) < 0.5f || std::abs(projection._44) > 0.001f ||
-			projection._11 <= 0 || projection._22 <= 0) { Reset(); return false; }
+			projection._11 <= 0 || projection._22 <= 0 ||
+			!std::isfinite(nearPlane) || !std::isfinite(farPlane) || nearPlane <= 0 || farPlane <= nearPlane) { Reset(); return false; }
+		// The active producer may reverse Z without changing the physical frustum.
+		// Determine the convention from that frame's projection, not the renderer
+		// name or depth texture format. Use double precision at distant far planes.
+		const float direction = projection._34 > 0 ? 1.0f : -1.0f;
+		auto projectedDepth = [&](double distance) {
+			const double z = direction * distance;
+			return (z * projection._33 + projection._43) / (z * projection._34 + projection._44);
+		};
+		const double nearDepth = projectedDepth(nearPlane), farDepth = projectedDepth(farPlane);
+		if (!std::isfinite(nearDepth) || !std::isfinite(farDepth) || nearDepth == farDepth) { Reset(); return false; }
+		const bool inverted = nearDepth > farDepth;
 		// Engine view translation is camera-relative. Rebuild only translation
 		// from the actual NiCamera position, retaining the engine's basis. Our
 		// history then uses one absolute coordinate system across origin shifts.
@@ -29,7 +41,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 		XMVECTOR determinant;
 		const auto inverseVP = XMMatrixInverse(&determinant, vp);
 		if (!std::isfinite(XMVectorGetX(determinant)) || std::abs(XMVectorGetX(determinant)) < 1e-12f) { Reset(); return false; }
-		const bool discontinuity = reset || !valid || identity != cameraIdentity || gameFrame != frame + 1;
+		const bool discontinuity = reset || !valid || identity != cameraIdentity || gameFrame != frame + 1 ||
+			depthInverted != inverted;
 		const auto previousVP = discontinuity ? vp : XMLoadFloat4x4(&previous);
 		const auto clipToPrevious = inverseVP * previousVP;
 		auto copy = [](sl::float4x4& to, FXMMATRIX from) {
@@ -46,7 +59,6 @@ namespace TheosRenderPipeline::SourceDLSSG
 		result.cameraPos = position;
 		result.cameraRight = { view._11, view._21, view._31 };
 		result.cameraUp = { view._12, view._22, view._32 };
-		const float direction = projection._34 > 0 ? 1.0f : -1.0f;
 		result.cameraFwd = { direction * view._13, direction * view._23, direction * view._33 };
 		result.cameraNear = nearPlane; result.cameraFar = farPlane;
 		result.cameraFOV = 2.0f * std::atan(1.0f / projection._22);
@@ -54,13 +66,13 @@ namespace TheosRenderPipeline::SourceDLSSG
 		result.jitterOffset = { jitterX, jitterY };
 		result.mvecScale = { 1, 1 }; // Skyrim's guides already contain normalized screen motion.
 		result.cameraPinholeOffset = { 0, 0 };
-		result.depthInverted = sl::eFalse;
+		result.depthInverted = inverted ? sl::eTrue : sl::eFalse;
 		result.cameraMotionIncluded = sl::eTrue;
 		result.motionVectors3D = sl::eFalse;
 		result.reset = discontinuity ? sl::eTrue : sl::eFalse;
 		if (!Session::ValidConstants(result)) { Reset(); return false; }
 		XMStoreFloat4x4(&previous, vp);
-		identity = cameraIdentity; frame = gameFrame; valid = true;
+		identity = cameraIdentity; frame = gameFrame; depthInverted = inverted; valid = true;
 		return true;
 	}
 }

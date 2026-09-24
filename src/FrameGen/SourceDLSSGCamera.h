@@ -25,7 +25,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		DirectX::XMFLOAT4X4 previous{};
 		std::uintptr_t identity{};
 		std::uint32_t frame{};
-		bool valid{};
+		bool valid{}, depthInverted{};
 		void Reset() { valid = false; }
 		bool Build(const DirectX::XMFLOAT4X4& projection, const DirectX::XMFLOAT4X4& view,
 			const sl::float3& position, float nearPlane, float farPlane,

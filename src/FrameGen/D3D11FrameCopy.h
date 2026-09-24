@@ -82,6 +82,7 @@ namespace TheosRenderPipeline
                 D3D11_SHADER_RESOURCE_VIEW_DESC view{};
                 switch (from.Format) {
                 case DXGI_FORMAT_R24G8_TYPELESS: view.Format = DXGI_FORMAT_R24_UNORM_X8_TYPELESS; break;
+                case DXGI_FORMAT_R32G8X24_TYPELESS: view.Format = DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS; break;
                 case DXGI_FORMAT_R32_TYPELESS: case DXGI_FORMAT_R32_FLOAT: view.Format = DXGI_FORMAT_R32_FLOAT; break;
                 default: return E_INVALIDARG;
                 }
