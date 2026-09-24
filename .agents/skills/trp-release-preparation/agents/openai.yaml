@@ -1,0 +1,4 @@
+interface:
+  display_name: "TRP Release Preparation"
+  short_description: "Prepare and audit identified TRP release packages"
+  default_prompt: "Use $trp-release-preparation to audit our next Standard and Universal release pair."

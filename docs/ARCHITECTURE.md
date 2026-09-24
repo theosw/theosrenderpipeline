@@ -4,28 +4,38 @@
 attachments and lifecycle. `SourceFrameCoordinator` orders the work;
 allocation, context validation and retirement stay with their owners.
 
+The diagram shows logical world processing and UI composition, not the exact
+sequence of D3D11/D3D12 submissions. Early NR makes a D3D12 round trip before
+the D3D11 upscaler; late NR is scheduled by the backend using separate world/UI
+inputs. Community Shaders supplies the external producer path described in
+[CS integration](COMMUNITY_SHADERS.md); effect ordering is in [ReShade](RESHADE.md).
+
 ```mermaid
 flowchart LR
     Game[Skyrim D3D11] --> Hooks[Engine hooks]
     Hooks --> Host[NvidiaHost]
-    Host --> NR[Optional NR before DLSS]
-    NR --> DLSS[DLSSBackend: D3D11 NGX]
-    DLSS --> UI[Native menus and HUD]
-    UI --> Backend[SourceDLSSG: D3D12 interop and session]
-    Backend --> Late[Optional NR after DLSS and HDR conversion]
-    Late --> Runtime[NVIDIA presentation runtime]
+    Host --> Before[Optional NR before reconstruction]
+    Before --> DLSS[DLSS or native DLAA]
+    DLSS --> After[Optional NR after reconstruction]
+    After --> Compose[Native UI composition]
+    UI[Native menus and HUD] --> Compose
+    Compose --> Backend[SourceDLSSG interop and session]
+    Backend --> Runtime[NVIDIA presentation runtime]
     Runtime --> Display[Swapchain output]
 ```
 
-This diagram describes the full renderer. The standard build omits both
-NR stages and Ada/Ampere compatibility at compile time; it retains the same DLSS, native
-UI, HDR and presentation path. Shared settings keep optional preferences for
-switching between the two builds. The standard menu omits NR controls and its
-pipeline diagram runs directly from World to DLSS.
+Both Standard and Universal compile NR by default, including both placements,
+passes and tuning. `TRP_ENABLE_NEURAL_RENDERING=OFF` is an explicit reduced
+configuration, not the normal Standard edition. Standard uses native NVIDIA
+capabilities; Universal additionally compiles Ada/Ampere/Turing compatibility.
+Standard supplies the runtime bundle, and Universal can use it through MO2's
+combined file view. See [the build options](BUILD.md).
 
-Only the selected NR placement evaluates. Two-pass NR uses separate feature
-histories. NR eligibility is independent of the live frame-generation toggle.
-Before-DLSS NR leaves native UI outside inference.
+Only the selected NR placement evaluates. Two-pass NR retains separate feature
+histories and can use independent resolution, preset and tuning controls; both
+passes remain on the selected side of reconstruction. Native UI is composed
+after the NR world processing. NR eligibility is independent of the live FG
+toggle and supports native-resolution DLAA. See [NR controls](NR_PASS_CONTROLS.md).
 
 The NVIDIA host is required at startup for both DLSS and native-resolution DLAA.
 The startup `FrameGeneration/Enabled` preference initializes the interpolation
@@ -88,7 +98,7 @@ measure different things; none alone establishes physical frame cadence.
 
 `RendererSettingsController` coordinates draft, requested, effective and saved
 state through existing owners. Overlay modules present Image, NR, FG and
-performance controls. The public headers in `include/` define the startup-overlay,
+Advanced controls. The public headers in `include/` define the startup-overlay,
 late-overlay and texture-provider companion contracts.
 
 `LoadingArtwork` owns the queued-transition hook and startup eligibility.
@@ -123,13 +133,23 @@ in the integration; an active native input host bypasses that mouse remapping.
 
 ## MFG startup selection
 
-The saved `SourceDLSSGMFGUnlock` flag allows Ada/Ampere compatibility. It is separate from
-the effective `MFGRoute`. At D3D12 device creation, the existing CUDA query
-matches that device's adapter LUID and identifies its architecture. With the
-flag enabled, SM89 uses the Ada unlock and SM86 uses the experimental Ampere
-bridge; other identified NVIDIA architectures use the native runtime.
-A failed or ambiguous query stops startup.
-An explicit false keeps the unmodified runtime without requiring this CUDA query.
+In Universal, the saved `SourceDLSSGMFGUnlock` flag permits compatibility and
+is separate from the effective `MFGRoute`. Startup observes the actual D3D12
+adapter, matches its LUID through CUDA and selects the route:
+
+| Identified hardware | Route with compatibility enabled |
+| --- | --- |
+| RTX 40 / SM89 | Ada unlock |
+| RTX 30 / SM86 | Ampere provider preparation |
+| Physical RTX 20 / SM75 | Experimental Turing provider preparation |
+| Other identified architectures | Native runtime; vendor capabilities remain authoritative |
+
+SM75 alone does not admit GTX 16 hardware. Failed/ambiguous identification with
+compatibility requested rejects startup. An explicit false disables compatibility;
+detected RTX20/30 then stop with guidance to enable it in the winning INI, even
+when interpolation is off. The host is still required. Other native routes retain
+the vendor's admission checks. See [RTX20 limits](RTX20_COMPATIBILITY.md) and
+[RTX30 configuration](RTX30_TESTING.md).
 
 Only the selected compatibility route installs or verifies patches. The UI and session
 use `UsesCompatibilityUnlock()` for readiness checks. Native MFG
@@ -153,11 +173,24 @@ driver/OS failures keep their original results. No ReShade or global resolver
 hook is required. Provider allocations, imports and module references remain
 resident until process exit; preparation cannot run after feature creation.
 
-Standard compiles out the Ampere bridge together with Ada/NR code. The Ampere
-candidate requires real RTX 30-series gameplay validation; preparation tests
-and successful forwarding on Ada do not establish Ampere rendering support.
+The Turing route shares the guarded provider preparation framework, preparing
+SM75-compatible programs before Streamline initializes. It selects the provider's
+compatible PTX-bearing endpoint networks rather than unprepared SM86-only code,
+checks the complete kernel-selection contract, and stops on real module-load
+failure before NVIDIA can use a partial object. Physical identity, DLSS isolation,
+driver/OS prerequisites and publication/rollback checks remain intact. Details,
+upstream attribution and scoped RTX2060 evidence are in
+[RTX20 compatibility](RTX20_COMPATIBILITY.md).
+
+Standard compiles out the Ada/Ampere/Turing compatibility implementation and
+retains NR. The existing Ampere and Turing volunteer results establish only their
+recorded configurations; preparation tests on other hardware do not broaden that
+acceptance. See [0.3.0 validation](RELEASE_0_3_0.md) for the current release scope.
 
 ## HDR
+
+HDR remains unsupported in the released integration. The encoding implementation
+below is an internal capability, not evidence of working CS HDR with FG/NR.
 
 HDR encoding converts linear BT.709 RGBA16F to opaque full-range BT.2020/PQ
 RGB10A2. It is output encoding, not a tone mapper. `HDRColorimetry.h` derives the

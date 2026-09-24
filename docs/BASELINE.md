@@ -2,7 +2,8 @@
 
 The canonical repository is [theosw/theosrenderpipeline](https://github.com/theosw/theosrenderpipeline).
 Development starts from the reviewed 0.3.0 release on `main`. Use category/description
-branches and a separate checkout/build directory for concurrent tasks.
+branches and a separate checkout/build directory for concurrent tasks. Durable rules
+and project skills are versioned; see [the workflow](WORKFLOW.md).
 
 ## Source and release identity
 
