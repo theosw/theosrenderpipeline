@@ -85,9 +85,11 @@ static void DescriptorContracts()
 // ---------------------------------------------------------------------------
 // Allocation decision: capability query, attempt order and retry
 //
-// A conforming runtime cannot produce the "reports the capability then rejects
-// the allocation" case on demand, so the decision itself is driven through a
-// double that records every descriptor the production code attempts.
+// A format that reports typed unordered-access support can still fail to
+// allocate, insufficient video memory being the obvious way. That is a real
+// runtime case but not one a real device reproduces on demand, so the decision
+// is driven through a double that records every descriptor the production code
+// attempts and can be told to reject a specific allocation.
 // ---------------------------------------------------------------------------
 
 namespace
@@ -243,8 +245,9 @@ static void AllocationDecision()
         Require(HasUnorderedAccess(published), "the published target carries the binding it was allocated with");
     }
 
-    {   // Reported support is not a guarantee. A rejected unordered-access
-        // allocation must retry the proven descriptor rather than fail startup.
+    {   // Reported support is not a guarantee that this particular allocation
+        // succeeds; memory pressure alone can reject it. The retry, not the
+        // capability query, is what keeps that from failing startup.
         Targets targets;
         DeviceDouble device;
         device.reportUnorderedAccess = true;
@@ -326,8 +329,9 @@ static void RuntimeAllocation(ID3D11Device* device)
     }
 
     // An sRGB presentation format cannot carry a typed unordered-access view.
-    // Before the fallback existed an unconditional binding would have failed
-    // the allocation outright and taken the upscaler's startup with it.
+    // The query keeps the binding from being requested at all here; the retry
+    // would otherwise absorb the rejected allocation, so what this case really
+    // pins down is that such a format still reaches a usable handoff target.
     {
         Targets targets;
         const auto output = PresentationDesc(DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, 640, 360);
