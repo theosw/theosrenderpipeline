@@ -53,7 +53,34 @@ public:
 		kNativeUIComposition,
 		kStartupOverlayComposition,
 		kNeuralEarlyRoundTrip,
+		kPresentationCopy,
 		kCount
+	};
+	static_assert(static_cast<unsigned>(D3D11Stage::kOutputCopy) == 6);
+	static_assert(static_cast<unsigned>(D3D11Stage::kPresentationCopy) == 11);
+
+	// Only an accepted start can construct an owner. Generations are never reset
+	// with timing windows, query slots or devices, so an old scope cannot end a
+	// later recording even when the same slot and context are reused.
+	class D3D11StageTicket
+	{
+	public:
+		D3D11StageTicket() = default;
+		explicit operator bool() const { return generation_ != 0; }
+	private:
+		friend class PerformanceTuning;
+		D3D11StageTicket(std::uint64_t generation, D3D11Stage stage, ID3D11DeviceContext* context) :
+			generation_(generation), stage_(stage), context_(context) {}
+		std::uint64_t generation_{};
+		D3D11Stage stage_{};
+		ID3D11DeviceContext* context_{};
+	};
+
+	struct ScopeDiagnostics
+	{
+		// Lifetime counters, independent of timing-window resets. Reported only
+		// with the existing periodic summary; no per-scope formatting or logging.
+		std::uint64_t conflictingStarts{}, unclosedScopes{}, rejectedEnds{}, contextMismatches{}, invalidStages{};
 	};
 
 	struct TimingSnapshot
@@ -79,6 +106,7 @@ public:
 		// A missing query is not a measured zero. Validity follows the latest
 		// retired query slot; disabled/absent stages cannot keep stale timings.
 		std::array<bool, static_cast<std::size_t>(D3D11Stage::kCount)> d3d11Available{};
+		std::array<bool, static_cast<std::size_t>(D3D11Stage::kCount)> d3d11ScopeInvalid{};
 		std::uint64_t d3d11Samples{ 0 };
 		Percentiles gameFrameCadence{};
 		Percentiles d3d11Frame{};
@@ -112,8 +140,13 @@ public:
 		std::uint64_t a_frameId = 0,
 		std::int64_t a_frameQpc = 0);
 	void EndD3D11Frame(ID3D11DeviceContext* a_context);
-	void BeginD3D11Stage(ID3D11DeviceContext* a_context, D3D11Stage a_stage);
-	void EndD3D11Stage(ID3D11DeviceContext* a_context, D3D11Stage a_stage);
+	// Internal callers must supply compatible immediate contexts on the frame's
+	// queue. A host/game wrapper may expose a different interface: stage admission
+	// retains that existing precondition, with no per-stage COM identity queries.
+	[[nodiscard]] D3D11StageTicket BeginD3D11Stage(ID3D11DeviceContext* a_context, D3D11Stage a_stage);
+	// True means this owner closed its scope; a conflicted scope still has no
+	// publishable measurement. A rejected end never closes a different owner.
+	bool EndD3D11Stage(ID3D11DeviceContext* a_context, D3D11StageTicket a_ticket);
 	void RecordNeuralEarlyCPU(std::uint64_t cpuNanoseconds, std::uint64_t waitNanoseconds, bool waited);
 
 	void RecordGameFrameCadenceMs(float a_ms);
@@ -121,6 +154,7 @@ public:
 	void ResetTimingWindow();
 	bool TimingEnabled() const { return settings.enableGPUTimings || settings.enableFrameTrace; }
 	const TimingSnapshot& GetTimingSnapshot() const { return timingSnapshot_; }
+	const ScopeDiagnostics& GetScopeDiagnostics() const { return scopeDiagnostics_; }
 
 private:
 	PerformanceTuning() = default;
@@ -137,6 +171,9 @@ private:
 		std::array<Microsoft::WRL::ComPtr<ID3D11Query>, kD3D11QueriesPerSlot> timestamps;
 		std::array<bool, kD3D11StageCount> started{};
 		std::array<bool, kD3D11StageCount> recorded{};
+		std::array<bool, kD3D11StageCount> invalid{};
+		std::uint64_t generation{};
+		D3D11StageTicket frameTicket{};
 		std::uint64_t frameId{ 0 };
 		std::uint64_t timingEpoch{ 0 };
 		std::int64_t frameQpc{ 0 };
@@ -145,7 +182,7 @@ private:
 		bool pending{ false };
 	};
 
-	bool EnsureD3D11Queries(ID3D11Device* a_device);
+	bool EnsureD3D11Queries(ID3D11Device* a_device, ID3D11DeviceContext* a_context);
 	void ResolveD3D11Queries(ID3D11DeviceContext* a_context);
 	void PushPercentileSample(
 		std::array<float, kPercentileWindow>& a_window,
@@ -162,7 +199,10 @@ private:
 	std::array<RouteStatus, static_cast<std::size_t>(Optimization::kCount)> routeStatus_{};
 
 	Microsoft::WRL::ComPtr<ID3D11Device> timingD3D11Device_;
+	Microsoft::WRL::ComPtr<ID3D11DeviceContext> timingD3D11Context_;
 	std::array<D3D11QuerySlot, kQuerySlots> d3d11Slots_{};
+	std::uint64_t recordingGeneration_{};
+	ScopeDiagnostics scopeDiagnostics_{};
 	int activeD3D11Slot_{ -1 };
 	std::size_t nextD3D11Slot_{ 0 };
 
@@ -184,14 +224,11 @@ class ScopedD3D11PerformanceStage
 {
 public:
 	ScopedD3D11PerformanceStage(ID3D11DeviceContext* a_context, PerformanceTuning::D3D11Stage a_stage) :
-		context_(a_context), stage_(a_stage)
-	{
-		PerformanceTuning::GetSingleton()->BeginD3D11Stage(context_, stage_);
-	}
+		context_(a_context), ticket_(PerformanceTuning::GetSingleton()->BeginD3D11Stage(a_context, a_stage)) {}
 
 	~ScopedD3D11PerformanceStage()
 	{
-		PerformanceTuning::GetSingleton()->EndD3D11Stage(context_, stage_);
+		if (ticket_) { PerformanceTuning::GetSingleton()->EndD3D11Stage(context_, ticket_); }
 	}
 
 	ScopedD3D11PerformanceStage(const ScopedD3D11PerformanceStage&) = delete;
@@ -199,5 +236,5 @@ public:
 
 private:
 	ID3D11DeviceContext* context_{ nullptr };
-	PerformanceTuning::D3D11Stage stage_{};
+	PerformanceTuning::D3D11StageTicket ticket_{};
 };

@@ -23,9 +23,10 @@ namespace
 	std::string TraceMetadata()
 	{
 		return std::format(
-			R"({{"format":"TheosRenderPipeline frame trace","schema":1,"plugin":"{}","version":"{}","clock":"QueryPerformanceCounter","present_semantics":"host Present submission, not physical scanout","gpu_stage_units":"nanoseconds","cpu_stage_units":"nanoseconds"}})",
+			R"({{"format":"TheosRenderPipeline frame trace","schema":1,"plugin":"{}","version":"{}","source_revision":"{}","d3d11_stage_schema":2,"clock":"QueryPerformanceCounter","present_semantics":"host Present submission, not physical scanout","gpu_stage_units":"nanoseconds","cpu_stage_units":"nanoseconds"}})",
 			Plugin::NAME,
-			Plugin::VERSION_STRING);
+			Plugin::VERSION_STRING,
+			Plugin::SOURCE_REVISION);
 	}
 
 	std::string TraceTimestamp()
