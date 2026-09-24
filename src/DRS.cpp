@@ -2,6 +2,7 @@
 
 #include "RenderPipeline.h"
 #include "FrameTrace.h"
+#include "MenuRenderState.h"
 
 #include <string>
 #include <unordered_set>
@@ -42,28 +43,32 @@ void DRS::MessageHandler(SKSE::MessagingInterface::Message* a_msg)
 
 RE::BSEventNotifyControl MenuOpenCloseEventHandler::ProcessEvent(const RE::MenuOpenCloseEvent* a_event, RE::BSTEventSource<RE::MenuOpenCloseEvent>*)
 {
-	static bool mainOpen = false;
-	static bool loadingOpen = false;
-	static bool raceOpen = false;
-	static bool faderOpen = false;
+	using TheosRenderPipeline::MenuRenderBoundary;
+	static TheosRenderPipeline::MenuRenderState menuState;
 	bool transitionEvent = true;
+	auto boundary = MenuRenderBoundary::Main;
 	auto boundaryReason = FrameTrace::BoundaryReason::kMainMenu;
 	if (a_event->menuName == RE::MainMenu::MENU_NAME) {
-		mainOpen = a_event->opening;
+		boundary = MenuRenderBoundary::Main;
 	} else if (a_event->menuName == RE::LoadingMenu::MENU_NAME) {
-		loadingOpen = a_event->opening;
+		boundary = MenuRenderBoundary::Loading;
 		boundaryReason = FrameTrace::BoundaryReason::kLoadingMenu;
 	} else if (a_event->menuName == RE::RaceSexMenu::MENU_NAME) {
-		raceOpen = a_event->opening;
+		boundary = MenuRenderBoundary::Character;
 		boundaryReason = FrameTrace::BoundaryReason::kRaceMenu;
 	} else if (a_event->menuName == RE::FaderMenu::MENU_NAME) {
-		faderOpen = a_event->opening;
+		boundary = MenuRenderBoundary::Fader;
 		boundaryReason = FrameTrace::BoundaryReason::kFaderMenu;
 	} else {
 		transitionEvent = false;
 	}
 
 	if (transitionEvent) {
+		const bool resetHistory = menuState.OnEvent(boundary, a_event->opening);
+		DRS::GetSingleton()->reset = menuState.SuspendJitter();
+		if (resetHistory) {
+			RenderPipeline::GetSingleton()->RequestHistoryReset();
+		}
 		FrameTrace::GetSingleton()->Record(
 			FrameTrace::EventType::kBoundary,
 			a_event->opening ? FrameTrace::kBoundaryBegin : FrameTrace::kBoundaryEnd,
@@ -71,7 +76,12 @@ RE::BSEventNotifyControl MenuOpenCloseEventHandler::ProcessEvent(const RE::MenuO
 			0,
 			static_cast<std::uint64_t>(boundaryReason));
 		RenderPipeline::GetSingleton()->SetFrameGenerationTransitionBlocked(
-			mainOpen || loadingOpen || raceOpen || faderOpen);
+			menuState.SuspendGeneration());
+#if defined(ARP_DEVELOPER_DIAGNOSTICS)
+		if (a_event->opening && boundary == MenuRenderBoundary::Main) {
+			RenderPipeline::GetSingleton()->ArmAutoLoad();
+		}
+#endif
 	}
 
 	if (std::strcmp(a_event->menuName.c_str(), "Console") == 0) {
@@ -125,33 +135,6 @@ RE::BSEventNotifyControl MenuOpenCloseEventHandler::ProcessEvent(const RE::MenuO
 					logger::info("[MenuMetrics] \"{}\" (no movie)", a_event->menuName.c_str());
 				}
 			}
-		}
-	}
-
-	if (a_event->menuName == RE::MainMenu::MENU_NAME ||
-		a_event->menuName == RE::LoadingMenu::MENU_NAME ||
-		a_event->menuName == RE::RaceSexMenu::MENU_NAME) {
-		// Track which reset-menus are open: close events arrive after the next
-		// menu's open event (Loading closes after Main opens), so last-event-
-		// wins would resume temporal jitter while the main menu was still up.
-		const bool anyOpen = mainOpen || loadingOpen || raceOpen;
-		if (a_event->opening) {
-			DRS::GetSingleton()->reset = true;
-#if defined(ARP_DEVELOPER_DIAGNOSTICS)
-			if (a_event->menuName == RE::MainMenu::MENU_NAME) {
-				RenderPipeline::GetSingleton()->ArmAutoLoad();
-			}
-#endif
-		} else if (!anyOpen && a_event->menuName != RE::MainMenu::MENU_NAME) {
-			// Main-menu close always precedes a load (or quit): stay reset
-			// through the gap until the loading menu closes at world entry.
-			DRS::GetSingleton()->reset = false;
-			// Flush DLSS temporal history accumulated across the transition.
-			RenderPipeline::GetSingleton()->RequestHistoryReset();
-		}
-	} else if (a_event->menuName == RE::FaderMenu::MENU_NAME) {
-		if (!a_event->opening && !DRS::GetSingleton()->reset) {
-			RenderPipeline::GetSingleton()->RequestHistoryReset();
 		}
 	}
 
