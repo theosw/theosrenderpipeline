@@ -31,5 +31,6 @@ preparation; actual output and image quality are separate observations.
 
 To roll back, disable Universal 0.3.0 and restore the previous setup. Standard
 alone is not an RTX 20 FG fallback because TRP still requires its FG host at
-startup. Details and prior RTX 2060 results are in the source repository's
-`docs/RTX20_COMPATIBILITY.md`.
+startup. This RTX 2060 result does not establish other RTX 20 models, CS on
+RTX 20, repeated restart stability, image equivalence or physical display
+cadence. Weapon jitter remains unresolved; NR can be expensive on this GPU.

@@ -1,4 +1,4 @@
-# Active NVIDIA plugin sources; see docs/ARCHITECTURE.md for runtime ownership.
+# Active NVIDIA plugin sources.
 set(ARP_BASELINE_SOURCES
     compatibility/ImGuiCompat/ImGuiIntegration.cpp
     compatibility/ImGuiCompat/ImGuiIntegration.h

@@ -10,7 +10,7 @@
 The RTX 2060 compatibility test has positive x2/x3/x4/x6, NR and loading-recovery
 evidence. The combined release has positive ENB/RTX 4080 SUPER regression feedback
 with x4/NR and loading recovery. RTX 20 support remains experimental; see
-[validation and limits](docs/RELEASE_0_3_0.md). NVIDIA runtimes and configuration
+[compatibility limits](README.md#compatibility). NVIDIA runtimes and configuration
 defaults are unchanged. HDR remains unsupported.
 
 # 0.2.5
