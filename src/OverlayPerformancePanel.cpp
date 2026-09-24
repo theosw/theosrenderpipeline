@@ -70,7 +70,13 @@ void OverlayUI::DrawStageMeasurements(SettingsPage page)
 {
     const auto* performance = PerformanceTuning::GetSingleton();
     const auto& timings = performance->GetTimingSnapshot();
-    if (!performance->TimingEnabled() || !timings.d3d11Samples)
+    if (performance->TimingEnabled() && performance->GetQueryDiagnostics().quarantined)
+    {
+        ImGui::TextDisabled("GPU timings unavailable (query failure)");
+        DrawSettingsHelp("GPU timing queries failed. Restarting the game retries timings; rendering continues.");
+        return;
+    }
+    if (!performance->TimingEnabled() || !timings.lastCompletedGeneration)
     {
         ImGui::TextDisabled("%s", performance->TimingEnabled() ? "GPU timings: waiting" : "GPU timings: off");
         DrawSettingsHelp("Enable stage timings in Advanced, then Apply.");
@@ -79,6 +85,7 @@ void OverlayUI::DrawStageMeasurements(SettingsPage page)
     using Stage = PerformanceTuning::D3D11Stage;
     auto row = [&](const char* name, Stage stage) {
         const auto i = static_cast<std::size_t>(stage);
+        if (timings.d3d11ScopeInvalid[i]) { DrawSettingsValue(name, "invalid scope"); return; }
         DrawSettingsValue(
             name, TheosRenderPipeline::Telemetry::Milliseconds(timings.d3d11Ms[i], timings.d3d11Available[i]).c_str());
     };
@@ -93,7 +100,8 @@ void OverlayUI::DrawStageMeasurements(SettingsPage page)
         row("D3D11 frame", Stage::kFrame);
         row("Input copy", Stage::kInputColorCopy);
         row("Mask", Stage::kMaskEncode);
-        row("Output copy", Stage::kOutputCopy);
+        row("Upscaler output copy", Stage::kOutputCopy);
+        row("Presentation copy", Stage::kPresentationCopy);
         const auto& c = timings.gameFrameCadence;
         const auto& g = timings.d3d11Frame;
         if (c.samples == 0)

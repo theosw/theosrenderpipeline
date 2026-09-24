@@ -78,7 +78,7 @@ bool NvidiaHost::EvaluateFrame(IDXGISwapChain* a_swapChain, bool a_nativeUIHando
     }
 
     {
-        ScopedD3D11PerformanceStage timer{context_.Get(), PerformanceTuning::D3D11Stage::kOutputCopy};
+        ScopedD3D11PerformanceStage timer{context_.Get(), PerformanceTuning::D3D11Stage::kPresentationCopy};
         context_->CopyResource(presentation_.Buffers()[currentIndex].Get(), gameTargets_.UpscaleOutput());
     }
     resetNextEvaluation_ = false;

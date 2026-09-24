@@ -2,7 +2,6 @@
 
 #include "FrameTrace.h"
 #include "FrameTelemetry.h"
-#include "FrameGen/SourceFrameGeneration.h"
 #include "VideoMemoryTelemetry.h"
 
 #include <PCH.h>
@@ -12,6 +11,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <limits>
 
 namespace
 {
@@ -198,9 +198,9 @@ const PerformanceTuning::RouteStatus& PerformanceTuning::GetRouteStatus(Optimiza
 	return routeStatus_[ToIndex(a_optimization)];
 }
 
-float PerformanceTuning::Smooth(float a_previous, float a_sample, std::uint64_t a_sampleCount)
+float PerformanceTuning::Smooth(float a_previous, float a_sample, bool a_initialized)
 {
-	return a_sampleCount <= 1 ? a_sample : a_previous * 0.9f + a_sample * 0.1f;
+	return a_initialized ? a_previous * 0.9f + a_sample * 0.1f : a_sample;
 }
 
 void PerformanceTuning::PushPercentileSample(
@@ -283,14 +283,23 @@ void PerformanceTuning::RecordSourcePresentCpuMs(float ms)
 	}
 }
 
-bool PerformanceTuning::EnsureD3D11Queries(ID3D11Device* a_device)
+bool PerformanceTuning::EnsureD3D11Queries(ID3D11Device* a_device, ID3D11DeviceContext* a_context)
 {
-	if (!a_device) {
+	if (!a_device || !a_context) {
 		return false;
 	}
-	if (timingD3D11Device_.Get() == a_device && d3d11Slots_[0].disjoint) {
-		return true;
+	if (timingD3D11Device_.Get() == a_device && timingD3D11Context_.Get() == a_context && d3d11Slots_[0].disjoint) {
+		return !queryDiagnostics_.quarantined;
 	}
+	// The caller supplies a compatible device/context pair. Wrappers need not
+	// return the same device pointer through GetDevice, so pointer identity is
+	// only a cache key here, not admission. Check context type only on replacement.
+	if (a_context->GetType() != D3D11_DEVICE_CONTEXT_IMMEDIATE) {
+		++scopeDiagnostics_.contextMismatches;
+		return false;
+	}
+	// Close through the retained owner before replacing a device/context pair.
+	if (activeD3D11Slot_ >= 0) { EndD3D11Frame(timingD3D11Context_.Get()); }
 
 	activeD3D11Slot_ = -1;
 	nextD3D11Slot_ = 0;
@@ -298,11 +307,19 @@ bool PerformanceTuning::EnsureD3D11Queries(ID3D11Device* a_device)
 		slot = {};
 	}
 	timingD3D11Device_ = a_device;
+	timingD3D11Context_ = a_context;
+	queryDiagnostics_.quarantined = false;
+	queryDiagnostics_.failure = S_OK;
+	// A new pair is a new measurement history, even without a settings reset.
+	timingSnapshot_.d3d11Available.fill(false);
+	timingSnapshot_.d3d11ScopeInvalid.fill(false);
+	timingSnapshot_.d3d11Ms.fill(0.0f);
 	auto fail = [&]() {
 		for (auto& slot : d3d11Slots_) {
 			slot = {};
 		}
 		timingD3D11Device_.Reset();
+		timingD3D11Context_.Reset();
 		return false;
 	};
 
@@ -328,18 +345,27 @@ bool PerformanceTuning::EnsureD3D11Queries(ID3D11Device* a_device)
 
 void PerformanceTuning::ResolveD3D11Queries(ID3D11DeviceContext* a_context)
 {
-	if (!a_context) {
+	if (!a_context || queryDiagnostics_.quarantined) {
 		return;
 	}
-	for (auto& slot : d3d11Slots_) {
-		if (!slot.pending) {
-			continue;
+	// Physical array order differs from recording order after ring wrap. Poll
+	// at most four slots, oldest first; a pending oldest result ends this pass.
+	for (std::size_t attempt = 0; attempt < kQuerySlots; ++attempt) {
+		D3D11QuerySlot* oldest = nullptr;
+		for (auto& candidate : d3d11Slots_) {
+			if (candidate.pending && (!oldest || candidate.generation < oldest->generation)) { oldest = &candidate; }
 		}
+		if (!oldest) { break; }
+		auto& slot = *oldest;
 		D3D11_QUERY_DATA_TIMESTAMP_DISJOINT disjoint{};
-		if (a_context->GetData(slot.disjoint.Get(), &disjoint, sizeof(disjoint), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK) {
-			continue;
+		const auto disjointResult = a_context->GetData(slot.disjoint.Get(), &disjoint, sizeof(disjoint), D3D11_ASYNC_GETDATA_DONOTFLUSH);
+		if (disjointResult == S_FALSE) { break; }
+		if (disjointResult != S_OK) {
+			QuarantineD3D11Queries(FAILED(disjointResult) ? disjointResult : E_UNEXPECTED);
+			break;
 		}
 		if (disjoint.Disjoint || disjoint.Frequency == 0) {
+			if (slot.timingEpoch == timingEpoch_) { PublishUnavailableD3D11Slot(slot); }
 			slot.pending = false;
 			continue;
 		}
@@ -347,45 +373,54 @@ void PerformanceTuning::ResolveD3D11Queries(ID3D11DeviceContext* a_context)
 		std::array<std::uint64_t, kD3D11QueriesPerSlot> values{};
 		bool ready = true;
 		for (std::size_t stage = 0; stage < kD3D11StageCount && ready; ++stage) {
-			if (!slot.recorded[stage]) {
+			if (!slot.recorded[stage] || slot.invalid[stage]) {
 				continue;
 			}
 			for (std::size_t edge = 0; edge < 2; ++edge) {
 				const auto query = stage * 2 + edge;
-				ready = a_context->GetData(
+				const auto result = a_context->GetData(
 					slot.timestamps[query].Get(),
 					&values[query],
 					sizeof(values[query]),
-					D3D11_ASYNC_GETDATA_DONOTFLUSH) == S_OK;
+					D3D11_ASYNC_GETDATA_DONOTFLUSH);
+				ready = result == S_OK;
+				if (result != S_OK && result != S_FALSE) {
+					QuarantineD3D11Queries(FAILED(result) ? result : E_UNEXPECTED);
+				}
 				if (!ready) {
 					break;
 				}
 			}
 		}
 		if (!ready) {
-			continue;
+			break;
 		}
-		// Retire old queries without mixing pre-reset measurements into the
-		// next settings window. Pending queries must not be reused prematurely.
+		// Preserve conservative readiness checks for recorded timestamps even
+		// in old epochs. Disjoint readiness alone is not timestamp readiness.
 		if (slot.timingEpoch != timingEpoch_) {
 			slot.pending = false;
 			continue;
 		}
 
 		++timingSnapshot_.d3d11Samples;
+		const auto initialized = timingSnapshot_.d3d11Available;
+		timingSnapshot_.lastCompletedFrameId = slot.frameId;
+		timingSnapshot_.lastCompletedGeneration = slot.generation;
 		timingSnapshot_.d3d11Available.fill(false);
+		timingSnapshot_.d3d11ScopeInvalid = slot.invalid;
 		for (std::size_t stage = 0; stage < kD3D11StageCount; ++stage) {
-			if (!slot.recorded[stage]) {
+			if (!slot.recorded[stage] || slot.invalid[stage]) {
 				timingSnapshot_.d3d11Ms[stage] = 0.0f;
 				continue;
 			}
 			const auto begin = values[stage * 2];
 			const auto end = values[stage * 2 + 1];
 			if (end < begin) {
+				timingSnapshot_.d3d11Ms[stage] = 0.0f;
 				continue;
 			}
 			const float ms = static_cast<float>(static_cast<double>(end - begin) * 1000.0 / static_cast<double>(disjoint.Frequency));
-			timingSnapshot_.d3d11Ms[stage] = Smooth(timingSnapshot_.d3d11Ms[stage], ms, timingSnapshot_.d3d11Samples);
+			timingSnapshot_.d3d11Ms[stage] = Smooth(timingSnapshot_.d3d11Ms[stage], ms, initialized[stage]);
 			timingSnapshot_.d3d11Available[stage] = true;
 			FrameTrace::GetSingleton()->Record(
 				FrameTrace::EventType::kGpuStage,
@@ -417,23 +452,48 @@ void PerformanceTuning::ResolveD3D11Queries(ID3D11DeviceContext* a_context)
 	MaybeLogTimingSummary();
 }
 
+void PerformanceTuning::PublishUnavailableD3D11Slot(const D3D11QuerySlot& slot)
+{
+	timingSnapshot_.lastCompletedFrameId = slot.frameId;
+	timingSnapshot_.lastCompletedGeneration = slot.generation;
+	timingSnapshot_.d3d11Available.fill(false);
+	timingSnapshot_.d3d11Ms.fill(0.0f);
+	timingSnapshot_.d3d11ScopeInvalid = slot.invalid;
+}
+
+void PerformanceTuning::QuarantineD3D11Queries(HRESULT failure)
+{
+	queryDiagnostics_.quarantined = true;
+	queryDiagnostics_.failure = failure;
+	++queryDiagnostics_.failures;
+	timingSnapshot_.d3d11Available.fill(false);
+	timingSnapshot_.d3d11ScopeInvalid.fill(false);
+	timingSnapshot_.d3d11Ms.fill(0.0f);
+	// Keep the uncertain queries reserved. No waits, reuse or automatic retry:
+	// a later device/context replacement owns creation of a fresh ring.
+	logger::warn("[Performance] GPU query failure 0x{:08X}; timings quarantined until device/context replacement (failures={})",
+		static_cast<std::uint32_t>(failure), queryDiagnostics_.failures);
+}
+
 void PerformanceTuning::BeginD3D11Frame(
 	ID3D11Device* a_device,
 	ID3D11DeviceContext* a_context,
 	std::uint64_t a_frameId,
 	std::int64_t a_frameQpc)
 {
-	if (activeD3D11Slot_ >= 0) {
-		EndD3D11Frame(a_context);
-	}
 	const bool hasPending = std::any_of(d3d11Slots_.begin(), d3d11Slots_.end(), [](const auto& a_slot) {
 		return a_slot.pending;
 	});
-	if (!TimingEnabled() && !hasPending) {
+	if (!TimingEnabled() && !hasPending && activeD3D11Slot_ < 0) {
 		return;
 	}
-	ResolveD3D11Queries(a_context);
-	if (!TimingEnabled() || !EnsureD3D11Queries(a_device) || !a_context) {
+	if (!a_device || !a_context) { return; }
+	if (TimingEnabled()) {
+		if (!EnsureD3D11Queries(a_device, a_context)) { return; }
+	}
+	if (activeD3D11Slot_ >= 0) { EndD3D11Frame(timingD3D11Context_.Get()); }
+	ResolveD3D11Queries(timingD3D11Context_.Get());
+	if (!TimingEnabled() || queryDiagnostics_.quarantined || recordingGeneration_ == (std::numeric_limits<std::uint64_t>::max)()) {
 		return;
 	}
 
@@ -445,6 +505,8 @@ void PerformanceTuning::BeginD3D11Frame(
 		}
 		slot.started.fill(false);
 		slot.recorded.fill(false);
+		slot.invalid.fill(false);
+		slot.generation = ++recordingGeneration_;
 		slot.frameId = a_frameId;
 		slot.neuralCpuRecorded = false;
 		slot.timingEpoch = timingEpoch_;
@@ -452,23 +514,28 @@ void PerformanceTuning::BeginD3D11Frame(
 		a_context->Begin(slot.disjoint.Get());
 		activeD3D11Slot_ = static_cast<int>(index);
 		nextD3D11Slot_ = (index + 1) % kQuerySlots;
-		BeginD3D11Stage(a_context, D3D11Stage::kFrame);
+		slot.frameTicket = BeginD3D11Stage(a_context, D3D11Stage::kFrame);
 		return;
 	}
 }
 
 void PerformanceTuning::EndD3D11Frame(ID3D11DeviceContext* a_context)
 {
-	if (activeD3D11Slot_ < 0 || !a_context) {
+	if (activeD3D11Slot_ < 0) {
+		return;
+	}
+	if (a_context != timingD3D11Context_.Get()) {
+		++scopeDiagnostics_.contextMismatches;
 		return;
 	}
 	auto& slot = d3d11Slots_[static_cast<std::size_t>(activeD3D11Slot_)];
 	for (std::size_t stage = 1; stage < kD3D11StageCount; ++stage) {
 		if (slot.started[stage] && !slot.recorded[stage]) {
-			EndD3D11Stage(a_context, static_cast<D3D11Stage>(stage));
+			slot.invalid[stage] = true;
+			++scopeDiagnostics_.unclosedScopes;
 		}
 	}
-	EndD3D11Stage(a_context, D3D11Stage::kFrame);
+	EndD3D11Stage(a_context, slot.frameTicket);
 	a_context->End(slot.disjoint.Get());
 	slot.pending = true;
 	activeD3D11Slot_ = -1;
@@ -478,39 +545,59 @@ void PerformanceTuning::RecordNeuralEarlyCPU(std::uint64_t cpuNanoseconds, std::
 {
 	if (!TimingEnabled() || activeD3D11Slot_ < 0) { return; }
 	auto& slot = d3d11Slots_[static_cast<std::size_t>(activeD3D11Slot_)];
-	if (!slot.started[ToIndex(D3D11Stage::kNeuralEarlyRoundTrip)] || slot.neuralCpuRecorded) { return; }
+	if (!slot.started[ToIndex(D3D11Stage::kNeuralEarlyRoundTrip)] ||
+		slot.invalid[ToIndex(D3D11Stage::kNeuralEarlyRoundTrip)] || slot.neuralCpuRecorded) { return; }
 	slot.neuralCpuNanoseconds = cpuNanoseconds;
 	slot.neuralWaitNanoseconds = waitNanoseconds;
 	slot.neuralWaited = waited;
 	slot.neuralCpuRecorded = true;
 }
 
-void PerformanceTuning::BeginD3D11Stage(ID3D11DeviceContext* a_context, D3D11Stage a_stage)
+PerformanceTuning::D3D11StageTicket PerformanceTuning::BeginD3D11Stage(ID3D11DeviceContext* a_context, D3D11Stage a_stage)
 {
-	if (activeD3D11Slot_ < 0 || !a_context) {
-		return;
-	}
+	if (activeD3D11Slot_ < 0 || !a_context) { return {}; }
 	auto& slot = d3d11Slots_[static_cast<std::size_t>(activeD3D11Slot_)];
 	const auto stage = ToIndex(a_stage);
-	if (stage >= kD3D11StageCount || slot.started[stage] || slot.recorded[stage]) {
-		return;
+	if (stage >= kD3D11StageCount) {
+		++scopeDiagnostics_.invalidStages;
+		return {};
+	}
+	if (slot.started[stage]) {
+		slot.invalid[stage] = true;
+		++scopeDiagnostics_.conflictingStarts;
+		return {};
 	}
 	a_context->End(slot.timestamps[stage * 2].Get());
 	slot.started[stage] = true;
+	return {slot.generation, a_stage, a_context};
 }
 
-void PerformanceTuning::EndD3D11Stage(ID3D11DeviceContext* a_context, D3D11Stage a_stage)
+bool PerformanceTuning::EndD3D11Stage(ID3D11DeviceContext* a_context, D3D11StageTicket a_ticket)
 {
-	if (activeD3D11Slot_ < 0 || !a_context) {
-		return;
+	if (!a_ticket) { return false; }
+	if (activeD3D11Slot_ < 0) {
+		++scopeDiagnostics_.rejectedEnds;
+		return false;
 	}
 	auto& slot = d3d11Slots_[static_cast<std::size_t>(activeD3D11Slot_)];
-	const auto stage = ToIndex(a_stage);
-	if (stage >= kD3D11StageCount || !slot.started[stage] || slot.recorded[stage]) {
-		return;
+	// A stale ticket must not invalidate or end any stage in the new frame.
+	if (a_ticket.generation_ != slot.generation) {
+		++scopeDiagnostics_.rejectedEnds;
+		return false;
 	}
-	a_context->End(slot.timestamps[stage * 2 + 1].Get());
+	if (a_context != a_ticket.context_) {
+		++scopeDiagnostics_.contextMismatches;
+		return false;
+	}
+	const auto stage = ToIndex(a_ticket.stage_);
+	if (slot.recorded[stage]) {
+		slot.invalid[stage] = true;
+		++scopeDiagnostics_.rejectedEnds;
+		return false;
+	}
+	if (!slot.invalid[stage]) { a_context->End(slot.timestamps[stage * 2 + 1].Get()); }
 	slot.recorded[stage] = true;
+	return true;
 }
 
 void PerformanceTuning::RecordGameFrameCadenceMs(float a_ms)
@@ -533,14 +620,20 @@ void PerformanceTuning::MaybeLogTimingSummary()
 	lastLoggedTimingSample_ = timingSnapshot_.d3d11Samples;
 	const auto& d11 = timingSnapshot_.d3d11Ms;
 	const auto d11ms = [&](D3D11Stage a_stage) {
+		if (timingSnapshot_.d3d11ScopeInvalid[ToIndex(a_stage)]) { return std::string{"invalid scope"}; }
 		return TheosRenderPipeline::Telemetry::Milliseconds(d11[ToIndex(a_stage)], timingSnapshot_.d3d11Available[ToIndex(a_stage)]);
 	};
 	logger::info(
-		"[Performance] smoothed ms: D3D11 frame={} inputs={} colorCopy={} mask={} DLSS={} RCAS={} outputCopy={} hudless={}",
+		"[Performance] smoothed ms: D3D11 frame={} inputs={} colorCopy={} mask={} DLSS={} RCAS={} upscalerOutputCopy={} presentationCopy={} hudless={}",
 		d11ms(D3D11Stage::kFrame), d11ms(D3D11Stage::kFrameGenInputs),
 		d11ms(D3D11Stage::kInputColorCopy), d11ms(D3D11Stage::kMaskEncode),
 		d11ms(D3D11Stage::kDLSS), d11ms(D3D11Stage::kRCAS),
-		d11ms(D3D11Stage::kOutputCopy), d11ms(D3D11Stage::kHUDLessCopy));
+		d11ms(D3D11Stage::kOutputCopy), d11ms(D3D11Stage::kPresentationCopy), d11ms(D3D11Stage::kHUDLessCopy));
+	const auto& scopes = scopeDiagnostics_;
+	if (scopes.conflictingStarts || scopes.unclosedScopes || scopes.rejectedEnds || scopes.contextMismatches || scopes.invalidStages) {
+		logger::info("[Performance] scope diagnostics (lifetime): conflictingStarts={} unclosed={} rejectedEnds={} contextMismatches={} invalidStages={}",
+			scopes.conflictingStarts, scopes.unclosedScopes, scopes.rejectedEnds, scopes.contextMismatches, scopes.invalidStages);
+	}
 	{
 		const auto& present = timingSnapshot_.sourcePresentCpu;
 		logger::info("[Performance Source] nativeUI={} startupOverlay={} CPU Present p50={} p95={} p99={} samples={}; CPU includes API waits, not GPU generation or scanout",

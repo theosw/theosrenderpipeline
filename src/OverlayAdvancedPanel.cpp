@@ -100,7 +100,8 @@ void OverlayUI::DrawImageMeasurements(const FrameView& view)
                                    : route.activeLastFrame ? "Active"
                                    : route.requested       ? "Armed"
                                                            : "Off",
-                                   route.reason.c_str());
+                                   !route.activeLastFrame && route.reason == "active" ? "not used this frame"
+                                                                                    : route.reason.c_str());
                 ImGui::TextWrapped("Frames %llu | fallbacks %llu", static_cast<unsigned long long>(route.activeFrames),
                                    static_cast<unsigned long long>(route.fallbackCount));
             }
