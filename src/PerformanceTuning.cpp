@@ -198,9 +198,9 @@ const PerformanceTuning::RouteStatus& PerformanceTuning::GetRouteStatus(Optimiza
 	return routeStatus_[ToIndex(a_optimization)];
 }
 
-float PerformanceTuning::Smooth(float a_previous, float a_sample, std::uint64_t a_sampleCount)
+float PerformanceTuning::Smooth(float a_previous, float a_sample, bool a_initialized)
 {
-	return a_sampleCount <= 1 ? a_sample : a_previous * 0.9f + a_sample * 0.1f;
+	return a_initialized ? a_previous * 0.9f + a_sample * 0.1f : a_sample;
 }
 
 void PerformanceTuning::PushPercentileSample(
@@ -289,7 +289,7 @@ bool PerformanceTuning::EnsureD3D11Queries(ID3D11Device* a_device, ID3D11DeviceC
 		return false;
 	}
 	if (timingD3D11Device_.Get() == a_device && timingD3D11Context_.Get() == a_context && d3d11Slots_[0].disjoint) {
-		return true;
+		return !queryDiagnostics_.quarantined;
 	}
 	// The caller supplies a compatible device/context pair. Wrappers need not
 	// return the same device pointer through GetDevice, so pointer identity is
@@ -308,6 +308,12 @@ bool PerformanceTuning::EnsureD3D11Queries(ID3D11Device* a_device, ID3D11DeviceC
 	}
 	timingD3D11Device_ = a_device;
 	timingD3D11Context_ = a_context;
+	queryDiagnostics_.quarantined = false;
+	queryDiagnostics_.failure = S_OK;
+	// A new pair is a new measurement history, even without a settings reset.
+	timingSnapshot_.d3d11Available.fill(false);
+	timingSnapshot_.d3d11ScopeInvalid.fill(false);
+	timingSnapshot_.d3d11Ms.fill(0.0f);
 	auto fail = [&]() {
 		for (auto& slot : d3d11Slots_) {
 			slot = {};
@@ -339,18 +345,27 @@ bool PerformanceTuning::EnsureD3D11Queries(ID3D11Device* a_device, ID3D11DeviceC
 
 void PerformanceTuning::ResolveD3D11Queries(ID3D11DeviceContext* a_context)
 {
-	if (!a_context) {
+	if (!a_context || queryDiagnostics_.quarantined) {
 		return;
 	}
-	for (auto& slot : d3d11Slots_) {
-		if (!slot.pending) {
-			continue;
+	// Physical array order differs from recording order after ring wrap. Poll
+	// at most four slots, oldest first; a pending oldest result ends this pass.
+	for (std::size_t attempt = 0; attempt < kQuerySlots; ++attempt) {
+		D3D11QuerySlot* oldest = nullptr;
+		for (auto& candidate : d3d11Slots_) {
+			if (candidate.pending && (!oldest || candidate.generation < oldest->generation)) { oldest = &candidate; }
 		}
+		if (!oldest) { break; }
+		auto& slot = *oldest;
 		D3D11_QUERY_DATA_TIMESTAMP_DISJOINT disjoint{};
-		if (a_context->GetData(slot.disjoint.Get(), &disjoint, sizeof(disjoint), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK) {
-			continue;
+		const auto disjointResult = a_context->GetData(slot.disjoint.Get(), &disjoint, sizeof(disjoint), D3D11_ASYNC_GETDATA_DONOTFLUSH);
+		if (disjointResult == S_FALSE) { break; }
+		if (disjointResult != S_OK) {
+			QuarantineD3D11Queries(FAILED(disjointResult) ? disjointResult : E_UNEXPECTED);
+			break;
 		}
 		if (disjoint.Disjoint || disjoint.Frequency == 0) {
+			if (slot.timingEpoch == timingEpoch_) { PublishUnavailableD3D11Slot(slot); }
 			slot.pending = false;
 			continue;
 		}
@@ -363,27 +378,34 @@ void PerformanceTuning::ResolveD3D11Queries(ID3D11DeviceContext* a_context)
 			}
 			for (std::size_t edge = 0; edge < 2; ++edge) {
 				const auto query = stage * 2 + edge;
-				ready = a_context->GetData(
+				const auto result = a_context->GetData(
 					slot.timestamps[query].Get(),
 					&values[query],
 					sizeof(values[query]),
-					D3D11_ASYNC_GETDATA_DONOTFLUSH) == S_OK;
+					D3D11_ASYNC_GETDATA_DONOTFLUSH);
+				ready = result == S_OK;
+				if (result != S_OK && result != S_FALSE) {
+					QuarantineD3D11Queries(FAILED(result) ? result : E_UNEXPECTED);
+				}
 				if (!ready) {
 					break;
 				}
 			}
 		}
 		if (!ready) {
-			continue;
+			break;
 		}
-		// Retire old queries without mixing pre-reset measurements into the
-		// next settings window. Pending queries must not be reused prematurely.
+		// Preserve conservative readiness checks for recorded timestamps even
+		// in old epochs. Disjoint readiness alone is not timestamp readiness.
 		if (slot.timingEpoch != timingEpoch_) {
 			slot.pending = false;
 			continue;
 		}
 
 		++timingSnapshot_.d3d11Samples;
+		const auto initialized = timingSnapshot_.d3d11Available;
+		timingSnapshot_.lastCompletedFrameId = slot.frameId;
+		timingSnapshot_.lastCompletedGeneration = slot.generation;
 		timingSnapshot_.d3d11Available.fill(false);
 		timingSnapshot_.d3d11ScopeInvalid = slot.invalid;
 		for (std::size_t stage = 0; stage < kD3D11StageCount; ++stage) {
@@ -394,10 +416,11 @@ void PerformanceTuning::ResolveD3D11Queries(ID3D11DeviceContext* a_context)
 			const auto begin = values[stage * 2];
 			const auto end = values[stage * 2 + 1];
 			if (end < begin) {
+				timingSnapshot_.d3d11Ms[stage] = 0.0f;
 				continue;
 			}
 			const float ms = static_cast<float>(static_cast<double>(end - begin) * 1000.0 / static_cast<double>(disjoint.Frequency));
-			timingSnapshot_.d3d11Ms[stage] = Smooth(timingSnapshot_.d3d11Ms[stage], ms, timingSnapshot_.d3d11Samples);
+			timingSnapshot_.d3d11Ms[stage] = Smooth(timingSnapshot_.d3d11Ms[stage], ms, initialized[stage]);
 			timingSnapshot_.d3d11Available[stage] = true;
 			FrameTrace::GetSingleton()->Record(
 				FrameTrace::EventType::kGpuStage,
@@ -429,6 +452,29 @@ void PerformanceTuning::ResolveD3D11Queries(ID3D11DeviceContext* a_context)
 	MaybeLogTimingSummary();
 }
 
+void PerformanceTuning::PublishUnavailableD3D11Slot(const D3D11QuerySlot& slot)
+{
+	timingSnapshot_.lastCompletedFrameId = slot.frameId;
+	timingSnapshot_.lastCompletedGeneration = slot.generation;
+	timingSnapshot_.d3d11Available.fill(false);
+	timingSnapshot_.d3d11Ms.fill(0.0f);
+	timingSnapshot_.d3d11ScopeInvalid = slot.invalid;
+}
+
+void PerformanceTuning::QuarantineD3D11Queries(HRESULT failure)
+{
+	queryDiagnostics_.quarantined = true;
+	queryDiagnostics_.failure = failure;
+	++queryDiagnostics_.failures;
+	timingSnapshot_.d3d11Available.fill(false);
+	timingSnapshot_.d3d11ScopeInvalid.fill(false);
+	timingSnapshot_.d3d11Ms.fill(0.0f);
+	// Keep the uncertain queries reserved. No waits, reuse or automatic retry:
+	// a later device/context replacement owns creation of a fresh ring.
+	logger::warn("[Performance] GPU query failure 0x{:08X}; timings quarantined until device/context replacement (failures={})",
+		static_cast<std::uint32_t>(failure), queryDiagnostics_.failures);
+}
+
 void PerformanceTuning::BeginD3D11Frame(
 	ID3D11Device* a_device,
 	ID3D11DeviceContext* a_context,
@@ -447,7 +493,7 @@ void PerformanceTuning::BeginD3D11Frame(
 	}
 	if (activeD3D11Slot_ >= 0) { EndD3D11Frame(timingD3D11Context_.Get()); }
 	ResolveD3D11Queries(timingD3D11Context_.Get());
-	if (!TimingEnabled() || recordingGeneration_ == (std::numeric_limits<std::uint64_t>::max)()) {
+	if (!TimingEnabled() || queryDiagnostics_.quarantined || recordingGeneration_ == (std::numeric_limits<std::uint64_t>::max)()) {
 		return;
 	}
 

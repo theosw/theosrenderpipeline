@@ -3,6 +3,7 @@
 #include "VideoMemoryTelemetry.h"
 
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <optional>
@@ -14,6 +15,14 @@ using Stage = PerformanceTuning::D3D11Stage;
 extern "C" ID3D11DeviceContext* TRPTimingContextAlias(ID3D11DeviceContext*);
 extern "C" unsigned TRPTimingContextAliasEnds();
 extern "C" unsigned TRPTimingContextAliasInspections();
+extern "C" void TRPTimingScriptFrame(unsigned, HRESULT, UINT64, BOOL, UINT64, UINT64);
+extern "C" void TRPTimingScriptEdge(unsigned, int, HRESULT);
+extern "C" unsigned TRPTimingScriptPolls(unsigned);
+extern "C" unsigned TRPTimingScriptEdgePolls(unsigned, unsigned);
+extern "C" unsigned TRPTimingScriptCalls();
+extern "C" unsigned TRPTimingScriptFrames();
+extern "C" BOOL TRPTimingScriptReady(unsigned);
+extern "C" BOOL TRPTimingScriptEdgeReady(unsigned, unsigned);
 static constexpr auto Index(Stage stage) { return static_cast<std::size_t>(stage); }
 static void Require(bool condition, const char* message)
 {
@@ -301,10 +310,217 @@ static void WARPChecks()
     std::puts("PASS: copy identities/pixels; absence; nesting; compatible wrapper and frame interface replacement; wrong-interface End rejection; duplicate/unclosed/stale scopes; ring/epoch/device reuse; deferred-frame rejection; invalid stage/double End; NR pairing; disable/reset; trace-only timing (WARP)");
 }
 
+struct PublicationFixture
+{
+    Device device;
+    ID3D11DeviceContext* alias = TRPTimingContextAlias(device.context.Get());
+    unsigned nextScript{};
+    PublicationFixture()
+    {
+        Timing().ApplySettings({true, true, false, false});
+        Timing().ResetTimingWindow();
+    }
+    void Configure(unsigned index, unsigned ms, HRESULT result = S_OK, UINT64 frequency = 1000000, BOOL disjoint = FALSE)
+    { TRPTimingScriptFrame(index, result, frequency, disjoint, 10000, 10000 + ms * 1000); }
+    std::uint64_t Submit(bool copy = true, Stage stage = Stage::kOutputCopy)
+    {
+        const auto frame = nextFrame++;
+        Timing().BeginD3D11Frame(device.device.Get(), alias, frame);
+        if (copy) {
+            const auto owner = Timing().BeginD3D11Stage(alias, stage);
+            Require(static_cast<bool>(owner) && Timing().EndD3D11Stage(alias, owner), "scripted scope acquisition");
+        }
+        Timing().EndD3D11Frame(alias);
+        ++nextScript;
+        return frame;
+    }
+    void Poll()
+    {
+        const auto settings = Timing().settings;
+        Timing().settings.enableGPUTimings = Timing().settings.enableFrameTrace = false;
+        Timing().BeginD3D11Frame(device.device.Get(), alias, nextFrame++);
+        Timing().settings = settings;
+    }
+    template<class Predicate> void Until(Predicate done)
+    {
+        device.context->Flush(); // Harness submission only, never production polling.
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+        do {
+            Poll();
+            if (done()) { return; }
+            Require(std::chrono::steady_clock::now() < deadline, "bounded scripted retirement");
+            Sleep(1);
+        } while (true);
+    }
+    void Complete(std::uint64_t frame)
+    { Until([&] { return Timing().GetTimingSnapshot().lastCompletedFrameId == frame; }); }
+};
+
+static void Near(float actual, float expected, const char* message)
+{ Require(std::abs(actual - expected) < 0.0001f, message); }
+
+static void PublicationChecks()
+{
+    PublicationFixture f;
+    auto& p = Timing();
+    const auto value = [&](Stage stage = Stage::kOutputCopy) { return p.GetTimingSnapshot().d3d11Ms[Index(stage)]; };
+    f.Configure(f.nextScript, 1, S_OK, 1000000, TRUE); f.Complete(f.Submit());
+    Require(p.GetTimingSnapshot().d3d11Samples == 0 && p.GetTimingSnapshot().lastCompletedGeneration != 0 &&
+        !p.GetTimingSnapshot().d3d11Available[Index(Stage::kFrame)], "first invalid completion is unavailable, not still waiting");
+    // Advance to slot 3, then hold it while newer work occupies slots 0 and 1.
+    for (unsigned i = 0; i < 2; ++i) { f.Configure(f.nextScript, 1); f.Complete(f.Submit()); }
+    p.ResetTimingWindow(); events.clear();
+    const auto oldest = f.nextScript;
+    f.Configure(oldest, 10, S_FALSE); const auto frameA = f.Submit();
+    f.Configure(oldest + 1, 20); const auto frameB = f.Submit();
+    f.Configure(oldest + 2, 30); const auto frameC = f.Submit();
+    f.Until([&] { return TRPTimingScriptPolls(oldest) > 2; });
+    Require(p.GetTimingSnapshot().d3d11Samples == 0 && TRPTimingScriptPolls(oldest + 1) == 0 &&
+        TRPTimingScriptPolls(oldest + 2) == 0, "oldest pending stops this pass without polling newer slots");
+    f.Configure(oldest, 10); f.Complete(frameC);
+    Require(p.GetTimingSnapshot().d3d11Samples == 3, "three ready frames retire once");
+    Near(value(), 12.9f, "ring wrap smooths in recording order: 10, 20, 30");
+    std::vector<std::uint64_t> order;
+    for (const auto& e : events) {
+        if (e.type == static_cast<std::uint16_t>(FrameTrace::EventType::kGpuStage) && e.phaseNumerator == Index(Stage::kOutputCopy)) {
+            order.push_back(e.realFrameId);
+        }
+    }
+    Require(order == std::vector<std::uint64_t>{frameA, frameB, frameC}, "trace publication is chronological across wrap");
+
+    const auto previous = p.GetTimingSnapshot();
+    const auto pending = f.nextScript;
+    f.Configure(pending, 40, S_FALSE); const auto pendingFrame = f.Submit();
+    f.Configure(pending + 1, 50); const auto afterPending = f.Submit();
+    f.Until([&] { return TRPTimingScriptPolls(pending) > 1; });
+    Require(p.GetTimingSnapshot().lastCompletedGeneration == previous.lastCompletedGeneration &&
+        p.GetTimingSnapshot().d3d11Available[Index(Stage::kOutputCopy)], "pending keeps latest-completed identity and availability");
+    Near(value(), previous.d3d11Ms[Index(Stage::kOutputCopy)], "pending does not invent a zero");
+    f.Configure(pending, 40); TRPTimingScriptEdge(pending, 2, S_FALSE);
+    f.Until([&] { return TRPTimingScriptEdgePolls(pending, 2) > 0; });
+    Require(p.GetTimingSnapshot().lastCompletedFrameId == previous.lastCompletedFrameId &&
+        TRPTimingScriptPolls(pending + 1) == 0 && Traces(pendingFrame, Stage::kFrame) == 0,
+        "pending timestamp edge publishes no partial frame and stops newer polling");
+    TRPTimingScriptEdge(pending, 2, S_OK); f.Complete(afterPending);
+
+    f.Configure(f.nextScript, 1); f.Complete(f.Submit(false));
+    Require(!p.GetTimingSnapshot().d3d11Available[Index(Stage::kOutputCopy)], "absent stage clears availability");
+    f.Configure(f.nextScript, 70); f.Complete(f.Submit());
+    Near(value(), 70.0f, "first valid after absence seeds from sample, not ten percent");
+    f.Configure(f.nextScript, 90); f.Complete(f.Submit(true, Stage::kRCAS));
+    Near(value(Stage::kRCAS), 90.0f, "first-ever stage seeds independently of frame sample count");
+
+    const auto reversed = f.nextScript;
+    TRPTimingScriptFrame(reversed, S_OK, 1000000, FALSE, 10000, 9999);
+    const auto reversedFrame = f.Submit(); f.Complete(reversedFrame);
+    Require(!p.GetTimingSnapshot().d3d11Available[Index(Stage::kOutputCopy)] && Traces(reversedFrame, Stage::kOutputCopy) == 0,
+        "reversed pair has no available or successful measurement");
+    f.Configure(f.nextScript, 0); f.Complete(f.Submit());
+    Valid(p.GetTimingSnapshot(), Stage::kOutputCopy); Near(value(), 0.0f, "equal timestamps are a measured zero");
+    f.Configure(f.nextScript, 2); f.Complete(f.Submit());
+    Near(value(), 0.2f, "valid zero retains initialized smoothing history");
+
+    auto sampleCount = p.GetTimingSnapshot().d3d11Samples;
+    f.Configure(f.nextScript, 9, S_OK, 1000000, TRUE);
+    const auto disjoint = f.Submit(); f.Complete(disjoint);
+    Require(!p.GetTimingSnapshot().d3d11Available[Index(Stage::kFrame)] &&
+        !p.GetTimingSnapshot().d3d11Available[Index(Stage::kOutputCopy)] &&
+        p.GetTimingSnapshot().d3d11Samples == sampleCount && Traces(disjoint, Stage::kFrame) == 0,
+        "disjoint frame invalidates prior availability without adding samples");
+    f.Configure(f.nextScript, 9, S_OK, 0); f.Complete(f.Submit());
+    Require(!p.GetTimingSnapshot().d3d11Available[Index(Stage::kOutputCopy)] && !p.GetQueryDiagnostics().quarantined,
+        "zero frequency is unavailable, not a terminal query error");
+    f.Configure(f.nextScript, 8); f.Complete(f.Submit()); Near(value(), 8.0f, "valid after disjoint/zero-frequency seeds freshly");
+
+    const auto oldEpoch = f.nextScript;
+    f.Configure(oldEpoch, 99, S_FALSE); const auto oldEpochFrame = f.Submit();
+    p.ResetTimingWindow(); events.clear();
+    const auto newEpoch = f.nextScript;
+    f.Configure(newEpoch, 30); const auto newEpochFrame = f.Submit();
+    f.Configure(oldEpoch, 99); TRPTimingScriptEdge(oldEpoch, 2, S_FALSE);
+    f.Until([&] { return TRPTimingScriptEdgePolls(oldEpoch, 2) > 0; });
+    Require(p.GetTimingSnapshot().d3d11Samples == 0 && TRPTimingScriptPolls(newEpoch) == 0,
+        "old epoch retains its slot until recorded timestamps are ready");
+    TRPTimingScriptEdge(oldEpoch, 2, S_OK); f.Complete(newEpochFrame);
+    Require(p.GetTimingSnapshot().d3d11Samples == 1 && Traces(oldEpochFrame, Stage::kOutputCopy) == 0,
+        "old epoch retires without invalidating or contributing to the new epoch");
+    Near(value(), 30.0f, "new epoch has no old history");
+
+    const auto completedBeforeFailure = p.GetTimingSnapshot().lastCompletedFrameId;
+    const auto failedDisjoint = f.nextScript;
+    f.Configure(failedDisjoint, 7, S_FALSE); f.Submit();
+    f.Until([&] { return TRPTimingScriptReady(failedDisjoint) != FALSE; });
+    f.Configure(failedDisjoint, 7, E_FAIL);
+    auto beforeErrorFrames = TRPTimingScriptFrames(); auto beforeErrorEnds = TRPTimingContextAliasEnds();
+    Require(p.TimingEnabled(), "terminal failure is discovered with sampling enabled");
+    p.BeginD3D11Frame(f.device.device.Get(), f.alias, nextFrame++);
+    Require(TRPTimingScriptFrames() == beforeErrorFrames && TRPTimingContextAliasEnds() == beforeErrorEnds,
+        "first enabled terminal failure must not start a new frame or timestamp");
+    Require(p.GetQueryDiagnostics().failure == E_FAIL && p.GetQueryDiagnostics().failures == 1 &&
+        !p.GetTimingSnapshot().d3d11Available[Index(Stage::kOutputCopy)] &&
+        p.GetTimingSnapshot().lastCompletedFrameId == completedBeforeFailure,
+        "terminal disjoint-query failure quarantines without pretending to complete a sample");
+    const auto calls = TRPTimingScriptCalls(); const auto frames = TRPTimingScriptFrames();
+    p.ResetTimingWindow();
+    p.ApplySettings({false, false, false, false}); f.Poll();
+    p.ApplySettings({true, true, false, false});
+    for (unsigned i = 0; i < 8; ++i) {
+        p.BeginD3D11Frame(f.device.device.Get(), f.alias, nextFrame++);
+        Require(!p.BeginD3D11Stage(f.alias, Stage::kOutputCopy), "quarantine admits no new instrumentation");
+    }
+    Require(p.GetQueryDiagnostics().quarantined && p.GetQueryDiagnostics().failures == 1 &&
+        TRPTimingScriptCalls() == calls && TRPTimingScriptFrames() == frames,
+        "window reset and toggles cannot trigger automatic failed-pair polling/recreation");
+    // Ordinary D3D11 commands continue while telemetry is quarantined.
+    D3D11_TEXTURE2D_DESC desc{};
+    desc.Width = desc.Height = desc.MipLevels = desc.ArraySize = desc.SampleDesc.Count = 1;
+    desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    unsigned pixel = 0xff654321; D3D11_SUBRESOURCE_DATA data{&pixel, sizeof(pixel), 0};
+    ComPtr<ID3D11Texture2D> source, readback;
+    Check(f.device.device->CreateTexture2D(&desc, &data, &source), "render source during quarantine");
+    desc.Usage = D3D11_USAGE_STAGING; desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    Check(f.device.device->CreateTexture2D(&desc, nullptr, &readback), "readback during quarantine");
+    f.device.context->CopyResource(readback.Get(), source.Get());
+    D3D11_MAPPED_SUBRESOURCE mapped{};
+    Check(f.device.context->Map(readback.Get(), 0, D3D11_MAP_READ, 0, &mapped), "commands survive telemetry failure");
+    Require(*static_cast<unsigned*>(mapped.pData) == pixel, "copy pixels survive quarantine");
+    f.device.context->Unmap(readback.Get(), 0);
+
+    // Only pair replacement recovers. It creates fresh objects; old uncertain
+    // query slots are never marked free and reused within the failed ring.
+    p.BeginD3D11Frame(f.device.device.Get(), f.device.context.Get(), nextFrame++);
+    auto owner = Begin(f.device, Stage::kOutputCopy);
+    Require(!p.GetQueryDiagnostics().quarantined && static_cast<bool>(owner) && End(f.device, owner),
+        "context-pair replacement recovers with fresh query objects");
+    Finish(f.device); Valid(Retire(f.device), Stage::kOutputCopy);
+    Require(p.GetQueryDiagnostics().failures == 1, "recovery retains lifetime failure diagnostic");
+    f.Configure(f.nextScript, 12); f.Complete(f.Submit());
+    Near(value(), 12.0f, "replacement pair starts fresh stage history");
+    const auto failedEdge = f.nextScript;
+    f.Configure(failedEdge, 13); TRPTimingScriptEdge(failedEdge, 2, S_FALSE);
+    const auto failedEdgeFrame = f.Submit();
+    f.Until([&] { return TRPTimingScriptEdgeReady(failedEdge, 2) != FALSE; });
+    TRPTimingScriptEdge(failedEdge, 2, E_INVALIDARG);
+    beforeErrorFrames = TRPTimingScriptFrames(); beforeErrorEnds = TRPTimingContextAliasEnds();
+    p.BeginD3D11Frame(f.device.device.Get(), f.alias, nextFrame++);
+    Require(TRPTimingScriptFrames() == beforeErrorFrames && TRPTimingContextAliasEnds() == beforeErrorEnds,
+        "enabled timestamp failure must not start another frame or timestamp");
+    Require(p.GetQueryDiagnostics().failure == E_INVALIDARG && p.GetQueryDiagnostics().failures == 2 &&
+        !p.GetTimingSnapshot().d3d11Available[Index(Stage::kFrame)] && Traces(failedEdgeFrame, Stage::kFrame) == 0,
+        "terminal timestamp-edge error suppresses the entire partial sample");
+    Device other;
+    Start(other); owner = Begin(other, Stage::kOutputCopy);
+    Require(!p.GetQueryDiagnostics().quarantined && static_cast<bool>(owner) && End(other, owner), "device replacement also recovers");
+    Finish(other); Valid(Retire(other), Stage::kOutputCopy);
+    Require(p.GetQueryDiagnostics().failures == 2, "failure counter survives both recovery boundaries");
+    std::puts("PASS: chronological wrap/trace; oldest disjoint/edge pending; latest-completed identity; independent/absent/invalid/zero smoothing; disjoint/frequency validity; old epochs; disjoint/edge hard failures; quarantine/no retry; ordinary copies; context/device replacement recovery (scripted retired WARP queries)");
+}
+
 int main(int argc, char** argv)
 {
     SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
-    Require(argc == 2, "choose --cpu or --warp");
+    Require(argc == 2, "choose --cpu, --warp or --publication");
     if (std::string_view(argv[1]) == "--cpu") { CPUChecks(); }
+    else if (std::string_view(argv[1]) == "--publication") { PublicationChecks(); }
     else { Require(std::string_view(argv[1]) == "--warp", "known mode"); WARPChecks(); }
 }

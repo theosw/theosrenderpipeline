@@ -83,6 +83,13 @@ public:
 		std::uint64_t conflictingStarts{}, unclosedScopes{}, rejectedEnds{}, contextMismatches{}, invalidStages{};
 	};
 
+	struct QueryDiagnostics
+	{
+		std::uint64_t failures{}; // Lifetime count; one diagnostic per quarantine.
+		HRESULT failure{S_OK};
+		bool quarantined{};
+	};
+
 	struct TimingSnapshot
 	{
 		// Paired CPU/GPU samples from successfully completed early NR stages.
@@ -108,6 +115,9 @@ public:
 		std::array<bool, static_cast<std::size_t>(D3D11Stage::kCount)> d3d11Available{};
 		std::array<bool, static_cast<std::size_t>(D3D11Stage::kCount)> d3d11ScopeInvalid{};
 		std::uint64_t d3d11Samples{ 0 };
+		// Identity of the latest completed slot, including invalid/disjoint slots.
+		// Pending work leaves this identity and its availability unchanged.
+		std::uint64_t lastCompletedFrameId{}, lastCompletedGeneration{};
 		Percentiles gameFrameCadence{};
 		Percentiles d3d11Frame{};
 		Percentiles sourcePresentCpu{};
@@ -155,6 +165,7 @@ public:
 	bool TimingEnabled() const { return settings.enableGPUTimings || settings.enableFrameTrace; }
 	const TimingSnapshot& GetTimingSnapshot() const { return timingSnapshot_; }
 	const ScopeDiagnostics& GetScopeDiagnostics() const { return scopeDiagnostics_; }
+	const QueryDiagnostics& GetQueryDiagnostics() const { return queryDiagnostics_; }
 
 private:
 	PerformanceTuning() = default;
@@ -184,6 +195,8 @@ private:
 
 	bool EnsureD3D11Queries(ID3D11Device* a_device, ID3D11DeviceContext* a_context);
 	void ResolveD3D11Queries(ID3D11DeviceContext* a_context);
+	void QuarantineD3D11Queries(HRESULT failure);
+	void PublishUnavailableD3D11Slot(const D3D11QuerySlot& slot);
 	void PushPercentileSample(
 		std::array<float, kPercentileWindow>& a_window,
 		std::size_t& a_next,
@@ -194,7 +207,7 @@ private:
 		std::size_t a_count);
 	void MaybeRefreshPercentiles();
 	void MaybeLogTimingSummary();
-	static float Smooth(float a_previous, float a_sample, std::uint64_t a_sampleCount);
+	static float Smooth(float a_previous, float a_sample, bool a_initialized);
 
 	std::array<RouteStatus, static_cast<std::size_t>(Optimization::kCount)> routeStatus_{};
 
@@ -203,6 +216,9 @@ private:
 	std::array<D3D11QuerySlot, kQuerySlots> d3d11Slots_{};
 	std::uint64_t recordingGeneration_{};
 	ScopeDiagnostics scopeDiagnostics_{};
+	// Clear timing window / settings toggles do not retry a failed pair. Only
+	// replacement of the device/context pair creates fresh query objects.
+	QueryDiagnostics queryDiagnostics_{};
 	int activeD3D11Slot_{ -1 };
 	std::size_t nextD3D11Slot_{ 0 };
 

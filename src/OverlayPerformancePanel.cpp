@@ -70,7 +70,13 @@ void OverlayUI::DrawStageMeasurements(SettingsPage page)
 {
     const auto* performance = PerformanceTuning::GetSingleton();
     const auto& timings = performance->GetTimingSnapshot();
-    if (!performance->TimingEnabled() || !timings.d3d11Samples)
+    if (performance->TimingEnabled() && performance->GetQueryDiagnostics().quarantined)
+    {
+        ImGui::TextDisabled("GPU timings unavailable (query failure)");
+        DrawSettingsHelp("GPU timing queries failed. Restarting the game retries timings; rendering continues.");
+        return;
+    }
+    if (!performance->TimingEnabled() || !timings.lastCompletedGeneration)
     {
         ImGui::TextDisabled("%s", performance->TimingEnabled() ? "GPU timings: waiting" : "GPU timings: off");
         DrawSettingsHelp("Enable stage timings in Advanced, then Apply.");
