@@ -9,8 +9,8 @@ CMakeUserPresets.json
 *.idb
 *.zip
 __pycache__/
-/AGENTS.md
-/.agents/
+/.agents/*
+!/.agents/skills/
 /.codex/
 
 # Private workstation tooling, knowledge and configuration
