@@ -154,5 +154,26 @@ int main()
     Require(!availability.UnavailableReason(request, classify) && probes == 4, "turning NR off clears unavailable status without I/O");
     request.enabled = true; build = RuntimeBuild::Nexus3108; availability.Reset();
     Require(!availability.UnavailableReason(request, classify) && probes == 5, "re-enable can refresh a replaced runtime");
+
+    // ConfigureNeuralRendering resets availability on each off/on. An initialized
+    // pass supplies the build of its retained module only for the bound request.
+    for (int toggle = 0; toggle < 10; ++toggle) {
+        request.enabled = false;
+        Require(!availability.UnavailableReason(request, classify, RuntimeBuild::Nexus3108), "retained runtime is inactive when disabled");
+        request.enabled = true; availability.Reset();
+        Require(!availability.UnavailableReason(request, classify, RuntimeBuild::Nexus3108), "retained modern runtime resumes");
+    }
+    Require(probes == 5, "enable-only toggles do not hash the retained runtime again");
+    availability.Reset();
+    Require(availability.UnavailableReason(request, classify, RuntimeBuild::Legacy), "retained identity still enforces reconstruction admission");
+    Require(probes == 5, "retained legacy admission requires no disk probe");
+    request.runtimePath = "changed.dll"; build = RuntimeBuild::Unknown;
+    Require(availability.UnavailableReason(request, classify) && probes == 6, "changed request without a matching retained feature is verified and rejected");
+    request.enabled = false;
+    Require(!availability.UnavailableReason(request, classify) && probes == 6, "failed runtime stays dormant while off");
+    request.enabled = true; build = RuntimeBuild::Nexus3108; availability.Reset();
+    Require(!availability.UnavailableReason(request, classify) && probes == 7, "unsupported replacement can still recover on enable");
+    availability.Reset();
+    Require(!availability.UnavailableReason(request, classify) && probes == 8, "retired feature cannot supply a cached module identity");
     std::puts("NR world contract: native/external placement, temporal changes, UI ownership and missing runtime/host checks passed.");
 }

@@ -76,7 +76,7 @@ static void Passes(GPU& gpu){
         // 0=native late/UI, 1=native early, 2=CS early/producer RGB, 3=CS late.
         const bool world=route!=0,producer=route==2;
         const unsigned w=100,h=60,gw=50,gh=30;
-        NeuralOptions options;options.enabled=true;options.runtimePath="scripted.dll";
+        NeuralOptions options;options.enabled=true;options.runtimePath=std::filesystem::absolute("scripted.dll");
         options.beforeUpscaling=route==1 || route==2;options.worldOnly=route>=2;options.passes=passes;
         options.tuning.uiCorrection=!world;options.reconstruction.peripheralCompression=peripheral;
         options.reconstruction.producerColor=producer;options.reconstruction.inputScale=scale;
@@ -89,6 +89,7 @@ static void Passes(GPU& gpu){
         auto uiPixels=std::vector<Pixel>(w*h,{.05f,.025f,0,.25f});
         auto ui=gpu.Texture(w,h,uiPixels),composed=gpu.Texture(w,h);
         NeuralPass pass;
+        Require(pass.RetainedRuntimeBuild(options.runtimePath)==RuntimeBuild::Unknown,"uninitialized pass has no verified module");
         for(unsigned frame=0;frame<4;++frame){
             auto pixels=Pattern(w,h,producer);for(auto& p:pixels)p[2]+=.01f*frame;
             auto scene=gpu.Texture(w,h,pixels);
@@ -97,6 +98,11 @@ static void Passes(GPU& gpu){
                 motion.Get(),depth.Get(),world?nullptr:ui.Get(),scene.Get(),world?nullptr:composed.Get());
             Require(recorded,pass.Status().c_str());gpu.End();
             Require(!pass.NeedsRecreation(options,gw,gh),"stable producer extents do not recreate packed feature");
+            Require(pass.RetainedRuntimeBuild(options.runtimePath)==RuntimeBuild::Nexus3108,"initialized pass retains the exact verified request");
+            Require(pass.RetainedRuntimeBuild(options.runtimePath.parent_path()/"other.dll")==RuntimeBuild::Unknown,"changed runtime cannot borrow the live identity");
+            Require(pass.RetainedRuntimeBuild("scripted.dll")==RuntimeBuild::Unknown,"relative runtime requests still require path verification");
+            auto disabled=options;disabled.enabled=false;
+            Require(!pass.NeedsRecreation(disabled,gw,gh),"off/on retains initialized feature resources");
             auto changed=options;changed.reconstruction.peripheralCompression=!peripheral;
             Require(pass.NeedsRecreation(changed,gw,gh),"layout toggle requires retirement/recreation");
             Require(pass.NeedsRecreation(options,gw+1,gh),"producer guide resize requires recreation");

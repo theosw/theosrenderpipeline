@@ -1,9 +1,7 @@
 #include "SourceDLSSGNeuralResolve.h"
-#include "SourceDLSSGNeuralResolveShader.h"
-#include <d3dcompiler.h>
+#include "TRPNeuralShaders.generated.h"
 #include <algorithm>
 #include <climits>
-#include <cstdio>
 
 namespace TheosRenderPipeline::SourceDLSSG
 {
@@ -28,16 +26,10 @@ namespace TheosRenderPipeline::SourceDLSSG
 		ComPtr<ID3D12RootSignature> root;
 		hr = device->CreateRootSignature(0, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&root));
 		if (FAILED(hr)) { return hr; }
-		const char* entries[]{ "Downsample", "Residual", "Ratio", "PackDepth", "PackMotion", "PrepareColor", "PackGuides", "ResizeColor", "RestoreSecond" };
+		static_assert(CompiledNeuralShaders::Resolve.size() == std::tuple_size_v<decltype(pipelines_)>);
 		for (unsigned i = 0; i < pipelines_.size(); ++i) {
-			ComPtr<ID3DBlob> shader;
-			hr = D3DCompile(kNeuralResolveShader, sizeof(kNeuralResolveShader) - 1, "TheosRenderPipeline-NR-resolve", nullptr, nullptr,
-				entries[i], "cs_5_1", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &shader, &errors);
-			if (FAILED(hr)) {
-				if (errors) { std::fprintf(stderr, "%.*s\n", static_cast<int>(errors->GetBufferSize()), static_cast<const char*>(errors->GetBufferPointer())); }
-				return hr;
-			}
-			D3D12_SHADER_BYTECODE bytecode{ shader->GetBufferPointer(), shader->GetBufferSize() };
+			const auto& shader = CompiledNeuralShaders::Resolve[i];
+			D3D12_SHADER_BYTECODE bytecode{ shader.data, shader.size };
 			D3D12_COMPUTE_PIPELINE_STATE_DESC pso{}; pso.pRootSignature = root.Get(); pso.CS = bytecode;
 			hr = device->CreateComputePipelineState(&pso, IID_PPV_ARGS(&pipelines_[i]));
 			if (FAILED(hr)) { return hr; }
