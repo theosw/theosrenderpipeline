@@ -86,7 +86,8 @@ cmake --build --preset arp-nvidia --parallel 2
 ```
 
 `ARPBaseline` builds the renderer in `out/build/nvidia/Release` without deploying
-or launching. Configure separate directories for Standard
+or launching. The build compiles and embeds NR shader bytecode; generated headers
+stay in the build directory. Configure separate directories for Standard
 (`TRP_ENABLE_OPTIONAL_FEATURES=OFF`) and Universal (`ON`, default), keeping
 `TRP_ENABLE_NEURAL_RENDERING=ON` for both. Store workstation paths in ignored
 `CMakeUserPresets.json`. Set `TRP_NGX_LIB` if the NGX import library is elsewhere.

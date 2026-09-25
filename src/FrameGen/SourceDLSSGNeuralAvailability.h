@@ -12,11 +12,16 @@ namespace TheosRenderPipeline::SourceDLSSG
     public:
         void Reset() { checked_ = false; }
 
-        template<class Classify> const char* UnavailableReason(const NeuralOptions& options, Classify classify)
+        template<class Classify> const char* UnavailableReason(const NeuralOptions& options, Classify classify,
+            NeuralRendering::RuntimeBuild retainedBuild = NeuralRendering::RuntimeBuild::Unknown)
         {
             if (!options.enabled) { return nullptr; }
             if (!checked_ || path_ != options.runtimePath) {
-                build_ = classify(options.runtimePath);
+                // An initialized feature owns the verified module reference. Reuse
+                // that identity on off/on; requests without a matching live feature
+                // still probe the file, including retrying an unsupported runtime.
+                build_ = retainedBuild != NeuralRendering::RuntimeBuild::Unknown ?
+                    retainedBuild : classify(options.runtimePath);
                 path_ = options.runtimePath;
                 checked_ = true;
             }

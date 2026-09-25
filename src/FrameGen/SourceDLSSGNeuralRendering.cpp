@@ -1,7 +1,7 @@
 #include <PCH.h>
 #include "SourceDLSSGNeuralRendering.h"
+#include "TRPNeuralShaders.generated.h"
 #include <chrono>
-#include <d3dcompiler.h>
 
 namespace TheosRenderPipeline::SourceDLSSG
 {
@@ -28,15 +28,6 @@ namespace TheosRenderPipeline::SourceDLSSG
 			return Texture(a) && Texture(b) && a->GetDesc().Width == b->GetDesc().Width &&
 				a->GetDesc().Height == b->GetDesc().Height;
 		}
-		constexpr char kCompose[] = R"(
-Texture2D<float4> scene : register(t0);
-Texture2D<float4> ui : register(t1);
-RWTexture2D<float4> output : register(u0);
-[numthreads(8,8,1)] void main(uint3 p : SV_DispatchThreadID) {
-    uint w,h; output.GetDimensions(w,h); if (p.x >= w || p.y >= h) return;
-    float4 s = scene.Load(int3(p.xy,0)), u = ui.Load(int3(p.xy,0));
-    output[p.xy] = float4(s.rgb * (1.0 - u.a) + u.rgb, max(s.a, u.a));
-})";
 	}
 
 	NeuralPass::~NeuralPass()
@@ -183,15 +174,13 @@ RWTexture2D<float4> output : register(u0);
 				parameter.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
 				parameter.DescriptorTable = { 2, ranges };
 				D3D12_ROOT_SIGNATURE_DESC rootDesc{}; rootDesc.NumParameters = 1; rootDesc.pParameters = &parameter;
-				Microsoft::WRL::ComPtr<ID3DBlob> signature, errors, shader;
+				Microsoft::WRL::ComPtr<ID3DBlob> signature, errors;
 				if (!check(D3D12SerializeRootSignature(&rootDesc, D3D_ROOT_SIGNATURE_VERSION_1,
 					&signature, &errors), "NR compose root serialization") ||
 					!check(device->CreateRootSignature(0, signature->GetBufferPointer(), signature->GetBufferSize(),
-						IID_PPV_ARGS(&root_)), "NR compose root") ||
-					!check(D3DCompile(kCompose, sizeof(kCompose) - 1, "SourceDLSSG-NR-compose", nullptr, nullptr,
-						"main", "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &shader, &errors), "NR compose shader")) { return false; }
+						IID_PPV_ARGS(&root_)), "NR compose root")) { return false; }
 				D3D12_COMPUTE_PIPELINE_STATE_DESC pso{}; pso.pRootSignature = root_.Get();
-				pso.CS = { shader->GetBufferPointer(), shader->GetBufferSize() };
+				pso.CS = { CompiledNeuralShaders::Compose.data, CompiledNeuralShaders::Compose.size };
 				if (!check(device->CreateComputePipelineState(&pso, IID_PPV_ARGS(&pipeline_)), "NR compose pipeline")) { return false; }
 				for (auto& heap : heaps_) {
 					D3D12_DESCRIPTOR_HEAP_DESC d{ D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 3, D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE, 0 };

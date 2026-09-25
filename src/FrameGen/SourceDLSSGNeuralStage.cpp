@@ -23,11 +23,13 @@ namespace TheosRenderPipeline::SourceDLSSG
 	const char* Backend::NeuralUnavailableReason(const NeuralOptions& options)
 	{
 		std::scoped_lock lock(neuralMutex_);
+		const auto retainedBuild = neuralPass_ ? neuralPass_->RetainedRuntimeBuild(options.runtimePath) :
+			NeuralRendering::RuntimeBuild::Unknown;
 		const auto reason = neuralAvailability_.UnavailableReason(options, [](const std::filesystem::path& path) {
 			const auto identity = NeuralRenderingRuntimeIdentity::VerifySource(path, true);
 			return identity.matched ? NeuralRendering::MatchRuntime(identity.size, identity.sha256, true) :
 				NeuralRendering::RuntimeBuild::Unknown;
-		});
+		}, retainedBuild);
 		if (reason && reason != neuralReportedUnavailable_) { logger::warn("[SourceDLSSG NR] {}", reason); }
 		neuralReportedUnavailable_ = reason;
 		return reason;

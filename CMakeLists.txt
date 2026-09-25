@@ -38,6 +38,8 @@ option(TRP_ENABLE_NEURAL_RENDERING "Include Neural Rendering integration and con
 option(TRP_ENABLE_OPTIONAL_FEATURES "Include optional Ada/Ampere/Turing MFG compatibility" ON)
 if(TRP_ENABLE_NEURAL_RENDERING)
     target_sources(TheosRenderPipeline PRIVATE ${ARP_NEURAL_SOURCES})
+    include(cmake/NeuralShaders.cmake)
+    trp_target_neural_shaders(TheosRenderPipeline)
 else()
     target_compile_definitions(TheosRenderPipeline PRIVATE TRP_NO_NEURAL_RENDERING)
     target_sources(TheosRenderPipeline PRIVATE src/FrameGen/SourceDLSSGNeuralDisabled.cpp)

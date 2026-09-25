@@ -26,6 +26,13 @@ namespace TheosRenderPipeline::SourceDLSSG
 		ID3D12Resource* Corrected() const { return corrected_.Get(); }
 		NeuralTelemetrySnapshot Telemetry() const { return telemetry_.Snapshot(); }
 		void RetireTelemetry();
+		NeuralRendering::RuntimeBuild RetainedRuntimeBuild(const std::filesystem::path& request) const
+		{
+			// runtimePath_ is published only after every requested feature initializes.
+			// Changed spellings take the normal verification path; do no filesystem I/O here.
+			return request.is_absolute() && runtimePath_ == request && feature_.IsInitialized() ? feature_.Build() :
+				NeuralRendering::RuntimeBuild::Unknown;
+		}
 		bool NeedsRecreation(const NeuralOptions& options, UINT guideWidth = 0, UINT guideHeight = 0) const
 		{
 			return feature_.IsInitialized() && (runtimePath_ != options.runtimePath || beforeUpscaling_ != options.beforeUpscaling || worldOnly_ != options.WorldOnly() || passes_ != options.passes ||
