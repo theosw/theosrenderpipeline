@@ -67,6 +67,7 @@ set(ARP_BASELINE_SOURCES
     src/FrameGen/NativeUIComposition.cpp
     src/DRS.cpp
     src/DRS.h
+    src/MenuRenderState.h
     src/RenderPipeline.cpp
     src/RenderPipeline.h
     src/ReShadeIntegration.cpp
