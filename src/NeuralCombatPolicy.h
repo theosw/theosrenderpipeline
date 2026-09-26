@@ -50,7 +50,7 @@ namespace TheosRenderPipeline::NeuralRendering
                 return PassOverride::None;
             }
             if (settings != settings_) { Reset(); settings_ = settings; }
-            const double elapsed = hasTime_ && !paused_ && !state.paused ? std::max(0.0, now - lastTime_) : 0.0;
+            const double elapsed = hasTime_ && !paused_ && !state.paused ? (std::max)(0.0, now - lastTime_) : 0.0;
             lastTime_ = now;
             hasTime_ = true;
             paused_ = state.paused;

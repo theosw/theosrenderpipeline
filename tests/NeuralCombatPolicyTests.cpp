@@ -1,7 +1,12 @@
-#include "NeuralCombatPolicy.h"
+#include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <limits>
+// The plugin's Windows PCH can expose this macro after the standard headers.
+#define max(a, b) windows_max_macro_must_not_expand(a, b)
+#include "NeuralCombatPolicy.h"
+#undef max
 
 using namespace TheosRenderPipeline::NeuralRendering;
 static void Require(bool value, const char* why)
