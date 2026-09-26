@@ -1,5 +1,5 @@
 // Included by SourceDLSSGNeuralRendering.cpp inside its namespace. Both feature
-// histories evaluate once per source frame. No CPU wait is introduced here.
+// histories evaluate once per active source frame. No CPU wait is introduced here.
 bool NeuralPass::RecordSecond(ID3D12Device* device, ID3D12GraphicsCommandList* list, std::size_t slot,
 	const NeuralOptions& options, const NeuralRendering::FeatureSession::EvaluationInput& first,
 	const ResolveConstants& originalConstants, ID3D12Resource* motion, ID3D12Resource* depth, ID3D12Resource* ui,
@@ -20,7 +20,7 @@ bool NeuralPass::RecordSecond(ID3D12Device* device, ID3D12GraphicsCommandList* l
 	second.color = first.output;
 	second.output = secondOutput_.Get();
 	second.tuning = options.EffectiveSecond().tuning;
-	second.reset = first.reset || secondFeature_.EvaluationsRecorded() == 0;
+	second.reset = first.reset || secondHistoryInvalid_ || secondFeature_.EvaluationsRecorded() == 0;
 	if (secondInput_) {
 		// Already encoded/warped model colour: resize it without encoding or
 		// applying the peripheral mapping a second time.
@@ -58,6 +58,7 @@ bool NeuralPass::RecordSecond(ID3D12Device* device, ID3D12GraphicsCommandList* l
 	Transition(list, second.output, common, write);
 	second.backbuffer = NeuralRendering::UsesReconstructionContract(secondFeature_.Build()) ? second.output : first.backbuffer;
 	if (!secondFeature_.RecordEvaluation(second)) { status_ = "NR second pass: " + secondFeature_.Status(); return false; }
+	secondHistoryInvalid_ = false;
 	return true;
 }
 

@@ -3,6 +3,7 @@
 #include "SourceDLSSGBackend.h"
 #include "ReShadeIntegration.h"
 #include "RenderPipeline.h"
+#include "NeuralCombatMode.h"
 
 namespace TheosRenderPipeline
 {
@@ -21,6 +22,9 @@ namespace TheosRenderPipeline
         cameraValid_ = SourceDLSSG::CaptureCameraCandidate(input.graphics, input.render.width,
             input.render.height, input.jitterX, input.jitterY, reset_, input.jittered, camera_, candidate_);
         auto options = SourceDLSSG::Backend::Get().NeuralConfiguration();
+#if !defined(TRP_NO_NEURAL_RENDERING)
+        NeuralRendering::ApplyCombatMode(options, eligible_);
+#endif
         options.worldOnly = true;
         options.tuning.uiCorrection = false;
         options.reconstruction.producerColor = options.beforeUpscaling;
@@ -52,7 +56,7 @@ namespace TheosRenderPipeline
             logger::info("[CS Adapter] NR input={} allocation={}x{} active={}x{} format={} passes={} inputScale={} resolve={} HDR={} producerColor={}; UI excluded",
                 options_.beforeUpscaling ? "pre-upscale world" : "post-processing scene",
                 desc.Width, desc.Height, extent.width, extent.height, static_cast<unsigned>(desc.Format),
-                options_.passes, options_.reconstruction.inputScale, static_cast<unsigned>(options_.reconstruction.method),
+                options_.EffectivePasses(), options_.reconstruction.inputScale, static_cast<unsigned>(options_.reconstruction.method),
                 options_.reconstruction.colorIsHDR, options_.reconstruction.producerColor);
             neuralBoundaryReported_ = true;
         }

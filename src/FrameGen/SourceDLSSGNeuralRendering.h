@@ -76,6 +76,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		bool beforeUpscaling_{};
 		bool worldOnly_{};
 		int passes_{1};
+		bool secondHistoryInvalid_{true};
 		Microsoft::WRL::ComPtr<ID3D12RootSignature> root_;
 		Microsoft::WRL::ComPtr<ID3D12PipelineState> pipeline_;
 		std::array<Microsoft::WRL::ComPtr<ID3D12DescriptorHeap>, kCommandSlots> heaps_;
