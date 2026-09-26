@@ -76,6 +76,7 @@ set(ARP_BASELINE_SOURCES
     src/ReShadeSwapChain.h
     src/ScreenshotFile.cpp
     src/ScreenshotFile.h
+    src/ScreenshotWorker.h
     src/SettingsFile.h
     src/PluginPaths.h
     src/SkyrimRuntime.h

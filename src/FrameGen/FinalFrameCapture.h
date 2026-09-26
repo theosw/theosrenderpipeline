@@ -7,6 +7,7 @@
 #include <limits>
 #include <utility>
 #include <vector>
+#include "../ScreenshotWorker.h"
 
 namespace TheosRenderPipeline
 {
@@ -76,24 +77,29 @@ namespace TheosRenderPipeline
             return true;
         }
 
-        static HRESULT Read(const Readback& readback, Image& image)
+        static HRESULT Read(const Readback& readback, Image& image) noexcept
         {
-            if (!readback.buffer) { return E_INVALIDARG; }
-            // The final row is not padded to RowPitch; read to the buffer's end.
-            const D3D12_RANGE range{static_cast<SIZE_T>(readback.footprint.Offset),
-                static_cast<SIZE_T>(readback.buffer->GetDesc().Width)};
-            void* mapped{};
-            auto hr = readback.buffer->Map(0, &range, &mapped);
-            if (FAILED(hr)) { return hr; }
-            Image result{readback.width, readback.height, {}};
-            const bool converted = ToBGR(readback.format, readback.width, readback.height,
-                static_cast<const std::uint8_t*>(mapped) + readback.footprint.Offset,
-                readback.footprint.Footprint.RowPitch, result.bgr);
-            const D3D12_RANGE noWrites{0, 0};
-            readback.buffer->Unmap(0, &noWrites);
-            if (!converted) { return E_INVALIDARG; }
-            image = std::move(result);
-            return S_OK;
+            return ScreenshotBoundary([&]() -> HRESULT {
+                if (!readback.buffer) { return E_INVALIDARG; }
+                // The final row is not padded to RowPitch; read to the buffer's end.
+                const D3D12_RANGE range{static_cast<SIZE_T>(readback.footprint.Offset),
+                    static_cast<SIZE_T>(readback.buffer->GetDesc().Width)};
+                void* mapped{};
+                auto hr = readback.buffer->Map(0, &range, &mapped);
+                if (FAILED(hr)) { return hr; }
+                struct Unmap
+                {
+                    ID3D12Resource* resource;
+                    ~Unmap() { const D3D12_RANGE noWrites{0, 0}; resource->Unmap(0, &noWrites); }
+                } unmap{readback.buffer.Get()};
+                Image result{readback.width, readback.height, {}};
+                const bool converted = ToBGR(readback.format, readback.width, readback.height,
+                    static_cast<const std::uint8_t*>(mapped) + readback.footprint.Offset,
+                    readback.footprint.Footprint.RowPitch, result.bgr);
+                if (!converted) { return E_INVALIDARG; }
+                image = std::move(result);
+                return S_OK;
+            });
         }
 
         bool Busy() const { return recorded_; }

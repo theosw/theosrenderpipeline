@@ -12,5 +12,5 @@ namespace TheosRenderPipeline::ScreenshotFile
     // Any existing file is left intact on failure. Runs on a worker thread;
     // COM is initialized for the duration of the call when required.
     HRESULT Replace(const std::filesystem::path& path, UINT width, UINT height,
-        const std::vector<std::uint8_t>& bgr, int jpegQuality);
+        const std::vector<std::uint8_t>& bgr, int jpegQuality) noexcept;
 }

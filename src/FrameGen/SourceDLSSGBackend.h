@@ -110,8 +110,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 		void RecordPresentationFeedback(std::uint32_t a_presentCount,
 			std::int64_t a_observedQpc, std::int64_t a_syncQpc);
 		void ResetPresentationFeedback();
-		void RecordScreenshot(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_output, bool a_hdrEncoded);
-		void FinishScreenshot();
+		void RecordScreenshot(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_output, bool a_hdrEncoded) noexcept;
+		void FinishScreenshot() noexcept;
 		static void StreamlineLogCallback(sl::LogType a_type, const char* a_message);
 		HMODULE interposer_{};
 		std::array<HMODULE, 6> runtimeModules_{}; // Retained with this process-resident owner.
@@ -156,6 +156,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// Replaces a ReShade screenshot of the UI-only source runtime with the
 		// final real frame. Failures keep ReShade's file and never fault rendering.
 		FinalFrameCapture screenshotCapture_;
+		ScreenshotWorker screenshotWriter_;
 		std::string screenshotPath_;
 		int screenshotQuality_{};
 		bool screenshotRecorded_{}, screenshotFaultLogged_{};

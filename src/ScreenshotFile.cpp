@@ -1,4 +1,5 @@
 #include "ScreenshotFile.h"
+#include "ScreenshotWorker.h"
 #include <objbase.h>
 #include <wincodec.h>
 #include <wrl/client.h>
@@ -65,21 +66,31 @@ namespace TheosRenderPipeline::ScreenshotFile
     }
 
     HRESULT Replace(const std::filesystem::path& path, UINT width, UINT height,
-        const std::vector<std::uint8_t>& bgr, int jpegQuality)
+        const std::vector<std::uint8_t>& bgr, int jpegQuality) noexcept
     {
-        const auto* container = Container(path);
-        if (!container) { return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED); }
-        if (!width || !height || bgr.size() != std::size_t{width} * height * 3) { return E_INVALIDARG; }
-        const auto initialized = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-        if (FAILED(initialized) && initialized != RPC_E_CHANGED_MODE) { return initialized; }
-        auto temporary = path;
-        temporary += L".trp-tmp";
-        auto hr = Encode(temporary, *container, width, height, bgr, jpegQuality);
-        if (SUCCEEDED(hr) && !MoveFileExW(temporary.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
-            hr = HRESULT_FROM_WIN32(GetLastError());
-        }
-        if (FAILED(hr)) { DeleteFileW(temporary.c_str()); }
-        if (SUCCEEDED(initialized)) { CoUninitialize(); }
-        return hr;
+        return ScreenshotBoundary([&]() -> HRESULT {
+            const auto* container = Container(path);
+            if (!container) { return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED); }
+            if (!width || !height || bgr.size() != std::size_t{width} * height * 3) { return E_INVALIDARG; }
+            const auto initialized = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+            if (FAILED(initialized) && initialized != RPC_E_CHANGED_MODE) { return initialized; }
+            struct Apartment
+            {
+                bool initialized;
+                ~Apartment() { if (initialized) { CoUninitialize(); } }
+            } apartment{SUCCEEDED(initialized)};
+            auto temporary = path;
+            temporary += L".trp-tmp";
+            struct TemporaryFile
+            {
+                const std::filesystem::path& path;
+                ~TemporaryFile() { DeleteFileW(path.c_str()); }
+            } cleanup{temporary};
+            auto hr = Encode(temporary, *container, width, height, bgr, jpegQuality);
+            if (SUCCEEDED(hr) && !MoveFileExW(temporary.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+                hr = HRESULT_FROM_WIN32(GetLastError());
+            }
+            return hr;
+        });
     }
 }

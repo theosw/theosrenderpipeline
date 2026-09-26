@@ -12,6 +12,20 @@
 #include <iterator>
 #include <string>
 #include <thread>
+#include <new>
+#include <stdexcept>
+
+// Fail a single task-local allocation; no system memory pressure is created.
+static thread_local bool failAllocation{};
+void* operator new(std::size_t size)
+{
+    if (failAllocation) { throw std::bad_alloc(); }
+    if (void* p = std::malloc(size ? size : 1)) { return p; }
+    throw std::bad_alloc();
+}
+void operator delete(void* p) noexcept { std::free(p); }
+void operator delete(void* p, std::size_t) noexcept { std::free(p); }
+
 
 using Microsoft::WRL::ComPtr;
 using TheosRenderPipeline::FinalFrameCapture;
@@ -132,6 +146,10 @@ static FinalFrameCapture::Image Capture(Gpu& gpu, FinalFrameCapture& capture, ID
     Check(hr, "capture completes");
     Require(!capture.Busy() && readback.buffer, "completed capture hands over its buffer");
     FinalFrameCapture::Image image;
+    failAllocation = true;
+    const auto allocationFailure = FinalFrameCapture::Read(readback, image);
+    failAllocation = false;
+    Require(allocationFailure == E_OUTOFMEMORY && image.bgr.empty(), "conversion OOM is contained and publishes no partial image");
     // Mapping is legal on any thread once the fence completed.
     std::thread([&] { hr = FinalFrameCapture::Read(readback, image); }).join();
     Check(hr, "read on a worker thread");
@@ -187,12 +205,42 @@ static void CheckFiles(const FinalFrameCapture::Image& image, const std::filesys
     Require(FAILED(ScreenshotFile::Replace(unsupported, image.width, image.height, image.bgr, 90)), "unknown container rejected");
     Require(Contents(kept) == "ReShade UI-layer capture" && Contents(unsupported) == "ReShade UI-layer capture", "failed replacement keeps the original file");
     Require(!std::filesystem::exists(std::filesystem::path(kept) += L".trp-tmp"), "failed replacement leaves no temporary file");
+    failAllocation = true;
+    const auto allocationFailure = ScreenshotFile::Replace(kept, image.width, image.height, image.bgr, 90);
+    failAllocation = false;
+    Require(allocationFailure == E_OUTOFMEMORY && Contents(kept) == "ReShade UI-layer capture", "writer OOM is contained and preserves the existing file");
+    Check(ScreenshotFile::Replace(kept, image.width, image.height, image.bgr, 90), "writer recovers after allocation failure");
+}
+
+static void CheckWorker()
+{
+    TheosRenderPipeline::ScreenshotWorker worker;
+    const auto finish = [&] {
+        for (int i = 0; i < 3000 && worker.Busy(); ++i) { Sleep(1); }
+        Require(!worker.Busy(), "worker completes without blocking presentation");
+        return worker.TakeResult();
+    };
+    Require(worker.Start([]() -> HRESULT { throw std::bad_alloc(); }), "start failing conversion task");
+    Require(finish() == E_OUTOFMEMORY, "allocation exception contained inside actual worker entry point");
+    Require(worker.Start([]() -> HRESULT { throw std::runtime_error("injected file error"); }), "start failing file task");
+    Require(finish() == E_FAIL, "other worker exceptions contained");
+    failAllocation = true;
+    const bool started = worker.Start([] { return S_OK; });
+    failAllocation = false;
+    Require(!started && !worker.Busy() && worker.TakeResult() == E_OUTOFMEMORY, "thread-construction allocation failure contained");
+    std::atomic_bool release{};
+    Require(worker.Start([&] { while (!release.load()) { Sleep(1); } return S_OK; }), "start blocked writer");
+    const bool overlapping = worker.Start([] { return E_UNEXPECTED; });
+    release = true;
+    Require(finish() == S_OK && !overlapping, "active encoders are bounded to one");
+    Require(worker.Start([] { return S_OK; }) && finish() == S_OK, "worker recovers after errors and busy rejection");
 }
 
 int main()
 {
     SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
     CheckConversion();
+    CheckWorker();
     Check(CoInitializeEx(nullptr, COINIT_MULTITHREADED), "COM");
 
     ComPtr<IDXGIFactory4> factory; Check(CreateDXGIFactory1(IID_PPV_ARGS(&factory)), "DXGI factory");
