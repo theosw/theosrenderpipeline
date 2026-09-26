@@ -1,4 +1,5 @@
 #include "RCASParameters.h"
+#include <d3d11_1.h>
 #include <d3dcompiler.h>
 #include <array>
 #include <cstdio>
@@ -73,10 +74,14 @@ int main(int argc, char** argv)
     Check(device->CreateUnorderedAccessView(output.Get(), nullptr, &uav), "UAV");
     const auto path = std::filesystem::path(argv[1]).wstring();
     const auto dynamic = Shader(device.Get(), path.c_str());
-    const D3D11_BUFFER_DESC desc{16, D3D11_USAGE_DEFAULT, D3D11_BIND_CONSTANT_BUFFER, 0, 0, 0};
+    const D3D11_BUFFER_DESC desc{512, D3D11_USAGE_DEFAULT, D3D11_BIND_CONSTANT_BUFFER, 0, 0, 0};
     ComPtr<ID3D11Buffer> originalBinding;
     Check(device->CreateBuffer(&desc, nullptr, &originalBinding), "original constant buffer");
-    auto* before = originalBinding.Get(); context->CSSetConstantBuffers(0, 1, &before);
+    ComPtr<ID3D11DeviceContext1> context1;
+    Check(context.As(&context1), "D3D11.1 context");
+    auto* before = originalBinding.Get();
+    const UINT firstConstant = 16, constantCount = 16;
+    context1->CSSetConstantBuffers1(0, 1, &before, &firstConstant, &constantCount);
     TheosRenderPipeline::RCASParameters parameters;
     ID3D11Buffer* firstBuffer{};
     float difference{};
@@ -91,6 +96,10 @@ int main(int argc, char** argv)
         }
         ComPtr<ID3D11Buffer> restored; context->CSGetConstantBuffers(0, 1, &restored);
         Require(restored.Get() == before, "caller constant binding restored after dispatch");
+        UINT restoredFirst{}, restoredCount{};
+        ComPtr<ID3D11Buffer> rangeBuffer;
+        context1->CSGetConstantBuffers1(0, 1, &rangeBuffer, &restoredFirst, &restoredCount);
+        Require(restoredFirst == firstConstant && restoredCount == constantCount, "caller constant-buffer range restored");
         const auto literal = std::to_string(strength);
         const auto legacy = Shader(device.Get(), path.c_str(), literal.c_str());
         const auto expected = Run(device.Get(), context.Get(), legacy.Get(), srv.Get(), output.Get(), uav.Get());

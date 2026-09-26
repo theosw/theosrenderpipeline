@@ -30,6 +30,10 @@ static Context Scene()
 }
 static void Resolution()
 {
+    Require(RuntimeRecord("Weather.esp", 0x02ABCDEF, false) == RuntimeRecord("WEATHER.ESP", 0xB1ABCDEF, false),
+        "full-plugin identity survives load-order changes");
+    Require(RuntimeRecord("Weather.esl", 0xFE012ABC, true) == RuntimeRecord("WEATHER.ESL", 0xFEFEDABC, true) &&
+        RuntimeRecord("Weather.esl", 0xFE012ABC, true).localID == 0xABC, "light-plugin identity excludes both runtime indices");
     Settings settings;
     const auto base = Value(.6f, .3f);
     auto scene = Scene();

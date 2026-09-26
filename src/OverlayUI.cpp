@@ -371,7 +371,7 @@ void OverlayUI::BuildUI()
 
 void OverlayUI::OnPresent(ID3D11Texture2D* producerUI)
 {
-    const auto* gameUI = RE::UI::GetSingleton();
+    auto* gameUI = RE::UI::GetSingleton();
     if (!gameUI || gameUI->IsMenuOpen(RE::MainMenu::MENU_NAME) || gameUI->IsMenuOpen(RE::LoadingMenu::MENU_NAME)) {
         TheosRenderPipeline::Appearance::Runtime::Get().Invalidate();
     }

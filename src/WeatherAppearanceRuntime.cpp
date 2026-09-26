@@ -10,7 +10,7 @@ Weather ReadWeather(const RE::TESWeather* weather)
     Weather result;
     if (!weather) { return result; }
     if (const auto* file = weather->GetFile(0)) {
-        result.record = Normalize({std::string(file->GetFilename()), weather->GetLocalFormID()});
+        result.record = RuntimeRecord(std::string(file->GetFilename()), weather->GetFormID(), file->IsLight());
     }
     using Flag = RE::TESWeather::WeatherDataFlag;
     const auto flags = weather->data.flags;
@@ -23,7 +23,7 @@ Weather ReadWeather(const RE::TESWeather* weather)
 Context ReadContext()
 {
     Context result;
-    const auto* ui = RE::UI::GetSingleton();
+    auto* ui = RE::UI::GetSingleton();
     if (!ui || ui->IsMenuOpen(RE::MainMenu::MENU_NAME) || ui->IsMenuOpen(RE::LoadingMenu::MENU_NAME)) { return result; }
     const auto* player = RE::PlayerCharacter::GetSingleton();
     const auto* sky = RE::Sky::GetSingleton();

@@ -1,6 +1,6 @@
 #pragma once
 
-#include <d3d11.h>
+#include <d3d11_1.h>
 #include <wrl/client.h>
 #include <algorithm>
 #include <cmath>
@@ -34,15 +34,24 @@ public:
     public:
         Binding(ID3D11DeviceContext* context, ID3D11Buffer* buffer) : context_(context)
         {
-            context_->CSGetConstantBuffers(0, 1, &previous_);
+            if (SUCCEEDED(context_->QueryInterface(IID_PPV_ARGS(&context1_)))) {
+                context1_->CSGetConstantBuffers1(0, 1, &previous_, &firstConstant_, &constantCount_);
+            } else { context_->CSGetConstantBuffers(0, 1, &previous_); }
             context_->CSSetConstantBuffers(0, 1, &buffer);
         }
-        ~Binding() { context_->CSSetConstantBuffers(0, 1, &previous_); if (previous_) { previous_->Release(); } }
+        ~Binding()
+        {
+            if (context1_) { context1_->CSSetConstantBuffers1(0, 1, &previous_, &firstConstant_, &constantCount_); }
+            else { context_->CSSetConstantBuffers(0, 1, &previous_); }
+            if (previous_) { previous_->Release(); }
+        }
         Binding(const Binding&) = delete;
         Binding& operator=(const Binding&) = delete;
     private:
         ID3D11DeviceContext* context_;
         ID3D11Buffer* previous_{};
+        Microsoft::WRL::ComPtr<ID3D11DeviceContext1> context1_;
+        UINT firstConstant_{}, constantCount_{};
     };
     Binding Bind(ID3D11DeviceContext* context) const { return {context, buffer_.Get()}; }
     ID3D11Buffer* Buffer() const { return buffer_.Get(); }

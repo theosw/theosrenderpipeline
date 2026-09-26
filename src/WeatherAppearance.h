@@ -73,6 +73,11 @@ inline bool Valid(const Record& record)
     return !record.plugin.empty() && record.plugin.size() <= 255 && record.localID > 0 &&
         record.localID <= 0xFFFFFF && record.plugin.find_first_of("/\\\r\n\t") == std::string::npos;
 }
+inline Record RuntimeRecord(std::string plugin, std::uint32_t formID, bool light)
+{
+    // Strip the full-plugin index or both parts of the FE light-plugin index.
+    return Normalize({std::move(plugin), formID & (light ? 0xFFFu : 0xFFFFFFu)});
+}
 struct Profile
 {
     bool enabled{}, neural{true}, sharpening{true};
