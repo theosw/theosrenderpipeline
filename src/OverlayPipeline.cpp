@@ -74,8 +74,8 @@ SettingsPage DrawPipelineDiagram(const PipelineDiagram& diagram)
     {
         const float branchY = origin.y + headerHeight * 0.5f;
         const float arrow = lineHeight * 0.3f;
-        draw->AddLine(ImVec2(uiEnd.x, branchY), ImVec2(branchX, branchY), amber, 1.5f);
-        draw->AddLine(ImVec2(branchX, branchY), ImVec2(branchX, middle - arrow), amber, 1.5f);
+        draw->AddLine(ImVec2(uiEnd.x, branchY), ImVec2(branchX, branchY), amber, Px(1.5f));
+        draw->AddLine(ImVec2(branchX, branchY), ImVec2(branchX, middle - arrow), amber, Px(1.5f));
         draw->AddTriangleFilled(ImVec2(branchX - arrow, middle - arrow * 2.0f),
                                 ImVec2(branchX + arrow, middle - arrow * 2.0f), ImVec2(branchX, middle - arrow * 0.5f),
                                 amber);
@@ -83,7 +83,7 @@ SettingsPage DrawPipelineDiagram(const PipelineDiagram& diagram)
 
     const auto statusColor = ImGui::GetColorU32(diagram.statusColor);
     const float statusX = origin.x + width - ImGui::CalcTextSize(diagram.status).x;
-    draw->AddCircleFilled(ImVec2(statusX - lineHeight, origin.y + headerHeight * 0.5f), 3.0f, statusColor);
+    draw->AddCircleFilled(ImVec2(statusX - lineHeight, origin.y + headerHeight * 0.5f), Px(3.0f), statusColor);
     draw->AddText(ImVec2(statusX, origin.y + style.FramePadding.y), statusColor, diagram.status);
 
     for (std::size_t i = 0; i < diagram.stages.size(); ++i)
@@ -133,16 +133,16 @@ SettingsPage DrawPipelineDiagram(const PipelineDiagram& diagram)
         if (i + 1 < diagram.stages.size())
         {
             const float arrow = lineHeight * 0.3f;
-            const float tip = end.x + gap - 3.0f;
-            draw->AddLine(ImVec2(end.x, middle), ImVec2(tip - arrow, middle), amber, 1.5f);
+            const float tip = end.x + gap - Px(3.0f);
+            draw->AddLine(ImVec2(end.x, middle), ImVec2(tip - arrow, middle), amber, Px(1.5f));
             draw->AddTriangleFilled(ImVec2(tip - arrow, middle - arrow), ImVec2(tip, middle),
                                     ImVec2(tip - arrow, middle + arrow), amber);
         }
     }
     if (diagram.nativeUI)
     {
-        draw->AddCircleFilled(ImVec2(branchX, middle), 3.0f, ImGui::GetColorU32(kPanel));
-        draw->AddCircle(ImVec2(branchX, middle), 3.0f, amber, 12, 1.5f);
+        draw->AddCircleFilled(ImVec2(branchX, middle), Px(3.0f), ImGui::GetColorU32(kPanel));
+        draw->AddCircle(ImVec2(branchX, middle), Px(3.0f), amber, 12, Px(1.5f));
     }
     ImGui::SetCursorScreenPos(origin);
     ImGui::Dummy(ImVec2(width, height));

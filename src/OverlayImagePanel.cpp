@@ -295,7 +295,7 @@ void OverlayUI::DrawTextureMemoryPanel(const FrameView& view)
     static constexpr const char* kTextureCategories[]{"Diffuse", "Normal", "Parallax", "Material", "Glow", "Mask"};
     if (ImGui::BeginTable("##textureCaps", 2, ImGuiTableFlags_SizingStretchProp))
     {
-        ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, 105.0f);
+        ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, Px(105.0f));
         ImGui::TableSetupColumn("Maximum dimension", ImGuiTableColumnFlags_WidthStretch, 1.0f);
         for (std::size_t i = 0; i < settingsDraft.textureProviderSettings.maxSize.size(); ++i)
         {

@@ -1,0 +1,2 @@
+// Overlay font, loaded by name from the plugin module (see THIRD-PARTY.md).
+TRP_OVERLAY_FONT RCDATA "@TRP_OVERLAY_FONT@"

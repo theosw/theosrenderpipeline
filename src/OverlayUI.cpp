@@ -62,8 +62,9 @@ void OverlayUI::Init(IDXGISwapChain* a_swapChain, ID3D11Device* a_device, ID3D11
     menuIni.SetUnicode();
     if (menuIni.LoadFile(L"Data\\SKSE\\Plugins\\TheosRenderPipeline.ini") >= 0)
         layout = LoadLayout(menuIni);
-	ImGui::StyleColorsDark();
-	ApplyRendererStyle();
+	// The first frame refits this to the output; DX11 builds the atlas lazily.
+	ApplyRendererStyle(1.0f);
+	BuildRendererFont(1.0f);
 	ImGui_ImplWin32_Init(hwnd);
 	ImGui_ImplDX11_Init(device, context);
 	VideoMemoryTelemetry::GetSingleton()->Init(device);
@@ -318,45 +319,65 @@ void OverlayUI::ApplySettingsDraft(bool save)
     }
 }
 
+void OverlayUI::UpdateUIScale()
+{
+    const auto displaySize = ImGui::GetIO().DisplaySize;
+    const float scale = ResolveUIScale(layout.uiScale, displaySize.x, displaySize.y);
+    if (std::abs(scale - UIScale()) < 0.001f)
+        return;
+    ApplyRendererStyle(scale);
+    const bool embedded = BuildRendererFont(scale);
+    // Recreate the font texture before NewFrame; draw data never spans the rebuild.
+    ImGui_ImplDX11_InvalidateDeviceObjects();
+    const bool created = ImGui_ImplDX11_CreateDeviceObjects();
+    layoutPending = true;
+    logger::info("[Overlay] UI scale {:.2f} ({}) for {}x{} font={} texture={}", scale,
+        layout.uiScale > 0 ? "manual" : "automatic", displaySize.x, displaySize.y,
+        embedded ? "embedded" : "fallback", created ? "ready" : "failed");
+}
+
 void OverlayUI::BuildUI()
 {
     const auto view = CaptureFrameView();
     const auto displaySize = ImGui::GetIO().DisplaySize;
     if (displaySize.x <= 0 || displaySize.y <= 0)
         return;
+    const float scale = UIScale();
     if (layoutPending || layoutDisplayWidth != displaySize.x || layoutDisplayHeight != displaySize.y)
     {
-        layout = FitLayout(layout, displaySize.x, displaySize.y);
-        ImGui::SetNextWindowSize(ImVec2(layout.width, layout.height), ImGuiCond_Always);
-        ImGui::SetNextWindowPos(ImVec2(layout.x, layout.y), ImGuiCond_Always);
+        const auto screen = FitLayout(layout, displaySize.x, displaySize.y, scale);
+        ImGui::SetNextWindowSize(ImVec2(screen.width, screen.height), ImGuiCond_Always);
+        ImGui::SetNextWindowPos(ImVec2(screen.x, screen.y), ImGuiCond_Always);
         layoutDisplayWidth = displaySize.x;
         layoutDisplayHeight = displaySize.y;
         layoutPending = false;
     }
     ImGui::SetNextWindowSizeConstraints(
-        ImVec2((std::min)(780.0f, displaySize.x), (std::min)(560.0f, displaySize.y)), displaySize);
+        ImVec2((std::min)(Px(MinWindowWidth), displaySize.x), (std::min)(Px(MinWindowHeight), displaySize.y)),
+        displaySize);
     if (!ImGui::Begin(Plugin::DISPLAY_NAME.data(), nullptr, ImGuiWindowFlags_NoCollapse))
     {
         ImGui::End();
         return;
     }
 
+    // Keep the remembered geometry in 1x units so it follows later scale changes.
     const auto windowPos = ImGui::GetWindowPos();
     const auto windowSize = ImGui::GetWindowSize();
-    layout.x = windowPos.x;
-    layout.y = windowPos.y;
-    layout.width = windowSize.x;
-    layout.height = windowSize.y;
+    layout.x = windowPos.x / scale;
+    layout.y = windowPos.y / scale;
+    layout.width = windowSize.x / scale;
+    layout.height = windowSize.y / scale;
     DrawPipelineSummary(view);
     const auto& layoutStyle = ImGui::GetStyle();
     float reservedActionHeight = ImGui::GetFrameHeightWithSpacing() + ImGui::GetFrameHeight() +
                                        ImGui::GetTextLineHeightWithSpacing() +
                                        layoutStyle.CellPadding.y * 2.0f + layoutStyle.ItemSpacing.y * 2.0f + 1.0f;
     if (actionMessageIsError && !actionMessage.empty()) {
-        const float statusWidth = (std::max)(1.0f, ImGui::GetContentRegionAvail().x - 450.0f - layoutStyle.CellPadding.x * 4.0f);
+        const float statusWidth = (std::max)(1.0f, ImGui::GetContentRegionAvail().x - Px(450.0f) - layoutStyle.CellPadding.x * 4.0f);
         reservedActionHeight += (std::max)(0.0f, ImGui::CalcTextSize(actionMessage.c_str(), nullptr, false, statusWidth).y - ImGui::GetFrameHeight());
     }
-    const float tabCardHeight = (std::max)(220.0f, ImGui::GetContentRegionAvail().y - reservedActionHeight);
+    const float tabCardHeight = (std::max)(Px(220.0f), ImGui::GetContentRegionAvail().y - reservedActionHeight);
 
     if (ImGui::BeginTabBar("##theosrenderpipelineTabs", ImGuiTabBarFlags_None))
     {
@@ -421,6 +442,7 @@ void OverlayUI::OnPresent(ID3D11Texture2D* producerUI)
 			static_cast<float>(nativeUI ? nvidiaHost->OutputWidth() : nvidiaHost->RenderWidth()),
 			static_cast<float>(nativeUI ? nvidiaHost->OutputHeight() : nvidiaHost->RenderHeight()));
 	}
+	UpdateUIScale();
 	ImGui::NewFrame();
 
 	BuildUI();
@@ -473,7 +495,7 @@ void OverlayUI::DrawSettingsActions()
     if (ImGui::BeginTable("##actionBar", 2, ImGuiTableFlags_SizingStretchProp))
     {
         ImGui::TableSetupColumn("##actionStatus", ImGuiTableColumnFlags_WidthStretch, 1.0f);
-        ImGui::TableSetupColumn("##actions", ImGuiTableColumnFlags_WidthFixed, 450.0f);
+        ImGui::TableSetupColumn("##actions", ImGuiTableColumnFlags_WidthFixed, Px(450.0f));
         ImGui::TableNextColumn();
         const auto status = TheosRenderPipeline::SettingsStatus(stagedChanges, actionMessage, actionMessageIsError);
         using StatusKind = TheosRenderPipeline::SettingsStatusKind;
@@ -484,7 +506,7 @@ void OverlayUI::DrawSettingsActions()
         ImGui::PopTextWrapPos();
         ImGui::TableNextColumn();
         ImGui::BeginDisabled(stagedChanges == 0);
-        if (ImGui::Button("Discard", ImVec2(110.0f, 0.0f)))
+        if (ImGui::Button("Discard", ImVec2(Px(110.0f), 0.0f)))
         {
             CaptureSettingsDraft();
             actionMessage = "Unapplied edits discarded.";
@@ -496,7 +518,7 @@ void OverlayUI::DrawSettingsActions()
                 "Discard edits you have not applied. Applied settings and saved defaults stay as they are.");
         }
         ImGui::SameLine();
-        if (ImGui::Button("Apply", ImVec2(100.0f, 0.0f)))
+        if (ImGui::Button("Apply", ImVec2(Px(100.0f), 0.0f)))
         {
             ApplySettingsDraft(false);
         }
@@ -511,14 +533,14 @@ void OverlayUI::DrawSettingsActions()
         ImGui::PushStyleColor(ImGuiCol_Button, kAmber);
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, kOchre);
         ImGui::PushStyleColor(ImGuiCol_ButtonActive, kAmberDim);
-        if (ImGui::Button("Save as default", ImVec2(200.0f, 0.0f)))
+        if (ImGui::Button("Save as default", ImVec2(Px(200.0f), 0.0f)))
         {
             ApplySettingsDraft(true);
         }
         ImGui::PopStyleColor(4);
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
         {
-            ImGui::SetTooltip("Apply live settings and save your choices, window layout and divider for future launches.\n"
+            ImGui::SetTooltip("Apply live settings and save your choices, menu size, window layout and divider for future launches.\n"
                               "Mode and render scale changes take effect after restarting.");
         }
         ImGui::EndTable();
