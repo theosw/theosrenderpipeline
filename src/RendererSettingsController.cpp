@@ -6,6 +6,7 @@
 #include "FrameGen/SourceDLSSGBackend.h"
 #include "PerformanceTuning.h"
 #include "CommunityShaderIntegration.h"
+#include "WeatherAppearanceRuntime.h"
 
 namespace TheosRenderPipeline
 {
@@ -45,6 +46,7 @@ RendererSettingsDraft RendererSettingsController::Capture([[maybe_unused]] bool 
     settingsDraft.directRCASOutput = performanceSettings.directRCASOutput;
     settingsDraft.directDLSSOutput = performanceSettings.directDLSSOutput;
     settingsDraft.sourceDLSSG = frameGen_.settings.sourceDLSSG;
+    settingsDraft.appearance = Appearance::Runtime::Get().Configuration();
 #if !defined(TRP_NO_NEURAL_RENDERING)
     // A saved NR request must not strand unrelated settings behind disabled controls.
     settingsDraft.sourceDLSSG.neuralEnabled &= nrRuntimePresent;
@@ -140,6 +142,7 @@ RendererSettingsResult RendererSettingsController::Apply(const RendererSettingsD
         options.passes = frameGen_.settings.sourceDLSSG.neuralPasses;
         source.ConfigureNeuralRendering(std::move(options));
     }
+    Appearance::Runtime::Get().Configure(settingsDraft.appearance);
     if (a_saveAsDefault)
     {
         const bool saved = upscaler_.SaveINI(layout);

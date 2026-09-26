@@ -3,6 +3,7 @@
 #include "SourceDLSSGBackend.h"
 #include "ReShadeIntegration.h"
 #include "RenderPipeline.h"
+#include "WeatherAppearanceRuntime.h"
 
 namespace TheosRenderPipeline
 {
@@ -24,7 +25,9 @@ namespace TheosRenderPipeline
         options.worldOnly = true;
         options.tuning.uiCorrection = false;
         options.reconstruction.producerColor = options.beforeUpscaling;
-        if (options != options_) { neuralBoundaryReported_ = false; }
+        // CS owns its sharpening. Only TRP NR tuning is applied on this route.
+        Appearance::Runtime::Get().Apply(options, RenderPipeline::GetSingleton()->mSharpness);
+        if (!SourceDLSSG::SameHistoryOptions(options, options_)) { neuralBoundaryReported_ = false; }
         options_ = std::move(options);
         // Early CS color is unfinished producer RGB, not a display-ready image.
         // The paired proxy transfers only NR's changes back to the retained scene.
