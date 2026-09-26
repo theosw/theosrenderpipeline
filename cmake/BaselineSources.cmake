@@ -159,6 +159,9 @@ set(ARP_BASELINE_SOURCES
 
 # Neural Rendering is available independently of MFG compatibility.
 set(ARP_NEURAL_SOURCES
+    src/NeuralCombatMode.cpp
+    src/NeuralCombatMode.h
+    src/NeuralCombatPolicy.h
     src/FrameGen/NeuralRenderingFeatureSession.cpp
     src/FrameGen/NeuralRenderingModulePathHook.cpp
     src/FrameGen/NeuralRenderingRuntimeIdentity.cpp

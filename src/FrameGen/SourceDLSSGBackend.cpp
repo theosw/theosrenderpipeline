@@ -432,6 +432,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 			std::scoped_lock lock(neuralMutex_);
 			const bool changed = neuralSnapshot_.active != active;
 			neuralSnapshot_.active = active;
+			neuralSnapshot_.effectivePasses = options.EffectivePasses();
+			neuralSnapshot_.passOverride = active ? options.passOverride : NeuralRendering::PassOverride::None;
 			if (active) { ++neuralSnapshot_.evaluations; }
 			if (reset) { ++neuralSnapshot_.resets; }
 			if (active) { neuralSnapshot_.telemetry = neuralPass_->Telemetry(); }

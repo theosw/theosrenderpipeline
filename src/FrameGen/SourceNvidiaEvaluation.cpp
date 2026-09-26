@@ -8,6 +8,7 @@
 #include "SourceNvidiaFrameEvaluator.h"
 #include "SourceGenerationPolicy.h"
 #include "PerformanceTuning.h"
+#include "NeuralCombatMode.h"
 
 struct NvidiaHost::SourceNvidiaEvaluationOperations
 {
@@ -26,9 +27,10 @@ struct NvidiaHost::SourceNvidiaEvaluationOperations
     {
 #if !defined(TRP_NO_NEURAL_RENDERING)
         auto& backend = TheosRenderPipeline::SourceDLSSG::Backend::Get();
-        const auto options = backend.NeuralConfiguration();
+        auto options = backend.NeuralConfiguration();
         sl::Constants preview{};
         const bool eligible = NeuralEligible(frame);
+        TheosRenderPipeline::NeuralRendering::ApplyCombatMode(options, eligible);
         const bool cameraValid = options.enabled && options.beforeUpscaling && eligible &&
             TheosRenderPipeline::SourceDLSSG::CaptureCameraConstants(upscaler.mGraphicsState,
                 frame.renderWidth, frame.renderHeight, frame.jitterX, frame.jitterY,

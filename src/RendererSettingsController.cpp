@@ -138,6 +138,7 @@ RendererSettingsResult RendererSettingsController::Apply(const RendererSettingsD
         options.secondPass = frameGen_.settings.sourceDLSSG.neuralSecondPass;
         options.beforeUpscaling = frameGen_.settings.sourceDLSSG.neuralBeforeUpscaling;
         options.passes = frameGen_.settings.sourceDLSSG.neuralPasses;
+        options.combat = frameGen_.settings.sourceDLSSG.neuralCombat;
         source.ConfigureNeuralRendering(std::move(options));
     }
     if (a_saveAsDefault)

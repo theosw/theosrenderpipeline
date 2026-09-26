@@ -16,6 +16,8 @@ int main()
 	CSimpleIniA ini;
 	Require(ini.LoadData("[SourceDLSSG]\nNRPasses=2\nNRInputScale=0.75\nNRPreset=1\nNRIntensity=0.4\n") >= 0, "old INI");
 	auto old = LoadPreferences(ini);
+	Require(!old.neuralCombat.Enabled() && old.neuralCombat.recoverySeconds == 5, "old INI keeps combat policy off");
+	old.neuralCombat = {true, true, 7.5f};
 	Require(old.neuralSecondPass.linked && old.neuralSecondPass.inputScale == .75f && old.neuralSecondPass.preset == 1 &&
 		old.neuralSecondPass.tuning.intensity == .4f, "old config inherits first pass and stays linked");
 	old.neuralSecondPass.linked = false;
@@ -40,6 +42,20 @@ int main()
 	Require(history.ResetFor(options, true, false), "second tuning resets history");
 	options.secondPass.linked = true;
 	Require(history.ResetFor(options, true, false), "relink resets history");
+	options.passOverride = NeuralRendering::PassOverride::Combat;
+	Require(options.passes == 2 && options.EffectivePasses() == 1 && history.ResetFor(options, true, false),
+		"override changes execution and resets image history without changing requested passes");
+	options.passOverride = NeuralRendering::PassOverride::WeaponsDrawn;
+	Require(!history.ResetFor(options, true, false), "reason-only changes preserve temporal history");
+	options.passOverride = NeuralRendering::PassOverride::Recovery;
+	Require(!history.ResetFor(options, true, false), "cooldown preserves temporal history");
+	StorePreferences(ini, old);
+	Require(LoadPreferences(ini) == old && LoadPreferences(ini).neuralPasses == 2,
+		"saving while overridden preserves requested passes and independent tuning");
+	options.passOverride = NeuralRendering::PassOverride::None;
+	Require(options.EffectivePasses() == 2 && history.ResetFor(options, true, false), "restoration resets image history");
+	options.combat = {true, false, 2};
+	Require(!history.ResetFor(options, true, false), "policy settings alone do not reset image history");
 	old.neuralSecondPass.inputScale = std::numeric_limits<float>::quiet_NaN();
 	old.neuralSecondPass.preset = 99; old.neuralSecondPass.tuning.intensity = std::numeric_limits<float>::infinity();
 	old = SanitizePreferences(old);

@@ -129,8 +129,8 @@ OverlayUI::FrameView OverlayUI::CaptureFrameView()
     else
     {
         std::snprintf(view.neuralDetail, sizeof(view.neuralDetail), "%s %s | %d %s",
-                      neural.beforeUpscaling ? "Before" : "After", TheosRenderPipeline::CommunityShaders::Active() ? "CS" : "DLSS", neural.passes,
-                      neural.passes == 1 ? "pass" : "passes");
+                      neural.beforeUpscaling ? "Before" : "After", TheosRenderPipeline::CommunityShaders::Active() ? "CS" : "DLSS", view.sourceNeural.effectivePasses,
+                      view.sourceNeural.effectivePasses == 1 ? "pass" : "passes");
     }
     if (view.frameGenerationRuntimeActive)
     {
