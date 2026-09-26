@@ -14,7 +14,7 @@ namespace TheosRenderPipeline::NeuralRendering
             GameplayState state{};
             Clock::time_point time{};
             double gameplaySeconds{};
-            bool pending{};
+            bool pending{}, pauseObserved{};
         };
         Sample sample;
         CombatPolicy policy; // Owned by the active producer's render thread.
@@ -33,9 +33,15 @@ namespace TheosRenderPipeline::NeuralRendering
         double gameplaySeconds{};
         bool queue{};
         auto* tasks = SKSE::GetTaskInterface();
+        auto* ui = RE::UI::GetSingleton();
+        const bool paused = ui && ui->GameIsPaused();
         {
             std::scoped_lock lock(sample.mutex);
+            // Rendering can continue while a pause menu stops main-thread tasks.
+            // Remember even a short pause until the next task consumes the interval.
+            sample.pauseObserved |= paused;
             state = sample.state;
+            state.paused |= paused;
             gameplaySeconds = sample.gameplaySeconds;
             queue = tasks && !sample.pending;
             if (queue) { sample.pending = true; }
@@ -58,9 +64,11 @@ namespace TheosRenderPipeline::NeuralRendering
                 const double elapsed = std::chrono::duration<double>(now - sample.time).count();
                 // Some paused menus stop main-thread tasks. Conservatively exclude
                 // unsampled gaps as well as explicitly paused time from recovery.
-                if (next.available && sample.state.available && !next.paused && !sample.state.paused && elapsed < 1.0) {
+                if (next.available && sample.state.available && !next.paused && !sample.state.paused &&
+                    !sample.pauseObserved && elapsed >= 0.0 && elapsed < 1.0) {
                     sample.gameplaySeconds += elapsed;
                 }
+                sample.pauseObserved = next.paused;
                 sample.state = next;
                 sample.time = now;
                 sample.pending = false;
