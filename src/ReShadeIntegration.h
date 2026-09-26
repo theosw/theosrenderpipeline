@@ -25,6 +25,11 @@ namespace TheosRenderPipeline
         HRESULT FinishUI(ID3D11Texture2D* ui);
         void PresentCompleted();
         void ResetAfterRetirement();
+        // The owned runtime's back buffer is the native UI layer, so ReShade's
+        // own screenshot of it has no world. Each saved screenshot is queued
+        // here for the presenter to replace with the final real frame.
+        struct ScreenshotRequest { std::string path; int jpegQuality{90}; };
+        bool TakeScreenshotRequest(ScreenshotRequest& request);
         bool Internal() const;
         bool OverlayOpen() const;
         const std::string& Status() const;

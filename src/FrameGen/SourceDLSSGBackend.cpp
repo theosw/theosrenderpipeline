@@ -5,7 +5,9 @@
 #include "SourceDLSSGSwapChain.h"
 #include "SourceRuntimeModuleDiagnostic.h"
 #include "../PluginPaths.h"
+#include "../ScreenshotFile.h"
 #include <d3dcompiler.h>
+#include <thread>
 
 namespace TheosRenderPipeline::SourceDLSSG
 {
@@ -356,9 +358,61 @@ namespace TheosRenderPipeline::SourceDLSSG
 			!Check(interop_.Submit(Work::FrameGeneration), "submit guide tags")) { return false; }
 		return true;
 	}
+	void Backend::RecordScreenshot(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_output, bool a_hdrEncoded)
+	{
+		if (screenshotCapture_.Busy()) { return; }
+		ReShadeIntegration::ScreenshotRequest request;
+		if (!ReShadeIntegration::Get().TakeScreenshotRequest(request)) { return; }
+		if (a_hdrEncoded) {
+			logger::warn("[Screenshot] HDR output is not converted; keeping ReShade's file {}", request.path);
+			return;
+		}
+		const auto result = screenshotCapture_.Record(device12_.Get(), a_list, a_output);
+		if (FAILED(result)) {
+			logger::warn("[Screenshot] final frame capture unavailable (0x{:08X}); keeping ReShade's file {}",
+				static_cast<std::uint32_t>(result), request.path);
+			return;
+		}
+		screenshotPath_ = std::move(request.path);
+		screenshotQuality_ = request.jpegQuality;
+		screenshotRecorded_ = true;
+	}
+	void Backend::FinishScreenshot()
+	{
+		if (!screenshotCapture_.Busy()) { return; }
+		FinalFrameCapture::Readback readback;
+		const auto result = screenshotCapture_.Poll(readback);
+		if (result == S_FALSE) { return; }
+		if (FAILED(result)) {
+			if (!screenshotFaultLogged_) {
+				screenshotFaultLogged_ = true;
+				logger::warn("[Screenshot] final frame readback failed (0x{:08X}); keeping ReShade's file {}",
+					static_cast<std::uint32_t>(result), screenshotPath_);
+			}
+			return; // The readback stays retained after a device fault.
+		}
+		// Mapping, conversion and encoding stay off the presentation thread.
+		try {
+			std::thread([readback = std::move(readback), path = std::move(screenshotPath_), quality = screenshotQuality_] {
+				FinalFrameCapture::Image image;
+				auto hr = FinalFrameCapture::Read(readback, image);
+				if (SUCCEEDED(hr)) { hr = ScreenshotFile::Replace(std::filesystem::u8path(path), image.width, image.height, image.bgr, quality); }
+				if (SUCCEEDED(hr)) {
+					logger::info("[Screenshot] saved final frame {}x{} over ReShade's UI-layer capture {}", image.width, image.height, path);
+				} else {
+					logger::warn("[Screenshot] could not write final frame (0x{:08X}); keeping ReShade's file {}",
+						static_cast<std::uint32_t>(hr), path);
+				}
+			}).detach();
+		} catch (const std::system_error& error) {
+			logger::warn("[Screenshot] writer thread unavailable ({}); keeping ReShade's file", error.what());
+		}
+		screenshotPath_.clear();
+	}
 	HRESULT Backend::BeforePresent(ID3D12Resource* a_source, ID3D12Resource* a_destination)
 	{
 		if (!Ready()) { return FAILED(fault_) ? fault_ : E_UNEXPECTED; }
+		FinishScreenshot();
 		const auto oldReflexRequest = session_.Snapshot().reflexRequested;
 		const auto oldReflexSubmitted = session_.Snapshot().reflexSubmitted;
 		const auto oldFrameLimit = session_.Snapshot().frameLimitSubmittedUs;
@@ -401,18 +455,28 @@ namespace TheosRenderPipeline::SourceDLSSG
 		}
 #endif
 		HRESULT outputResult;
-		if (realSource->GetDesc().Format == DXGI_FORMAT_R16G16B16A16_FLOAT && a_destination->GetDesc().Format == DXGI_FORMAT_R10G10B10A2_UNORM) {
+		const bool hdrEncoded = realSource->GetDesc().Format == DXGI_FORMAT_R16G16B16A16_FLOAT &&
+			a_destination->GetDesc().Format == DXGI_FORMAT_R10G10B10A2_UNORM;
+		if (hdrEncoded) {
 			if (!hdrPass_) { hdrPass_ = std::make_unique<HDRPass>(); }
 			outputResult = hdrPass_->Record(device12_.Get(), list, interop_.CurrentSlot(Work::SwapChain), realSource, a_destination);
 		} else {
 			outputResult = Interop::RecordCopy(list, realSource, a_destination);
 		}
+		if (SUCCEEDED(outputResult)) { RecordScreenshot(list, a_destination, hdrEncoded); }
 		const bool transitionBlocked = TransitionBlocked();
 		const auto transitionWarmup = transitionWarmupPresents_.load(std::memory_order_acquire);
 		const bool generationAllowed = enabled_ && !transitionBlocked && transitionWarmup == 0;
 		if (!Check(outputResult, "record native output copy/conversion") ||
-			!Check(interop_.Submit(Work::SwapChain), "submit native output copy") ||
-			(prepared && !CheckSession(session_.CompleteInputWrites())) ||
+			!Check(interop_.Submit(Work::SwapChain), "submit native output copy")) { return fault_; }
+		if (screenshotRecorded_) {
+			screenshotRecorded_ = false;
+			if (const auto result = screenshotCapture_.Submitted(queue_.Get()); FAILED(result)) {
+				logger::warn("[Screenshot] final frame fence signal failed (0x{:08X}); keeping ReShade's file {}",
+					static_cast<std::uint32_t>(result), screenshotPath_);
+			}
+		}
+		if ((prepared && !CheckSession(session_.CompleteInputWrites())) ||
 			!CheckSession(session_.BeforePresent(generationAllowed))) { return fault_; }
 		if (oldReflexRequest != session_.Snapshot().reflexRequested ||
 			oldReflexSubmitted != session_.Snapshot().reflexSubmitted || oldFrameLimit != session_.Snapshot().frameLimitSubmittedUs) {
