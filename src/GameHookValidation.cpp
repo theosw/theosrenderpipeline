@@ -52,6 +52,9 @@ namespace TheosRenderPipeline
         if (communityShaders) {
             const auto site = REL::RelocationID(100430,107148).address() + offsets.csPostProcessing;
             require(HookSafety::DirectCallTarget(site) != 0, "CS postprocessing call", site);
+            // CS later adds its own entry jump; the installer chains to it.
+            const auto interfaceSite = REL::RelocationID(79947,82084).address();
+            require(HookSafety::Entry(interfaceSite, profile->bytes.drawInterface, base, image.SizeOfImage), "Draw interface entry", interfaceSite);
             logger::info("[Hooks] CS startup sites verified before installation");
             return;
         }

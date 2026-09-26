@@ -14,6 +14,11 @@ namespace TheosRenderPipeline
     {
     public:
         using Dispatch = void (STDMETHODCALLTYPE*)(ID3D11DeviceContext*, UINT, UINT, UINT);
+        enum class PresentationState { Ready, NoScene, AwaitingTransform, AwaitingCopy, ExtentMismatch, FormatMismatch };
+
+        // The immediate context as the producer holds it. It can be a distinct
+        // interface pointer from the one used for guide capture.
+        void SetProducerContext(ID3D11DeviceContext* context) { producerContext_ = context; }
 
         HRESULT CaptureGuides(ID3D11DeviceContext* context, std::uint64_t frame,
             ID3D11Texture2D* motion, ID3D11Texture2D* depth, FrameExtent renderExtent,
@@ -66,7 +71,7 @@ namespace TheosRenderPipeline
         HRESULT CaptureDisplayTransform(ID3D11DeviceContext* context,
             UINT x, UINT y, UINT z, Dispatch dispatch)
         {
-            if (!sceneReady_ || consumed_ || encodedReady_ || !isolation_.Accepts(context) ||
+            if (!sceneReady_ || consumed_ || encodedReady_ || !isolation_.Accepts(context, producerContext_) ||
                 !dispatch || !x || !y || z != 1) { return S_FALSE; }
             Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> source, ui;
             ID3D11ShaderResourceView* views[2]{};
@@ -129,16 +134,24 @@ namespace TheosRenderPipeline
             if (sceneReady_ && !consumed_ && !D3D11FrameCopy::SameObject(texture, sceneSource_.Get())) { uiSource_ = texture; }
         }
 
-        ID3D11Texture2D* Hudless(const D3D11_TEXTURE2D_DESC& presentation) const
+        PresentationState PresentationStatus(const D3D11_TEXTURE2D_DESC& presentation) const
         {
-            if (!sceneReady_ || consumed_) { return nullptr; }
+            if (!sceneReady_ || consumed_) { return PresentationState::NoScene; }
             // A separate UI target implies a later compositor. Even identical
             // formats do not prove its color conversion is a passthrough.
-            if (uiSource_ && !encodedReady_) { return nullptr; }
+            if (uiSource_ && !encodedReady_) {
+                return encodedSource_ ? PresentationState::AwaitingCopy : PresentationState::AwaitingTransform;
+            }
             auto* texture = encodedReady_ ? encoded_.Get() : scene_.Get();
             D3D11_TEXTURE2D_DESC desc{}; texture->GetDesc(&desc);
-            return desc.Width == presentation.Width && desc.Height == presentation.Height &&
-                desc.Format == presentation.Format ? texture : nullptr;
+            if (desc.Width != presentation.Width || desc.Height != presentation.Height) { return PresentationState::ExtentMismatch; }
+            return desc.Format == presentation.Format ? PresentationState::Ready : PresentationState::FormatMismatch;
+        }
+
+        ID3D11Texture2D* Hudless(const D3D11_TEXTURE2D_DESC& presentation) const
+        {
+            return PresentationStatus(presentation) == PresentationState::Ready ?
+                (encodedReady_ ? encoded_.Get() : scene_.Get()) : nullptr;
         }
 
         bool Ready() const { return guidesReady_ && sceneReady_ && !consumed_; }
@@ -206,6 +219,7 @@ namespace TheosRenderPipeline
         Microsoft::WRL::ComPtr<ID3D11UnorderedAccessView> encodedUAV_;
         FrameExtent render_{}, output_{};
         std::uint64_t frame_{(std::numeric_limits<std::uint64_t>::max)()};
+        ID3D11DeviceContext* producerContext_{};
         bool guidesReady_{}, sceneReady_{}, encodedReady_{}, consumed_{};
     };
 }

@@ -10,9 +10,11 @@ namespace TheosRenderPipeline
     class D3D11ContextIsolation
     {
     public:
-        bool Accepts(ID3D11DeviceContext* context) const
+        // alias: the same immediate context as the producer holds it, when that
+        // interface pointer differs from the one recorded at Begin.
+        bool Accepts(ID3D11DeviceContext* context, ID3D11DeviceContext* alias = nullptr) const
         {
-            return context && context == originalContext_ && !active_ &&
+            return context && originalContext_ && (context == originalContext_ || context == alias) && !active_ &&
                 context->GetType() == D3D11_DEVICE_CONTEXT_IMMEDIATE;
         }
 

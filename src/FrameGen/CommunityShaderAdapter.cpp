@@ -11,6 +11,7 @@ namespace TheosRenderPipeline
         if (prepared_ || resources_.Frame() == input.frame) { return false; }
         worldBegun_ = upscalingCompleted_ = worldCompleted_ = prepared_ = cameraValid_ = false;
         context_ = input.context;
+        resources_.SetProducerContext(input.producerContext);
         eligible_ = input.worldEligible;
         reset_ = input.reset;
         status_ = "Capturing CS world guides";
@@ -24,6 +25,11 @@ namespace TheosRenderPipeline
         options.worldOnly = true;
         options.tuning.uiCorrection = false;
         options.reconstruction.producerColor = options.beforeUpscaling;
+        // Late NR follows the completed scene's range, retained from the last
+        // frame and corrected at CompleteWorld if CS HDR changed in between.
+        if (!options.beforeUpscaling) {
+            options.reconstruction = NeuralRendering::CompletedSceneContract(options.reconstruction, extendedScene_);
+        }
         if (options != options_) { neuralBoundaryReported_ = false; }
         options_ = std::move(options);
         // Early CS color is unfinished producer RGB, not a display-ready image.
@@ -76,6 +82,21 @@ namespace TheosRenderPipeline
         // redirection or entered UI rendering. Evaluate on that completed scene,
         // then snapshot the corrected pixels for frame generation. In particular,
         // do not feed direct NR output back through CS's exposure and tone mapping.
+        D3D11_TEXTURE2D_DESC sceneDesc{};
+        if (scene) { scene->GetDesc(&sceneDesc); }
+        // CS HDR Display redirects the completed scene to FP16 only while HDR
+        // output is enabled; its SDR scene keeps the presentation format.
+        const bool extended = sceneDesc.Format == DXGI_FORMAT_R16G16B16A16_FLOAT;
+        if (extended != extendedScene_) {
+            extendedScene_ = extended;
+            logger::info("[CS Adapter] completed scene format={} {}; late NR uses {} colour", static_cast<unsigned>(sceneDesc.Format),
+                extended ? "extended-range HDR" : "display-range", extended ? "producer-restored" : "the saved");
+            if (!options_.beforeUpscaling) {
+                auto options = SourceDLSSG::Backend::Get().NeuralConfiguration();
+                options_.reconstruction = NeuralRendering::CompletedSceneContract(options.reconstruction, extended);
+                neuralBoundaryReported_ = false;
+            }
+        }
         if (!options_.beforeUpscaling && !EvaluateWorld(scene, resources_.OutputExtent())) {
             worldBegun_ = false; return false;
         }
@@ -101,9 +122,18 @@ namespace TheosRenderPipeline
     bool CommunityShaderAdapter::Prepare(const D3D11_TEXTURE2D_DESC& presentation)
     {
         if (prepared_) { return false; }
+        if (!Ready()) { return false; } // Keep the failed world-stage diagnostic.
+        if (!cameraValid_) { status_ = "Waiting for CS camera data"; return false; }
         auto* hudless = resources_.Hudless(presentation);
-        if (!Ready() || !cameraValid_ || !hudless) {
-            status_ = "Waiting for matching CS scene, camera and display conversion";
+        if (!hudless) {
+            using State = CommunityShaderFrame::PresentationState;
+            switch (resources_.PresentationStatus(presentation)) {
+            case State::AwaitingTransform: status_ = "Waiting for CS display conversion after UI"; break;
+            case State::AwaitingCopy: status_ = "Waiting for CS display copy to the presentation buffer"; break;
+            case State::ExtentMismatch: status_ = "CS scene and presentation sizes differ"; break;
+            case State::FormatMismatch: status_ = "CS scene and presentation formats differ"; break;
+            default: status_ = "Waiting for a completed CS scene"; break;
+            }
             return false;
         }
         D3D11ContextIsolation::Scope scope{resources_.Isolation(), context_.Get()};
@@ -130,7 +160,7 @@ namespace TheosRenderPipeline
         resources_.ResetAfterRetirement(); context_.Reset();
         history_.Reset(); candidate_.Reset();
         worldBegun_ = upscalingCompleted_ = worldCompleted_ = prepared_ = cameraValid_ = false;
-        neuralBoundaryReported_ = false;
+        neuralBoundaryReported_ = extendedScene_ = false;
         status_ = "Waiting for a CS world frame";
     }
 }

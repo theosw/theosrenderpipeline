@@ -44,6 +44,15 @@ namespace TheosRenderPipeline::NeuralRendering
 		return value.producerColor || value.method == ResolveMethod::Ratio ? ResolveMethod::Ratio :
 			(value.peripheralCompression || NormalizeInputScale(value.inputScale) < 1) ? ResolveMethod::Residual : ResolveMethod::Auto;
 	}
+	// Community Shaders' HDR Display completes the scene as FP16 2.2-gamma RGB,
+	// paper white at 1.0, highlights above it. Direct NR output is bounded near
+	// one, which collapses those highlights and shifts the SDR range too. Use
+	// the paired producer proxy normalized to that white instead.
+	inline Reconstruction CompletedSceneContract(Reconstruction value, bool extendedRange)
+	{
+		if (extendedRange) { value.producerColor = true; value.whitePoint = 1; }
+		return value;
+	}
 	inline std::uint32_t WorkExtent(std::uint32_t extent, float scale)
 	{
 		return extent ? (std::max)(1u, static_cast<std::uint32_t>(std::llround(double(extent) * NormalizeInputScale(scale)))) : 0;

@@ -58,6 +58,13 @@ int main()
     producer.producerColor = true;
     Require(EffectiveResolve(producer) == ResolveMethod::Ratio, "producer input always restores scene colour even with Auto");
     Require(!SameReconstructionResources(original, producer), "switching colour contract recreates the temporal feature");
+    auto saved = original; saved.method = ResolveMethod::Residual; saved.whitePoint = 4; saved.inputScale = 0.5f;
+    Require(CompletedSceneContract(saved, false) == saved, "SDR completed scene keeps the saved reconstruction");
+    const auto hdrScene = CompletedSceneContract(saved, true);
+    Require(hdrScene.producerColor && hdrScene.whitePoint == 1 && EffectiveResolve(hdrScene) == ResolveMethod::Ratio,
+        "extended-range completed scene restores through the producer proxy at paper white");
+    Require(hdrScene.inputScale == saved.inputScale && hdrScene.preset == saved.preset, "HDR contract keeps saved scale and preset");
+    Require(!SameReconstructionResources(saved, hdrScene), "entering HDR recreates the temporal feature");
     auto renormalized = producer;
     renormalized.whitePoint = 16;
     Require(!SameReconstructionResources(producer, renormalized), "normalization changes require retirement and recreation");
