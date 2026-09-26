@@ -143,6 +143,12 @@ ReShade Helper.** TRP supplies the effects and overlay stages. Effects run after
 upscaling by default; use **Advanced → ReShade** to change this.
 Changing placement may reload shaders. Give ReShade, CS and TRP different menu keys.
 
+ReShade's screenshot key keeps its folder, naming and format. TRP then replaces
+the saved image with the next presented frame, including DLSS, NR and the HUD.
+The optional before-effects and overlay copies are unchanged. ENB's screenshot
+key sees the image before DLSS and NR; use ReShade, Steam or Windows capture
+for the final image.
+
 The renderer was tested with and without ReShade 6.3.3.1921 on Skyrim 1.6.1170,
 Cabbage ENB and RTX 4080 SUPER, with x4 and NR before upscaling. CS with ReShade,
 other ReShade versions and other effect/NR placements still need game testing.

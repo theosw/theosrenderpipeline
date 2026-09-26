@@ -36,6 +36,7 @@ set(ARP_BASELINE_SOURCES
     src/FrameGen/SourceNvidiaFramePreparation.h
     src/FrameGen/D3D11FrameCopy.h
     src/FrameGen/D3D11ContextIsolation.h
+    src/FrameGen/FinalFrameCapture.h
     src/FrameGen/CommunityShaderFrame.h
     src/FrameGen/CommunityShaderAdapter.h
     src/FrameGen/CommunityShaderAdapter.cpp
@@ -73,6 +74,8 @@ set(ARP_BASELINE_SOURCES
     src/ReShadeIntegration.cpp
     src/ReShadeIntegration.h
     src/ReShadeSwapChain.h
+    src/ScreenshotFile.cpp
+    src/ScreenshotFile.h
     src/SettingsFile.h
     src/PluginPaths.h
     src/SkyrimRuntime.h
