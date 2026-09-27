@@ -142,6 +142,9 @@ bool RenderPipeline::SaveINI(const TheosRenderPipeline::Overlay::Layout* layout)
 void RenderPipeline::MessageHandler(SKSE::MessagingInterface::Message* a_msg)
 {
 	static bool inited = false;
+    if (a_msg->type == SKSE::MessagingInterface::kDataLoaded) {
+        TheosRenderPipeline::Appearance::Runtime::Get().CaptureCatalogue();
+    }
     if (a_msg->type == SKSE::MessagingInterface::kPreLoadGame || a_msg->type == SKSE::MessagingInterface::kNewGame) {
         TheosRenderPipeline::Appearance::Runtime::Get().Invalidate();
     }

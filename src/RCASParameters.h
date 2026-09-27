@@ -4,6 +4,7 @@
 #include <wrl/client.h>
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 
 namespace TheosRenderPipeline
 {
@@ -14,19 +15,23 @@ public:
     HRESULT Update(ID3D11Device* device, ID3D11DeviceContext* context, float sharpness)
     {
         if (!device || !context) { return E_INVALIDARG; }
+        const float value = std::isfinite(sharpness) ? std::clamp(sharpness, 0.0f, 1.0f) : 0.0f;
+        if (buffer_ && device_ != device) { buffer_.Reset(); initialized_ = false; }
+        if (buffer_ && initialized_ && value == lastValue_) { return S_OK; }
         if (!buffer_) {
             const D3D11_BUFFER_DESC desc{16, D3D11_USAGE_DYNAMIC, D3D11_BIND_CONSTANT_BUFFER,
                 D3D11_CPU_ACCESS_WRITE, 0, 0};
             const auto hr = device->CreateBuffer(&desc, nullptr, &buffer_);
             if (FAILED(hr)) { return hr; }
+            device_ = device;
         }
         D3D11_MAPPED_SUBRESOURCE mapped{};
         const auto hr = context->Map(buffer_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
         if (FAILED(hr)) { return hr; }
-        const float value = std::isfinite(sharpness) ? std::clamp(sharpness, 0.0f, 1.0f) : 0.0f;
         const float constants[4]{value, 0, 0, 0};
         std::copy_n(constants, 4, static_cast<float*>(mapped.pData));
         context->Unmap(buffer_.Get(), 0);
+        lastValue_ = value; initialized_ = true; ++uploads_;
         return S_OK;
     }
     class Binding
@@ -55,7 +60,12 @@ public:
     };
     Binding Bind(ID3D11DeviceContext* context) const { return {context, buffer_.Get()}; }
     ID3D11Buffer* Buffer() const { return buffer_.Get(); }
+    std::uint64_t Uploads() const { return uploads_; }
 private:
     Microsoft::WRL::ComPtr<ID3D11Buffer> buffer_;
+    ID3D11Device* device_{}; // Retained by buffer_.
+    float lastValue_{};
+    bool initialized_{};
+    std::uint64_t uploads_{};
 };
 }

@@ -110,9 +110,13 @@ int main(int argc, char** argv)
         } }
     }
     Require(difference > .01f, "fixture observes a real sharpening change");
+    const auto uploads = parameters.Uploads();
+    for (int i = 0; i < 240; ++i) { Check(parameters.Update(device.Get(), context.Get(), 1), "constant strength"); }
+    Require(parameters.Uploads() == uploads, "unchanged strength performs no redundant uploads");
     for (int i = 0; i <= 100; ++i) {
         Check(parameters.Update(device.Get(), context.Get(), i / 100.0f), "continuous ramp uploads");
         Require(parameters.Buffer() == firstBuffer, "ramp does not recreate resources");
     }
+    Require(parameters.Uploads() == uploads + 101, "changed ramp uploads exactly once per distinct value");
     std::puts("PASS: runtime RCAS strength matches constant shader pixels and preserves caller bindings");
 }

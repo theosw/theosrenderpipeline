@@ -37,6 +37,9 @@ struct Snapshot
 class Controller
 {
 public:
+    Controller() = default;
+    Controller(const Controller&) = delete;
+    Controller& operator=(const Controller&) = delete;
     const Settings& Configuration() const { return settings_; }
     const Snapshot& State() const { return snapshot_; }
     void Configure(Settings settings)
@@ -44,6 +47,7 @@ public:
         settings = Sanitize(std::move(settings));
         if (settings_ == settings) { return; }
         settings_ = std::move(settings);
+        selectionDirty_ = true;
         ++revision_;
         smoother_.Reset();
     }
@@ -59,7 +63,7 @@ public:
         snapshot_.result.active = false;
         smoother_.Reset();
     }
-    float Apply(Context context, SourceDLSSG::NeuralOptions& options, float sharpness, float elapsed)
+    float Apply(const Context& context, SourceDLSSG::NeuralOptions& options, float sharpness, float elapsed)
     {
         const auto& old = snapshot_.context;
         const auto hourDelta = std::abs(context.hour - old.hour);
@@ -70,9 +74,27 @@ public:
             context.interior != old.interior || timeJump || forcedWeather) { ++revision_; }
         previousBase_ = options;
         previousSharpness_ = sharpness;
-        auto effectiveContext = context;
-        effectiveContext.valid &= !paused_;
-        auto result = Evaluate(settings_, effectiveContext, FromNeural(options, sharpness));
+        auto& result = snapshot_.result;
+        result.active = settings_.enabled && context.valid && !paused_ && std::isfinite(context.hour);
+        const auto base = FromNeural(options, sharpness);
+        if (result.active) {
+            if (selectionDirty_ || !old.valid || context.interior != old.interior ||
+                context.incoming.record != old.incoming.record || context.outgoing.record != old.outgoing.record ||
+                context.incoming.group != old.incoming.group || context.outgoing.group != old.outgoing.group) {
+                incoming_ = Select(settings_, context.incoming, context.interior);
+                outgoing_ = Valid(context.outgoing.record) && !context.interior ? Select(settings_, context.outgoing, false) : incoming_;
+                result.incoming = incoming_.neuralName; result.outgoing = outgoing_.neuralName;
+                result.incomingSharpening = incoming_.sharpeningName; result.outgoingSharpening = outgoing_.sharpeningName;
+                selectionDirty_ = false;
+                ++selectionResolutions_;
+            }
+            result.values = Blend(Sample(outgoing_, settings_, context.hour, base), Sample(incoming_, settings_, context.hour, base),
+                context.interior ? 1 : context.transition);
+        } else {
+            result.values = base;
+            result.incoming = result.outgoing = result.incomingSharpening = result.outgoingSharpening = "Manual defaults";
+            selectionDirty_ = true;
+        }
         result.values = smoother_.Update(result.values, settings_.smoothingSeconds, elapsed, result.active);
         if (options.secondPass.linked) { result.values.passes[1] = result.values.passes[0]; }
         if (result.active) {
@@ -81,10 +103,15 @@ public:
             // profile edits, loads and discontinuities start a new history.
             options.appearanceRevision = revision_;
         }
-        snapshot_ = {std::move(context), result, paused_};
+        snapshot_.context = context;
+        snapshot_.paused = paused_;
         return result.values.sharpness;
     }
+    std::uint64_t SelectionResolutions() const { return selectionResolutions_; }
 private:
+    Selection incoming_, outgoing_;
+    bool selectionDirty_{true};
+    std::uint64_t selectionResolutions_{};
     Settings settings_;
     Snapshot snapshot_;
     Smoother smoother_;

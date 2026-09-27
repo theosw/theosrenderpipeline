@@ -77,7 +77,11 @@ private:
 	bool initialized{ false };
 	bool visible{ false };
 	bool showDeveloperControls{ false };
-    int appearanceProfile{}, appearanceTime{3};
+    std::uint32_t appearancePreset{};
+    int appearanceTime{3}, appearanceWeatherGroup{};
+    char appearanceSearch[128]{};
+    bool appearanceAssignedOnly{};
+    std::vector<TheosRenderPipeline::Appearance::Record> appearanceSelection;
     TheosRenderPipeline::Overlay::SettingsPage requestedPage{TheosRenderPipeline::Overlay::SettingsPage::None};
 	TheosRenderPipeline::RendererSettingsDraft settingsDraft{};
     bool nrRuntimePresent{false};

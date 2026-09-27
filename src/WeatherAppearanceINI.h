@@ -3,6 +3,7 @@
 #include "WeatherAppearance.h"
 #include <charconv>
 #include <format>
+#include <optional>
 
 namespace TheosRenderPipeline::Appearance
 {
@@ -40,8 +41,25 @@ template<class Ini> Settings LoadSettings(const Ini& ini)
     for (std::size_t i = 0; i < Times.size(); ++i) {
         settings.hours[i] = static_cast<float>(ini.GetDoubleValue("Appearance", (std::string(Times[i]) + "Hour").c_str(), DefaultHours[i]));
     }
+    const bool shared = ini.GetLongValue("Appearance", "Format", 1) >= 2;
+    if (shared) {
+        const auto count = std::clamp(ini.GetLongValue("Appearance", "PresetCount", 0), 0L, static_cast<long>(MaxPresets));
+        for (long i = 0; i < count; ++i) {
+            const auto section = std::format("Appearance.Preset{}", i);
+            const auto id = ini.GetLongValue(section.c_str(), "ID", 0);
+            if (id > 0) {
+                settings.presets.push_back({static_cast<std::uint32_t>(id), ini.GetValue(section.c_str(), "Name", ""), LoadProfile(ini, section)});
+            }
+        }
+    }
     for (std::size_t i = 0; i < Groups.size(); ++i) {
-        settings.groups[i] = LoadProfile(ini, std::string("Appearance.") + Groups[i]);
+        const auto section = std::string("Appearance.") + Groups[i];
+        if (shared) {
+            settings.groups[i] = static_cast<std::uint32_t>((std::max)(0L, ini.GetLongValue(section.c_str(), "Preset", 0)));
+        } else {
+            const auto profile = LoadProfile(ini, section);
+            if (profile != Profile{}) { settings.groups[i] = AddPreset(settings, Groups[i], profile); }
+        }
     }
     const auto count = std::clamp(ini.GetLongValue("Appearance", "WeatherCount", 0), 0L, static_cast<long>(MaxWeathers));
     for (long i = 0; i < count; ++i) {
@@ -51,7 +69,9 @@ template<class Ini> Settings LoadSettings(const Ini& ini)
         if (id.starts_with("0x") || id.starts_with("0X")) { id.erase(0, 2); }
         const auto [end, ec] = std::from_chars(id.data(), id.data() + id.size(), record.localID, 16);
         if (ec == std::errc{} && end == id.data() + id.size()) {
-            settings.weathers.push_back({std::move(record), LoadProfile(ini, section)});
+            const auto preset = shared ? static_cast<std::uint32_t>((std::max)(0L, ini.GetLongValue(section.c_str(), "Preset", 0))) :
+                AddPreset(settings, std::format("{} / {:06X}", record.plugin, record.localID), LoadProfile(ini, section));
+            settings.weathers.push_back({std::move(record), preset});
         }
     }
     return Sanitize(std::move(settings));
@@ -77,13 +97,32 @@ template<class Ini> void StoreSettings(Ini& ini, Settings settings)
 {
     settings = Sanitize(std::move(settings));
     const auto oldCount = std::clamp(ini.GetLongValue("Appearance", "WeatherCount", 0), 0L, static_cast<long>(MaxWeathers));
+    const auto oldPresets = std::clamp(ini.GetLongValue("Appearance", "PresetCount", 0), 0L, static_cast<long>(MaxPresets));
+    auto removeProfile = [&](const std::string& section) {
+        ini.Delete(section.c_str(), nullptr);
+        for (const auto* time : Times) { ini.Delete((section + "." + time).c_str(), nullptr); }
+    };
+    // Replace only this feature's indexed records, including retired legacy time sections.
+    for (long i = 0; i < oldCount; ++i) { removeProfile(std::format("Appearance.Weather{}", i)); }
+    for (long i = 0; i < oldPresets; ++i) { removeProfile(std::format("Appearance.Preset{}", i)); }
+    ini.SetLongValue("Appearance", "Format", 2);
     ini.SetBoolValue("Appearance", "Enabled", settings.enabled);
     StoreFloat(ini, "Appearance", "SmoothingSeconds", settings.smoothingSeconds);
     for (std::size_t i = 0; i < Times.size(); ++i) {
         StoreFloat(ini, "Appearance", (std::string(Times[i]) + "Hour").c_str(), settings.hours[i]);
     }
     for (std::size_t i = 0; i < Groups.size(); ++i) {
-        StoreProfile(ini, std::string("Appearance.") + Groups[i], settings.groups[i]);
+        const auto section = std::string("Appearance.") + Groups[i];
+        removeProfile(section);
+        ini.SetLongValue(section.c_str(), "Preset", settings.groups[i]);
+    }
+    ini.SetLongValue("Appearance", "PresetCount", static_cast<long>(settings.presets.size()));
+    for (std::size_t i = 0; i < settings.presets.size(); ++i) {
+        const auto section = std::format("Appearance.Preset{}", i);
+        const auto& preset = settings.presets[i];
+        ini.SetLongValue(section.c_str(), "ID", preset.id);
+        ini.SetValue(section.c_str(), "Name", preset.name.c_str());
+        StoreProfile(ini, section, preset.profile);
     }
     ini.SetLongValue("Appearance", "WeatherCount", static_cast<long>(settings.weathers.size()));
     for (std::size_t i = 0; i < settings.weathers.size(); ++i) {
@@ -91,13 +130,18 @@ template<class Ini> void StoreSettings(Ini& ini, Settings settings)
         const auto& entry = settings.weathers[i];
         ini.SetValue(section.c_str(), "Plugin", entry.record.plugin.c_str());
         ini.SetValue(section.c_str(), "FormID", std::format("{:06X}", entry.record.localID).c_str());
-        StoreProfile(ini, section, entry.profile);
+        ini.SetLongValue(section.c_str(), "Preset", entry.preset);
     }
-    // Remove only retired sections owned by this feature; unrelated INI content survives.
-    for (auto i = settings.weathers.size(); i < static_cast<std::size_t>(oldCount); ++i) {
-        const auto section = std::format("Appearance.Weather{}", i);
-        ini.Delete(section.c_str(), nullptr);
-        for (const auto* time : Times) { ini.Delete((section + "." + time).c_str(), nullptr); }
-    }
+}
+// Copy ENB's authored clock markers and dawn/dusk boundaries into TRP anchors.
+// This is an explicit editable approximation, not ENB's internal phase weights.
+template<class Ini> std::optional<std::array<float, 6>> ReadENBSchedule(const Ini& ini)
+{
+    auto read = [&](const char* key) { return static_cast<float>(ini.GetDoubleValue("TIMEOFDAY", key, -100)); };
+    const float sunrise = read("SunriseTime"), sunset = read("SunsetTime");
+    const float dawn = read("DawnDuration"), dusk = read("DuskDuration");
+    const std::array<float, 6> hours{read("NightTime"), sunrise - dawn, sunrise, read("DayTime"), sunset, sunset + dusk};
+    if (dawn <= 0 || dusk <= 0 || !ValidHours(hours)) { return std::nullopt; }
+    return hours;
 }
 }
