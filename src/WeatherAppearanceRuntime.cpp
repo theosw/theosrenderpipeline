@@ -1,5 +1,6 @@
 #include <PCH.h>
 #include "WeatherAppearanceRuntime.h"
+#include "WeatherEditorID.h"
 
 namespace TheosRenderPipeline::Appearance
 {
@@ -33,12 +34,17 @@ void Runtime::CaptureCatalogue()
     auto* data = RE::TESDataHandler::GetSingleton();
     if (!data) { return; }
     auto entries = std::make_shared<std::vector<WeatherEntry>>();
+    const auto nativeModule = GetModuleHandleW(L"NativeEditorIDFix.dll");
+    const auto tweaksModule = GetModuleHandleW(L"po3_Tweaks.dll");
+    const auto nativeLookup = nativeModule ? reinterpret_cast<NativeEditorLookup>(GetProcAddress(nativeModule, "NEIF_GetEditorID")) : nullptr;
+    const auto tweaksLookup = tweaksModule ? reinterpret_cast<TweaksEditorLookup>(GetProcAddress(tweaksModule, "GetFormEditorID")) : nullptr;
     for (const auto* weather : data->GetFormArray<RE::TESWeather>()) {
         if (!weather) { continue; }
         auto value = ReadWeather(weather);
         if (!Valid(value.record)) { continue; }
-        const auto* name = weather->GetFormEditorID();
-        entries->push_back(CatalogueEntry(weather->GetFormID(), std::move(value), name ? name : ""));
+        const auto name = EditorName(weather->GetFormEditorID(),
+            {weather->GetFormID(), static_cast<std::uint8_t>(weather->GetFormType())}, nativeLookup, tweaksLookup);
+        entries->push_back(CatalogueEntry(weather->GetFormID(), std::move(value), name));
     }
     std::ranges::sort(*entries, {}, &WeatherEntry::search);
     std::scoped_lock lock(mutex_);

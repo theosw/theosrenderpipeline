@@ -71,6 +71,7 @@ set(ARP_BASELINE_SOURCES
     src/MenuRenderState.h
     src/RenderPipeline.cpp
     src/WeatherAppearance.h
+    src/WeatherEditorID.h
     src/WeatherAppearanceController.h
     src/WeatherAppearanceINI.h
     src/WeatherAppearanceRuntime.h

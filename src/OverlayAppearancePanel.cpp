@@ -188,6 +188,7 @@ void OverlayUI::DrawAppearancePanel(float height, const FrameView& view)
             } }
         }
         ImGui::EndChild();
+        if (const auto* target = Appearance::FindPreset(settings, appearancePreset)) { ImGui::TextWrapped("Assignment target: %s", target->name.c_str()); }
         ImGui::BeginDisabled(appearanceSelection.empty() || !Appearance::FindPreset(settings, appearancePreset));
         if (ImGui::Button("Assign selected to edited preset")) {
             if (!Appearance::AssignMany(settings, appearanceSelection, appearancePreset)) {
@@ -204,7 +205,7 @@ void OverlayUI::DrawAppearancePanel(float height, const FrameView& view)
         }
         ImGui::EndDisabled();
         if (ImGui::Button("Refresh loaded weather list")) { SKSE::GetTaskInterface()->AddTask([] { Appearance::Runtime::Get().CaptureCatalogue(); }); }
-        DrawSettingsHelp("Names use editor IDs when the game exposes them; plugin and local FormID are always shown. Selection survives filtering. Assignments use plugin identity, not load-order numbers.");
+        DrawSettingsHelp("Names use the game or an installed editor-ID lookup plugin; plugin and local FormID are always shown. Selection survives filtering. Assignments use plugin identity, not load-order numbers.");
         if (ImGui::CollapsingHeader("Assignments for unavailable weathers")) {
             for (auto it = settings.weathers.begin(); it != settings.weathers.end();) {
                 const bool available = std::ranges::any_of(*catalogue, [&](const auto& entry) { return entry.weather.record == it->record; });

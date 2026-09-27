@@ -1,5 +1,6 @@
 #include "WeatherAppearanceController.h"
 #include "WeatherAppearanceINI.h"
+#include "WeatherEditorID.h"
 #include "RendererSettings.h"
 #include <SimpleIni.h>
 #include <cstdio>
@@ -162,6 +163,12 @@ static void FrameHistory()
     }
     Require(lastIntensity > 1 && base == manual && controller.Configuration() == settings, "ramp changes frames, never defaults or profiles");
     Require(controller.SelectionResolutions() == 2, "ordinary weather progress resolves and labels presets only on identity changes");
+    settings.presets[1].profile.points.fill(Value(.45f, .15f));
+    settings.presets[1].name = "Edited shared rain";
+    controller.Configure(settings);
+    auto edited = base; controller.Apply(scene, edited, .4f, .016f);
+    Require(history.ResetFor(edited, true, false) && Near(edited.tuning.intensity, .45f) &&
+        controller.State().result.incoming == "Edited shared rain", "configuration replacement invalidates cached pointers, labels and history");
     auto frame = base;
     controller.Apply(scene, frame, .4f, .016f);
     Require(history.ResetFor(frame, true, true), "camera reset survives automation");
@@ -266,6 +273,18 @@ static void MigrationAndSchedule()
     enb.SetDoubleValue("TIMEOFDAY", "SunsetTime", 23);
     Require(!ReadENBSchedule(enb), "ambiguous cross-midnight ENB schedule is rejected without guessing");
     CSimpleIniA missing; Require(!ReadENBSchedule(missing), "missing ENB never replaces manual schedule");
+    const auto nativeLookup = +[](EditorFormInfo form) -> const char* {
+        Require(form.id == 0x02000ABC && form.type == 54, "native editor-ID API receives form ID and type by value");
+        return "NAT_Clear";
+    };
+    const auto tweaksLookup = +[](std::uint32_t id) -> const char* {
+        Require(id == 0x02000ABC, "Tweaks API receives runtime FormID"); return "NAT_Cloudy";
+    };
+    const EditorFormInfo form{0x02000ABC, 54};
+    Require(EditorName("", form, nativeLookup, tweaksLookup) == "NAT_Clear", "external-only native lookup supplies discarded weather names");
+    Require(EditorName(nullptr, form, nullptr, tweaksLookup) == "NAT_Cloudy", "Tweaks name fallback");
+    Require(EditorName("", form, nullptr, nullptr).empty(), "absent companions leave stable ID fallback available");
+    Require(EditorName("EngineName", form, nullptr, nullptr) == "EngineName", "engine-provided names need no companion");
 }
 static void Benchmark()
 {

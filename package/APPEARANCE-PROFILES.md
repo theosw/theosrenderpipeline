@@ -32,8 +32,9 @@ preset set.
 ## Find and assign weather
 
 The loaded-weather list searches editor ID/name, owning plugin, FormID and weather
-classification. Names appear when the game exposes them; a plugin/local FormID
-label remains available otherwise. **Refresh loaded weather list** resamples names
+classification. Names use the engine or the optional Native EditorID Fix and
+powerofthree's Tweaks public lookup APIs when loaded. Neither plugin is required;
+a plugin/local FormID label remains available otherwise. **Refresh loaded weather list** resamples names
 on Skyrim's main thread. The list includes loaded records, not just weathers that
 normally occur in the current region.
 
