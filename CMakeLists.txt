@@ -210,6 +210,7 @@ target_link_libraries(
 	dxguid.lib
 	version.lib
 	bcrypt.lib
+	windowscodecs.lib
 	"${TRP_NGX_LIB}"
 )
 
@@ -295,6 +296,13 @@ if(TRP_BUILD_COMPATIBILITY_TESTS)
     target_link_libraries(TRPSourceDLSSGInteropFenceTests PRIVATE d3d11 d3d12 dxgi d3dcompiler)
     add_test(NAME SourceDLSSGInteropFence COMMAND TRPSourceDLSSGInteropFenceTests)
     set_tests_properties(SourceDLSSGInteropFence PROPERTIES TIMEOUT 30)
+    add_executable(TRPFinalFrameCaptureTests tests/FinalFrameCaptureTests.cpp src/ScreenshotFile.cpp)
+    target_compile_features(TRPFinalFrameCaptureTests PRIVATE cxx_std_23)
+    target_compile_definitions(TRPFinalFrameCaptureTests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    target_include_directories(TRPFinalFrameCaptureTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_link_libraries(TRPFinalFrameCaptureTests PRIVATE d3d12 dxgi windowscodecs ole32)
+    add_test(NAME FinalFrameCapture COMMAND TRPFinalFrameCaptureTests)
+    set_tests_properties(FinalFrameCapture PROPERTIES TIMEOUT 60)
     foreach(module IN ITEMS 1 2)
         add_library(TRPModuleIdentityFixture${module} SHARED tests/ModuleIdentityFixture.cpp)
         target_compile_definitions(TRPModuleIdentityFixture${module} PRIVATE TRP_TEST_MODULE_ID=${module})
