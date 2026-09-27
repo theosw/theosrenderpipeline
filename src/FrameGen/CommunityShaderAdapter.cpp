@@ -4,6 +4,7 @@
 #include "ReShadeIntegration.h"
 #include "RenderPipeline.h"
 #include "NeuralCombatMode.h"
+#include "WeatherAppearanceRuntime.h"
 
 namespace TheosRenderPipeline
 {
@@ -22,13 +23,16 @@ namespace TheosRenderPipeline
         cameraValid_ = SourceDLSSG::CaptureCameraCandidate(input.graphics, input.render.width,
             input.render.height, input.jitterX, input.jitterY, reset_, input.jittered, camera_, candidate_);
         auto options = SourceDLSSG::Backend::Get().NeuralConfiguration();
-#if !defined(TRP_NO_NEURAL_RENDERING)
-        NeuralRendering::ApplyCombatMode(options, eligible_);
-#endif
         options.worldOnly = true;
         options.tuning.uiCorrection = false;
         options.reconstruction.producerColor = options.beforeUpscaling;
-        if (options != options_) { neuralBoundaryReported_ = false; }
+        // CS owns its sharpening. Only TRP NR tuning is applied on this route.
+        Appearance::Runtime::Get().Apply(options, RenderPipeline::GetSingleton()->mSharpness);
+        // Apply appearance to saved preferences before transient combat overrides.
+#if !defined(TRP_NO_NEURAL_RENDERING)
+        NeuralRendering::ApplyCombatMode(options, eligible_);
+#endif
+        if (!SourceDLSSG::SameHistoryOptions(options, options_)) { neuralBoundaryReported_ = false; }
         options_ = std::move(options);
         // Early CS color is unfinished producer RGB, not a display-ready image.
         // The paired proxy transfers only NR's changes back to the retained scene.
