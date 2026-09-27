@@ -13,6 +13,11 @@ target_link_libraries(TRPNeuralPeripheralTests PRIVATE d3d12 d3d11 d3dcompiler d
 trp_target_neural_shaders(TRPNeuralPeripheralTests)
 add_test(NAME NeuralPeripheralPixels COMMAND TRPNeuralPeripheralTests)
 
+add_executable(TRPNeuralCombatPolicyTests ../NeuralCombatPolicyTests.cpp)
+target_compile_features(TRPNeuralCombatPolicyTests PRIVATE cxx_std_20)
+target_include_directories(TRPNeuralCombatPolicyTests PRIVATE ../../src)
+add_test(NAME NeuralCombatPolicy COMMAND TRPNeuralCombatPolicyTests)
+
 add_executable(TRPNeuralShaderBytecodeTests ../NeuralShaderBytecodeTests.cpp)
 target_compile_features(TRPNeuralShaderBytecodeTests PRIVATE cxx_std_23)
 target_compile_definitions(TRPNeuralShaderBytecodeTests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)

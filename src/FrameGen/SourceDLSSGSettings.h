@@ -2,6 +2,7 @@
 
 #include "NeuralRenderingPassSettings.h"
 #include "NeuralRenderingReconstruction.h"
+#include "NeuralCombatPolicy.h"
 #include "SourceDLSSGGeneration.h"
 
 namespace TheosRenderPipeline::SourceDLSSG
@@ -15,6 +16,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		bool neuralEnabled{ false };
 		bool neuralBeforeUpscaling{ true };
 		int neuralPasses{ 1 };
+		NeuralRendering::CombatSettings neuralCombat{};
 		NeuralRendering::Tuning neuralTuning{};
 		NeuralRendering::Reconstruction neuralReconstruction{};
 		NeuralRendering::SecondPassSettings neuralSecondPass{};
@@ -28,6 +30,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		value.generation = SanitizeGenerationRequest(value.generation);
 		value.neuralTuning = NeuralRendering::SanitizeBuild14Tuning(value.neuralTuning);
 		value.neuralPasses = std::clamp(value.neuralPasses, 1, 2);
+		value.neuralCombat = NeuralRendering::SanitizeCombatSettings(value.neuralCombat);
 		value.neuralReconstruction = NeuralRendering::SanitizeReconstruction(value.neuralReconstruction);
 		value.neuralSecondPass = NeuralRendering::SanitizeSecondPass(value.neuralSecondPass);
 		return value;
@@ -48,6 +51,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 		value.neuralEnabled = ini.GetBoolValue(section, "NeuralRenderingEnabled", false);
 		value.neuralBeforeUpscaling = ini.GetBoolValue(section, "NRBeforeUpscaling", value.neuralBeforeUpscaling);
 		value.neuralPasses = static_cast<int>(ini.GetLongValue(section, "NRPasses", 1));
+		value.neuralCombat.inCombat = ini.GetBoolValue(section, "NROnePassInCombat", false);
+		value.neuralCombat.weaponsDrawn = ini.GetBoolValue(section, "NROnePassWeaponsDrawn", false);
+		value.neuralCombat.recoverySeconds = static_cast<float>(ini.GetDoubleValue(section, "NRPassRecoverySeconds", 5));
 		auto& nr = value.neuralTuning;
 		nr.style = static_cast<int>(ini.GetLongValue(section, "NRStyle", 0));
 		nr.intensity = static_cast<float>(ini.GetDoubleValue(section, "NRIntensity", 1));
@@ -74,6 +80,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 		ini.SetBoolValue(section, "NeuralRenderingEnabled", value.neuralEnabled);
 		ini.SetBoolValue(section, "NRBeforeUpscaling", value.neuralBeforeUpscaling);
 		ini.SetLongValue(section, "NRPasses", value.neuralPasses);
+		ini.SetBoolValue(section, "NROnePassInCombat", value.neuralCombat.inCombat);
+		ini.SetBoolValue(section, "NROnePassWeaponsDrawn", value.neuralCombat.weaponsDrawn);
+		ini.SetDoubleValue(section, "NRPassRecoverySeconds", value.neuralCombat.recoverySeconds);
 		const auto& nr = value.neuralTuning;
 		ini.SetLongValue(section, "NRStyle", nr.style);
 		ini.SetDoubleValue(section, "NRIntensity", nr.intensity);

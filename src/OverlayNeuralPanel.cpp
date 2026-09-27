@@ -214,6 +214,15 @@ void DrawSourceNeuralControls(TheosRenderPipeline::SourceDLSSG::Preferences& dra
         DrawSettingsHelp("Pass 2 processes Pass 1's result with separate history. Both passes run on the selected "
                          "side of upscaling. "
                          "The second evaluation adds GPU time and memory.");
+        ImGui::Checkbox("One pass in combat", &draft.neuralCombat.inCombat);
+        ImGui::Checkbox("One pass while weapons/spells are drawn", &draft.neuralCombat.weaponsDrawn);
+        DrawSettingsHelp("Temporarily skips Pass 2 when either selected condition is active. Keeps your NR resolution, "
+                         "tuning and saved two-pass setting. The image may change when switching.");
+        if (draft.neuralCombat.Enabled()) {
+            ImGui::SliderFloat("Return delay##nrCombat", &draft.neuralCombat.recoverySeconds, 0.0f, 30.0f, "%.1f s");
+            DrawSettingsHelp("Waits this long after all selected conditions clear before restoring two passes. "
+                             "Pausing the game pauses the delay.");
+        }
     }
     ImGui::Checkbox("Peripheral compression", &reconstruction.peripheralCompression);
     DrawSettingsHelp(
@@ -288,6 +297,12 @@ void OverlayUI::DrawNeuralRenderingPanel(float height, const FrameView& view)
         DrawSettingsHelp("Combined model inference and inter-pass preparation. Excludes input preparation, final Pass "
                          "2 restoration, reconstruction, UI composition and the D3D11/D3D12 handoff.");
         DrawNRAppliedPasses(applied);
+        if (state.active) {
+            const auto execution = state.passOverride == TheosRenderPipeline::NeuralRendering::PassOverride::None ?
+                std::format("{} pass(es)", state.effectivePasses) :
+                std::format("1 pass - {}", TheosRenderPipeline::NeuralRendering::PassOverrideName(state.passOverride));
+            DrawSettingsValue("Running", execution.c_str());
+        }
         if (state.failed || (applied.enabled && !state.active))
             ImGui::TextWrapped("%s", state.status.c_str());
         if (showDeveloperControls)
