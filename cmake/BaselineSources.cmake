@@ -148,6 +148,7 @@ set(ARP_BASELINE_SOURCES
     src/OverlayUIStyle.cpp
     src/OverlayUIStyle.h
     src/OverlayPresetDecor.h
+    src/OverlaySettingRows.h
     src/OverlayFrameGenerationPanel.cpp
     src/OverlayPerformancePanel.cpp
     src/OverlayUI.h
