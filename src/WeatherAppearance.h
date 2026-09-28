@@ -162,7 +162,8 @@ inline std::string PresetStem(const std::string& name)
 }
 inline bool FileNameCharacter(unsigned int c)
 {
-    return c >= 32 && std::string_view("<>:\"/\\|?*").find(static_cast<char>(c)) == std::string_view::npos;
+    // Only ASCII can be a forbidden file-name character.
+    return c >= 32 && (c > 127 || std::string_view("<>:\"/\\|?*").find(static_cast<char>(c)) == std::string_view::npos);
 }
 // Names map to files, so they must differ after file-name cleanup, ignoring case.
 inline std::string UniqueName(const Settings& settings, std::string name, std::uint32_t self = 0)
