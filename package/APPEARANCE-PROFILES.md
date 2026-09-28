@@ -116,9 +116,12 @@ intermediate blended values.
 
 ## Preset files and sharing
 
-Each preset is one file in `Data/SKSE/Plugins/TheosRenderPipeline/Presets/`, named
-after the preset, such as `Moody rain.ini`. Files added to that folder load at the
-next game start.
+Each preset is one file in `Data/SKSE/Plugins/TheosRenderPipeline/Presets/`, and
+the file name is its name: `Moody rain.ini` is the preset "Moody rain". Renaming the
+file renames the preset, and a copied file is a new preset. Files added to that
+folder load at the next game start. Names cannot contain characters Windows file
+names forbid, such as `?` or `:`. Renaming a preset in game renames its file; under
+MO2 the renamed file is written to Overwrite.
 
 Under Mod Organizer, presets you create are written to Overwrite, like other
 settings the game creates; saving a preset that came from a mod updates that mod's
@@ -144,7 +147,6 @@ Outdoors and Interior ticked. A preset file contains:
 ```ini
 [Preset]
 Format = 1
-Name = Moody rain
 Enabled = true
 UseWhen = Rain|Snow
 WeatherCount = 1

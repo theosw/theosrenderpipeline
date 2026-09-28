@@ -471,12 +471,18 @@ static void PresetFiles()
     auto pack = std::make_unique<CSimpleIniA>();
     pack->LoadData("[Preset]\nName = Added pack\nUseWhen = Rain|Exterior\nWeatherCount = 1\nWeather0 = Weather.esp|0ABC\n[Changes]\nPass2Style = 7\n");
     saved.files.emplace_back("Added pack.ini", std::move(pack));
+    auto renamed = std::make_unique<CSimpleIniA>();
+    renamed->LoadData("[Preset]\nName = Something else\nUseWhen = Snow\n");
+    saved.files.emplace_back("Renamed copy.ini", std::move(renamed));
     auto stray = std::make_unique<CSimpleIniA>();
     stray->LoadData("[Unrelated]\nKey = 1\n");
     saved.files.emplace_back("notes.ini", std::move(stray));
     const auto withPack = Load(saved);
-    const auto& added = withPack.presets.back();
-    Require(withPack.presets.size() == 3 && added.name == "Added pack" && added.groups[0] && added.groups[3] &&
+    const auto& added = withPack.presets[2];
+    Require(withPack.presets.size() == 4 && withPack.presets[3].name == "Renamed copy" && withPack.presets[3].groups[4],
+        "a preset's name is its file name, not a Name line");
+    Require(!saved.files[0].second->GetValue("Preset", "Name", nullptr), "preset files do not store a name");
+    Require(withPack.presets.size() == 4 && added.name == "Added pack" && added.groups[0] && added.groups[3] &&
         added.weathers == std::vector<Record>{{"weather.esp", 0xABC}} && FindChange(added.profile, "Pass2Style")->points[0] == 7 &&
         added.file == "Added pack.ini", "preset files from packs load after the saved order; other INI files are ignored");
     auto edited = withPack;
@@ -486,6 +492,9 @@ static void PresetFiles()
     AddPreset(named, "Rain"); AddPreset(named, "rain"); AddPreset(named, "Rain?");
     Require(named.presets[1].name == "rain 2" && PresetFileName("Rain?") == "Rain_.ini" && PresetFileName("con") == "con_.ini" &&
         PresetFileName("Dusk. ") == "Dusk.ini", "preset names map to distinct, valid file names");
+    named.presets[2].name = "Rain: heavy?";
+    Require(Sanitize(named).presets[2].name == "Rain_ heavy_" && !FileNameCharacter('?') && FileNameCharacter('a'),
+        "names keep only what a file name allows");
 }
 static void MigrationAndSchedule()
 {

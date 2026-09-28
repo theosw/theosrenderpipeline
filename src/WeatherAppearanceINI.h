@@ -133,8 +133,8 @@ template<class Ini> void LoadLegacyPresets(const Ini& ini, long format, Settings
         if (preset) { preset->weathers.push_back(*record); }
     }
 }
-// A preset file: [Preset] holds the name and when it applies; [Changes] and
-// [Changes.Night] etc. hold only the settings it changes.
+// A preset file: its file name is the preset's name. [Preset] holds when it
+// applies; [Changes] and [Changes.Night] etc. hold only the settings it changes.
 template<class Ini> void StoreChanges(Ini& ini, const std::string& section, const Profile& profile)
 {
     for (const auto& change : profile.changes) {
@@ -149,7 +149,6 @@ template<class Ini> void StoreChanges(Ini& ini, const std::string& section, cons
 template<class Ini> bool LoadPresetFile(const Ini& file, NamedProfile& preset)
 {
     if (!file.GetSection("Preset")) { return false; }
-    preset.name = file.GetValue("Preset", "Name", preset.name.c_str());
     preset.profile = LoadProfile(file, "Changes", 3);
     preset.profile.enabled = file.GetBoolValue("Preset", "Enabled", true);
     for (const auto& group : Split(file.GetValue("Preset", "UseWhen", ""), '|')) {
@@ -165,7 +164,6 @@ template<class Ini> void StorePresetFile(Ini& file, const NamedProfile& preset)
 {
     file.Reset();
     file.SetLongValue("Preset", "Format", 1);
-    file.SetValue("Preset", "Name", preset.name.c_str());
     file.SetBoolValue("Preset", "Enabled", preset.profile.enabled);
     std::string groups;
     for (std::size_t i = 0; i < GroupLabels.size(); ++i) {

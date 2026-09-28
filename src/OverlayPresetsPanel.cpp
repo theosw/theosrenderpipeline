@@ -343,7 +343,9 @@ void OverlayUI::DrawPresetEditor(const std::function<void(SourceDLSSG::Preferenc
     if (BeginSettingRows("presetName", LabelWidth({"One pass while weapons are drawn", "Input colour is linear HDR"}))) {
         SettingRow("Name", nullptr, false, false, [&] {
             char name[81]{}; std::snprintf(name, sizeof(name), "%s", preset.name.c_str());
-            const bool changed = ImGui::InputText("##v", name, sizeof(name));
+            // The name is the preset's file name, so characters files cannot use are not typed.
+            const bool changed = ImGui::InputText("##v", name, sizeof(name), ImGuiInputTextFlags_CallbackCharFilter,
+                [](ImGuiInputTextCallbackData* data) { return Appearance::FileNameCharacter(data->EventChar) ? 0 : 1; });
             if (changed) { preset.name = name; }
             return changed;
         });

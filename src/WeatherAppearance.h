@@ -154,6 +154,16 @@ inline std::string PresetFileName(std::string name)
     if (std::ranges::find(reserved, stem) != reserved.end()) { name += '_'; }
     return name + ".ini";
 }
+// The preset's name as its file allows: the file name without ".ini".
+inline std::string PresetStem(const std::string& name)
+{
+    const auto file = PresetFileName(name);
+    return file.substr(0, file.size() - 4);
+}
+inline bool FileNameCharacter(unsigned int c)
+{
+    return c >= 32 && std::string_view("<>:\"/\\|?*").find(static_cast<char>(c)) == std::string_view::npos;
+}
 // Names map to files, so they must differ after file-name cleanup, ignoring case.
 inline std::string UniqueName(const Settings& settings, std::string name, std::uint32_t self = 0)
 {
@@ -281,7 +291,8 @@ inline Settings Sanitize(Settings settings)
         preset.name = start == std::string::npos ? std::format("Preset {}", preset.id) :
             preset.name.substr(start, preset.name.find_last_not_of(' ') - start + 1);
         if (preset.name.size() > 80) { preset.name.resize(80); }
-        preset.name = UniqueName(clean, std::move(preset.name));
+        // The file name is the preset's name, so keep only what a file name allows.
+        preset.name = UniqueName(clean, PresetStem(preset.name));
         preset.profile = Sanitize(std::move(preset.profile));
         std::vector<Record> unique;
         for (auto& record : preset.weathers) {
