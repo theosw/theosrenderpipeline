@@ -63,8 +63,10 @@ new preset set.
 
 ## Weather types and specific weathers
 
-Each weather type, Interior and Outdoors uses one preset; ticking one on another
-preset moves it. Specific weathers show as chips; click a chip to remove it.
+Several presets can use the same weather type, Interior, Outdoors or specific
+weather; the one highest in the list wins, and **Move up**/**Move down** change the
+order. A claim that a higher preset wins is shown muted, naming that preset.
+Specific weathers show as chips; click a chip to remove it.
 **Add current weather** is a shortcut for the incoming weather.
 
 **Add weathers...** searches editor ID/name, owning plugin, FormID and weather
@@ -73,12 +75,12 @@ Tweaks public lookup APIs when loaded. Neither plugin is required; a plugin/loca
 FormID label remains available otherwise. **Refresh list** resamples names on
 Skyrim's main thread. The list includes loaded records, not just weathers that
 normally occur in the current region. Select rows individually or use **Select
-shown** after filtering; selection survives filtering. Weathers assigned elsewhere
-move to this preset. Capacity errors leave the batch unchanged.
+shown** after filtering; selection survives filtering. The list shows weathers
+another preset already uses. Capacity errors leave the batch unchanged.
 
 Assignments for absent plugins remain saved as greyed chips; they do not match
-another plugin with the same numeric ID. Deleting a preset removes its assignments
-and returns its weather types to less specific presets.
+another plugin with the same numeric ID. Deleting a preset removes its assignments;
+its weathers fall to the next preset that uses them, or to less specific ones.
 
 Outdoor resolution is Base, then Outdoors, then Clear/Cloudy/Rain/Snow, then a
 specific weather, per setting: a more specific preset overrides only the settings
@@ -112,23 +114,73 @@ duration. Loading clears the old scene's blend. Zero smoothing follows the
 weather/time result directly. Base values and authored presets never receive
 intermediate blended values.
 
+## Preset files and sharing
+
+Each preset is one file in `Data/SKSE/Plugins/TheosRenderPipeline/Presets/`, and
+the file name is its name: `Moody rain.ini` is the preset "Moody rain". Renaming the
+file renames the preset, and a copied file is a new preset. Files added to that
+folder load at the next game start. Names cannot contain characters Windows file
+names forbid, such as `?` or `:`. Renaming a preset in game renames its file; under
+MO2 the renamed file is written to Overwrite.
+
+Under Mod Organizer, presets you create are written to Overwrite, like other
+settings the game creates; saving a preset that came from a mod updates that mod's
+file. To package presets as a mod:
+
+1. In MO2, choose **Create empty mod** and name it, for example
+   `TRP Presets - Moody Weather`.
+2. Open the new mod's folder and create `SKSE/Plugins/TheosRenderPipeline/Presets/`.
+3. Copy the preset `.ini` files you want from MO2's Overwrite (the same path) into
+   that folder, and enable the mod.
+
+Right-clicking Overwrite and choosing **Create mod...** does the same in one step
+for everything Overwrite contains. The mod is a preset pack: upload it as an
+ordinary Data mod, and players or modlists install and enable it like any other
+mod. When two mods contain the same preset file, MO2's mod order decides which one
+the game uses.
+
+A preset stores only the settings it changes, so it looks different on a
+different Base. **Save full copy** adds a copy with every setting stored, which
+looks the same for anyone; use it for packs meant to be a complete look, with
+Outdoors and Interior ticked. A preset file contains:
+
+```ini
+[Preset]
+Format = 1
+Enabled = true
+UseWhen = Rain|Snow
+WeatherCount = 1
+Weather0 = Skyrim.esm|10A241
+
+[Changes]
+Pass2SameAsPass1 = 0
+Pass2Style = 7
+
+[Changes.Night]
+Pass1Intensity = 1.2
+```
+
+`UseWhen` accepts Outdoors, Clear, Cloudy, Rain, Snow and Interior. Weathers are a
+plugin name and its local FormID, so they work in any load order. `[Changes]` uses
+the same keys as the Neural Rendering settings; look settings go in the six time
+sections (Night, Dawn, Sunrise, Day, Sunset, Dusk). On/off settings accept 1/0 or
+true/false. Pass 2 settings apply only while Pass 2 has its own settings,
+`Pass2SameAsPass1 = 0`; the editor adds it when you change a Pass 2 setting.
+
 ## Persistence and compatibility
 
-Configuration remains in `Data/SKSE/Plugins/TheosRenderPipeline.ini`:
+`Data/SKSE/Plugins/TheosRenderPipeline.ini` keeps `[Appearance]` format 4: the time
+schedule, smoothing and `PresetOrder`, the list order by file name. Files it does
+not list, such as newly added packs, follow in name order. `Enabled` is written as
+whether any preset is in use, for older builds; this build derives it on load.
 
-- `[Appearance]`: format 3, schedule, counts and smoothing. `Enabled` is written
-  as whether any preset is in use, for older builds; this build derives it on load.
-- `[Appearance.Preset0]` etc.: stable ID, name, enable state and each changed
-  setting other than look settings, such as `Passes = 2`.
-- `[Appearance.Preset0.Day]` etc.: changed look settings at each time of day.
-- `[Appearance.Clear]` etc.: the shared preset ID assigned to each broad group.
-- `[Appearance.Weather0]` etc.: plugin name, hexadecimal local FormID and preset ID.
-
-Only changed settings are saved. Format 1 and 2 presets migrate on load: their
-intensity, tone, structure and sharpness at each time become look changes, limited
-to the channels they changed. The next Save writes format 3 and removes retired
-owned sections. Unrelated INI settings remain intact. Older plugin builds cannot
-interpret format 3; keep a backup before reverting the DLL.
+Save as default writes every preset file, renames the file of a renamed preset and
+deletes the files of deleted presets; Discard undoes both before saving. Preset
+files the game has not loaded are left alone. Presets
+from formats 1-3 in the main INI load as before and move into files at the next
+save, which removes their old sections. Unrelated INI settings remain intact.
+Older plugin builds cannot read format 4 or preset files; keep a backup before
+reverting the DLL.
 
 Install the matching `RCAS.hlsl` with the DLL. Sharpening uses a runtime constant
 buffer; unchanged strength does not upload it again. Weather identities and preset

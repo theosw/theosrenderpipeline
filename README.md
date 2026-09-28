@@ -12,7 +12,8 @@ Neural Rendering (NR), and native-resolution menus and HUD. Current version:
   input scaling and tuning, in both editions. NR defaults off.
 - Optional peripheral compression and combined NR preparation, both off by default.
 - Optional weather and time presets for any NR setting and sharpening, with smooth
-  transitions and separate interior settings. See [presets](package/APPEARANCE-PROFILES.md).
+  transitions and separate interior settings. Presets are shareable files. See
+  [presets](package/APPEARANCE-PROFILES.md).
 - ReShade source-frame effects, explicit depth and placement controls.
 - Native UI composition, inventory/spell previews, loading artwork and external
   ImGui integration, with live GPU measurements beside the settings.
