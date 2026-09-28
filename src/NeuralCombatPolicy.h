@@ -21,7 +21,7 @@ namespace TheosRenderPipeline::NeuralRendering
         return value;
     }
 
-    enum class PassOverride { None, Combat, WeaponsDrawn, Recovery };
+    enum class PassOverride { None, Combat, WeaponsDrawn, Recovery, Preset };
 
     inline const char* PassOverrideName(PassOverride value)
     {
@@ -29,6 +29,7 @@ namespace TheosRenderPipeline::NeuralRendering
         case PassOverride::Combat: return "combat";
         case PassOverride::WeaponsDrawn: return "weapons/spells drawn";
         case PassOverride::Recovery: return "recovery delay";
+        case PassOverride::Preset: return "preset";
         default: return "none";
         }
     }

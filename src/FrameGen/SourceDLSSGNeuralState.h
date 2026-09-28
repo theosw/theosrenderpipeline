@@ -22,7 +22,12 @@ namespace TheosRenderPipeline::SourceDLSSG
 		NeuralRendering::CombatSettings combat{};
 		// Frame-only override: passes still describes the requested resource allocation.
 		NeuralRendering::PassOverride passOverride{NeuralRendering::PassOverride::None};
-		int EffectivePasses() const { return passes == 2 && passOverride != NeuralRendering::PassOverride::None ? 1 : passes; }
+		// Frame-only: a preset asks for one pass while two stay allocated.
+		bool presetOnePass{};
+		int EffectivePasses() const
+		{
+			return passes == 2 && (presetOnePass || passOverride != NeuralRendering::PassOverride::None) ? 1 : passes;
+		}
 		std::filesystem::path runtimePath;
 		NeuralRendering::Tuning tuning{};
 		NeuralRendering::Reconstruction reconstruction{};

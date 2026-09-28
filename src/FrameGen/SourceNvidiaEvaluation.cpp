@@ -135,8 +135,10 @@ bool NvidiaHost::EvaluateSourceNvidiaFrame(bool nativeUIHandoff, bool resetHisto
     frame.outputWidth = outputWidth_;
     frame.outputHeight = outputHeight_;
     auto neuralOptions = TheosRenderPipeline::SourceDLSSG::Backend::Get().NeuralConfiguration();
-    const float appearanceSharpness = TheosRenderPipeline::Appearance::Runtime::Get().Apply(neuralOptions, upscaler.mSharpness);
-    frame.sharpness = upscaler.mSharpening ? appearanceSharpness : 0.0f;
+    bool sharpening = upscaler.mSharpening;
+    float sharpness = upscaler.mSharpness;
+    TheosRenderPipeline::Appearance::Runtime::Get().Apply(neuralOptions, sharpening, sharpness);
+    frame.sharpness = sharpening ? sharpness : 0.0f;
     frame.jitterX = upscaler.mJitterOffsets[0] * jitterEnabled;
     frame.jitterY = upscaler.mJitterOffsets[1] * jitterEnabled;
     frame.motionScaleX = static_cast<float>(renderWidth_);

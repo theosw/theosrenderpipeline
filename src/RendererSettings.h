@@ -112,7 +112,7 @@ inline const char* ValidateRendererSettings(const RendererSettingsDraft& draft,
         return "Choose DLSS or DLAA.";
     }
     if (!Appearance::ValidHours(draft.appearance.hours)) {
-        return "Appearance times must increase from Night to Dusk and stay between 0 and 24 hours.";
+        return "Preset times must increase from Night to Dusk and stay between 0 and 24 hours.";
     }
     if (!TheosRenderPipeline::SourceDLSSG::ValidGenerationRequest(draft.sourceDLSSG.generation))
     {

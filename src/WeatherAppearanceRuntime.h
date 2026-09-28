@@ -21,7 +21,7 @@ public:
     void Invalidate() { std::scoped_lock lock(mutex_); controller_.Invalidate(); incomingID_ = outgoingID_ = ~0u; nextIdleSample_ = {}; }
     void CaptureCatalogue();
     std::shared_ptr<const std::vector<WeatherEntry>> Catalogue() const { std::scoped_lock lock(mutex_); return catalogue_; }
-    float Apply(SourceDLSSG::NeuralOptions& options, float sharpness);
+    void Apply(SourceDLSSG::NeuralOptions& options, bool& sharpening, float& sharpness);
 private:
     mutable std::mutex mutex_;
     Controller controller_;

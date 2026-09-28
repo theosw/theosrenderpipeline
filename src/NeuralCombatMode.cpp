@@ -23,7 +23,10 @@ namespace TheosRenderPipeline::NeuralRendering
     void ApplyCombatMode(SourceDLSSG::NeuralOptions& options, bool worldEligible)
     {
         options.passOverride = PassOverride::None;
-        if (!worldEligible || !options.enabled || options.passes != 2 || !options.combat.Enabled()) {
+        const bool presetOnePass = options.presetOnePass && options.passes == 2;
+        if (!worldEligible || !options.enabled || options.passes != 2 || !options.combat.Enabled() || presetOnePass) {
+            // A preset's single pass already skips Pass 2; combat has nothing to reduce.
+            if (presetOnePass && worldEligible && options.enabled) { options.passOverride = PassOverride::Preset; }
             policy.Reset();
             std::scoped_lock lock(sample.mutex);
             sample.state = {};

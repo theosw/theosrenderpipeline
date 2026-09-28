@@ -5,25 +5,33 @@
 
 namespace TheosRenderPipeline::Appearance
 {
-inline Values FromNeural(const SourceDLSSG::NeuralOptions& options, float sharpness)
+inline Setup FromNeural(const SourceDLSSG::NeuralOptions& options, bool sharpening, float sharpness)
 {
-    const auto first = options.tuning;
-    const auto second = options.EffectiveSecond().tuning;
-    Values values;
-    values.passes[0] = {first.intensity, first.localToneStrength, first.localStructureStrength};
-    values.passes[1] = {second.intensity, second.localToneStrength, second.localStructureStrength};
-    values.sharpness = sharpness;
-    return Sanitize(values);
+    Setup setup;
+    setup.neural = options.enabled;
+    setup.beforeUpscaling = options.beforeUpscaling;
+    setup.passes = options.passes;
+    setup.combat = options.combat;
+    setup.reconstruction = options.reconstruction;
+    setup.tuning = options.tuning;
+    // A linked Pass 2 takes Pass 1's values, so a preset that unlinks it changes only what it sets.
+    setup.second = NeuralRendering::EffectiveSecondPass(options.secondPass, options.reconstruction, options.tuning);
+    setup.sharpening = sharpening;
+    setup.sharpness = sharpness;
+    return SanitizeSetup(setup);
 }
-inline void ApplyValues(SourceDLSSG::NeuralOptions& options, const Values& values)
+inline void ApplySetup(SourceDLSSG::NeuralOptions& options, const Setup& setup)
 {
-    auto apply = [](NeuralRendering::Tuning& tuning, const Neural& values) {
-        tuning.intensity = values.intensity;
-        tuning.localToneStrength = values.tone;
-        tuning.localStructureStrength = values.structure;
-    };
-    apply(options.tuning, values.passes[0]);
-    if (!options.secondPass.linked) { apply(options.secondPass.tuning, values.passes[1]); }
+    options.enabled = setup.neural;
+    options.beforeUpscaling = setup.beforeUpscaling;
+    options.passes = setup.passes;
+    options.combat = setup.combat;
+    // The adapter-owned input contract is never a preset setting.
+    const bool producerColor = options.reconstruction.producerColor;
+    options.reconstruction = setup.reconstruction;
+    options.reconstruction.producerColor = producerColor;
+    options.tuning = setup.tuning;
+    options.secondPass = setup.second;
 }
 struct Snapshot
 {
@@ -47,6 +55,7 @@ public:
         settings = Sanitize(std::move(settings));
         if (settings_ == settings) { return; }
         settings_ = std::move(settings);
+        twoPassAllocation_ = PresetsRequestTwoPasses(settings_);
         selectionDirty_ = true;
         ++revision_;
         smoother_.Reset();
@@ -63,59 +72,68 @@ public:
         snapshot_.result.active = false;
         smoother_.Reset();
     }
-    float Apply(const Context& context, SourceDLSSG::NeuralOptions& options, float sharpness, float elapsed)
+    void Apply(const Context& context, SourceDLSSG::NeuralOptions& options, bool& sharpening, float& sharpness, float elapsed)
     {
         const auto& old = snapshot_.context;
         const auto hourDelta = std::abs(context.hour - old.hour);
         const bool timeJump = (std::min)(hourDelta, 24.0f - hourDelta) > 0.25f;
         const bool forcedWeather = context.incoming.record != old.incoming.record &&
             (context.outgoing.record != old.incoming.record || context.transition >= 1);
-        if (options != previousBase_ || sharpness != previousSharpness_ || context.valid != old.valid ||
-            context.interior != old.interior || timeJump || forcedWeather) { ++revision_; }
+        if (options != previousBase_ || sharpening != previousSharpening_ || sharpness != previousSharpness_ ||
+            context.valid != old.valid || context.interior != old.interior || timeJump || forcedWeather) { ++revision_; }
         previousBase_ = options;
+        previousSharpening_ = sharpening;
         previousSharpness_ = sharpness;
         auto& result = snapshot_.result;
         result.active = settings_.enabled && context.valid && !paused_ && std::isfinite(context.hour);
-        const auto base = FromNeural(options, sharpness);
+        const auto base = FromNeural(options, sharpening, sharpness);
         if (result.active) {
             if (selectionDirty_ || !old.valid || context.interior != old.interior ||
                 context.incoming.record != old.incoming.record || context.outgoing.record != old.outgoing.record ||
                 context.incoming.group != old.incoming.group || context.outgoing.group != old.outgoing.group) {
-                incoming_ = Select(settings_, context.incoming, context.interior);
-                outgoing_ = Valid(context.outgoing.record) && !context.interior ? Select(settings_, context.outgoing, false) : incoming_;
-                result.incoming = incoming_.neuralName; result.outgoing = outgoing_.neuralName;
-                result.incomingSharpening = incoming_.sharpeningName; result.outgoingSharpening = outgoing_.sharpeningName;
+                const auto incoming = Select(settings_, context.incoming, context.interior);
+                const auto outgoing = Valid(context.outgoing.record) && !context.interior ? Select(settings_, context.outgoing, false) : incoming;
+                incoming_ = Flatten(incoming); outgoing_ = Flatten(outgoing);
+                result.incoming = Names(incoming); result.outgoing = Names(outgoing);
+                result.sharpnessSource = SourceOf(incoming, "Sharpness");
                 selectionDirty_ = false;
                 ++selectionResolutions_;
             }
-            result.values = Blend(Sample(outgoing_, settings_, context.hour, base), Sample(incoming_, settings_, context.hour, base),
+            result.setup = Blend(Resolve(outgoing_, settings_, context.hour, base), Resolve(incoming_, settings_, context.hour, base),
                 context.interior ? 1 : context.transition);
         } else {
-            result.values = base;
-            result.incoming = result.outgoing = result.incomingSharpening = result.outgoingSharpening = "Manual defaults";
+            result.setup = base;
+            result.incoming = result.outgoing = result.sharpnessSource = "Base";
             selectionDirty_ = true;
         }
-        result.values = smoother_.Update(result.values, settings_.smoothingSeconds, elapsed, result.active);
-        if (options.secondPass.linked) { result.values.passes[1] = result.values.passes[0]; }
+        result.setup = smoother_.Update(result.setup, settings_.smoothingSeconds, elapsed, result.active);
         if (result.active) {
-            ApplyValues(options, result.values);
+            ApplySetup(options, result.setup);
+            // One pass inside a two-pass allocation skips Pass 2 like the combat
+            // option, instead of retiring and recreating NR.
+            options.presetOnePass = result.setup.passes == 1 && (base.passes == 2 || twoPassAllocation_);
+            if (options.presetOnePass) { options.passes = 2; }
+            sharpening = result.setup.sharpening;
+            sharpness = result.setup.sharpness;
             // Ordinary weather/time progress shares a revision. Manual edits,
             // profile edits, loads and discontinuities start a new history.
             options.appearanceRevision = revision_;
         }
         snapshot_.context = context;
         snapshot_.paused = paused_;
-        return result.values.sharpness;
     }
     std::uint64_t SelectionResolutions() const { return selectionResolutions_; }
 private:
-    Selection incoming_, outgoing_;
+    // Point into settings_; rebuilt whenever it or the weather changes.
+    Changes incoming_, outgoing_;
     bool selectionDirty_{true};
+    bool twoPassAllocation_{};
     std::uint64_t selectionResolutions_{};
     Settings settings_;
     Snapshot snapshot_;
     Smoother smoother_;
     SourceDLSSG::NeuralOptions previousBase_;
+    bool previousSharpening_{true};
     float previousSharpness_{};
     std::uint64_t revision_{1};
     bool paused_{};
