@@ -11,6 +11,8 @@
 #include "SettingsFile.h"
 #include "OverlayHotkeys.h"
 #include "OverlayLayout.h"
+#include "WeatherAppearanceINI.h"
+#include "WeatherAppearanceRuntime.h"
 
 #include <SimpleIni.h>
 
@@ -58,6 +60,7 @@ void RenderPipeline::LoadINI()
 	logger::info("[Overlay Input] NR shortcuts enabled={}", mEnableNRHotkeys);
 	mLogMenuMetrics = ini.GetBoolValue("Debug", "LogMenuMetrics", false);
 	mQualityLevel = std::clamp(mQualityLevel, 0, 4);
+    TheosRenderPipeline::Appearance::Runtime::Get().Configure(TheosRenderPipeline::Appearance::LoadSettings(ini));
 
 	// A reload after the feature exists (e.g. kDataLoaded) must not stomp the
 	// computed optimal bias with the INI's stored value.
@@ -123,6 +126,7 @@ bool RenderPipeline::SaveINI(const TheosRenderPipeline::Overlay::Layout* layout)
     frameGeneration->StoreUIComposition(ini);
     frameGeneration->StoreCompatibilityPreference(ini);
     TheosRenderPipeline::SourceDLSSG::StorePreferences(ini, sourceSettings.sourceDLSSG);
+    TheosRenderPipeline::Appearance::StoreSettings(ini, TheosRenderPipeline::Appearance::Runtime::Get().Configuration());
 	ini.SetBoolValue("Debug", "LogMenuMetrics", mLogMenuMetrics);
     if (layout) { TheosRenderPipeline::Overlay::StoreLayout(ini, *layout); }
 	const auto rc = ini.SaveFile(L"Data\\SKSE\\Plugins\\TheosRenderPipeline.ini");
@@ -138,6 +142,12 @@ bool RenderPipeline::SaveINI(const TheosRenderPipeline::Overlay::Layout* layout)
 void RenderPipeline::MessageHandler(SKSE::MessagingInterface::Message* a_msg)
 {
 	static bool inited = false;
+    if (a_msg->type == SKSE::MessagingInterface::kDataLoaded) {
+        TheosRenderPipeline::Appearance::Runtime::Get().CaptureCatalogue();
+    }
+    if (a_msg->type == SKSE::MessagingInterface::kPreLoadGame || a_msg->type == SKSE::MessagingInterface::kNewGame) {
+        TheosRenderPipeline::Appearance::Runtime::Get().Invalidate();
+    }
 	switch (a_msg->type) {
 	case SKSE::MessagingInterface::kDataLoaded:
 	case SKSE::MessagingInterface::kNewGame:

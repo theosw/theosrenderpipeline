@@ -18,6 +18,7 @@ set(ARP_BASELINE_SOURCES
     src/CommunityShaderIntegration.cpp
     src/CommunityShaderIntegration.h
     src/DLSSBackend.h
+    src/RCASParameters.h
     src/DLSSFeatureParameters.h
     src/DLSSPreset.h
     src/NativeInput.h
@@ -70,6 +71,13 @@ set(ARP_BASELINE_SOURCES
     src/DRS.h
     src/MenuRenderState.h
     src/RenderPipeline.cpp
+    src/WeatherAppearance.h
+    src/WeatherEditorID.h
+    src/WeatherAppearanceController.h
+    src/WeatherAppearanceINI.h
+    src/WeatherAppearanceRuntime.h
+    src/WeatherAppearanceRuntime.cpp
+    src/OverlayAppearancePanel.cpp
     src/RenderPipeline.h
     src/ReShadeIntegration.cpp
     src/ReShadeIntegration.h

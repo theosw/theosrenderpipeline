@@ -4,6 +4,7 @@
 #include "UpscaleType.h"
 #include "NeuralRenderingMode.h"
 #include "FrameGen/SourceDLSSGSettings.h"
+#include "WeatherAppearance.h"
 #include <array>
 #include <cmath>
 
@@ -28,6 +29,7 @@ struct RendererSettingsDraft
     bool directRCASOutput{false};
     bool directDLSSOutput{false};
     TheosRenderPipeline::SourceDLSSG::Preferences sourceDLSSG;
+    Appearance::Settings appearance;
     bool textureProviderConnected{false};
     TextureProviderBridge::Settings textureProviderSettings{};
 };
@@ -57,6 +59,7 @@ inline int CountRendererSettingsChanges(const RendererSettingsDraft& draft, cons
     }
     count += std::abs(draft.sharpness - current.sharpness) > 0.0001f;
     count += draft.sourceDLSSG != current.sourceDLSSG;
+    count += draft.appearance != current.appearance;
     if (draft.textureProviderConnected && current.textureProviderConnected)
     {
         count += draft.textureProviderSettings.enabled != current.textureProviderSettings.enabled;
@@ -107,6 +110,9 @@ inline const char* ValidateRendererSettings(const RendererSettingsDraft& draft,
     if (draft.upscaleType != DLSS && draft.upscaleType != DLAA)
     {
         return "Choose DLSS or DLAA.";
+    }
+    if (!Appearance::ValidHours(draft.appearance.hours)) {
+        return "Appearance times must increase from Night to Dusk and stay between 0 and 24 hours.";
     }
     if (!TheosRenderPipeline::SourceDLSSG::ValidGenerationRequest(draft.sourceDLSSG.generation))
     {

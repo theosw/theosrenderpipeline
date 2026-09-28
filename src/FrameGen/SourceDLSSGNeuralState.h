@@ -27,6 +27,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 		NeuralRendering::Tuning tuning{};
 		NeuralRendering::Reconstruction reconstruction{};
 		NeuralRendering::SecondPassSettings secondPass{};
+		// Per-frame appearance controller revision; zero preserves manual-edit resets.
+		std::uint64_t appearanceRevision{};
 		NeuralRendering::SecondPassSettings EffectiveSecond() const
 		{
 			auto result = NeuralRendering::EffectiveSecondPass(secondPass, reconstruction, tuning);
@@ -66,6 +68,20 @@ namespace TheosRenderPipeline::SourceDLSSG
 		std::string status{ "standard DLSS; source NR is off" };
 	};
 
+	inline bool SameHistoryOptions(NeuralOptions current, const NeuralOptions& previous)
+	{
+		if (current.appearanceRevision && current.appearanceRevision == previous.appearanceRevision) {
+			const auto retain = [](NeuralRendering::Tuning& value, const NeuralRendering::Tuning& old) {
+				value.intensity = old.intensity;
+				value.localToneStrength = old.localToneStrength;
+				value.localStructureStrength = old.localStructureStrength;
+			};
+			retain(current.tuning, previous.tuning);
+			retain(current.secondPass.tuning, previous.secondPass.tuning);
+		}
+		return current == previous;
+	}
+
 	// A frame decision, not a generation policy. NR continues when FG is off.
 	// No-input/loading frames break history. Options are sampled once per frame.
 	class NeuralHistory
@@ -79,7 +95,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			historyOptions.combat = {};
 			historyOptions.passOverride = options.EffectivePasses() != options.passes ?
 				NeuralRendering::PassOverride::Combat : NeuralRendering::PassOverride::None;
-			const bool reset = cameraReset || active != active_ || (active && historyOptions != previous_);
+			const bool reset = cameraReset || active != active_ || (active && !SameHistoryOptions(historyOptions, previous_));
 			active_ = active;
 			previous_ = historyOptions;
 			return reset;
