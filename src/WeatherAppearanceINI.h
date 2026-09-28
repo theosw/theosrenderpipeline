@@ -181,7 +181,10 @@ template<class Ini> void StorePresetFile(Ini& file, const NamedProfile& preset)
 }
 // files: each preset file's name and contents, in any order. PresetOrder in the
 // main INI gives their priority; files it does not list follow by name.
-template<class Ini> Settings LoadSettings(const Ini& ini, const std::vector<std::pair<std::string, const Ini*>>& files = {})
+// legacyBase is Base as saved in the same INI; formats 1-3 stored every look value,
+// so their values equal to it are not kept as changes.
+template<class Ini> Settings LoadSettings(const Ini& ini, const std::vector<std::pair<std::string, const Ini*>>& files = {},
+    const Setup* legacyBase = nullptr)
 {
     Settings settings;
     settings.smoothingSeconds = static_cast<float>(ini.GetDoubleValue("Appearance", "SmoothingSeconds", 2));
@@ -189,7 +192,10 @@ template<class Ini> Settings LoadSettings(const Ini& ini, const std::vector<std:
         settings.hours[i] = static_cast<float>(ini.GetDoubleValue("Appearance", (std::string(Times[i]) + "Hour").c_str(), DefaultHours[i]));
     }
     const long format = ini.GetLongValue("Appearance", "Format", 1);
-    if (format <= 3) { LoadLegacyPresets(ini, format, settings); }
+    if (format <= 3) {
+        LoadLegacyPresets(ini, format, settings);
+        if (legacyBase) { for (auto& preset : settings.presets) { DropBaseEqual(preset.profile, *legacyBase); } }
+    }
     auto order = Split(ini.GetValue("Appearance", "PresetOrder", ""), '|');
     for (auto& name : order) { name = Lower(name); }
     auto sorted = files;

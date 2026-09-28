@@ -1,6 +1,7 @@
 #include <PCH.h>
 #include "WeatherAppearanceRuntime.h"
 #include "WeatherAppearanceINI.h"
+#include "FrameGen/SourceDLSSGSettings.h"
 #include "WeatherEditorID.h"
 
 namespace TheosRenderPipeline::Appearance
@@ -126,7 +127,19 @@ Settings Runtime::Load(const CSimpleIniA& ini)
     }
     std::vector<std::pair<std::string, const CSimpleIniA*>> views;
     for (const auto& [name, file] : files) { views.emplace_back(name, file.get()); }
-    auto settings = LoadSettings(ini, views);
+    // Base as saved beside older-format presets, to drop values they only copied from it.
+    const auto nr = SourceDLSSG::SanitizePreferences(SourceDLSSG::LoadPreferences(ini));
+    Setup base;
+    base.neural = nr.neuralEnabled;
+    base.beforeUpscaling = nr.neuralBeforeUpscaling;
+    base.passes = nr.neuralPasses;
+    base.combat = nr.neuralCombat;
+    base.reconstruction = nr.neuralReconstruction;
+    base.tuning = nr.neuralTuning;
+    base.second = NeuralRendering::EffectiveSecondPass(nr.neuralSecondPass, nr.neuralReconstruction, nr.neuralTuning);
+    base.sharpening = ini.GetBoolValue("Settings", "Sharpening", false);
+    base.sharpness = static_cast<float>(ini.GetDoubleValue("Settings", "Sharpness", 0.3));
+    auto settings = LoadSettings(ini, views, &base);
     logger::info("[Appearance] loaded {} presets ({} preset files)", settings.presets.size(), files.size());
     return settings;
 }

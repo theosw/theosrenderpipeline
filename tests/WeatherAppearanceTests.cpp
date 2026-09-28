@@ -527,6 +527,12 @@ static void MigrationAndSchedule()
     shared.SetLongValue("Appearance.Weather0", "Preset", 99999);
     const auto format2 = LoadSettings(shared);
     Require(!format2.presets[0].groups[4] && WeatherCount(format2) == 0, "dangling references cannot retarget new presets");
+    const auto base = BaseSetup(1.5f, .5f);
+    Require(LoadSettings(shared, {}, &base).presets[0].profile.changes.empty(), "older values equal to Base are not kept as changes");
+    Settings full;
+    const auto kept = AddPreset(full, "Full", Look(1, .3f));
+    Saved pinned; Save(pinned, full);
+    Require(Load(pinned).presets[0].profile == FindPreset(full, kept)->profile, "preset files keep values equal to Base");
     Require(format2.presets[0].groups[3] && format2.presets.size() == 1 && format2.presets[0].profile.changes.size() == 1 &&
         FindChange(format2.presets[0].profile, "Sharpness")->points[3] == .5f, "format 2 presets keep only the channels they changed");
     CSimpleIniA enb;

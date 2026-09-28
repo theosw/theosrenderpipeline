@@ -255,6 +255,15 @@ inline Profile Sanitize(Profile profile)
     profile.changes = std::move(changes);
     return profile;
 }
+// Drops changes equal to base at every time. Only for presets from formats that
+// stored every look value; a full copy pins Base's values on purpose.
+inline void DropBaseEqual(Profile& profile, const Setup& base)
+{
+    std::erase_if(profile.changes, [&](const auto& change) {
+        const auto* field = FindField(change.key);
+        return field && std::ranges::all_of(change.points, [&](float point) { return std::abs(point - field->get(base)) < 0.0005f; });
+    });
+}
 inline Settings Sanitize(Settings settings)
 {
     settings.smoothingSeconds = FiniteClamp(settings.smoothingSeconds, 0, 30, 2);
