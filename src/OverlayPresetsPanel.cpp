@@ -290,6 +290,11 @@ void OverlayUI::DrawPresetEditor(const std::function<void(SourceDLSSG::Preferenc
     const auto nowIndex = scene.valid ? TimeIndex(settings.hours, scene.hour) : Appearance::Times.size();
     if (presetShown != preset.id) {
         presetShown = preset.id;
+        // Earlier presets stored every look value. A value equal to Base at every time is not a change.
+        std::erase_if(profile.changes, [base = DraftSetup(settingsDraft)](const auto& change) {
+            const auto* field = Appearance::FindField(change.key);
+            return field && std::ranges::all_of(change.points, [&](float point) { return std::abs(point - field->get(base)) < 0.0005f; });
+        });
         presetTimed = Appearance::Timed(profile);
         presetTime = static_cast<int>(nowIndex < Appearance::Times.size() ? nowIndex : 3);
         presetPickerSelection.clear();
