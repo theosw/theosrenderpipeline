@@ -108,6 +108,8 @@ struct NamedProfile
 };
 struct Settings
 {
+    // Derived by Sanitize: presets apply whenever one is in use. Pause is the
+    // session-only override. Still persisted so older builds read a matching value.
     bool enabled{};
     float smoothingSeconds{2};
     std::array<float, 6> hours{DefaultHours};
@@ -170,6 +172,10 @@ inline bool AddStarterProfiles(Settings& settings, Values values)
     }
     return true;
 }
+inline bool UsesPresets(const Settings& settings)
+{
+    return std::ranges::any_of(settings.presets, [](const auto& preset) { return preset.profile.enabled; });
+}
 inline bool ValidHours(const std::array<float, 6>& hours)
 {
     for (std::size_t i = 0; i < hours.size(); ++i) {
@@ -208,6 +214,7 @@ inline Settings Sanitize(Settings settings)
         unique.push_back(std::move(entry));
     }
     settings.weathers = std::move(unique);
+    settings.enabled = UsesPresets(settings);
     return settings;
 }
 

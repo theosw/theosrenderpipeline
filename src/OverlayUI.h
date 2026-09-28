@@ -43,7 +43,10 @@ private:
     FrameView CaptureFrameView();
     void DrawPipelineSummary(const FrameView& view);
     void DrawImagePanel(float tabCardHeight, const FrameView& view);
-    void DrawPresetsPanel(float height);
+    bool PresetEditorSelected() const;
+    void DrawPresetList();
+    void DrawPresetEditor();
+    void DrawPresetSharpeningStatus();
     void DrawTextureMemoryPanel(const FrameView& view);
     void DrawAdvancedPanel(float tabCardHeight, const FrameView& view);
     bool BeginSettingsColumns(const char* id, float height, const FrameView& view);

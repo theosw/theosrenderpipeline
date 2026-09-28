@@ -3,11 +3,11 @@
 Use an identified candidate with its matching shader and preserved live settings.
 Choose a save manually. Keep comparisons in the same scene, at the same resolution,
 NR placement/pass configuration and frame-generation multiplier. Record the active
-weather, game hour and resolved preset names shown in Presets.
+weather, game hour and resolved preset names shown in the Neural Rendering tab.
 
-1. **Manual baseline:** leave automation off. Confirm the existing image and controls
+1. **Manual baseline:** use no presets, or Pause presets. Confirm the existing image and controls
    behave normally. Record NR/Image values and a short stationary frame-time sample.
-2. **Shared assignment:** create starter presets, copy a preset, name it, and add
+2. **Shared assignment:** create a preset, duplicate it, name it, and add
    two selected weather records to it. Change a value and Apply. Verify both
    assignments still point to it; check current-weather assignment and inheritance.
 3. **Visible transition:** give clear and rainy weather observably different but
@@ -18,13 +18,13 @@ weather, game hour and resolved preset names shown in Presets.
    fast travel and entering/leaving an interior. Look for stale outdoor tuning,
    a single incorrect frame or prolonged history contamination. Review copied ENB
    anchors against visible lighting; adjust them if needed.
-5. **Controls and persistence:** test Pause (use Base), Apply, Discard,
+5. **Controls and persistence:** test Pause presets, Apply, Discard,
    Save as default and a manual restart. Check preset names, shared assignments and
    distinct time points survive. Delete a copy and confirm its assignments fall
-   back. Check Base edits match the NR and Image tabs. Verify text search/name
+   back. Check the Image tab reports preset sharpening. Verify text search/name
    editing releases input when the menu closes.
 6. **NR routes and cost:** check the intended linked/independent passes and NR
-   placement. Compare automation off/on frame-time samples in the same scene,
+   placement. Compare paused/active frame-time samples in the same scene,
    alternating order and retaining the actual settings. Community Shaders tests
    NR only. On the ENB route also verify sharpening and its enable control.
 

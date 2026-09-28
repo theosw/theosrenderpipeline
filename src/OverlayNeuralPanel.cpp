@@ -319,8 +319,10 @@ void OverlayUI::DrawNeuralRenderingPanel(float height, const FrameView& view)
                                    static_cast<unsigned long long>(timing.gpuSamples),
                                    static_cast<unsigned long long>(timing.gpuQueryFailures));
         }
+        DrawPresetList();
         NextSettingsColumn(height);
-        DrawSourceNeuralControls(settingsDraft.sourceDLSSG, settingsDraft.upscaleType, nrRuntimePresent);
+        if (PresetEditorSelected()) { DrawPresetEditor(); }
+        else { DrawSourceNeuralControls(settingsDraft.sourceDLSSG, settingsDraft.upscaleType, nrRuntimePresent); }
         EndSettingsColumns();
     }
     ImGui::EndTabItem();

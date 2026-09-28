@@ -174,6 +174,7 @@ void OverlayUI::DrawImagePanel(float tabCardHeight, const FrameView& view)
         ImGui::BeginDisabled(!settingsDraft.sharpening);
         ImGui::SliderFloat("Strength##sharpness", &settingsDraft.sharpness, 0, 1, "%.2f");
         ImGui::EndDisabled();
+        DrawPresetSharpeningStatus();
         ImGui::Separator();
 
         ImGui::Checkbox("Auto exposure", &settingsDraft.autoExposure);

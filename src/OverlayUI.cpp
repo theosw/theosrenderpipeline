@@ -352,7 +352,6 @@ void OverlayUI::BuildUI()
     if (ImGui::BeginTabBar("##theosrenderpipelineTabs", ImGuiTabBarFlags_None))
     {
         DrawImagePanel(tabCardHeight, view);
-        DrawPresetsPanel(tabCardHeight);
 
 #if !defined(TRP_NO_NEURAL_RENDERING)
         DrawNeuralRenderingPanel(tabCardHeight, view);

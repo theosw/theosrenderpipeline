@@ -278,11 +278,14 @@ static void SharedPresets()
     settings.presets[0].profile.enabled = false;
     Require(Evaluate(settings, Scene(), Value(.5f, .3f)).values == Value(.5f, .3f), "disabled shared preset inherits");
     CSimpleIniA ini; StoreSettings(ini, settings);
-    Require(LoadSettings(ini) == settings, "shared identity and disabled presets round trip");
+    Require(LoadSettings(ini) == Sanitize(settings), "shared identity and disabled presets round trip");
+    Require(!LoadSettings(ini).enabled, "presets apply only while one is in use");
+    settings.presets[0].profile.enabled = true;
+    Require(Sanitize(settings).enabled && !Sanitize(Settings{}).enabled, "an enabled preset turns presets on");
     RemovePreset(settings, shared);
     Require(settings.weathers.empty() && settings.groups[3] == 0, "deleting a shared preset clears all its references");
     StoreSettings(ini, settings);
-    Require(!ini.GetSection("Appearance.Preset0.Day") && !ini.GetSection("Appearance.Weather0") && LoadSettings(ini) == settings,
+    Require(!ini.GetSection("Appearance.Preset0.Day") && !ini.GetSection("Appearance.Weather0") && LoadSettings(ini) == Sanitize(settings),
         "removed presets and assignments do not return after restart");
     Require(AddStarterProfiles(settings, Value(.6f, .4f)), "starter templates created");
     const auto before = settings;
@@ -291,7 +294,7 @@ static void SharedPresets()
 
     Settings capacity; const auto id = AddPreset(capacity, "Shared", FromValues(Value(1, .2f)));
     for (std::uint32_t i = 1; i <= 170; ++i) { Require(Assign(capacity, {"NAT.esp", i}, id), "LoreRim-sized mapping accepted"); }
-    StoreSettings(ini, capacity); Require(LoadSettings(ini) == capacity, "170 assignments share one persisted preset");
+    StoreSettings(ini, capacity); Require(LoadSettings(ini) == Sanitize(capacity), "170 assignments share one persisted preset");
     for (std::uint32_t i = 171; i < MaxWeathers; ++i) { Require(Assign(capacity, {"NAT.esp", i}, id), "fill assignment capacity"); }
     const auto count = capacity.weathers.size();
     const std::array<Record, 2> tooMany{{{"other.esp", 1}, {"other.esp", 2}}};
@@ -352,7 +355,7 @@ static void Benchmark()
     auto scene = Scene(); scene.incoming.record.localID = static_cast<std::uint32_t>(MaxWeathers);
     std::array<double, 7> timings{};
     for (int automatic = 0; automatic < 2; ++automatic) {
-        settings.enabled = automatic != 0;
+        settings.presets.front().profile.enabled = automatic != 0;
         for (auto& timing : timings) {
             Controller controller; controller.Configure(settings);
             SourceDLSSG::NeuralOptions base;
