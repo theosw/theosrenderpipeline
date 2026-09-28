@@ -1,5 +1,6 @@
 #include "OverlayUI.h"
 #include "OverlayUIStyle.h"
+#include "OverlayPresetDecor.h"
 #include "OverlayFrameView.h"
 
 #include "FrameGen/NvidiaHost.h"
@@ -17,7 +18,7 @@ namespace
 {
 void DrawNRReconstructionControls(TheosRenderPipeline::NeuralRendering::Reconstruction& value, bool producerColor)
 {
-    if (!ImGui::CollapsingHeader("Reconstruction"))
+    if (!ImGui::CollapsingHeader("Reconstruction (!)"))
     {
         return;
     }
@@ -37,22 +38,29 @@ void DrawNRReconstructionControls(TheosRenderPipeline::NeuralRendering::Reconstr
     }
     else
     {
-        DrawSettingsHelp("Residual clamps colour to 0..1. Use Ratio for linear HDR input.");
+        DrawSettingsHelp(std::format("Residual clamps colour to 0..1. Use Ratio for linear HDR input.{}", RestartsNRHelp).c_str());
     }
+    MarkSetting("ReconstructionMethod");
     ImGui::BeginDisabled(!producerColor && value.method != TheosRenderPipeline::NeuralRendering::ResolveMethod::Ratio);
     ImGui::SliderFloat(producerColor ? "Effect strength" : "Ratio effect strength", &value.transferStrength, 0, 2);
+    MarkSetting("EffectStrength");
     ImGui::SliderFloat(producerColor ? "Colour strength" : "Ratio colour strength", &value.colourStrength, 0, 2);
+    MarkSetting("ColourStrength");
     ImGui::SliderFloat(producerColor ? "Maximum scene gain" : "Maximum luma ratio", &value.maxRatio,
                        producerColor ? 1.0f : 0.01f, 16);
-    ImGui::InputFloat(producerColor ? "Scene normalization" : "HDR white point", &value.whitePoint, 0, 0, "%.4f");
+    MarkSetting("MaximumRatio");
+    ImGui::InputFloat(producerColor ? "Scene normalization (!)" : "HDR white point", &value.whitePoint, 0, 0, "%.4f");
     DrawSettingsHelp(producerColor ? "Scene normalization sets the brightness range NR sees. Changes restart its "
                                      "history and may stall briefly."
                                    : "White point for encoding linear HDR input before model evaluation.");
+    MarkSetting("WhitePoint");
     ImGui::BeginDisabled(producerColor);
-    ImGui::Checkbox("Input colour is linear HDR", &value.colorIsHDR);
+    ImGui::Checkbox("Input colour is linear HDR (!)", &value.colorIsHDR);
     ImGui::EndDisabled();
     ImGui::EndDisabled();
-    DrawSettingsHelp("HDR input is used by Ratio reconstruction; it does not change the display HDR mode.");
+    DrawSettingsHelp(std::format("HDR input is used by Ratio reconstruction; it does not change the display HDR mode.{}",
+                                 RestartsNRHelp).c_str());
+    MarkSetting("InputHDR");
 }
 
 void DrawNRInputPreview(const char* label, std::uint32_t width, std::uint32_t height, float inputScale,
@@ -68,12 +76,12 @@ void DrawNRInputPreview(const char* label, std::uint32_t width, std::uint32_t he
                 TheosRenderPipeline::NeuralRendering::ModelExtent(height, reconstruction));
 }
 
-// Quality controls for one pass: model input size and network.
+// Quality controls for one pass: model input size and network. prefix is "Pass1" or "Pass2".
 void DrawNRPassQuality(float& inputScale, int& preset, const TheosRenderPipeline::NeuralRendering::Reconstruction& shared,
-                       std::uint32_t width, std::uint32_t height)
+                       std::uint32_t width, std::uint32_t height, const std::string& prefix)
 {
     float percent = inputScale * 100;
-    if (ImGui::SliderFloat("NR input resolution", &percent, 25, 100, "%.1f%%"))
+    if (ImGui::SliderFloat("NR input resolution (!)", &percent, 25, 100, "%.1f%%"))
     {
         inputScale = percent / 100;
     }
@@ -82,29 +90,37 @@ void DrawNRPassQuality(float& inputScale, int& preset, const TheosRenderPipeline
         ImGui::BeginTooltip();
         DrawNRInputPreview("Requested input", width, height, inputScale, shared);
         ImGui::TextUnformatted("Relative to the selected stage's scene size. Apply to update.");
+        ImGui::TextUnformatted(RestartsNRHelp + 1);
         ImGui::EndTooltip();
     }
+    MarkSetting((prefix + "InputScale").c_str());
     const char* presets[]{"Default", "Shipping"};
     ImGui::Combo("Network preset (!)", &preset, presets, IM_ARRAYSIZE(presets));
-    DrawSettingsHelp("NR network selection, separate from the DLSS model preset. Changing it recreates NR and may "
-                     "pause briefly.");
+    DrawSettingsHelp(std::format("NR network selection, separate from the DLSS model preset.{}", RestartsNRHelp).c_str());
+    MarkSetting((prefix + "Network").c_str());
 }
 
 // The tuning presets blend: they change smoothly between weathers and times of day.
-void DrawNRLookSliders(TheosRenderPipeline::NeuralRendering::Tuning& tuning)
+void DrawNRLookSliders(TheosRenderPipeline::NeuralRendering::Tuning& tuning, const std::string& prefix)
 {
     ImGui::SliderFloat("Intensity", &tuning.intensity, 0, 2);
+    MarkSetting((prefix + "Intensity").c_str());
     ImGui::SliderFloat("Local tone", &tuning.localToneStrength, 0, 2);
+    MarkSetting((prefix + "LocalTone").c_str());
     ImGui::SliderFloat("Local structure", &tuning.localStructureStrength, 0, 2);
+    MarkSetting((prefix + "LocalStructure").c_str());
 }
 
-void DrawNRMoreLook(TheosRenderPipeline::NeuralRendering::Tuning& tuning, bool beforeUpscaling)
+void DrawNRMoreLook(TheosRenderPipeline::NeuralRendering::Tuning& tuning, bool beforeUpscaling, const std::string& prefix)
 {
     const char* styles[]{"Style 0", "Style 1", "Style 2", "Style 3", "Style 4", "Style 5", "Style 6", "Style 7"};
     ImGui::Combo("Style", &tuning.style, styles, IM_ARRAYSIZE(styles));
+    MarkSetting((prefix + "Style").c_str());
     ImGui::SliderFloat("Skin structure", &tuning.skinStructureStrength, -1, 2);
     DrawSettingsHelp("-1 follows local structure. Ctrl-click a slider to type.");
+    MarkSetting((prefix + "SkinStructure").c_str());
     ImGui::Checkbox("Automatic skin mask", &tuning.useAutoSkinMask);
+    MarkSetting((prefix + "AutoSkinMask").c_str());
     if (TheosRenderPipeline::CommunityShaders::Active())
     {
         DrawSettingsHelp("CS draws UI after NR in both placements.");
@@ -118,6 +134,7 @@ void DrawNRMoreLook(TheosRenderPipeline::NeuralRendering::Tuning& tuning, bool b
         {
             DrawSettingsHelp("UI correction is unused before upscaling; native UI is added later.");
         }
+        MarkSetting((prefix + "UICorrection").c_str());
     }
 }
 
@@ -147,55 +164,48 @@ void DrawNRAppliedPasses(const TheosRenderPipeline::SourceDLSSG::NeuralOptions& 
     }
 }
 
-void DrawSourceNeuralControls(TheosRenderPipeline::SourceDLSSG::Preferences& draft, bool& sharpening,
-                              float& sharpness, int upscaleType, bool nrRuntimePresent)
+// Why NR cannot run now, or null. Shown above Base's controls.
+const char* NeuralUnavailableReason(int upscaleType, bool nrRuntimePresent)
 {
     auto& backend = TheosRenderPipeline::SourceDLSSG::Backend::Get();
-    const auto state = backend.NeuralState();
     const auto* frameGen = SourceFrameGeneration::GetSingleton();
-    const char* unavailableReason = nullptr;
     if (frameGen->settings.neuralRenderingRuntimePath.empty())
     {
-        unavailableReason = "NR runtime path is empty. Configure NeuralRenderingRuntimePath in TheosRenderPipeline.ini "
-                            "and restart Skyrim.";
+        return "NR runtime path is empty. Configure NeuralRenderingRuntimePath in TheosRenderPipeline.ini "
+               "and restart Skyrim.";
     }
-    else if (!nrRuntimePresent)
+    if (!nrRuntimePresent)
     {
-        unavailableReason =
-            "NR runtime DLL not found. Install the optional nvngx_dlssnr.dll at the path below and restart Skyrim.";
+        return "NR runtime DLL not found. Install the optional nvngx_dlssnr.dll at the path below and restart Skyrim.";
     }
-    else if (!backend.Ready())
+    if (!backend.Ready())
     {
-        unavailableReason = "The NVIDIA host is not ready. Check runtime status and restart Skyrim.";
+        return "The NVIDIA host is not ready. Check runtime status and restart Skyrim.";
     }
-    else if (state.failed)
+    if (backend.NeuralState().failed)
     {
-        unavailableReason = "NR failed. See the error in the left column.";
+        return "NR failed. See the error in the left column.";
     }
-    else if (!TheosRenderPipeline::SupportsNeuralRenderingMode(upscaleType,
-                                                               TheosRenderPipeline::CommunityShaders::Active()))
+    if (!TheosRenderPipeline::SupportsNeuralRenderingMode(upscaleType, TheosRenderPipeline::CommunityShaders::Active()))
     {
-        unavailableReason = "NR requires DLSS or DLAA mode. Select either in Image and restart Skyrim.";
+        return "NR requires DLSS or DLAA mode. Select either in Image and restart Skyrim.";
     }
-    else if (!TheosRenderPipeline::CommunityShaders::Active() && !NvidiaHost::GetSingleton()->DedicatedUITextureMode())
+    if (!TheosRenderPipeline::CommunityShaders::Active() && !NvidiaHost::GetSingleton()->DedicatedUITextureMode())
     {
-        unavailableReason = "NR requires dedicated UI composition. Set NativeUICompositionMode=0 in the INI and "
-                            "restart Skyrim. If it is already 0, check the log for a composition failure.";
+        return "NR requires dedicated UI composition. Set NativeUICompositionMode=0 in the INI and "
+               "restart Skyrim. If it is already 0, check the log for a composition failure.";
     }
-    const bool unavailable = unavailableReason != nullptr;
-    const auto applied = backend.NeuralConfiguration();
-    if (unavailable)
-    {
-        ImGui::TextWrapped("%s", unavailableReason);
-        ImGui::TextWrapped("NR runtime path: %s", frameGen->settings.neuralRenderingRuntimePath.c_str());
-    }
-    if (applied.enabled && !state.active && !unavailable)
-    {
-        ImGui::TextWrapped("%s", state.status.c_str());
-    }
+    return nullptr;
+}
+
+// Base and presets share these controls. Presets mark the settings they change.
+void DrawNeuralSettings(TheosRenderPipeline::SourceDLSSG::Preferences& draft, bool& sharpening, float& sharpness,
+                        bool unavailable)
+{
     ImGui::BeginDisabled(!TheosRenderPipeline::CanEditNeuralEnabled(draft.neuralEnabled, !unavailable));
     ImGui::Checkbox("Neural Rendering##sourceNR", &draft.neuralEnabled);
     ImGui::EndDisabled();
+    MarkSetting("NeuralRendering");
     auto& reconstruction = draft.neuralReconstruction;
     auto& second = draft.neuralSecondPass;
     const bool separate = draft.neuralPasses == 2 && !second.linked;
@@ -203,16 +213,17 @@ void DrawSourceNeuralControls(TheosRenderPipeline::SourceDLSSG::Preferences& dra
 
     DrawSettingsHeading("Look");
     DrawSettingsHelp("Presets can change these. They blend smoothly between weathers and times of day.");
+    PresetLookControls();
     ImGui::BeginDisabled(unavailable);
     if (separate) { ImGui::TextDisabled("Pass 1"); }
     ImGui::PushID("lookPass1");
-    DrawNRLookSliders(draft.neuralTuning);
+    DrawNRLookSliders(draft.neuralTuning, "Pass1");
     ImGui::PopID();
     if (separate)
     {
         ImGui::TextDisabled("Pass 2");
         ImGui::PushID("lookPass2");
-        DrawNRLookSliders(second.tuning);
+        DrawNRLookSliders(second.tuning, "Pass2");
         ImGui::PopID();
     }
     ImGui::EndDisabled();
@@ -224,23 +235,25 @@ void DrawSourceNeuralControls(TheosRenderPipeline::SourceDLSSG::Preferences& dra
     else
     {
         ImGui::Checkbox("Sharpening", &sharpening);
+        MarkSetting("SharpeningEnabled");
         ImGui::BeginDisabled(!sharpening);
         ImGui::SliderFloat("Sharpening strength", &sharpness, 0, 1, "%.2f");
         ImGui::EndDisabled();
         DrawSettingsHelp("Sharpens DLSS output, with or without NR.");
+        MarkSetting("Sharpness");
     }
     ImGui::BeginDisabled(unavailable);
     if (ImGui::CollapsingHeader("More look options"))
     {
         if (separate) { ImGui::TextDisabled("Pass 1"); }
         ImGui::PushID("moreLookPass1");
-        DrawNRMoreLook(draft.neuralTuning, draft.neuralBeforeUpscaling);
+        DrawNRMoreLook(draft.neuralTuning, draft.neuralBeforeUpscaling, "Pass1");
         ImGui::PopID();
         if (separate)
         {
             ImGui::TextDisabled("Pass 2");
             ImGui::PushID("moreLookPass2");
-            DrawNRMoreLook(second.tuning, draft.neuralBeforeUpscaling);
+            DrawNRMoreLook(second.tuning, draft.neuralBeforeUpscaling, "Pass2");
             ImGui::PopID();
         }
     }
@@ -248,28 +261,28 @@ void DrawSourceNeuralControls(TheosRenderPipeline::SourceDLSSG::Preferences& dra
     DrawSettingsHeading("Quality");
     int placement = draft.neuralBeforeUpscaling ? 0 : 1;
     const char* placements[]{"Before upscaling", "After upscaling"};
-    if (ImGui::Combo("Placement##sourceNR", &placement, placements, IM_ARRAYSIZE(placements)))
+    if (ImGui::Combo("Placement (!)##sourceNR", &placement, placements, IM_ARRAYSIZE(placements)))
     {
         draft.neuralBeforeUpscaling = placement == 0;
     }
-    DrawSettingsHelp("Both passes use the selected side of upscaling. UI is composed afterwards.");
+    DrawSettingsHelp(std::format("Both passes use the selected side of upscaling. UI is composed afterwards.{}",
+                                 RestartsNRHelp).c_str());
+    MarkSetting("BeforeUpscaling");
     int passChoice = draft.neuralPasses - 1;
     const char* passes[]{"One", "Two"};
     if (ImGui::Combo("Passes##sourceNR", &passChoice, passes, IM_ARRAYSIZE(passes)))
     {
         draft.neuralPasses = passChoice + 1;
     }
-    if (draft.neuralPasses == 2)
-    {
-        DrawSettingsHelp("Pass 2 processes Pass 1's result with separate history. Both passes run on the selected "
-                         "side of upscaling. The second evaluation adds GPU time and memory.");
-    }
+    DrawSettingsHelp("Pass 2 processes Pass 1's result with separate history and adds GPU time and memory. Presets "
+                     "switch between one and two passes without restarting NR.");
+    MarkSetting("Passes");
     const auto* host = NvidiaHost::GetSingleton();
     const auto width = draft.neuralBeforeUpscaling ? host->RenderWidth() : host->OutputWidth();
     const auto height = draft.neuralBeforeUpscaling ? host->RenderHeight() : host->OutputHeight();
     if (separate) { ImGui::TextDisabled("Pass 1"); }
     ImGui::PushID("nrPass1");
-    DrawNRPassQuality(reconstruction.inputScale, reconstruction.preset, reconstruction, width, height);
+    DrawNRPassQuality(reconstruction.inputScale, reconstruction.preset, reconstruction, width, height, "Pass1");
     ImGui::PopID();
     if (draft.neuralPasses == 2)
     {
@@ -277,6 +290,7 @@ void DrawSourceNeuralControls(TheosRenderPipeline::SourceDLSSG::Preferences& dra
         ImGui::Checkbox("Pass 2 same as Pass 1", &second.linked);
         DrawSettingsHelp("Pass 2 uses Pass 1's look and quality while ticked. Your separate Pass 2 settings are "
                          "kept for later.");
+        MarkSetting("Pass2SameAsPass1");
         if (!second.linked)
         {
             ImGui::SameLine();
@@ -287,7 +301,7 @@ void DrawSourceNeuralControls(TheosRenderPipeline::SourceDLSSG::Preferences& dra
                 second.tuning = draft.neuralTuning;
             }
             ImGui::TextDisabled("Pass 2");
-            DrawNRPassQuality(second.inputScale, second.preset, reconstruction, width, height);
+            DrawNRPassQuality(second.inputScale, second.preset, reconstruction, width, height, "Pass2");
         }
         ImGui::PopID();
     }
@@ -296,25 +310,51 @@ void DrawSourceNeuralControls(TheosRenderPipeline::SourceDLSSG::Preferences& dra
     if (draft.neuralPasses == 2)
     {
         ImGui::Checkbox("One pass in combat", &draft.neuralCombat.inCombat);
+        MarkSetting("OnePassInCombat");
         ImGui::Checkbox("One pass while weapons/spells are drawn", &draft.neuralCombat.weaponsDrawn);
         DrawSettingsHelp("Temporarily skips Pass 2 when either selected condition is active. Keeps your NR resolution, "
                          "tuning and saved two-pass setting. The image may change when switching.");
+        MarkSetting("OnePassWeaponsDrawn");
         if (draft.neuralCombat.Enabled()) {
             ImGui::SliderFloat("Return delay##nrCombat", &draft.neuralCombat.recoverySeconds, 0.0f, 30.0f, "%.1f s");
             DrawSettingsHelp("Waits this long after all selected conditions clear before restoring two passes. "
                              "Pausing the game pauses the delay.");
+            MarkSetting("ReturnDelay");
         }
     }
-    ImGui::Checkbox("Peripheral compression", &reconstruction.peripheralCompression);
-    DrawSettingsHelp(
+    ImGui::Checkbox("Peripheral compression (!)", &reconstruction.peripheralCompression);
+    DrawSettingsHelp(std::format(
         "Preserves sampling density across the central 80% of each axis and compresses the edges. Uses about 19% "
-        "fewer model pixels at the same input resolution. Inspect edge quality when moving.");
-    ImGui::Checkbox("Combined preparation", &reconstruction.fusedPreparation);
-    DrawSettingsHelp("Combines colour encoding with downsampling where needed, and depth/motion packing with "
-                     "peripheral compression. Some configurations have no passes to combine. Applies to both passes.");
+        "fewer model pixels at the same input resolution. Inspect edge quality when moving.{}", RestartsNRHelp).c_str());
+    MarkSetting("PeripheralCompression");
+    ImGui::Checkbox("Combined preparation (!)", &reconstruction.fusedPreparation);
+    DrawSettingsHelp(std::format("Combines colour encoding with downsampling where needed, and depth/motion packing with "
+                     "peripheral compression. Some configurations have no passes to combine. Applies to both passes.{}",
+                     RestartsNRHelp).c_str());
+    MarkSetting("CombinedPreparation");
     ImGui::Spacing();
     DrawNRReconstructionControls(reconstruction, cs && draft.neuralBeforeUpscaling);
     ImGui::EndDisabled();
+}
+
+void DrawSourceNeuralControls(TheosRenderPipeline::SourceDLSSG::Preferences& draft, bool& sharpening,
+                              float& sharpness, int upscaleType, bool nrRuntimePresent)
+{
+    auto& backend = TheosRenderPipeline::SourceDLSSG::Backend::Get();
+    const auto state = backend.NeuralState();
+    const char* unavailableReason = NeuralUnavailableReason(upscaleType, nrRuntimePresent);
+    const bool unavailable = unavailableReason != nullptr;
+    const auto applied = backend.NeuralConfiguration();
+    if (unavailable)
+    {
+        ImGui::TextWrapped("%s", unavailableReason);
+        ImGui::TextWrapped("NR runtime path: %s", SourceFrameGeneration::GetSingleton()->settings.neuralRenderingRuntimePath.c_str());
+    }
+    if (applied.enabled && !state.active && !unavailable)
+    {
+        ImGui::TextWrapped("%s", state.status.c_str());
+    }
+    DrawNeuralSettings(draft, sharpening, sharpness, unavailable);
 }
 } // namespace
 
@@ -365,7 +405,12 @@ void OverlayUI::DrawNeuralRenderingPanel(float height, const FrameView& view)
         }
         DrawPresetList();
         NextSettingsColumn(height);
-        if (PresetEditorSelected()) { DrawPresetEditor(); }
+        if (PresetEditorSelected()) {
+            const bool unavailable = NeuralUnavailableReason(settingsDraft.upscaleType, nrRuntimePresent) != nullptr;
+            DrawPresetEditor([&](TheosRenderPipeline::SourceDLSSG::Preferences& draft, bool& sharpening, float& sharpness) {
+                DrawNeuralSettings(draft, sharpening, sharpness, unavailable);
+            });
+        }
         else { DrawSourceNeuralControls(settingsDraft.sourceDLSSG, settingsDraft.sharpening, settingsDraft.sharpness, settingsDraft.upscaleType, nrRuntimePresent); }
         EndSettingsColumns();
     }

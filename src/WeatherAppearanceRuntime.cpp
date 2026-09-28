@@ -81,26 +81,25 @@ void Runtime::ReadContext()
     update(sky->currentWeather, incomingID_, context_.incoming);
     update(sky->lastWeather, outgoingID_, context_.outgoing);
 }
-float Runtime::Apply(SourceDLSSG::NeuralOptions& options, float sharpness)
+void Runtime::Apply(SourceDLSSG::NeuralOptions& options, bool& sharpening, float& sharpness)
 {
     const auto now = std::chrono::steady_clock::now();
     std::scoped_lock lock(mutex_);
     // Manual mode keeps the context display current at 4 Hz without allocating
     // weather identities or resolving profiles on every rendered frame.
     const bool automatic = controller_.Configuration().enabled && !controller_.State().paused;
-    if (!automatic && now < nextIdleSample_) { return sharpness; }
+    if (!automatic && now < nextIdleSample_) { return; }
     nextIdleSample_ = now + std::chrono::milliseconds(250);
     ReadContext();
     const float elapsed = std::chrono::duration<float>(now - lastFrame_).count();
     lastFrame_ = now;
     const auto resolutions = controller_.SelectionResolutions();
-    const auto result = controller_.Apply(context_, options, sharpness, elapsed);
+    controller_.Apply(context_, options, sharpening, sharpness, elapsed);
     if (resolutions != controller_.SelectionResolutions()) {
         const auto& state = controller_.State();
-        logger::info("[Appearance] resolved hour={:.2f} interior={} weather={}/{:06X} NR='{}' from='{}' sharpening='{}' from='{}'",
+        logger::info("[Appearance] resolved hour={:.2f} interior={} weather={}/{:06X} presets='{}' from='{}' sharpness='{}'",
             context_.hour, context_.interior, context_.incoming.record.plugin, context_.incoming.record.localID,
-            state.result.incoming, state.result.outgoing, state.result.incomingSharpening, state.result.outgoingSharpening);
+            state.result.incoming, state.result.outgoing, state.result.sharpnessSource);
     }
-    return result;
 }
 }

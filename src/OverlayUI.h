@@ -3,6 +3,7 @@
 #include <d3d11.h>
 #include <dxgi.h>
 #include <wrl/client.h>
+#include <functional>
 
 #include "TextureProviderBridge.h"
 #include "FrameGen/SourceDLSSGSettings.h"
@@ -45,7 +46,7 @@ private:
     void DrawImagePanel(float tabCardHeight, const FrameView& view);
     bool PresetEditorSelected() const;
     void DrawPresetList();
-    void DrawPresetEditor();
+    void DrawPresetEditor(const std::function<void(TheosRenderPipeline::SourceDLSSG::Preferences&, bool&, float&)>& drawSettings);
     void DrawPresetSharpeningStatus();
     void DrawTextureMemoryPanel(const FrameView& view);
     void DrawAdvancedPanel(float tabCardHeight, const FrameView& view);

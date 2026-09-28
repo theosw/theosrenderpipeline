@@ -1,6 +1,7 @@
 #include <PCH.h>
 #include "OverlayUI.h"
 #include "OverlayUIStyle.h"
+#include "OverlayPresetDecor.h"
 #include "WeatherAppearanceRuntime.h"
 #include "WeatherAppearanceINI.h"
 #include "CommunityShaderIntegration.h"
@@ -18,13 +19,32 @@ namespace
 constexpr std::uint32_t BaseRow = 0;
 constexpr std::array<const char*, 6> GroupLabels{"Outdoors", "Clear", "Cloudy", "Rain", "Snow", "Interior"};
 
-Appearance::Values EditedValues(const RendererSettingsDraft& draft)
+Appearance::Setup DraftSetup(const RendererSettingsDraft& draft)
 {
-    SourceDLSSG::NeuralOptions options;
-    options.tuning = draft.sourceDLSSG.neuralTuning;
-    options.reconstruction = draft.sourceDLSSG.neuralReconstruction;
-    options.secondPass = draft.sourceDLSSG.neuralSecondPass;
-    return Appearance::FromNeural(options, draft.sharpness);
+    const auto& nr = draft.sourceDLSSG;
+    Appearance::Setup setup;
+    setup.neural = nr.neuralEnabled;
+    setup.beforeUpscaling = nr.neuralBeforeUpscaling;
+    setup.passes = nr.neuralPasses;
+    setup.combat = nr.neuralCombat;
+    setup.reconstruction = nr.neuralReconstruction;
+    setup.tuning = nr.neuralTuning;
+    setup.second = nr.neuralSecondPass;
+    setup.sharpening = draft.sharpening;
+    setup.sharpness = draft.sharpness;
+    return setup;
+}
+void WriteSetup(const Appearance::Setup& setup, SourceDLSSG::Preferences& nr, bool& sharpening, float& sharpness)
+{
+    nr.neuralEnabled = setup.neural;
+    nr.neuralBeforeUpscaling = setup.beforeUpscaling;
+    nr.neuralPasses = setup.passes;
+    nr.neuralCombat = setup.combat;
+    nr.neuralReconstruction = setup.reconstruction;
+    nr.neuralTuning = setup.tuning;
+    nr.neuralSecondPass = setup.second;
+    sharpening = setup.sharpening;
+    sharpness = setup.sharpness;
 }
 const Appearance::WeatherEntry* FindWeather(const Appearance::Record& record, const std::vector<Appearance::WeatherEntry>& catalogue)
 {
@@ -41,8 +61,6 @@ std::string ShortWeatherLabel(const Appearance::Record& record, const std::vecto
     const auto* entry = FindWeather(record, catalogue);
     return entry && !entry->name.empty() ? entry->name : std::format("{} / {:06X}", record.plugin, record.localID);
 }
-// The controller names the no-preset fallback "Manual defaults"; the UI calls it Base.
-std::string DisplayName(const std::string& name) { return name == "Manual defaults" ? "Base" : name; }
 std::string Clock(float hour)
 {
     const int minutes = static_cast<int>(std::round(Appearance::Hour(hour) * 60)) % (24 * 60);
@@ -59,7 +77,7 @@ std::size_t TimeIndex(const std::array<float, 6>& hours, float hour)
     }
     return 0;
 }
-std::string UsedWhen(const Appearance::Settings& settings, const Appearance::NamedProfile& preset, std::size_t weathers)
+std::string Summary(const Appearance::Settings& settings, const Appearance::NamedProfile& preset, std::size_t weathers)
 {
     std::string text;
     for (std::size_t i = 0; i < GroupLabels.size(); ++i) {
@@ -67,6 +85,8 @@ std::string UsedWhen(const Appearance::Settings& settings, const Appearance::Nam
     }
     if (weathers) { text += std::format("{}{} weather{}", text.empty() ? "" : " + ", weathers, weathers == 1 ? "" : "s"); }
     if (text.empty()) { text = "Not used yet"; }
+    const auto changes = preset.profile.changes.size();
+    text += changes ? std::format(" | {} change{}", changes, changes == 1 ? "" : "s") : " | no changes";
     return preset.profile.enabled ? text : "Off | " + text;
 }
 void Note(const char* text) { ImGui::TextDisabled("%s", text); }
@@ -74,6 +94,12 @@ const char* ShownName(const Appearance::NamedProfile& preset) { return preset.na
 void Tooltip(const char* text)
 {
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) { ImGui::SetTooltip("%s", text); }
+}
+std::string FieldValue(const Appearance::Field& field, const Appearance::Setup& setup)
+{
+    const float value = field.get(setup);
+    if (field.integral && field.high == 1 && field.low == 0) { return value != 0 ? "on" : "off"; }
+    return field.integral ? std::format("{}", static_cast<int>(value)) : std::format("{:.3g}", value);
 }
 // Two-line list row: name, then when it applies. Returns true when clicked.
 bool PresetRow(int id, const char* name, const std::string& detail, bool selected, bool now, bool off)
@@ -104,12 +130,13 @@ bool PresetRow(int id, const char* name, const std::string& detail, bool selecte
     draw->PopClipRect();
     return clicked;
 }
-void NeuralSliders(Appearance::Neural& values)
+struct LambdaDecor final : PresetDecor
 {
-    ImGui::SliderFloat("Intensity", &values.intensity, 0, 2);
-    ImGui::SliderFloat("Local tone", &values.tone, 0, 2);
-    ImGui::SliderFloat("Local structure", &values.structure, 0, 2);
-}
+    std::function<void(const char*)> mark;
+    std::function<void()> look;
+    void Mark(const char* key) override { mark(key); }
+    void LookControls() override { look(); }
+};
 }
 
 bool OverlayUI::PresetEditorSelected() const
@@ -127,29 +154,28 @@ void OverlayUI::DrawPresetList()
     const auto& scene = state.context;
 
     DrawSettingsHeading("Presets");
-    Note("Presets change NR and sharpening for the weather or places you choose. Everywhere else uses Base.");
+    Note("Presets change Neural Rendering settings for the weather or places you choose. Everywhere else uses Base.");
     if (scene.valid && !settings.presets.empty()) {
-        std::string applied = state.paused ? "Base (paused)" : DisplayName(state.result.incoming);
-        if (!state.paused && !cs && state.result.incomingSharpening != state.result.incoming) {
-            applied = std::format("{} | sharpening {}", applied, DisplayName(state.result.incomingSharpening));
-        }
+        const auto applied = state.paused ? std::string("Base (paused)") : state.result.incoming;
         const auto place = scene.interior ? std::string("Interior") : ShortWeatherLabel(scene.incoming.record, *catalogue);
         ImGui::Text("Now: %s | %s | %s", applied.c_str(), Clock(scene.hour).c_str(), place.c_str());
         if (ImGui::IsItemHovered()) {
             ImGui::BeginTooltip();
             if (!scene.interior) { ImGui::TextUnformatted(WeatherLabel(scene.incoming.record, *catalogue).c_str()); }
-            ImGui::Text("%s, blending toward %s", Appearance::Times[TimeIndex(settings.hours, scene.hour)],
-                Appearance::Times[(TimeIndex(settings.hours, scene.hour) + 1) % Appearance::Times.size()]);
-            for (std::size_t pass = 0; pass < 2; ++pass) {
-                if (pass && settingsDraft.sourceDLSSG.neuralPasses != 2) { break; }
-                const auto& nr = state.result.values.passes[pass];
-                ImGui::Text("Pass %u: intensity %.2f | tone %.2f | structure %.2f", static_cast<unsigned>(pass + 1), nr.intensity, nr.tone, nr.structure);
+            const auto time = TimeIndex(settings.hours, scene.hour);
+            ImGui::Text("%s, blending toward %s", Appearance::Times[time], Appearance::Times[(time + 1) % Appearance::Times.size()]);
+            const auto& setup = state.result.setup;
+            ImGui::Text("Pass 1: intensity %.2f | tone %.2f | structure %.2f", setup.tuning.intensity,
+                setup.tuning.localToneStrength, setup.tuning.localStructureStrength);
+            if (setup.passes == 2 && !setup.second.linked) {
+                ImGui::Text("Pass 2: intensity %.2f | tone %.2f | structure %.2f", setup.second.tuning.intensity,
+                    setup.second.tuning.localToneStrength, setup.second.tuning.localStructureStrength);
             }
-            if (!cs) { ImGui::Text("Sharpening strength %.3f", state.result.values.sharpness); }
+            if (!cs) { ImGui::Text("Sharpening strength %.3f", setup.sharpness); }
             ImGui::EndTooltip();
         }
         if (!scene.interior && !state.paused && Appearance::Valid(scene.outgoing.record) && scene.transition < 1) {
-            ImGui::TextDisabled("Changing from %s", DisplayName(state.result.outgoing).c_str());
+            ImGui::TextDisabled("Changing from %s", state.result.outgoing.c_str());
             ImGui::SameLine();
             ImGui::ProgressBar(scene.transition, ImVec2(120, 0), "");
         }
@@ -160,20 +186,12 @@ void OverlayUI::DrawPresetList()
         Tooltip("Uses Base right away, until you untick this or restart the game. Not saved.");
     }
 
-    // Mark what the edited configuration would select for the current weather.
-    std::uint32_t nowNeural = BaseRow, nowSharpening = BaseRow;
-    bool baseNow = false;
-    if (scene.valid) {
-        if (!Appearance::UsesPresets(settings) || state.paused) { baseNow = true; }
-        else {
-            const auto selection = Appearance::Select(settings, scene.incoming, scene.interior);
-            for (const auto& preset : settings.presets) {
-                if (&preset.profile == selection.neural) { nowNeural = preset.id; }
-                if (&preset.profile == selection.sharpening) { nowSharpening = preset.id; }
-            }
-            baseNow = !selection.neural || (!cs && !selection.sharpening);
-        }
+    // Mark the presets the edited configuration would select for the current weather.
+    Appearance::Selection now;
+    if (scene.valid && Appearance::UsesPresets(settings) && !state.paused) {
+        now = Appearance::Select(settings, scene.incoming, scene.interior);
     }
+    const bool baseNow = scene.valid && std::ranges::none_of(now.layers, [](const auto* layer) { return layer != nullptr; });
     if (!PresetEditorSelected()) { presetSelected = BaseRow; }
 
     ImGui::Spacing();
@@ -185,26 +203,25 @@ void OverlayUI::DrawPresetList()
     clipper.Begin(static_cast<int>(settings.presets.size()), rowHeight + ImGui::GetStyle().ItemSpacing.y);
     while (clipper.Step()) { for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i) {
         const auto& preset = settings.presets[i];
-        const bool now = preset.id == nowNeural || (!cs && preset.id == nowSharpening);
+        const bool active = std::ranges::find(now.layers, &preset) != now.layers.end();
         const auto count = weatherCounts.find(preset.id);
-        if (PresetRow(static_cast<int>(preset.id), ShownName(preset), UsedWhen(settings, preset, count == weatherCounts.end() ? 0 : count->second),
-                presetSelected == preset.id, now, !preset.profile.enabled)) { presetSelected = preset.id; }
+        if (PresetRow(static_cast<int>(preset.id), ShownName(preset), Summary(settings, preset, count == weatherCounts.end() ? 0 : count->second),
+                presetSelected == preset.id, active, !preset.profile.enabled)) { presetSelected = preset.id; }
     } }
 
     const bool full = settings.presets.size() >= Appearance::MaxPresets;
     ImGui::BeginDisabled(full);
     if (ImGui::Button("Create new preset")) {
-        const auto name = settings.presets.empty() ? "My first preset" : "New preset";
-        if (const auto id = Appearance::AddPreset(settings, name, Appearance::FromValues(EditedValues(settingsDraft)))) { presetSelected = id; }
+        if (const auto id = Appearance::AddPreset(settings, settings.presets.empty() ? "My first preset" : "New preset")) { presetSelected = id; }
     }
-    Tooltip("Starts from your Base values. Choose when it applies, then Apply.");
+    Tooltip("Starts with no changes. Choose when it applies, then change the settings you want different from Base.");
     if (const auto* selected = Appearance::FindPreset(settings, presetSelected)) {
         ImGui::SameLine();
         if (ImGui::Button("Duplicate")) {
             const auto copy = *selected;
             if (const auto id = Appearance::AddPreset(settings, copy.name + " copy", copy.profile)) { presetSelected = id; }
         }
-        Tooltip("Copies the selected preset's values. Choose when the copy applies.");
+        Tooltip("Copies the selected preset's changes. Choose when the copy applies.");
     }
     ImGui::EndDisabled();
     ImGui::SameLine();
@@ -237,15 +254,13 @@ void OverlayUI::DrawPresetList()
     settings.enabled = Appearance::UsesPresets(settings);
 }
 
-void OverlayUI::DrawPresetEditor()
+void OverlayUI::DrawPresetEditor(const std::function<void(SourceDLSSG::Preferences&, bool&, float&)>& drawSettings)
 {
     auto& runtime = Appearance::Runtime::Get();
     const auto state = runtime.State();
     const auto catalogue = runtime.Catalogue();
-    const bool cs = CommunityShaders::Active();
     auto& settings = settingsDraft.appearance;
     const auto& scene = state.context;
-    const auto& nr = settingsDraft.sourceDLSSG;
     auto found = std::ranges::find_if(settings.presets, [&](const auto& item) { return item.id == presetSelected; });
     if (found == settings.presets.end()) { return; }
     auto& preset = *found;
@@ -253,13 +268,13 @@ void OverlayUI::DrawPresetEditor()
     const auto nowIndex = scene.valid ? TimeIndex(settings.hours, scene.hour) : Appearance::Times.size();
     if (presetShown != preset.id) {
         presetShown = preset.id;
-        presetTimed = std::ranges::any_of(profile.points, [&](const auto& point) { return point != profile.points[0]; });
+        presetTimed = Appearance::Timed(profile);
         presetTime = static_cast<int>(nowIndex < Appearance::Times.size() ? nowIndex : 3);
         presetPickerSelection.clear();
     }
 
     DrawSettingsHeading(ShownName(preset));
-    Note("Replaces Base's values below whenever this preset applies. Everything else keeps using Base.");
+    Note("Changes only the settings marked in amber. Everything else follows Base.");
     char name[81]{}; std::snprintf(name, sizeof(name), "%s", preset.name.c_str());
     if (ImGui::InputText("Name", name, sizeof(name))) { preset.name = name; }
 
@@ -269,7 +284,7 @@ void OverlayUI::DrawPresetEditor()
         bool on = settings.groups[i] == preset.id;
         if (ImGui::Checkbox(GroupLabels[i], &on)) { settings.groups[i] = on ? preset.id : 0; }
         if (const auto* owner = Appearance::FindPreset(settings, settings.groups[i]); owner && owner->id != preset.id) {
-            Tooltip(std::format("\"{}\" uses this now. Ticking moves it here.", owner->name).c_str());
+            Tooltip(std::format("\"{}\" uses this now. Ticking moves it here.", ShownName(*owner)).c_str());
         } else if (value == Appearance::Group::Exterior) {
             Tooltip("Any outdoor weather not covered by a more specific preset.");
         }
@@ -344,7 +359,7 @@ void OverlayUI::DrawPresetEditor()
                     const auto* owner = Appearance::FindPreset(settings, assigned->preset);
                     ImGui::SameLine();
                     if (owner == &preset) { ImGui::TextDisabled("(in this preset)"); }
-                    else if (owner) { ImGui::TextDisabled("-> %s", owner->name.c_str()); }
+                    else if (owner) { ImGui::TextDisabled("-> %s", ShownName(*owner)); }
                 }
                 ImGui::PopID();
             } }
@@ -369,13 +384,44 @@ void OverlayUI::DrawPresetEditor()
         ImGui::EndPopup();
     }
 
-    DrawSettingsHeading("Values");
-    if (ImGui::Checkbox("Vary by time of day", &presetTimed) && !presetTimed) {
-        const auto point = profile.points[presetTime];
-        profile.points.fill(point);
+    DrawSettingsHeading("Changes");
+    Note(profile.changes.empty() ? "No changes yet: the settings below show Base. Change any of them to make this preset change it."
+                                 : "Amber settings are changed by this preset. Base beside one returns it to Base's value.");
+    if (!profile.changes.empty() && ImGui::Button("Reset all to Base")) { profile.changes.clear(); }
+
+    // Draw the shared NR controls on this preset's view of Base, then record edits as changes.
+    const auto base = DraftSetup(settingsDraft);
+    const auto time = static_cast<std::size_t>(presetTimed ? presetTime : 0);
+    auto shown = base;
+    for (const auto& change : profile.changes) {
+        if (const auto* field = Appearance::FindField(change.key)) { field->set(shown, field->look ? change.points[time] : change.points[0]); }
     }
-    Tooltip("Off uses one set of values all day. Turning it off keeps the selected time's values.");
-    if (presetTimed) {
+    auto nr = settingsDraft.sourceDLSSG;
+    bool sharpening{};
+    float sharpness{};
+    WriteSetup(shown, nr, sharpening, sharpness);
+    std::vector<std::string> restore;
+    LambdaDecor decor;
+    decor.mark = [&](const char* key) {
+        if (!Appearance::FindChange(profile, key)) { return; }
+        const auto min = ImGui::GetItemRectMin();
+        const auto max = ImGui::GetItemRectMax();
+        ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(min.x - 4, min.y), ImVec2(min.x - 1, max.y), ImGui::GetColorU32(kAmber));
+        ImGui::SameLine();
+        ImGui::PushID(key);
+        if (ImGui::SmallButton("Base")) { restore.emplace_back(key); }
+        ImGui::PopID();
+        if (const auto* field = Appearance::FindField(key)) {
+            Tooltip(std::format("Use Base's value ({}).", FieldValue(*field, base)).c_str());
+        }
+    };
+    decor.look = [&]() {
+        if (ImGui::Checkbox("Vary by time of day", &presetTimed) && !presetTimed) {
+            for (auto& change : profile.changes) { const auto point = change.points[presetTime]; change.points.fill(point); }
+        }
+        Tooltip("Off uses one value all day. On lets the look settings below differ by time of day; turning it off keeps "
+            "the selected time's values. Other settings stay the same all day.");
+        if (!presetTimed) { return; }
         for (std::size_t i = 0; i < Appearance::Times.size(); ++i) {
             const bool selected = presetTime == static_cast<int>(i);
             if (selected) { ImGui::PushStyleColor(ImGuiCol_Button, kAmberDim); }
@@ -387,26 +433,39 @@ void OverlayUI::DrawPresetEditor()
                 Clock(settings.hours[next]), i == nowIndex ? " Current time." : "").c_str());
             if (i + 1 < Appearance::Times.size()) { ImGui::SameLine(); }
         }
-        Note("Values blend smoothly between times. Green is the current time.");
+        Note("Look values blend smoothly between times. Green is the current time.");
+    };
+    ActivePresetDecor() = &decor;
+    drawSettings(nr, sharpening, sharpness);
+    ActivePresetDecor() = nullptr;
+    auto edited = base;
+    // Only settings the controls changed become preset changes.
+    edited.neural = nr.neuralEnabled;
+    edited.beforeUpscaling = nr.neuralBeforeUpscaling;
+    edited.passes = nr.neuralPasses;
+    edited.combat = nr.neuralCombat;
+    edited.reconstruction = nr.neuralReconstruction;
+    edited.tuning = nr.neuralTuning;
+    edited.second = nr.neuralSecondPass;
+    edited.sharpening = sharpening;
+    edited.sharpness = sharpness;
+    for (const auto& field : Appearance::Fields()) {
+        const float value = field.get(edited);
+        if (value == field.get(shown)) { continue; }
+        if (field.look && presetTimed) {
+            // A new timed change keeps Base's value at the other times.
+            if (!Appearance::FindChange(profile, field.key)) { Appearance::SetChange(profile, field.key, field.get(base)); }
+            Appearance::SetChange(profile, field.key, value, presetTime);
+        } else {
+            Appearance::SetChange(profile, field.key, value);
+        }
     }
-    auto& point = profile.points[presetTimed ? presetTime : 0];
-    // Pass 2 values only matter when two unlinked passes are configured in Base.
-    const bool second = nr.neuralPasses == 2 && !nr.neuralSecondPass.linked;
-    ImGui::BeginDisabled(!profile.neural);
-    ImGui::TextDisabled("%s", second ? "NR pass 1" : "NR");
-    ImGui::PushID("pass1"); NeuralSliders(point.passes[0]); ImGui::PopID();
-    if (second) { ImGui::TextDisabled("NR pass 2"); ImGui::PushID("pass2"); NeuralSliders(point.passes[1]); ImGui::PopID(); }
-    else if (nr.neuralPasses == 2) { Note("Pass 2 uses these values: it is set to match Pass 1 in Base."); }
-    ImGui::EndDisabled();
-    if (cs) { Note("Community Shaders owns sharpening on this setup, so presets change NR only."); }
-    else {
-        ImGui::BeginDisabled(!profile.sharpening);
-        ImGui::SliderFloat("Sharpening", &point.sharpness, 0, 1, "%.3f");
-        ImGui::EndDisabled();
-        if (!settingsDraft.sharpening) { Note("Sharpening is off in Base, so this has no effect."); }
+    for (const auto& key : restore) { Appearance::ClearChange(profile, key); }
+    const auto* nrChange = Appearance::FindChange(profile, "NeuralRendering");
+    const auto* sharpeningChange = Appearance::FindChange(profile, "SharpeningEnabled");
+    if ((nrChange && nrChange->points[0] != 0 && !base.neural) || (sharpeningChange && sharpeningChange->points[0] != 0 && !base.sharpening)) {
+        Note("Presets can switch NR or sharpening off, but not on while Base has them off.");
     }
-    if (ImGui::Button(presetTimed ? "Set this time from Base" : "Reset to Base")) { point = EditedValues(settingsDraft); }
-    if (!presetTimed) { const auto value = point; profile.points.fill(value); }
 
     ImGui::Spacing();
     if (ImGui::CollapsingHeader("More options")) {
@@ -431,7 +490,6 @@ void OverlayUI::DrawPresetEditor()
 void OverlayUI::DrawPresetSharpeningStatus()
 {
     const auto state = Appearance::Runtime::Get().State();
-    if (!state.result.active || state.result.incomingSharpening == "Manual defaults") { return; }
-    ImGui::TextDisabled("Now %.2f from the \"%s\" preset; the value above is Base.", state.result.values.sharpness,
-        state.result.incomingSharpening.c_str());
+    if (!state.result.active || state.result.sharpnessSource == "Base") { return; }
+    ImGui::TextDisabled("Now %.2f from the \"%s\" preset.", state.result.setup.sharpness, state.result.sharpnessSource.c_str());
 }

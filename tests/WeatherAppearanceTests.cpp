@@ -15,13 +15,26 @@ static void Require(bool value, const char* why)
     if (!value) { std::fprintf(stderr, "FAIL: %s\n", why); std::exit(1); }
 }
 static bool Near(float a, float b) { return std::abs(a - b) < 0.00001f; }
-static Values Value(float intensity, float sharpness)
+// A preset that changes both passes' look and sharpness, like format-2 presets.
+static Profile Look(float intensity, float sharpness)
 {
-    Values values;
-    values.passes[0] = {intensity, intensity / 2, intensity / 4};
-    values.passes[1] = {intensity / 2, intensity / 3, intensity / 5};
-    values.sharpness = sharpness;
-    return values;
+    Profile profile;
+    SetChange(profile, "Pass1Intensity", intensity);
+    SetChange(profile, "Pass1LocalTone", intensity / 2);
+    SetChange(profile, "Pass1LocalStructure", intensity / 4);
+    SetChange(profile, "Pass2Intensity", intensity / 2);
+    SetChange(profile, "Pass2LocalTone", intensity / 3);
+    SetChange(profile, "Pass2LocalStructure", intensity / 5);
+    SetChange(profile, "Sharpness", sharpness);
+    return profile;
+}
+static Setup BaseSetup(float intensity, float sharpness)
+{
+    Setup setup;
+    setup.neural = true;
+    setup.tuning.intensity = intensity;
+    setup.sharpness = sharpness;
+    return setup;
 }
 static Context Scene()
 {
@@ -39,6 +52,12 @@ static void ExactPreset(Settings& settings, Record record, Profile profile)
     const auto id = AddPreset(settings, record.plugin, std::move(profile));
     Require(Assign(settings, std::move(record), id), "create exact weather assignment");
 }
+static float ApplyFrame(Controller& controller, const Context& scene, SourceDLSSG::NeuralOptions& frame, float elapsed, float sharpness = .4f)
+{
+    bool sharpening = true;
+    controller.Apply(scene, frame, sharpening, sharpness, elapsed);
+    return sharpness;
+}
 static void Resolution()
 {
     Require(RuntimeRecord("Weather.esp", 0x02ABCDEF, false) == RuntimeRecord("WEATHER.ESP", 0xB1ABCDEF, false),
@@ -46,62 +65,81 @@ static void Resolution()
     Require(RuntimeRecord("Weather.esl", 0xFE012ABC, true) == RuntimeRecord("WEATHER.ESL", 0xFEFEDABC, true) &&
         RuntimeRecord("Weather.esl", 0xFE012ABC, true).localID == 0xABC, "light-plugin identity excludes both runtime indices");
     Settings settings;
-    const auto base = Value(.6f, .3f);
+    const auto base = BaseSetup(.6f, .3f);
     auto scene = Scene();
-    Require(Evaluate(settings, scene, base).values == base, "disabled preserves manual defaults");
+    Require(Evaluate(settings, scene, base).setup == base, "disabled preserves Base");
     settings.enabled = true;
-    Require(Evaluate(settings, scene, base).values == base, "empty profiles preserve manual defaults");
-    GroupPreset(settings, 0, FromValues(Value(.8f, .4f)));
-    GroupPreset(settings, 1, FromValues(Value(1.2f, .6f)));
-    GroupPreset(settings, 3, FromValues(Value(.4f, .2f)));
-    Require(Near(Evaluate(settings, scene, base).values.passes[0].intensity, 1.2f), "classification over general exterior");
-    ExactPreset(settings, scene.incoming.record, FromValues(Value(1.8f, .9f)));
-    Require(Near(Evaluate(settings, scene, base).values.sharpness, .9f), "exact weather overrides classification");
-    settings.presets.back().profile.neural = false;
-    Require(Near(Evaluate(settings, scene, base).values.passes[0].intensity, 1.2f), "per-channel exact fallback");
+    Require(Evaluate(settings, scene, base).setup == base, "empty profiles preserve Base");
+    GroupPreset(settings, 0, Look(.8f, .4f));
+    GroupPreset(settings, 1, Look(1.2f, .6f));
+    GroupPreset(settings, 3, Look(.4f, .2f));
+    Require(Near(Evaluate(settings, scene, base).setup.tuning.intensity, 1.2f), "classification over general exterior");
+    ExactPreset(settings, scene.incoming.record, Look(1.8f, .9f));
+    Require(Near(Evaluate(settings, scene, base).setup.sharpness, .9f), "exact weather overrides classification");
+    ClearChange(settings.presets.back().profile, "Pass1Intensity");
+    Require(Near(Evaluate(settings, scene, base).setup.tuning.intensity, 1.2f), "unchanged settings fall through to less specific presets");
     scene.incoming.record.plugin = "another.esp";
-    Require(Near(Evaluate(settings, scene, base).values.sharpness, .6f), "same local ID in another plugin is distinct");
+    Require(Near(Evaluate(settings, scene, base).setup.sharpness, .6f), "same local ID in another plugin is distinct");
     scene.incoming.group = Group::Exterior;
-    Require(Near(Evaluate(settings, scene, base).values.sharpness, .4f), "unknown weather inherits exterior");
+    Require(Near(Evaluate(settings, scene, base).setup.sharpness, .4f), "unknown weather inherits Outdoors");
     scene.interior = true;
-    Require(Evaluate(settings, scene, base).values == base, "interior never inherits stale exterior weather");
-    GroupPreset(settings, 5, FromValues(Value(.25f, .1f)));
-    Require(Near(Evaluate(settings, scene, base).values.sharpness, .1f), "explicit interior profile");
+    Require(Evaluate(settings, scene, base).setup == base, "interior never inherits stale exterior weather");
+    GroupPreset(settings, 5, Look(.25f, .1f));
+    Require(Near(Evaluate(settings, scene, base).setup.sharpness, .1f), "explicit interior profile");
 
     scene = Scene();
+    SetChange(settings.presets[0].profile, "Passes", 2);
+    SetChange(settings.presets[0].profile, "Pass1Style", 3);
+    const auto layered = Evaluate(settings, scene, base).setup;
+    Require(layered.passes == 2 && layered.tuning.style == 3 && Near(layered.tuning.intensity, 1.2f), "presets layer per setting");
+    Require(Evaluate(settings, scene, base).incoming == "weather.esp + Clear + Exterior", "the applied presets are named most specific first");
     settings.weathers.clear();
+    SetChange(settings.presets[2].profile, "Pass1Network", 1);
     scene.outgoing = scene.incoming;
     scene.incoming = {Normalize({"Rain.esl", 0x801}), Group::Rain};
     for (float t : {0.0f, .25f, .5f, 1.0f}) {
         scene.transition = t;
         auto result = Evaluate(settings, scene, base);
-        Require(Near(result.values.passes[0].intensity, 1.2f - .8f * t), "weather blend endpoints and midpoint");
-        Require(Near(result.values.sharpness, .6f - .4f * t), "sharpening follows the same weather progress");
+        Require(Near(result.setup.tuning.intensity, 1.2f - .8f * t), "weather blend endpoints and midpoint");
+        Require(Near(result.setup.sharpness, .6f - .4f * t), "sharpening follows the same weather progress");
+        Require(result.setup.reconstruction.preset == (t < .5f ? 0 : 1), "other settings switch at the transition midpoint");
     }
     scene.outgoing = {}; scene.transition = 0;
-    Require(Near(Evaluate(settings, scene, base).values.sharpness, .2f), "missing outgoing uses incoming");
+    Require(Near(Evaluate(settings, scene, base).setup.sharpness, .2f), "missing outgoing uses incoming");
+    auto off = base; off.neural = false; off.sharpening = false;
+    SetChange(settings.presets[2].profile, "NeuralRendering", 1);
+    SetChange(settings.presets[2].profile, "SharpeningEnabled", 1);
+    const auto kept = Evaluate(settings, scene, off).setup;
+    Require(!kept.neural && !kept.sharpening, "presets never switch NR or sharpening on");
+    SetChange(settings.presets[2].profile, "NeuralRendering", 0);
+    Require(!Evaluate(settings, scene, base).setup.neural, "presets can switch NR off");
     scene.hour = std::numeric_limits<float>::quiet_NaN();
     Require(!Evaluate(settings, scene, base).active, "invalid time falls back without NaNs");
     scene.hour = 12; scene.valid = false;
-    Require(Evaluate(settings, scene, base).values == base, "load/main menu fallback");
+    Require(Evaluate(settings, scene, base).setup == base, "load/main menu fallback");
 }
 static void TimeAndPersistence()
 {
-    auto profile = FromValues(Value(0, 0));
-    profile.points[5] = Value(2, 1);
-    Require(Near(AtTime(profile, DefaultHours, 22).sharpness, .5f), "dusk blends across midnight");
-    Require(AtTime(profile, DefaultHours, 24) == profile.points[0], "midnight endpoint wraps");
-    Require(AtTime(profile, DefaultHours, -2) == AtTime(profile, DefaultHours, 22), "negative clock wrap");
-    Require(std::abs(AtTime(profile, DefaultHours, 23.999f).sharpness -
-        AtTime(profile, DefaultHours, 0.001f).sharpness) < .001f, "midnight continuity");
+    Profile profile;
+    SetChange(profile, "Sharpness", 0);
+    SetChange(profile, "Sharpness", 1, 5);
+    const auto points = FindChange(profile, "Sharpness")->points;
+    Require(Timed(profile) && Near(AtTime(points, DefaultHours, 22), .5f), "dusk blends across midnight");
+    Require(AtTime(points, DefaultHours, 24) == points[0], "midnight endpoint wraps");
+    Require(AtTime(points, DefaultHours, -2) == AtTime(points, DefaultHours, 22), "negative clock wrap");
+    Require(std::abs(AtTime(points, DefaultHours, 23.999f) - AtTime(points, DefaultHours, 0.001f)) < .001f, "midnight continuity");
     Settings settings; settings.enabled = true;
     GroupPreset(settings, 1, profile);
-    GroupPreset(settings, 3, FromValues(Value(1, .4f)));
+    GroupPreset(settings, 3, Look(1, .4f));
     auto scene = Scene(); scene.hour = 22; scene.outgoing = scene.incoming;
     scene.incoming = {Normalize({"Rain.esp", 0xA10}), Group::Rain}; scene.transition = .5f;
-    Require(Near(Evaluate(settings, scene, {}).values.sharpness, .45f), "time interpolation precedes weather interpolation");
+    Require(Near(Evaluate(settings, scene, {}).setup.sharpness, .45f), "time interpolation precedes weather interpolation");
     ExactPreset(settings, Normalize({"WEATHER.ESP", 0x123456}), profile);
-    ExactPreset(settings, Normalize({"Rain.esl", 0x801}), FromValues(Value(.5f, .75f)));
+    ExactPreset(settings, Normalize({"Rain.esl", 0x801}), Look(.5f, .75f));
+    SetChange(settings.presets[1].profile, "Passes", 2);
+    SetChange(settings.presets[1].profile, "ReconstructionMethod", 2);
+    SetChange(settings.presets[1].profile, "Pass2SameAsPass1", 0);
+    SetChange(settings.presets[1].profile, "Pass1InputScale", .5f);
     CSimpleIniA ini;
     ini.SetValue("ForeignFeature", "Keep", "untouched");
     StoreSettings(ini, settings);
@@ -109,7 +147,9 @@ static void TimeAndPersistence()
     Require(ini.Save(encoded) >= 0, "serialize profiles");
     CSimpleIniA loaded;
     Require(loaded.LoadData(encoded.c_str()) >= 0, "parse profiles");
-    Require(LoadSettings(loaded) == settings, "both passes, all time points, stable plugin IDs round trip");
+    Require(LoadSettings(loaded) == settings, "look and other settings, all time points and stable plugin IDs round trip");
+    Require(!loaded.GetValue("Appearance.Preset0", "Passes", nullptr) && !loaded.GetValue("Appearance.Preset0.Day", "Pass1Intensity", nullptr),
+        "only changed settings are saved");
     Require(std::string(loaded.GetValue("ForeignFeature", "Keep", "")) == "untouched", "unrelated INI survives");
     settings.weathers.erase(settings.weathers.begin());
     StoreSettings(loaded, settings);
@@ -117,17 +157,22 @@ static void TimeAndPersistence()
     loaded.SetValue("Appearance.Weather0", "FormID", "801garbage");
     loaded.SetDoubleValue("Appearance", "DayHour", 30);
     loaded.SetDoubleValue("Appearance.Preset0.Day", "Sharpness", -100);
+    loaded.SetValue("Appearance.Preset1", "Passes", "two");
     auto corrected = LoadSettings(loaded);
-    Require(corrected.weathers.empty() && corrected.hours == DefaultHours && corrected.presets[0].profile.points[3].sharpness == 0,
-        "malformed IDs, schedule and strength are sanitized");
+    Require(corrected.weathers.empty() && corrected.hours == DefaultHours &&
+        FindChange(corrected.presets[0].profile, "Sharpness")->points[3] == 0, "malformed IDs, schedule and strength are sanitized");
+    Require(FindChange(corrected.presets[1].profile, "Passes")->points[0] == 1, "malformed settings load their default");
     CSimpleIniA old;
     old.LoadData("[SourceDLSSG]\nNRIntensity=0.75\n");
     Require(LoadSettings(old) == Settings{}, "old installations remain manual");
     settings.weathers.push_back(settings.weathers.front());
     settings.weathers.push_back({{"", 0}, 1});
     Require(Sanitize(settings).weathers.size() == 1, "duplicates and invalid keys cannot shadow profiles");
-    settings.presets[0].profile.points[0].sharpness = std::numeric_limits<float>::infinity();
-    Require(std::isfinite(Sanitize(settings).presets[0].profile.points[0].sharpness), "non-finite profiles sanitize");
+    settings.presets[0].profile.changes[0].points[0] = std::numeric_limits<float>::infinity();
+    settings.presets[0].profile.changes.push_back({"NotASetting"});
+    settings.presets[0].profile.changes.push_back(settings.presets[0].profile.changes[0]);
+    const auto clean = Sanitize(settings).presets[0].profile;
+    Require(std::isfinite(clean.changes[0].points[0]) && clean.changes.size() == 1, "non-finite, unknown and duplicate changes sanitize");
     RendererSettingsDraft draft, baseline; draft.valid = baseline.valid = true;
     draft.appearance = settings;
     Require(CountRendererSettingsChanges(draft, baseline) == 1, "profile edits participate in Apply/Discard changes");
@@ -137,8 +182,8 @@ static void TimeAndPersistence()
 static void FrameHistory()
 {
     Settings settings; settings.enabled = true; settings.smoothingSeconds = 1;
-    GroupPreset(settings, 1, FromValues(Value(.3f, .2f)));
-    GroupPreset(settings, 3, FromValues(Value(1.7f, .9f)));
+    GroupPreset(settings, 1, Look(.3f, .2f));
+    GroupPreset(settings, 3, Look(1.7f, .9f));
     Controller controller; controller.Configure(settings);
     SourceDLSSG::NeuralOptions base; base.enabled = true; base.passes = 2;
     base.tuning.skinStructureStrength = -1; base.tuning.style = 4;
@@ -147,7 +192,7 @@ static void FrameHistory()
     SourceDLSSG::NeuralHistory history;
     auto scene = Scene();
     auto first = base;
-    controller.Apply(scene, first, .4f, 1.0f / 60);
+    ApplyFrame(controller, scene, first, 1.0f / 60);
     Require(history.ResetFor(first, true, false), "first automated frame resets");
     Require(first.tuning.skinStructureStrength == -1 && first.tuning.style == 4, "sentinel and discrete style preserved");
     scene.outgoing = scene.incoming;
@@ -156,41 +201,41 @@ static void FrameHistory()
     for (int i = 0; i < 240; ++i) {
         auto frame = base;
         scene.hour += .0001f; scene.transition = static_cast<float>(i) / 239;
-        controller.Apply(scene, frame, .4f, 1.0f / 60);
+        ApplyFrame(controller, scene, frame, 1.0f / 60);
         Require(!history.ResetFor(frame, true, false), "weather/time ramps do not reset history every frame");
         Require(frame.tuning.intensity >= lastIntensity, "weather smoothing moves continuously toward target");
         lastIntensity = frame.tuning.intensity;
     }
     Require(lastIntensity > 1 && base == manual && controller.Configuration() == settings, "ramp changes frames, never defaults or profiles");
     Require(controller.SelectionResolutions() == 2, "ordinary weather progress resolves and labels presets only on identity changes");
-    settings.presets[1].profile.points.fill(Value(.45f, .15f));
+    settings.presets[1].profile = Look(.45f, .15f);
     settings.presets[1].name = "Edited shared rain";
     controller.Configure(settings);
-    auto edited = base; controller.Apply(scene, edited, .4f, .016f);
+    auto edited = base; ApplyFrame(controller, scene, edited, .016f);
     Require(history.ResetFor(edited, true, false) && Near(edited.tuning.intensity, .45f) &&
         controller.State().result.incoming == "Edited shared rain", "configuration replacement invalidates cached pointers, labels and history");
     auto frame = base;
-    controller.Apply(scene, frame, .4f, .016f);
+    ApplyFrame(controller, scene, frame, .016f);
     Require(history.ResetFor(frame, true, true), "camera reset survives automation");
     Require(!history.ResetFor(frame, true, false), "camera reset is not sticky");
     base.tuning.intensity = .8f; frame = base;
-    controller.Apply(scene, frame, .4f, .016f);
+    ApplyFrame(controller, scene, frame, .016f);
     Require(history.ResetFor(frame, true, false), "manual edit resets even under an overriding profile");
     base.secondPass.linked = true; frame = base;
-    controller.Apply(scene, frame, .4f, .016f);
+    ApplyFrame(controller, scene, frame, .016f);
     Require(history.ResetFor(frame, true, false), "relink resets history");
     Require(frame.EffectiveSecond().tuning == frame.tuning, "linked second pass uses automated first pass");
     controller.Pause(true); frame = base;
-    Require(controller.Apply(scene, frame, .4f, .016f) == .4f && frame == base, "manual session override restores base values");
+    Require(ApplyFrame(controller, scene, frame, .016f) == .4f && frame == base, "manual session override restores base values");
     Require(history.ResetFor(frame, true, false), "leaving automation resets once");
     controller.Pause(false); frame = base;
-    controller.Apply(scene, frame, .4f, .016f); history.ResetFor(frame, true, false);
-    scene.hour += 5; frame = base; controller.Apply(scene, frame, .4f, .016f);
+    ApplyFrame(controller, scene, frame, .016f); history.ResetFor(frame, true, false);
+    scene.hour += 5; frame = base; ApplyFrame(controller, scene, frame, .016f);
     Require(history.ResetFor(frame, true, false), "waiting or fast travel breaks history");
-    controller.Invalidate(); frame = base; controller.Apply(scene, frame, .4f, .016f);
+    controller.Invalidate(); frame = base; ApplyFrame(controller, scene, frame, .016f);
     Require(history.ResetFor(frame, true, false), "load invalidation resets history");
     scene.valid = false; frame = base;
-    controller.Apply(scene, frame, .4f, .016f);
+    ApplyFrame(controller, scene, frame, .016f);
     Require(frame == base && !controller.State().result.active, "unavailable game state never applies stale weather");
     Require(history.ResetFor(frame, false, false), "ineligible frame breaks history");
     // Even a reused revision cannot excuse a discrete or skin-mode change.
@@ -208,8 +253,8 @@ static void CombatAppearanceHistory()
     // Exercise the production order shared by native and CS producers: appearance
     // modifies the saved frame options, then combat selects the effective passes.
     Settings settings; settings.enabled = true; settings.smoothingSeconds = 1;
-    GroupPreset(settings, 1, FromValues(Value(.3f, .2f)));
-    GroupPreset(settings, 3, FromValues(Value(1.7f, .9f)));
+    GroupPreset(settings, 1, Look(.3f, .2f));
+    GroupPreset(settings, 3, Look(1.7f, .9f));
     for (bool worldOnly : {false, true}) for (bool linked : {false, true}) {
         Controller controller; controller.Configure(settings);
         SourceDLSSG::NeuralOptions base; base.enabled = true; base.passes = 2;
@@ -223,7 +268,7 @@ static void CombatAppearanceHistory()
             fighting{true, false, true, false}, armed{true, false, false, true};
         auto update = [&](NeuralRendering::GameplayState state, double seconds, bool reset, bool cameraReset = false) {
             auto frame = base;
-            controller.Apply(scene, frame, .4f, 1.0f / 60);
+            ApplyFrame(controller, scene, frame, 1.0f / 60);
             const auto revision = frame.appearanceRevision;
             frame.passOverride = policy.Update(frame.combat, frame.enabled, frame.passes, state, seconds);
             Require(history.ResetFor(frame, true, cameraReset) == reset,
@@ -260,23 +305,52 @@ static void CombatAppearanceHistory()
         update(calm, 12, false);
     }
 }
-
+static void PresetPasses()
+{
+    Settings settings;
+    settings.groups[3] = AddPreset(settings, "Rain");
+    SetChange(settings.presets[0].profile, "Passes", 1);
+    Controller controller; controller.Configure(settings);
+    SourceDLSSG::NeuralOptions base; base.enabled = true; base.passes = 2;
+    base.reconstruction.producerColor = true;
+    auto rain = Scene(); rain.incoming.group = Group::Rain;
+    auto clear = Scene();
+    SourceDLSSG::NeuralHistory history;
+    auto frame = base; ApplyFrame(controller, rain, frame, .016f);
+    Require(frame.passes == 2 && frame.presetOnePass && frame.EffectivePasses() == 1,
+        "a one-pass preset keeps two passes allocated instead of recreating NR");
+    history.ResetFor(frame, true, false);
+    frame = base; ApplyFrame(controller, clear, frame, .016f);
+    Require(!frame.presetOnePass && frame.EffectivePasses() == 2 && history.ResetFor(frame, true, false),
+        "leaving a one-pass preset restores Pass 2 with one history reset");
+    SetChange(settings.presets[0].profile, "Passes", 2);
+    SetChange(settings.presets[0].profile, "ReconstructionMethod", 2);
+    controller.Configure(settings);
+    base.passes = 1;
+    frame = base; ApplyFrame(controller, clear, frame, .016f);
+    Require(frame.passes == 2 && frame.presetOnePass && frame.EffectivePasses() == 1,
+        "presets that need two passes keep them allocated everywhere");
+    frame = base; ApplyFrame(controller, rain, frame, .016f);
+    Require(frame.passes == 2 && !frame.presetOnePass && frame.EffectivePasses() == 2 &&
+        frame.reconstruction.method == NeuralRendering::ResolveMethod::Ratio && frame.reconstruction.producerColor,
+        "presets change other NR settings but never the adapter's input contract");
+}
 static void SharedPresets()
 {
     Settings settings; settings.enabled = true;
-    const auto shared = AddPreset(settings, "Rain and mist", FromValues(Value(.8f, .2f)));
+    const auto shared = AddPreset(settings, "Rain and mist", Look(.8f, .2f));
     settings.groups[3] = shared;
     const std::vector<Record> records{{"Weather.esp", 0xABC}, {"Weather.esp", 0xDEF}, {"Other.esl", 0xABC}};
     Require(AssignMany(settings, records, shared), "bulk assignment supports shared presets");
-    settings.presets[0].profile.points.fill(Value(1.4f, .7f));
+    settings.presets[0].profile = Look(1.4f, .7f);
     for (const auto& record : records) {
         auto scene = Scene(); scene.incoming.record = Normalize(record);
-        Require(Near(Evaluate(settings, scene, {}).values.sharpness, .7f), "one shared edit reaches every assigned weather");
+        Require(Near(Evaluate(settings, scene, {}).setup.sharpness, .7f), "one shared edit reaches every assigned weather");
     }
     auto scene = Scene(); scene.incoming.group = Group::Rain; scene.incoming.record = {"missing.esp", 42};
-    Require(Near(Evaluate(settings, scene, {}).values.sharpness, .7f), "broad group uses the same shared preset");
+    Require(Near(Evaluate(settings, scene, {}).setup.sharpness, .7f), "broad group uses the same shared preset");
     settings.presets[0].profile.enabled = false;
-    Require(Evaluate(settings, Scene(), Value(.5f, .3f)).values == Value(.5f, .3f), "disabled shared preset inherits");
+    Require(Evaluate(settings, Scene(), BaseSetup(.5f, .3f)).setup == BaseSetup(.5f, .3f), "disabled shared preset inherits");
     CSimpleIniA ini; StoreSettings(ini, settings);
     Require(LoadSettings(ini) == Sanitize(settings), "shared identity and disabled presets round trip");
     Require(!LoadSettings(ini).enabled, "presets apply only while one is in use");
@@ -287,12 +361,14 @@ static void SharedPresets()
     StoreSettings(ini, settings);
     Require(!ini.GetSection("Appearance.Preset0.Day") && !ini.GetSection("Appearance.Weather0") && LoadSettings(ini) == Sanitize(settings),
         "removed presets and assignments do not return after restart");
-    Require(AddStarterProfiles(settings, Value(.6f, .4f)), "starter templates created");
-    const auto before = settings;
-    Require(AddStarterProfiles(settings, Value(1.9f, .9f)) && settings == before, "starter action does not replace existing tuning");
-    for (const auto id : settings.groups) { Require(FindPreset(settings, id)->profile.points[3] == Value(.6f, .4f), "starter copies manual values"); }
+    Settings fresh;
+    const auto first = AddPreset(fresh, "My first preset");
+    fresh.groups[1] = first;
+    Require(FindPreset(fresh, first)->profile.changes.empty() && Sanitize(fresh).enabled &&
+        Evaluate(Sanitize(fresh), Scene(), BaseSetup(.5f, .3f)).setup == BaseSetup(.5f, .3f),
+        "a new preset starts with no changes, turns presets on and shows Base");
 
-    Settings capacity; const auto id = AddPreset(capacity, "Shared", FromValues(Value(1, .2f)));
+    Settings capacity; const auto id = AddPreset(capacity, "Shared", Look(1, .2f));
     for (std::uint32_t i = 1; i <= 170; ++i) { Require(Assign(capacity, {"NAT.esp", i}, id), "LoreRim-sized mapping accepted"); }
     StoreSettings(ini, capacity); Require(LoadSettings(ini) == Sanitize(capacity), "170 assignments share one persisted preset");
     for (std::uint32_t i = 171; i < MaxWeathers; ++i) { Require(Assign(capacity, {"NAT.esp", i}, id), "fill assignment capacity"); }
@@ -306,27 +382,53 @@ static void SharedPresets()
     Require(entry.search.find("nat_rainstorm") != std::string::npos && entry.search.find("weather.esp") != std::string::npos &&
         entry.search.find("000abc") != std::string::npos && entry.search.find("rain") != std::string::npos, "weather search includes names, owner, ID and classification");
 }
+// Formats 1 and 2 wrote every look value at each time of day.
+static void WriteLegacyProfile(CSimpleIniA& ini, const std::string& section, float intensity, float sharpness)
+{
+    ini.SetBoolValue(section.c_str(), "Enabled", true);
+    for (const auto* time : Times) {
+        const auto timeSection = section + "." + time;
+        ini.SetDoubleValue(timeSection.c_str(), "Sharpness", sharpness);
+        ini.SetDoubleValue(timeSection.c_str(), "Pass1Intensity", intensity);
+        ini.SetDoubleValue(timeSection.c_str(), "Pass1LocalTone", intensity / 2);
+        ini.SetDoubleValue(timeSection.c_str(), "Pass1LocalStructure", intensity / 4);
+        ini.SetDoubleValue(timeSection.c_str(), "Pass2Intensity", intensity / 2);
+        ini.SetDoubleValue(timeSection.c_str(), "Pass2LocalTone", intensity / 3);
+        ini.SetDoubleValue(timeSection.c_str(), "Pass2LocalStructure", intensity / 5);
+    }
+}
 static void MigrationAndSchedule()
 {
     CSimpleIniA legacy;
     legacy.SetBoolValue("Appearance", "Enabled", true);
-    StoreProfile(legacy, "Appearance.Clear", FromValues(Value(.8f, .4f)));
+    WriteLegacyProfile(legacy, "Appearance.Clear", .8f, .4f);
     legacy.SetLongValue("Appearance", "WeatherCount", 2);
     for (int i = 0; i < 2; ++i) {
         const auto section = std::format("Appearance.Weather{}", i);
         legacy.SetValue(section.c_str(), "Plugin", "Old.esp");
         legacy.SetValue(section.c_str(), "FormID", i ? "801" : "800");
-        StoreProfile(legacy, section, FromValues(Value(.2f + i, .1f + i * .1f)));
+        WriteLegacyProfile(legacy, section, .2f + i, .1f + i * .1f);
     }
     const auto migrated = LoadSettings(legacy);
     Require(migrated.presets.size() == 3 && migrated.weathers.size() == 2, "legacy groups and exact profiles migrate without dropping tuning");
     auto scene = Scene(); scene.incoming.record = {"old.esp", 0x801};
-    Require(Near(Evaluate(migrated, scene, {}).values.passes[0].intensity, 1.2f), "migrated exact values take precedence");
+    Require(Near(Evaluate(migrated, scene, {}).setup.tuning.intensity, 1.2f), "migrated exact values take precedence");
     StoreSettings(legacy, migrated);
     Require(LoadSettings(legacy) == migrated && !legacy.GetSection("Appearance.Weather0.Day"), "migration saves canonical shared format");
     legacy.SetLongValue("Appearance.Weather0", "Preset", 99999);
     legacy.SetLongValue("Appearance.Rain", "Preset", 99999);
     Require(LoadSettings(legacy).weathers.size() == 1 && LoadSettings(legacy).groups[3] == 0, "dangling references cannot retarget new presets");
+    CSimpleIniA shared;
+    shared.SetLongValue("Appearance", "Format", 2);
+    shared.SetLongValue("Appearance", "PresetCount", 1);
+    shared.SetLongValue("Appearance.Preset0", "ID", 1);
+    shared.SetValue("Appearance.Preset0", "Name", "Rain");
+    WriteLegacyProfile(shared, "Appearance.Preset0", 1.5f, .5f);
+    shared.SetBoolValue("Appearance.Preset0", "NR", false);
+    shared.SetLongValue("Appearance.Rain", "Preset", 1);
+    const auto format2 = LoadSettings(shared);
+    Require(format2.groups[3] == 1 && format2.presets.size() == 1 && format2.presets[0].profile.changes.size() == 1 &&
+        FindChange(format2.presets[0].profile, "Sharpness")->points[3] == .5f, "format 2 presets keep only the channels they changed");
     CSimpleIniA enb;
     enb.LoadData("[TIMEOFDAY]\nDawnDuration=3.5\nSunriseTime=8.5\nDayTime=10.5\nSunsetTime=17.5\nDuskDuration=4\nNightTime=1\n");
     const auto hours = ReadENBSchedule(enb);
@@ -350,7 +452,7 @@ static void MigrationAndSchedule()
 static void Benchmark()
 {
     Settings settings; settings.enabled = true;
-    const auto preset = AddPreset(settings, "Heavy rain", FromValues(Value(.8f, .4f)));
+    const auto preset = AddPreset(settings, "Heavy rain", Look(.8f, .4f));
     for (std::uint32_t i = 1; i <= MaxWeathers; ++i) { Assign(settings, {"weather.esp", i}, preset); }
     auto scene = Scene(); scene.incoming.record.localID = static_cast<std::uint32_t>(MaxWeathers);
     std::array<double, 7> timings{};
@@ -359,10 +461,10 @@ static void Benchmark()
         for (auto& timing : timings) {
             Controller controller; controller.Configure(settings);
             SourceDLSSG::NeuralOptions base;
-            auto warmup = base; controller.Apply(scene, warmup, .3f, .016f);
+            auto warmup = base; ApplyFrame(controller, scene, warmup, .016f, .3f);
             const auto start = std::chrono::steady_clock::now();
             float sum{};
-            for (int i = 0; i < 100000; ++i) { auto frame = base; sum += controller.Apply(scene, frame, .3f, .016f); }
+            for (int i = 0; i < 100000; ++i) { auto frame = base; sum += ApplyFrame(controller, scene, frame, .016f, .3f); }
             timing = std::chrono::duration<double, std::nano>(std::chrono::steady_clock::now() - start).count() / 100000;
             Require(sum > 0 && controller.SelectionResolutions() == static_cast<std::uint64_t>(automatic), "benchmark observes stable cached resolution");
         }
@@ -372,7 +474,7 @@ static void Benchmark()
 }
 int main(int argc, char** argv)
 {
-    Resolution(); TimeAndPersistence(); FrameHistory(); CombatAppearanceHistory(); SharedPresets(); MigrationAndSchedule();
+    Resolution(); TimeAndPersistence(); FrameHistory(); CombatAppearanceHistory(); PresetPasses(); SharedPresets(); MigrationAndSchedule();
     if (argc == 2 && std::string(argv[1]) == "--benchmark") { Benchmark(); }
-    std::puts("PASS: weather/time resolution, persistence, frame smoothing, manual overrides and NR history");
+    std::puts("PASS: weather/time resolution, per-setting presets, persistence, frame smoothing, manual overrides and NR history");
 }

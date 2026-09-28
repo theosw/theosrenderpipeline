@@ -1,18 +1,19 @@
 # Weather and time presets
 
-Presets live in the **Neural Rendering** tab. They adjust NR intensity, local tone,
-local structure and TRP sharpening strength using Skyrim's weather and game clock.
-ENB Helper is not required. Up to **512 named presets** and **4096 exact weather
-assignments** are supported.
+Presets live in the **Neural Rendering** tab. A preset changes any Neural
+Rendering setting or sharpening for the weather or places you choose, using
+Skyrim's weather and game clock. ENB Helper is not required. Up to **512 named
+presets** and **4096 exact weather assignments** are supported.
 
 ## Layout
 
 The left column lists **Base** first, then your presets. Base is your normal
-Neural Rendering settings; selecting it shows the usual NR controls. Selecting a
-preset shows its editor in their place. Each preset row says when it applies, and
-**NOW** marks the rows your edited settings select for the current weather. Once a
-preset exists, a **Now** line shows what is applied, the game time and weather;
-hover it for the resolved values.
+Neural Rendering settings; selecting it shows the usual NR controls in Look,
+Quality and Performance sections. Selecting a preset shows the same controls with
+its changes marked. Each preset row says when it applies and how many settings it
+changes, and **NOW** marks the rows your edited settings select for the current
+weather. Once a preset exists, a **Now** line shows what is applied, the game time
+and weather; hover it for the resolved values.
 
 Presets apply whenever at least one preset is in use. There is no separate
 automation switch. **Pause presets** immediately uses Base until you untick it or
@@ -20,24 +21,35 @@ restart the game; it is not saved.
 
 ## Create and edit presets
 
-1. Tune Base: the Look, Quality and Performance sections of the Neural Rendering
-   tab. Sharpening is in Look and applies with or without NR.
-2. **Create new preset** starts from Base. **Duplicate** copies the selected preset.
+1. Tune Base. Sharpening is in Look and applies with or without NR.
+2. **Create new preset** starts with no changes. **Duplicate** copies the selected
+   preset.
 3. Under **Use when**, tick weather types (Clear, Cloudy, Rain, Snow), Interior or
    Outdoors, and add specific weathers.
-4. Set its **Values**. With **Vary by time of day** off, one set of values applies
-   all day. Turn it on to edit each of the six times of day; the current time is
-   green. Turning it off keeps the selected time's values. **Reset to Base** (or
-   **Set this time from Base**) copies the pending Base values, not the current
-   blended output. Linked Pass 2 follows Pass 1.
+4. Change the settings you want different. A changed setting gets an amber mark and
+   a **Base** button that returns it to Base's value; **Reset all to Base** clears
+   every change. Settings you leave alone follow Base, including later Base edits.
 5. **Apply** for this session or **Save as default** for future sessions.
    **Discard** restores the applied configuration.
 
-**More options** can ignore a preset without deleting it (**Use this preset**).
-Presets never enable NR or sharpening themselves. The Image tab shows Base
-sharpening read-only, and the value in use when a preset changes it. Community
-Shaders owns sharpening on its route, so only TRP NR is automated there. Network preset, style, skin controls, resolution, placement and
-pass count stay in Base. **Timing...** holds the times of day and transition
+Look settings (intensity, local tone, local structure and sharpening strength)
+blend smoothly between weathers and times of day and keep NR history. With **Vary
+by time of day** on, they can differ at each of the six times; the current time is
+green. Turning it off keeps the selected time's values. Other settings switch once
+at the midpoint of a weather change and reset NR history.
+
+Settings marked **(!)** restart NR briefly when they change: placement, NR input
+resolution, network preset, peripheral compression, combined preparation and
+Reconstruction. A preset that changes one of them can hitch when the weather
+changes; interior and exterior changes happen behind a loading screen. Pass count
+switches without restarting NR: two passes stay allocated while any preset uses
+them, and one-pass situations skip Pass 2 like the combat option.
+
+Presets never switch NR or sharpening on while Base has them off, but can switch
+them off. The Image tab shows Base sharpening read-only, and the value in use when
+a preset changes it. Community Shaders owns sharpening on its route, so presets
+change only TRP NR there. **More options** can ignore a preset without deleting it
+(**Use this preset**). **Timing...** holds the times of day and transition
 smoothing. See the [focused game check](APPEARANCE-TESTING.md) before relying on a
 new preset set.
 
@@ -61,8 +73,8 @@ another plugin with the same numeric ID. Deleting a preset removes its assignmen
 and returns its weather types to less specific presets.
 
 Outdoor resolution is Base, then Outdoors, then Clear/Cloudy/Rain/Snow, then a
-specific weather. Each preset can change NR and sharpening independently. The Now
-line names the source preset for each channel when they differ. Fog, ash and
+specific weather, per setting: a more specific preset overrides only the settings
+it changes. The Now line names every preset in use, most specific first. Fog, ash and
 special-worldspace weather can be added as specific weathers; their visible
 appearance is not reliably described by the game's broad classification alone.
 Ordinary interiors use only Interior over Base. Sky-lit interior cells follow
@@ -96,23 +108,26 @@ intermediate blended values.
 
 Configuration remains in `Data/SKSE/Plugins/TheosRenderPipeline.ini`:
 
-- `[Appearance]`: format 2, schedule, counts and smoothing. `Enabled` is written
+- `[Appearance]`: format 3, schedule, counts and smoothing. `Enabled` is written
   as whether any preset is in use, for older builds; this build derives it on load.
-- `[Appearance.Preset0]` etc.: stable ID, name, flags and six time subsections.
+- `[Appearance.Preset0]` etc.: stable ID, name, enable state and each changed
+  setting other than look settings, such as `Passes = 2`.
+- `[Appearance.Preset0.Day]` etc.: changed look settings at each time of day.
 - `[Appearance.Clear]` etc.: the shared preset ID assigned to each broad group.
 - `[Appearance.Weather0]` etc.: plugin name, hexadecimal local FormID and preset ID.
 
-The original per-weather format from this PR migrates on load, retaining its
-points and override flags. The next Save writes the shared format and removes
-retired owned sections. Unrelated INI settings remain intact. Older plugin builds
-cannot interpret shared format 2; keep a backup before reverting the DLL.
+Only changed settings are saved. Format 1 and 2 presets migrate on load: their
+intensity, tone, structure and sharpness at each time become look changes, limited
+to the channels they changed. The next Save writes format 3 and removes retired
+owned sections. Unrelated INI settings remain intact. Older plugin builds cannot
+interpret format 3; keep a backup before reverting the DLL.
 
 Install the matching `RCAS.hlsl` with the DLL. Sharpening uses a runtime constant
 buffer; unchanged strength does not upload it again. Weather identities and preset
 selection are cached across ordinary frames. Disabled automation samples the
 context display at four updates per second.
 
-Gradual automated tuning retains NR history. Manual/preset changes, loading,
-camera resets, time jumps and discrete changes still reset it. Standalone tests
+Gradual look changes retain NR history. Manual/preset edits, loading, camera
+resets, time jumps and other setting changes still reset it. Standalone tests
 do not establish NVIDIA temporal image quality, game performance or visual
 acceptance of the new UI.
