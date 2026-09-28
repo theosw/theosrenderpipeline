@@ -282,7 +282,10 @@ HRESULT STDMETHODCALLTYPE SwapChain::CheckColorSpaceSupport(
 
 HRESULT STDMETHODCALLTYPE SwapChain::SetColorSpace1(DXGI_COLOR_SPACE_TYPE a_colorSpace)
 {
-	return inner3_ ? inner3_->SetColorSpace1(PresentationColorSpace(gameFormat_, a_colorSpace)) : E_NOINTERFACE;
+	const auto colorSpace = PresentationColorSpace(gameFormat_, a_colorSpace);
+	const auto result = inner3_ ? inner3_->SetColorSpace1(colorSpace) : E_NOINTERFACE;
+	if (SUCCEEDED(result)) { colorSpace_.store(colorSpace, std::memory_order_relaxed); }
+	return result;
 }
 
 HRESULT STDMETHODCALLTYPE SwapChain::ResizeBuffers1(
@@ -347,7 +350,8 @@ HRESULT SwapChain::BeginPresent()
 	if (index >= buffers_.size() || !buffers_[index].texture12 || !nativeBuffers_[index]) {
 		return DXGI_ERROR_INVALID_CALL;
 	}
-	return backend_.BeforePresent(buffers_[index].texture12.Get(), nativeBuffers_[index].Get());
+	return backend_.BeforePresent(buffers_[index].texture12.Get(), nativeBuffers_[index].Get(),
+		colorSpace_.load(std::memory_order_relaxed));
 }
 
 void SwapChain::ObservePresentationFeedback(HRESULT a_presentResult)

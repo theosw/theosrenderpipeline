@@ -59,6 +59,13 @@ static void CheckConversion()
     Require(!FinalFrameCapture::ToBGR(DXGI_FORMAT_R16G16B16A16_FLOAT, 1, 1, bytes.data(), 8, out), "HDR scRGB is rejected");
     Require(!FinalFrameCapture::ToBGR(DXGI_FORMAT_R8G8B8A8_UNORM, 2, 1, rgba.data(), 4, out), "short pitch is rejected");
     Require(!FinalFrameCapture::BytesPerPixel(DXGI_FORMAT_R16G16B16A16_FLOAT), "HDR output has no screenshot format");
+    Require(FinalFrameCapture::Supports(DXGI_FORMAT_R10G10B10A2_UNORM, DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709),
+        "10-bit SDR screenshots remain supported");
+    for (auto colorSpace : {DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020, DXGI_COLOR_SPACE_RGB_STUDIO_G2084_NONE_P2020,
+        DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709, DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P2020}) {
+        Require(!FinalFrameCapture::Supports(DXGI_FORMAT_R10G10B10A2_UNORM, colorSpace),
+            "texture format alone cannot admit PQ, linear or wide-gamut screenshots");
+    }
 }
 
 struct Gpu
@@ -134,9 +141,9 @@ static FinalFrameCapture::Image Capture(Gpu& gpu, FinalFrameCapture& capture, ID
     FinalFrameCapture::Readback readback;
     Require(capture.Poll(readback) == S_FALSE && !capture.Busy(), "idle capture has nothing to hand over");
     gpu.Open();
-    Check(capture.Record(gpu.device.Get(), gpu.list.Get(), output), "record final frame copy");
+    Check(capture.Record(gpu.device.Get(), gpu.list.Get(), output, DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709), "record final frame copy");
     Require(capture.Busy(), "recorded capture is busy");
-    Require(capture.Record(gpu.device.Get(), gpu.list.Get(), output) == E_ILLEGAL_METHOD_CALL, "one capture at a time");
+    Require(capture.Record(gpu.device.Get(), gpu.list.Get(), output, DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709) == E_ILLEGAL_METHOD_CALL, "one capture at a time");
     Require(capture.Poll(readback) == S_FALSE, "unsubmitted capture is not complete");
     gpu.Execute();
     Check(capture.Submitted(gpu.queue.Get()), "signal after submission");
@@ -273,9 +280,19 @@ int main()
     ComPtr<ID3D12Resource> hdr;
     Check(gpu.device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_COMMON, nullptr, IID_PPV_ARGS(&hdr)), "HDR texture");
     gpu.Open();
-    Require(capture.Record(gpu.device.Get(), gpu.list.Get(), hdr.Get()) == E_INVALIDARG && !capture.Busy(), "HDR output rejected without recording");
+    Require(capture.Record(gpu.device.Get(), gpu.list.Get(), hdr.Get(), DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709) == E_INVALIDARG && !capture.Busy(), "HDR output rejected without recording");
     Require(capture.Submitted(gpu.queue.Get()) == E_ILLEGAL_METHOD_CALL, "nothing to signal after rejection");
     gpu.Execute(); gpu.Wait();
+
+    desc.Format = DXGI_FORMAT_R10G10B10A2_UNORM;
+    hdr.Reset();
+    Check(gpu.device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_COMMON, nullptr, IID_PPV_ARGS(&hdr)), "PQ texture");
+    gpu.Open();
+    Require(capture.Record(gpu.device.Get(), gpu.list.Get(), hdr.Get(), DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020) == E_INVALIDARG && !capture.Busy(),
+        "already-encoded CS PQ output rejected before readback");
+    Require(capture.Submitted(gpu.queue.Get()) == E_ILLEGAL_METHOD_CALL, "PQ rejection submits no screenshot work");
+    gpu.Execute(); gpu.Wait();
+    RequirePattern(Capture(gpu, capture, texture.Get()), 67, 5, "SDR capture recovers after PQ rejection");
 
     // The production source is a flip-model swapchain buffer in COMMON/PRESENT.
     WNDCLASSW wc{}; wc.hInstance = GetModuleHandleW(nullptr); wc.lpfnWndProc = DefWindowProcW; wc.lpszClassName = L"TRPFinalFrameCapture";

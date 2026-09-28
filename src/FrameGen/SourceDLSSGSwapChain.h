@@ -99,6 +99,7 @@ private:
 	Microsoft::WRL::ComPtr<IDXGISwapChain4> inner4_;
 	Backend& backend_;
 	DXGI_FORMAT gameFormat_;
+	std::atomic<DXGI_COLOR_SPACE_TYPE> colorSpace_{ DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709 };
 	std::array<SharedTexture, 2> buffers_;
 	std::array<Microsoft::WRL::ComPtr<ID3D12Resource>, 2> nativeBuffers_;
 	HRESULT BeginPresent();
