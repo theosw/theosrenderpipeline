@@ -210,10 +210,15 @@ static void CombatAppearanceHistory()
     Settings settings; settings.enabled = true; settings.smoothingSeconds = 1;
     GroupPreset(settings, 1, FromValues(Value(.3f, .2f)));
     GroupPreset(settings, 3, FromValues(Value(1.7f, .9f)));
-    for (bool worldOnly : {false, true}) for (bool linked : {false, true}) {
+    // Native, CS SDR and CS HDR completed scenes, with both pass-link modes.
+    for (int route : {0, 1, 2}) for (bool linked : {false, true}) {
+        const bool worldOnly = route != 0;
+        bool extendedRange = route == 2;
         Controller controller; controller.Configure(settings);
         SourceDLSSG::NeuralOptions base; base.enabled = true; base.passes = 2;
         base.worldOnly = worldOnly; base.secondPass.linked = linked;
+        base.reconstruction.whitePoint = 4;
+        base.reconstruction.inputScale = .75f; base.secondPass.inputScale = .5f;
         base.combat = {true, true, 5};
         const auto saved = base;
         SourceDLSSG::NeuralHistory history;
@@ -226,6 +231,15 @@ static void CombatAppearanceHistory()
             controller.Apply(scene, frame, .4f, 1.0f / 60);
             const auto revision = frame.appearanceRevision;
             frame.passOverride = policy.Update(frame.combat, frame.enabled, frame.passes, state, seconds);
+            if (worldOnly) {
+                frame.reconstruction = NeuralRendering::CompletedSceneContract(frame.reconstruction, extendedRange);
+                Require(frame.reconstruction.producerColor == extendedRange &&
+                    frame.reconstruction.whitePoint == (extendedRange ? 1 : 4),
+                    "HDR adaptation preserves weather tuning and restores saved SDR normalization");
+                Require(frame.EffectiveSecond().inputScale == (linked ? .75f : .5f) &&
+                    !frame.EffectiveSecond().tuning.uiCorrection,
+                    "HDR adaptation preserves the second-pass scale and world-only UI policy");
+            }
             Require(history.ResetFor(frame, true, cameraReset) == reset,
                 "combined history resets only at effective-pass or explicit camera changes");
             Require(base == saved && frame.passes == 2 && frame.secondPass.linked == linked,
@@ -258,6 +272,16 @@ static void CombatAppearanceHistory()
         update(calm, 10, false);
         update(calm, 11, true, true);
         update(calm, 12, false);
+        if (worldOnly) {
+            extendedRange = !extendedRange;
+            Require(update(calm, 13, true).second == revision,
+                "HDR transition resets inference without changing the appearance revision");
+            update(calm, 14, false);
+            extendedRange = !extendedRange;
+            Require(update(calm, 15, true).second == revision,
+                "return to the previous color contract resets once and preserves appearance");
+            update(calm, 16, false);
+        }
     }
 }
 

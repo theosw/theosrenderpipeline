@@ -9,8 +9,9 @@ namespace TheosRenderPipeline
 {
     // D3D11 keeps an immediate context's function table inside the context
     // object and rewrites it from the context-state template whenever state is
-    // swapped, including by our own SwapDeviceContextState isolation. A hook
-    // written into that table is therefore lost until reinstalled. Reinstall it
+    // swapped, including by our own SwapDeviceContextState isolation. Ordinary
+    // runtime operations such as Flush can also rewrite it. A hook written into
+    // that table is therefore lost until reinstalled. Reinstall it
     // before the producer calls that must be observed; the displaced entry is
     // the function to forward to.
     class D3D11LiveSlot

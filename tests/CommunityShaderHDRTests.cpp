@@ -1,9 +1,11 @@
 #include "CommunityShaderUIBoundary.h"
 #include "FrameGen/CommunityShaderFrame.h"
+#include "FrameGen/D3D11LiveSlot.h"
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <string_view>
 
 using Microsoft::WRL::ComPtr;
 using namespace TheosRenderPipeline;
@@ -149,8 +151,102 @@ struct Fixture
     }
 };
 
-int main()
+namespace LiveObservers
 {
+    using Copy = void (STDMETHODCALLTYPE*)(ID3D11DeviceContext*, ID3D11Resource*, ID3D11Resource*);
+    static Fixture* fixture{};
+    static D3D11LiveSlot dispatchSlot, copySlot;
+    static unsigned dispatchCalls{}, copyCalls{};
+
+    static void STDMETHODCALLTYPE Dispatch(ID3D11DeviceContext* context, UINT x, UINT y, UINT z)
+    {
+        ++dispatchCalls;
+        const auto original = reinterpret_cast<CommunityShaderFrame::Dispatch>(dispatchSlot.Original());
+        fixture->frame.CaptureDisplayTransform(context, x, y, z, original);
+        original(context, x, y, z);
+    }
+    static void STDMETHODCALLTYPE CopyResource(ID3D11DeviceContext* context, ID3D11Resource* destination, ID3D11Resource* source)
+    {
+        ++copyCalls;
+        if (D3D11FrameCopy::SameObject(destination, fixture->presentation.Get())) {
+            fixture->frame.ConfirmPresentationCopy(source);
+        }
+        reinterpret_cast<Copy>(copySlot.Original())(context, destination, source);
+    }
+    static void Install()
+    {
+        Require(dispatchSlot.Ensure(fixture->context.Get(), 41, reinterpret_cast<std::uintptr_t>(&Dispatch)), "install live Dispatch observer");
+        Require(copySlot.Ensure(fixture->context.Get(), 47, reinterpret_cast<std::uintptr_t>(&CopyResource)), "install live CopyResource observer");
+        dispatchCalls = copyCalls = 0;
+    }
+    static void Restore(std::size_t index, std::uintptr_t hook, std::uintptr_t original)
+    {
+        auto* slot = *reinterpret_cast<std::uintptr_t**>(fixture->context.Get()) + index;
+        DWORD previous{}, ignored{};
+        Require(VirtualProtect(slot, sizeof(*slot), PAGE_READWRITE, &previous), "unprotect test observer slot");
+        // Do not overwrite a replacement installed by the runtime.
+        InterlockedCompareExchangePointer(reinterpret_cast<void* volatile*>(slot),
+            reinterpret_cast<void*>(original), reinterpret_cast<void*>(hook));
+        Require(VirtualProtect(slot, sizeof(*slot), previous, &ignored), "restore test slot protection");
+    }
+    static void Composite()
+    {
+        auto& f = *fixture;
+        f.context->OMSetRenderTargets(0, nullptr, nullptr);
+        f.context->CSSetShader(f.shader.Get(), nullptr, 0);
+        ID3D11ShaderResourceView* inputs[]{f.sceneSRV.Get(), f.uiSRV.Get()};
+        f.context->CSSetShaderResources(0, 2, inputs);
+        f.context->CSSetUnorderedAccessViews(0, 1, f.outputUAV.GetAddressOf(), nullptr);
+        // Unlike Fixture::Composite, these reach capture only through the real
+        // context table. No direct helper calls can conceal a missing observer.
+        f.context->Dispatch(f.width / 4, f.height / 2, 1);
+        f.context->ClearState();
+        f.context->CopyResource(f.presentation.Get(), f.converted.Get());
+    }
+    static bool Handoff()
+    {
+        Fixture f; fixture = &f;
+        f.Begin(1); f.FinishUI(); Install(); Composite();
+        Require(dispatchCalls && copyCalls && f.frame.PresentationStatus(f.desc) == State::Ready,
+            "live callbacks prepare a complete HDR frame");
+        const auto clean = Pixel(f.context.Get(), f.frame.Hudless(f.desc));
+        const auto visible = Pixel(f.context.Get(), f.presentation.Get());
+        Require(clean != visible, "live replay excludes the visible UI");
+        f.Present();
+
+        f.Begin(2); f.FinishUI(); Install();
+        // This ordinary runtime call can rewrite the context table after the
+        // last UI-boundary repair, without a SwapDeviceContextState call.
+        f.context->Flush();
+        Composite();
+        const auto state = f.frame.PresentationStatus(f.desc);
+        const bool continuous = dispatchCalls && copyCalls && state == State::Ready;
+        if (continuous) {
+            Require(Pixel(f.context.Get(), f.frame.Hudless(f.desc)) == clean, "continuous live capture stays HUDless");
+        } else {
+            Require((state == State::AwaitingTransform || state == State::AwaitingCopy) && !f.frame.Hudless(f.desc),
+                "lost observer refuses stale frame-generation inputs");
+        }
+        std::printf("Live HDR observers after Flush: Dispatch=%u CopyResource=%u capture=%s\n",
+            dispatchCalls, copyCalls, continuous ? "ready" : "missing (known reliability gap)");
+        Require(Pixel(f.context.Get(), f.presentation.Get()) == visible, "visible HDR output survives a capture gap");
+        f.Present();
+
+        f.Begin(3); f.FinishUI(); Install(); Composite();
+        Require(f.frame.PresentationStatus(f.desc) == State::Ready, "next-frame observer repair recovers capture");
+        Require(Pixel(f.context.Get(), f.frame.Hudless(f.desc)) == clean, "recovered frame has fresh HUDless output");
+        f.Present();
+        Restore(41, reinterpret_cast<std::uintptr_t>(&Dispatch), dispatchSlot.Original());
+        Restore(47, reinterpret_cast<std::uintptr_t>(&CopyResource), copySlot.Original());
+        fixture = nullptr;
+        return continuous;
+    }
+}
+
+int main(int argc, char** argv)
+{
+    const bool requireStable = argc == 2 && std::string_view(argv[1]) == "--require-stable-observers";
+    Require(argc == 1 || requireStable, "supported arguments");
     Fixture f;
     // Old order: compositor cannot identify t1 and the late overlay is cleared.
     f.Begin(1); f.Composite(false);
@@ -224,4 +320,10 @@ int main()
         Require(scope && !isolation.Accepts(alias.Get(), alias.Get()), "no producer capture during our isolation");
     }
     std::puts("CS HDR: late-boundary failure reproduced; early UI, FP16/PQ scene capture, producer state, suppression, test Present, loading, resize and context alias passed.");
+    const bool continuous = LiveObservers::Handoff();
+    // Default coverage checks the handoff, safe failure and recovery. This
+    // explicit acceptance probe must also pass before claiming reliable HDR FG.
+    if (requireStable) {
+        Require(continuous, "HDR observers must survive ordinary post-UI runtime work");
+    }
 }
