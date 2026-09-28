@@ -12,6 +12,7 @@
 #include "OverlayHotkeys.h"
 #include "OverlayLayout.h"
 #include "WeatherAppearanceINI.h"
+#include "WeatherAppearanceFiles.h"
 #include "WeatherAppearanceRuntime.h"
 
 #include <SimpleIni.h>
@@ -126,13 +127,14 @@ bool RenderPipeline::SaveINI(const TheosRenderPipeline::Overlay::Layout* layout)
     frameGeneration->StoreUIComposition(ini);
     frameGeneration->StoreCompatibilityPreference(ini);
     TheosRenderPipeline::SourceDLSSG::StorePreferences(ini, sourceSettings.sourceDLSSG);
-    // Preset files first, so the saved order names the files actually written.
-    bool presetsSaved = false;
+    // Preset files first; the main INI's appearance settings follow only once every file is written.
     auto& appearance = TheosRenderPipeline::Appearance::Runtime::Get();
-    const auto savedPresets = appearance.SavePresets(appearance.Configuration(), presetsSaved);
-    // Keep older-format presets in the main INI until every preset file is written.
-    if (presetsSaved) { TheosRenderPipeline::Appearance::StoreSettings(ini, savedPresets); }
-    appearance.Configure(savedPresets);
+    const auto presets = TheosRenderPipeline::Appearance::SaveAppearance(ini, appearance.Configuration(),
+        TheosRenderPipeline::Appearance::Runtime::PresetFolder());
+    for (const auto& error : presets.errors) { logger::error("[Appearance] {}", error); }
+    logger::info("[Appearance] saved {} preset files ({} unchanged)", presets.files, presets.unchanged);
+    appearance.Configure(presets.settings);
+    const bool presetsSaved = presets.Ok();
 	ini.SetBoolValue("Debug", "LogMenuMetrics", mLogMenuMetrics);
     if (layout) { TheosRenderPipeline::Overlay::StoreLayout(ini, *layout); }
 	const auto rc = ini.SaveFile(L"Data\\SKSE\\Plugins\\TheosRenderPipeline.ini");

@@ -1,6 +1,6 @@
 #include <PCH.h>
 #include "WeatherAppearanceRuntime.h"
-#include "WeatherAppearanceINI.h"
+#include "WeatherAppearanceFiles.h"
 #include "FrameGen/SourceDLSSGSettings.h"
 #include "WeatherEditorID.h"
 
@@ -8,13 +8,6 @@ namespace TheosRenderPipeline::Appearance
 {
 namespace
 {
-// Preset names are UTF-8; paths must not pass through the ANSI code page.
-std::filesystem::path Utf8Path(const std::string& text) { return std::filesystem::path(std::u8string(text.begin(), text.end())); }
-std::string Utf8Name(const std::filesystem::path& path)
-{
-    const auto text = path.filename().u8string();
-    return std::string(text.begin(), text.end());
-}
 Group Classification(const RE::TESWeather* weather)
 {
     if (!weather) { return Group::Exterior; }
@@ -113,20 +106,9 @@ void Runtime::Apply(SourceDLSSG::NeuralOptions& options, bool& sharpening, float
 }
 Settings Runtime::Load(const CSimpleIniA& ini)
 {
-    std::vector<std::pair<std::string, std::unique_ptr<CSimpleIniA>>> files;
-    std::error_code error;
-    for (const auto& entry : std::filesystem::directory_iterator(PresetFolder(), error)) {
-        if (!entry.is_regular_file(error) || Lower(Utf8Name(entry.path().extension())) != ".ini") { continue; }
-        auto file = std::make_unique<CSimpleIniA>();
-        file->SetUnicode();
-        if (file->LoadFile(entry.path().c_str()) < 0) {
-            logger::warn("[Appearance] could not read preset file {}", Utf8Name(entry.path()));
-            continue;
-        }
-        files.emplace_back(Utf8Name(entry.path()), std::move(file));
-    }
-    std::vector<std::pair<std::string, const CSimpleIniA*>> views;
-    for (const auto& [name, file] : files) { views.emplace_back(name, file.get()); }
+    const auto folder = ReadPresetFolder(PresetFolder());
+    for (const auto& name : folder.unreadable) { logger::warn("[Appearance] could not read preset file {}", name); }
+    const auto views = folder.Views();
     // Base as saved beside older-format presets, to drop values they only copied from it.
     const auto nr = SourceDLSSG::SanitizePreferences(SourceDLSSG::LoadPreferences(ini));
     Setup base;
@@ -140,68 +122,7 @@ Settings Runtime::Load(const CSimpleIniA& ini)
     base.sharpening = ini.GetBoolValue("Settings", "Sharpening", false);
     base.sharpness = static_cast<float>(ini.GetDoubleValue("Settings", "Sharpness", 0.3));
     auto settings = LoadSettings(ini, views, &base);
-    logger::info("[Appearance] loaded {} presets ({} preset files)", settings.presets.size(), files.size());
-    return settings;
-}
-Settings Runtime::SavePresets(Settings settings, bool& ok)
-{
-    ok = true;
-    settings = Sanitize(std::move(settings));
-    const auto folder = PresetFolder();
-    std::error_code error;
-    std::filesystem::create_directories(folder, error);
-    std::vector<std::string> written;
-    std::size_t unchanged = 0;
-    for (auto& preset : settings.presets) {
-        const auto name = PresetFileName(preset.name);
-        std::filesystem::path path;
-        try {
-            path = folder / Utf8Path(name);
-        } catch (const std::exception&) {
-            logger::error("[Appearance] preset name is not valid UTF-8; not saved: {}", name);
-            ok = false;
-            continue;
-        }
-        // A rename that changes only letter case must rename the file itself.
-        if (!preset.file.empty() && preset.file != name && Lower(preset.file) == Lower(name)) {
-            try { std::filesystem::rename(folder / Utf8Path(preset.file), path, error); } catch (const std::exception&) {}
-        }
-        // Leave files that already hold this preset alone, whatever their layout, so
-        // hand-written files and presets from mods stay untouched.
-        CSimpleIniA existing;
-        existing.SetUnicode();
-        NamedProfile stored;
-        if (preset.file == name && existing.LoadFile(path.c_str()) >= 0 && LoadPresetFile(existing, stored)) {
-            stored.profile = Sanitize(std::move(stored.profile));
-            if (stored.profile == preset.profile && stored.groups == preset.groups && stored.weathers == preset.weathers) {
-                ++unchanged;
-                written.push_back(Lower(name));
-                continue;
-            }
-        }
-        CSimpleIniA file;
-        file.SetUnicode();
-        StorePresetFile(file, preset);
-        if (file.SaveFile(path.c_str()) < 0) {
-            logger::error("[Appearance] could not write preset file {}", name);
-            ok = false;
-            continue;
-        }
-        // A renamed preset's old file goes once the new one is written.
-        if (!preset.file.empty() && Lower(preset.file) != Lower(name)) { settings.removedFiles.push_back(preset.file); }
-        preset.file = name;
-        written.push_back(Lower(name));
-    }
-    for (const auto& name : settings.removedFiles) {
-        if (std::ranges::find(written, Lower(name)) != written.end()) { continue; }
-        try {
-            if (!std::filesystem::remove(folder / Utf8Path(name), error) && error) {
-                logger::warn("[Appearance] could not remove preset file {}", name);
-            }
-        } catch (const std::exception&) { logger::warn("[Appearance] could not remove preset file {}", name); }
-    }
-    settings.removedFiles.clear();
-    logger::info("[Appearance] saved {} preset files ({} unchanged)", written.size(), unchanged);
+    logger::info("[Appearance] loaded {} presets ({} preset files)", settings.presets.size(), folder.files.size());
     return settings;
 }
 }

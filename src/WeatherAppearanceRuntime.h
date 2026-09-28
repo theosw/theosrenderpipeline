@@ -28,9 +28,7 @@ public:
     static std::filesystem::path PresetFolder() { return L"Data\\SKSE\\Plugins\\TheosRenderPipeline\\Presets"; }
     // Reads the main INI's appearance settings and every preset file.
     static Settings Load(const CSimpleIniA& ini);
-    // Writes each preset's file, renames files of renamed presets and deletes
-    // files of deleted ones. Returns the settings with their saved file names.
-    static Settings SavePresets(Settings settings, bool& ok);
+
 private:
     mutable std::mutex mutex_;
     Controller controller_;

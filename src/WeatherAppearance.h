@@ -1,6 +1,7 @@
 #pragma once
 
 #include "WeatherAppearanceSetup.h"
+#include <Windows.h>
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -140,6 +141,23 @@ inline std::string Lower(std::string text)
     for (char& c : text) { if (c >= 'A' && c <= 'Z') { c = static_cast<char>(c + ('a' - 'A')); } }
     return text;
 }
+// File names compare as Windows compares them: ignoring case in every script, so
+// "Été" and "été" name the same file. Uses file-system (not linguistic) casing.
+inline std::string FoldCase(const std::string& text)
+{
+    const int size = text.empty() ? 0 : MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(), static_cast<int>(text.size()), nullptr, 0);
+    if (size <= 0) { return Lower(text); }
+    std::wstring wide(static_cast<std::size_t>(size), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), wide.data(), size);
+    const int length = LCMapStringEx(LOCALE_NAME_INVARIANT, LCMAP_UPPERCASE, wide.data(), size, nullptr, 0, nullptr, nullptr, 0);
+    if (length <= 0) { return Lower(text); }
+    std::wstring upper(static_cast<std::size_t>(length), L'\0');
+    LCMapStringEx(LOCALE_NAME_INVARIANT, LCMAP_UPPERCASE, wide.data(), size, upper.data(), length, nullptr, nullptr, 0);
+    const int bytes = WideCharToMultiByte(CP_UTF8, 0, upper.data(), length, nullptr, 0, nullptr, nullptr);
+    std::string result(static_cast<std::size_t>((std::max)(bytes, 0)), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, upper.data(), length, result.data(), bytes, nullptr, nullptr);
+    return result;
+}
 // The preset's file name: its name with characters Windows forbids replaced.
 inline std::string PresetFileName(std::string name)
 {
@@ -170,7 +188,7 @@ inline std::string UniqueName(const Settings& settings, std::string name, std::u
 {
     const auto taken = [&](const std::string& candidate) {
         return std::ranges::any_of(settings.presets, [&](const auto& preset) {
-            return preset.id != self && Lower(PresetFileName(preset.name)) == Lower(PresetFileName(candidate));
+            return preset.id != self && FoldCase(PresetFileName(preset.name)) == FoldCase(PresetFileName(candidate));
         });
     };
     if (!taken(name)) { return name; }

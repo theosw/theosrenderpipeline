@@ -204,14 +204,14 @@ template<class Ini> Settings LoadSettings(const Ini& ini, const std::vector<std:
         }
         // A save interrupted after writing files leaves both; the file is newer.
         std::erase_if(settings.presets, [&](const auto& preset) {
-            return std::ranges::any_of(files, [&](const auto& file) { return Lower(file.first) == Lower(PresetFileName(preset.name)); });
+            return std::ranges::any_of(files, [&](const auto& file) { return FoldCase(file.first) == FoldCase(PresetFileName(preset.name)); });
         });
     }
     auto order = Split(ini.GetValue("Appearance", "PresetOrder", ""), '|');
-    for (auto& name : order) { name = Lower(name); }
+    for (auto& name : order) { name = FoldCase(name); }
     auto sorted = files;
     const auto rank = [&](const std::string& name) {
-        return std::pair(static_cast<std::size_t>(std::ranges::find(order, Lower(name)) - order.begin()), Lower(name));
+        return std::pair(static_cast<std::size_t>(std::ranges::find(order, FoldCase(name)) - order.begin()), FoldCase(name));
     };
     std::ranges::stable_sort(sorted, {}, [&](const auto& file) { return rank(file.first); });
     for (const auto& [name, file] : sorted) {

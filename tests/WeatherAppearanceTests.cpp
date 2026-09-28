@@ -1,5 +1,6 @@
 #include "WeatherAppearanceController.h"
 #include "WeatherAppearanceINI.h"
+#include "WeatherAppearanceFiles.h"
 #include "WeatherEditorID.h"
 #include "RendererSettings.h"
 #include <SimpleIni.h>
@@ -7,6 +8,8 @@
 #include <cstdlib>
 #include <limits>
 #include <chrono>
+#include <fstream>
+#include <iterator>
 
 using namespace TheosRenderPipeline;
 using namespace TheosRenderPipeline::Appearance;
@@ -463,7 +466,7 @@ static void WriteLegacyProfile(CSimpleIniA& ini, const std::string& section, flo
     }
 }
 // Presets in files: list order decides shared weathers, and files map to names.
-static void PresetFiles()
+static void PresetFileOrder()
 {
     Settings settings; settings.enabled = true;
     const auto moody = AddPreset(settings, "Moody rain", Look(.5f, .1f));
@@ -518,6 +521,69 @@ static void PresetFiles()
     named.presets[2].name = "Rain: heavy?";
     Require(Sanitize(named).presets[2].name == "Rain_ heavy_" && !FileNameCharacter('?') && FileNameCharacter('a'),
         "names keep only what a file name allows");
+}
+// Real files in a scratch folder: a failed write keeps the older presets, accented
+// names differing only in case get distinct files, failed deletions stay pending and
+// unchanged hand-written files are left alone.
+static void PresetFileSystem()
+{
+    const auto root = std::filesystem::temp_directory_path() / std::format("TRPPresetFiles-{}", GetCurrentProcessId());
+    std::filesystem::remove_all(root);
+    std::filesystem::create_directories(root);
+    CSimpleIniA legacy;
+    legacy.SetUnicode();
+    legacy.SetBoolValue("Appearance", "Enabled", true);
+    legacy.SetLongValue("Appearance", "Format", 3);
+    legacy.SetLongValue("Appearance", "PresetCount", 1);
+    legacy.SetLongValue("Appearance.Preset0", "ID", 1);
+    legacy.SetValue("Appearance.Preset0", "Name", "Rain");
+    legacy.SetBoolValue("Appearance.Preset0", "Enabled", true);
+    legacy.SetLongValue("Appearance.Preset0", "Passes", 2);
+    legacy.SetLongValue("Appearance.Rain", "Preset", 1);
+    const auto before = LoadSettings(legacy);
+    Require(before.presets.size() == 1 && FindChange(before.presets[0].profile, "Passes"), "format 3 fixture loads");
+    const auto blocked = root / "Blocked";
+    { std::ofstream(blocked) << "a file where the preset folder should be"; }
+    const auto failed = SaveAppearance(legacy, before, blocked);
+    Require(!failed.written && !failed.Ok() && LoadSettings(legacy).presets.size() == 1 &&
+        legacy.GetLongValue("Appearance", "Format", 0) == 3, "a failed preset write keeps the older presets in the main INI");
+
+    const auto folder = root / "Presets";
+    Settings accents;
+    AddPreset(accents, "\xC3\x89t\xC3\xA9");
+    AddPreset(accents, "\xC3\xA9t\xC3\xA9");
+    SetChange(accents.presets[0].profile, "Passes", 1);
+    SetChange(accents.presets[1].profile, "Passes", 2);
+    const auto saved = SavePresetFiles(accents, folder);
+    CSimpleIniA main;
+    const auto reread = ReadPresetFolder(folder);
+    const auto loaded = LoadSettings(main, reread.Views());
+    Require(saved.Ok() && accents.presets[1].name == "\xC3\xA9t\xC3\xA9 2" && reread.files.size() == 2 && loaded.presets.size() == 2,
+        "names differing only in accented case get distinct files");
+
+    auto state = saved.settings;
+    const auto lockedPath = folder / Utf8Path(state.presets[0].file);
+    const HANDLE lock = CreateFileW(lockedPath.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0, nullptr);
+    Require(lock != INVALID_HANDLE_VALUE, "lock a preset file");
+    RemovePreset(state, state.presets[0].id);
+    const auto locked = SavePresetFiles(state, folder);
+    Require(!locked.removed && !locked.Ok() && locked.settings.removedFiles.size() == 1 && std::filesystem::exists(lockedPath),
+        "a failed deletion is reported and stays pending");
+    CloseHandle(lock);
+    const auto retried = SavePresetFiles(locked.settings, folder);
+    Require(retried.Ok() && retried.settings.removedFiles.empty() && !std::filesystem::exists(lockedPath),
+        "a pending deletion completes at the next save");
+
+    const auto hand = folder / "Hand.ini";
+    { std::ofstream(hand) << "; my notes\n[Preset]\nUseWhen = Rain\n[Changes]\nPeripheralCompression = true\n"; }
+    const auto withHand = LoadSettings(main, ReadPresetFolder(folder).Views());
+    const auto handSave = SavePresetFiles(withHand, folder);
+    std::ifstream in(hand);
+    const std::string text((std::istreambuf_iterator<char>(in)), {});
+    Require(handSave.Ok() && handSave.unchanged == 2 && text.starts_with("; my notes"),
+        "unchanged hand-written preset files are left alone");
+    in.close();
+    std::filesystem::remove_all(root);
 }
 static void MigrationAndSchedule()
 {
@@ -636,7 +702,7 @@ static void Benchmark()
 }
 int main(int argc, char** argv)
 {
-    Resolution(); TimeAndPersistence(); FrameHistory(); CombatAppearanceHistory(); PresetPasses(); SharedPresets(); PresetFiles(); MigrationAndSchedule();
+    Resolution(); TimeAndPersistence(); FrameHistory(); CombatAppearanceHistory(); PresetPasses(); SharedPresets(); PresetFileOrder(); PresetFileSystem(); MigrationAndSchedule();
     if (argc == 2 && std::string(argv[1]) == "--benchmark") { Benchmark(); }
     std::puts("PASS: weather/time resolution, per-setting presets, persistence, frame smoothing, manual overrides and NR history");
 }
