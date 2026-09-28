@@ -19,6 +19,13 @@ Neural Rendering (NR), and native-resolution menus and HUD. Current version:
 settings and window layout; **Discard** drops unapplied edits. NR keyboard
 shortcuts are opt-in. HDR is unsupported.
 
+With two NR passes selected, optional **One pass in combat** and **One pass while
+weapons/spells are drawn** controls temporarily skip the second pass. The return
+delay defaults to five seconds after all selected conditions clear and pauses
+with the game. Your saved pass count, resolution and tuning remain unchanged.
+The second pass stays allocated and its history resets when it resumes. These
+options default off; their effect on responsiveness depends on the workload.
+
 ## Install
 
 Use SKSE64 and Address Library matching your Skyrim executable. Install packages

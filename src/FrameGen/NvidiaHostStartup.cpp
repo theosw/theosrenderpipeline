@@ -57,6 +57,7 @@ HRESULT NvidiaHost::CreateSwapChain(IDXGIFactory* a_factory, ID3D11Device* a_dev
     options.secondPass = settings.sourceDLSSG.neuralSecondPass;
     options.beforeUpscaling = settings.sourceDLSSG.neuralBeforeUpscaling;
     options.passes = settings.sourceDLSSG.neuralPasses;
+    options.combat = settings.sourceDLSSG.neuralCombat;
     backend.ConfigureNeuralRendering(std::move(options));
 
     const auto result = TheosRenderPipeline::SourceDLSSG::Backend::Get().CreateSwapChain(

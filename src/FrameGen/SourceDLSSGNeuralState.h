@@ -2,6 +2,7 @@
 
 #include "NeuralRenderingReconstruction.h"
 #include "NeuralRenderingPassSettings.h"
+#include "NeuralCombatPolicy.h"
 #include "SourceDLSSGNeuralTelemetry.h"
 #include <algorithm>
 #include <filesystem>
@@ -18,6 +19,10 @@ namespace TheosRenderPipeline::SourceDLSSG
 		bool worldOnly{ false };
 		bool WorldOnly() const { return beforeUpscaling || worldOnly; }
 		int passes{ 1 };
+		NeuralRendering::CombatSettings combat{};
+		// Frame-only override: passes still describes the requested resource allocation.
+		NeuralRendering::PassOverride passOverride{NeuralRendering::PassOverride::None};
+		int EffectivePasses() const { return passes == 2 && passOverride != NeuralRendering::PassOverride::None ? 1 : passes; }
 		std::filesystem::path runtimePath;
 		NeuralRendering::Tuning tuning{};
 		NeuralRendering::Reconstruction reconstruction{};
@@ -41,6 +46,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 	{
 		options.tuning = NeuralRendering::SanitizeBuild14Tuning(options.tuning);
 		options.passes = std::clamp(options.passes, 1, 2);
+		options.combat = NeuralRendering::SanitizeCombatSettings(options.combat);
+		options.passOverride = NeuralRendering::PassOverride::None;
 		options.secondPass = NeuralRendering::SanitizeSecondPass(options.secondPass);
 		options.reconstruction = NeuralRendering::SanitizeReconstruction(options.reconstruction);
 		// Reject a missing optional runtime before any GPU work is recorded.
@@ -52,6 +59,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 	struct NeuralSnapshot
 	{
 		bool active{ false }, failed{ false };
+		int effectivePasses{1};
+		NeuralRendering::PassOverride passOverride{NeuralRendering::PassOverride::None};
 		std::uint64_t evaluations{}, resets{};
 		NeuralTelemetrySnapshot telemetry{};
 		std::string status{ "standard DLSS; source NR is off" };
@@ -65,9 +74,14 @@ namespace TheosRenderPipeline::SourceDLSSG
 		bool ResetFor(const NeuralOptions& options, bool eligible, bool cameraReset)
 		{
 			const bool active = eligible && options.enabled;
-			const bool reset = cameraReset || active != active_ || (active && options != previous_);
+			auto historyOptions = options;
+			// Trigger/recovery labels and policy edits alone do not change the image.
+			historyOptions.combat = {};
+			historyOptions.passOverride = options.EffectivePasses() != options.passes ?
+				NeuralRendering::PassOverride::Combat : NeuralRendering::PassOverride::None;
+			const bool reset = cameraReset || active != active_ || (active && historyOptions != previous_);
 			active_ = active;
-			previous_ = options;
+			previous_ = historyOptions;
 			return reset;
 		}
 		void Invalidate() { active_ = false; }

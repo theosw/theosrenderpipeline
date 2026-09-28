@@ -234,6 +234,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 			status_ = "NR source input contract is incomplete"; return false;
 		}
 		if (!Initialize(device, options, motion, hudless, composed)) { return false; }
+		const int effectivePasses = options.EffectivePasses();
+		if (effectivePasses == 1) { secondHistoryInvalid_ = true; }
 		InitializeTelemetry(device, timestampFrequency);
 		// Interop::Begin retired this exact command slot before Record was called.
 		// Reading its previous query pair therefore never adds a CPU wait.
@@ -319,7 +321,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		auto second = input;
 		bool evaluated = feature_.RecordEvaluation(input);
 		if (!evaluated) { status_ = feature_.Status(); }
-		if (evaluated && options.passes == 2) {
+		if (evaluated && effectivePasses == 2) {
 			evaluated = RecordSecond(device, list, slot, options, input, constants, motion, depth, ui, second);
 		}
 		const auto cpuRecordNanoseconds = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -337,7 +339,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			telemetry_.RecordCPUOnly(cpuRecordNanoseconds);
 		}
 
-		if (options.passes == 2 && !FinishSecond(device, list, slot, input, second, constants)) { return false; }
+		if (effectivePasses == 2 && !FinishSecond(device, list, slot, input, second, constants)) { return false; }
 
 		if (resolving) {
 			Transition(list, featureOutput, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
@@ -358,18 +360,20 @@ namespace TheosRenderPipeline::SourceDLSSG
 			Transition(list, corrected_.Get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS, read);
 		}
 
-		const auto secondStatus = options.passes == 2 ? std::format("; pass2={}x{} preset={} linked={} intensity={:.3f}",
+		const auto overrideStatus = options.passOverride != NeuralRendering::PassOverride::None ?
+			std::format("; pass override={}; requested={}", NeuralRendering::PassOverrideName(options.passOverride), options.passes) : std::string{};
+		const auto secondStatus = effectivePasses == 2 ? std::format("; pass2={}x{} preset={} linked={} intensity={:.3f}",
 			secondOutput_->GetDesc().Width, secondOutput_->GetDesc().Height, secondSettings_.preset, options.secondPass.linked, secondSettings_.tuning.intensity) : std::string{};
 		if (options.WorldOnly()) {
 			Transition(list, corrected_.Get(), read, D3D12_RESOURCE_STATE_COMMON);
 			for (auto* texture : { featureMotion, featureDepth, hudless }) { Transition(list, texture, read, D3D12_RESOURCE_STATE_COMMON); }
 			status_ = std::format("NR {} upscaling {}x{} -> {}x{}; {} pass(es); {}; {}; world only; UI correction unused; fusion requested={} colour={} guides={}",
 				options.beforeUpscaling ? "before" : "after", constants.workWidth, constants.workHeight,
-				constants.sourceWidth, constants.sourceHeight, options.passes,
+				constants.sourceWidth, constants.sourceHeight, effectivePasses,
 				reconstruction.producerColor ? "producer RGB reconstruction" : "user reconstruction",
 				reconstruction.peripheralCompression ? "peripheral 80/90" : "uniform",
 				reconstruction.fusedPreparation, fusedColor_, reconstruction.fusedPreparation && reconstruction.peripheralCompression);
-			if (options.passes == 2) { status_ += secondStatus; }
+			status_ += secondStatus + overrideStatus;
 			return true;
 		}
 
@@ -403,11 +407,11 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (FAILED(Interop::RecordCopy(list, corrected_.Get(), hudless))) { status_ = "NR HUD-less copy rejected"; return false; }
 		status_ = std::format("source NR after DLSS {}x{} -> {}x{}; {} pass(es); {} resolve; {}; native UI after NR; NR feeds real output and HUD-less FG tag; fusion requested={} colour={} guides={}",
 			constants.workWidth, constants.workHeight, constants.sourceWidth, constants.sourceHeight,
-			options.passes,
+			effectivePasses,
 			method == NeuralRendering::ResolveMethod::Ratio ? "ratio" : method == NeuralRendering::ResolveMethod::Residual ? "residual" : "direct",
 			reconstruction.peripheralCompression ? "peripheral 80/90" : "uniform",
 			reconstruction.fusedPreparation, fusedColor_, reconstruction.fusedPreparation && reconstruction.peripheralCompression);
-		if (options.passes == 2) { status_ += secondStatus; }
+		status_ += secondStatus + overrideStatus;
 		return true;
 	}
 }
