@@ -43,7 +43,7 @@ private:
     FrameView CaptureFrameView();
     void DrawPipelineSummary(const FrameView& view);
     void DrawImagePanel(float tabCardHeight, const FrameView& view);
-    void DrawAppearancePanel(float height, const FrameView& view);
+    void DrawPresetsPanel(float height);
     void DrawTextureMemoryPanel(const FrameView& view);
     void DrawAdvancedPanel(float tabCardHeight, const FrameView& view);
     bool BeginSettingsColumns(const char* id, float height, const FrameView& view);
@@ -77,11 +77,12 @@ private:
 	bool initialized{ false };
 	bool visible{ false };
 	bool showDeveloperControls{ false };
-    std::uint32_t appearancePreset{};
-    int appearanceTime{3}, appearanceWeatherGroup{};
-    char appearanceSearch[128]{};
-    bool appearanceAssignedOnly{};
-    std::vector<TheosRenderPipeline::Appearance::Record> appearanceSelection;
+    // Presets tab: 0 selects Base; preset IDs are nonzero.
+    std::uint32_t presetSelected{}, presetShown{};
+    int presetTime{3}, presetWeatherGroup{};
+    bool presetTimed{};
+    char presetSearch[128]{};
+    std::vector<TheosRenderPipeline::Appearance::Record> presetPickerSelection;
     TheosRenderPipeline::Overlay::SettingsPage requestedPage{TheosRenderPipeline::Overlay::SettingsPage::None};
 	TheosRenderPipeline::RendererSettingsDraft settingsDraft{};
     bool nrRuntimePresent{false};
