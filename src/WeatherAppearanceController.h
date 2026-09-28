@@ -14,7 +14,8 @@ inline Setup FromNeural(const SourceDLSSG::NeuralOptions& options, bool sharpeni
     setup.combat = options.combat;
     setup.reconstruction = options.reconstruction;
     setup.tuning = options.tuning;
-    setup.second = options.secondPass;
+    // A linked Pass 2 takes Pass 1's values, so a preset that unlinks it changes only what it sets.
+    setup.second = NeuralRendering::EffectiveSecondPass(options.secondPass, options.reconstruction, options.tuning);
     setup.sharpening = sharpening;
     setup.sharpness = sharpness;
     return SanitizeSetup(setup);

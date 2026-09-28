@@ -8,9 +8,11 @@ presets** and **4096 exact weather assignments** are supported.
 ## Layout
 
 The left column lists **Base** first, then your presets. Base is your normal
-Neural Rendering settings; selecting it shows the usual NR controls in Look,
-Quality and Performance sections. Selecting a preset shows the same controls with
-its changes marked. Each preset row says when it applies and how many settings it
+Neural Rendering settings. Its controls list each label on the left and its
+control on the right; per-pass settings sit in a table with Pass 1 and Pass 2 side
+by side, followed by Sharpening, Performance and Reconstruction. Settings that do
+not apply are greyed out, never hidden. Selecting a preset shows the same controls
+with its changes marked. Each preset row says when it applies and how many settings it
 changes, and **NOW** marks the rows your edited settings select for the current
 weather. Once a preset exists, a **Now** line shows what is applied, the game time
 and weather; hover it for the resolved values.
@@ -21,24 +23,30 @@ restart the game; it is not saved.
 
 ## Create and edit presets
 
-1. Tune Base. Sharpening is in Look and applies with or without NR.
+1. Tune Base. Sharpening applies with or without NR. The **Pass 2** checkbox in the
+   pass table header turns the second pass on. Pass 2 follows Pass 1 until you
+   change one of its settings, which gives it its own settings starting from Pass
+   1's; **Match Pass 1** makes it follow Pass 1 again.
 2. **Create new preset** starts with no changes. **Duplicate** copies the selected
    preset.
 3. Under **Use when**, tick weather types (Clear, Cloudy, Rain, Snow), Interior or
-   Outdoors, and add specific weathers.
-4. Change the settings you want different. A changed setting gets an amber mark and
-   a **Base** button that returns it to Base's value; **Reset all to Base** clears
-   every change. Settings you leave alone follow Base, including later Base edits.
+   Outdoors, and add specific weathers. These controls wrap to fit the window.
+4. Change the settings you want different. A changed setting is amber, shows Base's
+   value, and has **Reset**; setting it back to Base's value also removes the
+   change. **Reset all to Base** clears every change. Settings you leave alone
+   follow Base, including later Base edits. In the pass table each pass's cell is
+   marked separately, so a preset can change only Pass 2's style.
 5. **Apply** for this session or **Save as default** for future sessions.
    **Discard** restores the applied configuration.
 
 Look settings (intensity, local tone, local structure and sharpening strength)
-blend smoothly between weathers and times of day and keep NR history. With **Vary
-by time of day** on, they can differ at each of the six times; the current time is
-green. Turning it off keeps the selected time's values. Other settings switch once
-at the midpoint of a weather change and reset NR history.
+blend smoothly between weathers and times of day and keep NR history. With
+**Different look by time of day** (under Use when) on, they can differ at each of
+the six times; pick the time to edit, and the current time is green. Turning it
+off keeps the selected time's values. Other settings switch once at the midpoint
+of a weather change and reset NR history.
 
-Settings marked **(!)** restart NR briefly when they change: placement, NR input
+Settings marked **!** restart NR briefly when they change: placement, NR input
 resolution, network preset, peripheral compression, combined preparation and
 Reconstruction. A preset that changes one of them can hitch when the weather
 changes; interior and exterior changes happen behind a loading screen. Pass count
@@ -48,8 +56,8 @@ them, and one-pass situations skip Pass 2 like the combat option.
 Presets never switch NR or sharpening on while Base has them off, but can switch
 them off. The Image tab shows Base sharpening read-only, and the value in use when
 a preset changes it. Community Shaders owns sharpening on its route, so presets
-change only TRP NR there. **More options** can ignore a preset without deleting it
-(**Use this preset**). **Timing...** holds the times of day and transition
+change only TRP NR there. **Use this preset** in the preset's header ignores it without
+deleting it. **Timing...** holds the times of day and transition
 smoothing. See the [focused game check](APPEARANCE-TESTING.md) before relying on a
 new preset set.
 

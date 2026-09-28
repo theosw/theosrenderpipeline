@@ -334,6 +334,21 @@ static void PresetPasses()
     Require(frame.passes == 2 && !frame.presetOnePass && frame.EffectivePasses() == 2 &&
         frame.reconstruction.method == NeuralRendering::ResolveMethod::Ratio && frame.reconstruction.producerColor,
         "presets change other NR settings but never the adapter's input contract");
+    // A preset that gives Pass 2 its own style keeps its other settings following Base's Pass 1.
+    Settings styled;
+    styled.groups[3] = AddPreset(styled, "Rain");
+    SetChange(styled.presets[0].profile, "Pass2SameAsPass1", 0);
+    SetChange(styled.presets[0].profile, "Pass2Style", 7);
+    Controller styledController; styledController.Configure(styled);
+    SourceDLSSG::NeuralOptions linked; linked.enabled = true; linked.passes = 2;
+    linked.tuning.style = 3; linked.tuning.intensity = 1.4f;
+    linked.secondPass.tuning.intensity = .2f; // Stale values kept while linked.
+    frame = linked; ApplyFrame(styledController, rain, frame, .016f);
+    const auto second = frame.EffectiveSecond();
+    Require(!frame.secondPass.linked && second.tuning.style == 7 && Near(second.tuning.intensity, 1.4f),
+        "unlinking Pass 2 in a preset starts from Base's Pass 1, not stale Pass 2 values");
+    frame = linked; ApplyFrame(styledController, clear, frame, .016f);
+    Require(frame.secondPass.linked && frame.EffectiveSecond().tuning == frame.tuning, "outside the preset Pass 2 stays linked");
 }
 static void SharedPresets()
 {
