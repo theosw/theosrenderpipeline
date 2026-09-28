@@ -3,6 +3,7 @@
 #include "RendererSettingsController.h"
 #include "OverlayUIStyle.h"
 #include "OverlayRenderTarget.h"
+#include "WeatherAppearanceRuntime.h"
 
 #include <imgui_internal.h>
 #include <SimpleIni.h>
@@ -351,6 +352,7 @@ void OverlayUI::BuildUI()
     if (ImGui::BeginTabBar("##theosrenderpipelineTabs", ImGuiTabBarFlags_None))
     {
         DrawImagePanel(tabCardHeight, view);
+        DrawAppearancePanel(tabCardHeight, view);
 
 #if !defined(TRP_NO_NEURAL_RENDERING)
         DrawNeuralRenderingPanel(tabCardHeight, view);
@@ -369,6 +371,10 @@ void OverlayUI::BuildUI()
 
 void OverlayUI::OnPresent(ID3D11Texture2D* producerUI)
 {
+    auto* gameUI = RE::UI::GetSingleton();
+    if (!gameUI || gameUI->IsMenuOpen(RE::MainMenu::MENU_NAME) || gameUI->IsMenuOpen(RE::LoadingMenu::MENU_NAME)) {
+        TheosRenderPipeline::Appearance::Runtime::Get().Invalidate();
+    }
 	if (!initialized) {
 		return;
 	}

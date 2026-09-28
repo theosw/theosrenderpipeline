@@ -20,6 +20,7 @@ set(ARP_BASELINE_SOURCES
     src/CommunityShaderUIBoundary.h
     src/FrameGen/D3D11LiveSlot.h
     src/DLSSBackend.h
+    src/RCASParameters.h
     src/DLSSFeatureParameters.h
     src/DLSSPreset.h
     src/NativeInput.h
@@ -38,6 +39,7 @@ set(ARP_BASELINE_SOURCES
     src/FrameGen/SourceNvidiaFramePreparation.h
     src/FrameGen/D3D11FrameCopy.h
     src/FrameGen/D3D11ContextIsolation.h
+    src/FrameGen/FinalFrameCapture.h
     src/FrameGen/CommunityShaderFrame.h
     src/FrameGen/CommunityShaderAdapter.h
     src/FrameGen/CommunityShaderAdapter.cpp
@@ -71,10 +73,20 @@ set(ARP_BASELINE_SOURCES
     src/DRS.h
     src/MenuRenderState.h
     src/RenderPipeline.cpp
+    src/WeatherAppearance.h
+    src/WeatherEditorID.h
+    src/WeatherAppearanceController.h
+    src/WeatherAppearanceINI.h
+    src/WeatherAppearanceRuntime.h
+    src/WeatherAppearanceRuntime.cpp
+    src/OverlayAppearancePanel.cpp
     src/RenderPipeline.h
     src/ReShadeIntegration.cpp
     src/ReShadeIntegration.h
     src/ReShadeSwapChain.h
+    src/ScreenshotFile.cpp
+    src/ScreenshotFile.h
+    src/ScreenshotWorker.h
     src/SettingsFile.h
     src/PluginPaths.h
     src/SkyrimRuntime.h
@@ -161,6 +173,9 @@ set(ARP_BASELINE_SOURCES
 
 # Neural Rendering is available independently of MFG compatibility.
 set(ARP_NEURAL_SOURCES
+    src/NeuralCombatMode.cpp
+    src/NeuralCombatMode.h
+    src/NeuralCombatPolicy.h
     src/FrameGen/NeuralRenderingFeatureSession.cpp
     src/FrameGen/NeuralRenderingModulePathHook.cpp
     src/FrameGen/NeuralRenderingRuntimeIdentity.cpp

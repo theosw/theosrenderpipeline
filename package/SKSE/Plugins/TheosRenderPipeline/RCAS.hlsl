@@ -60,6 +60,17 @@
 Texture2D<float3> Source : register(t0);
 RWTexture2D<float3> Dest : register(u0);
 
+// The optional macro keeps the original constant-strength shader available to
+// the pixel-equivalence fixture. Production compiles once without that macro.
+#ifndef SHARPNESS
+cbuffer RCASParameters : register(b0)
+{
+	float Sharpness;
+	float3 ParameterPadding;
+};
+#define SHARPNESS Sharpness
+#endif
+
 float getRCASLuma(float3 rgb)
 {
 	return dot(rgb, float3(0.5, 1.0, 0.5));

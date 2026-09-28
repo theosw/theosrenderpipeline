@@ -123,7 +123,7 @@ static void Passes(GPU& gpu){
     }
     std::printf("PASS: %u full production-pass cases, scripted identity NR, off/on, native early/late and CS producer, one/two passes, repeated retired slots\n",cases);
 }
-static void IndependentPasses(GPU& gpu){
+static void IndependentPasses(GPU& gpu,bool adaptive=false){
     using namespace TheosRenderPipeline::NeuralRendering;
     unsigned cases=0;
     for(bool peripheral:{false,true})for(int route:{0,1,2,3})for(float secondScale:{.25f,.65f,1.f})for(bool transform:{false,true}){
@@ -147,15 +147,22 @@ static void IndependentPasses(GPU& gpu){
         auto depth=gpu.Texture(gw,gh,std::vector<Pixel>(gw*gh,{.4f,0,0,0}),DXGI_FORMAT_R32_FLOAT);
         auto ui=gpu.Texture(w,h,std::vector<Pixel>(w*h,{.05f,.025f,0,.25f})),composed=gpu.Texture(w,h);
         NeuralPass pass;NeuralHistory history;
-        for(unsigned frame=0;frame<4;++frame){
+        for(unsigned frame=0;frame<(adaptive?8u:4u);++frame){
+            const bool reduced=adaptive && (frame==0 || frame==1 || frame==4 || frame==5);
+            options.passOverride=reduced?(frame==5?PassOverride::Recovery:PassOverride::Combat):PassOverride::None;
             auto pixels=transform?std::vector<Pixel>(w*h,{.2f,.3f,.4f,.5f}):Pattern(w,h,producer);
             auto scene=gpu.Texture(w,h,pixels);
-            if(frame==2)history.Invalidate();
-            gpu.Begin();Require(pass.Record(gpu.device.Get(),gpu.list.Get(),frame%kCommandSlots,options,history.ResetFor(options,true,false),true,float(gw),float(gh),
+            if(frame==(adaptive?6u:2u))history.Invalidate();
+            const bool reset=history.ResetFor(options,true,false);
+            Require(!pass.NeedsRecreation(options,gw,gh),"automatic pass switching retains allocations");
+            // At the second resumption, exercise the pass owner's stale-history guard
+            // independently of the upstream camera/history reset.
+            gpu.Begin();Require(pass.Record(gpu.device.Get(),gpu.list.Get(),frame%kCommandSlots,options,adaptive && frame==6?false:reset,true,float(gw),float(gh),
                 motion.Get(),depth.Get(),world?nullptr:ui.Get(),scene.Get(),world?nullptr:composed.Get()),pass.Status().c_str());gpu.End();
             auto actual=gpu.Read(pass.Corrected());
             for(size_t i=0;i<actual.size();++i)for(unsigned ch=0;ch<4;++ch){
-                const auto expected=transform && ch<3?(pixels[i][ch]*.8f+.01f)*.6f+.02f:pixels[i][ch];
+                const auto first=pixels[i][ch]*.8f+.01f;
+                const auto expected=transform && ch<3?(reduced?first:first*.6f+.02f):pixels[i][ch];
                 Near(actual[i][ch],expected,.0004,"custom pass 2 chains nonidentity output or preserves all original detail with identity");
             }
             if(!world){auto real=gpu.Read(pass.Composed()),tag=gpu.Read(scene.Get());
@@ -165,7 +172,8 @@ static void IndependentPasses(GPU& gpu){
                 }
             }
         }
-        Require(Fixture::creations==2 && Fixture::evaluations==8 && Fixture::resets==4,"independent histories reset after eligibility break");
+        Require(Fixture::creations==2 && Fixture::evaluations==(adaptive?12u:8u) && Fixture::resets==(adaptive?5u:4u),
+            "retained features execute only active passes and reset resumed history");
         Require(!pass.NeedsRecreation(options,gw,gh),"custom settings stable");
         auto changed=options;changed.secondPass.tuning.intensity=.1f;
         Require(!pass.NeedsRecreation(changed,gw,gh),"tuning resets history without recreating feature");
@@ -175,6 +183,6 @@ static void IndependentPasses(GPU& gpu){
         ++cases;
     }
     Fixture::secondWidth=Fixture::secondHeight=0;Fixture::transform=false;
-    std::printf("PASS: %u independent pass configurations; rounded sizes, larger/smaller/equal second grid, per-pass tuning/preset, identity detail, chained transform and UI/history contracts\n",cases);
+    std::printf("PASS: %u independent pass configurations (adaptive=%d); rounded sizes, larger/smaller/equal second grid, per-pass tuning/preset, identity detail, chained transform and UI/history contracts\n",cases,adaptive);
 }
-int main(){GPU gpu;Kernels(gpu);Passes(gpu);CombinedPreparation(gpu);PreparationRecorder(gpu);IndependentPasses(gpu);}
+int main(){GPU gpu;Kernels(gpu);Passes(gpu);CombinedPreparation(gpu);PreparationRecorder(gpu);IndependentPasses(gpu);IndependentPasses(gpu,true);}

@@ -55,6 +55,11 @@ void Neural()
     Require(NeuralSettingsUnavailable(draft.upscaleType, lostUI) != nullptr, "preserved request cannot enable execution without composition");
     draft.sourceDLSSG.neuralPasses = 2;
     Require(ValidateRendererSettings(draft, lostUI, &current) != nullptr, "cannot reconfigure enabled NR after capability loss");
+    auto combatDraft = current;
+    combatDraft.sourceDLSSG.neuralCombat.inCombat = true;
+    Require(CountRendererSettingsChanges(combatDraft, current) == 1, "combat edit participates in Apply/Discard pending changes");
+    Require(!SameNeuralPreferences(combatDraft.sourceDLSSG, current.sourceDLSSG) &&
+        ValidateRendererSettings(combatDraft, lostUI, &current), "combat edits obey NR availability validation");
     draft.sourceDLSSG.neuralEnabled = false;
     Require(ValidateRendererSettings(draft, lostUI, &current) == nullptr, "turn NR off despite unavailable composition");
     for (const bool enabled : {false,true}) for (const bool available : {false,true}) {

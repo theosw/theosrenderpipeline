@@ -92,6 +92,8 @@ int main(int argc, char** argv)
         Require(WaitForSingleObject(complete, 30000) == WAIT_OBJECT_0, "absent queue completes work"); CloseHandle(complete);
         Require(effects.Render(color.texture.Get(), depth.texture.Get(), {64, 32}, {32, 16}, false) == S_FALSE, "absent stage is inert");
         Require(effects.FinishUI(ui.texture.Get()) == S_FALSE, "absent GUI is inert");
+        ReShadeIntegration::ScreenshotRequest shot;
+        Require(!effects.TakeScreenshotRequest(shot), "absent ReShade queues no screenshot replacement");
         Require(Pixel(device.Get(), context.Get(), color.texture.Get())[0] == 64, "absence leaves pixels unchanged");
         effects.ResetAfterRetirement(); DestroyWindow(window); std::puts("PASS: absent ReShade creates a working native device and leaves effects inert"); return 0;
     }
@@ -179,6 +181,53 @@ int main(int argc, char** argv)
     };
     pressHome(); Require(effects.OverlayOpen(), "configured Home opens the owned overlay");
     pressHome(); Require(!effects.OverlayOpen(), "configured Home closes the owned overlay");
+    // The owned runtime saves its UI-layer back buffer; the saved path must
+    // reach the presenter's queue exactly once for final-frame replacement.
+    ReShadeIntegration::ScreenshotRequest shot;
+    Require(!effects.TakeScreenshotRequest(shot), "no screenshot request before the key");
+    PostMessageW(window, WM_KEYDOWN, VK_F9, 1);
+    while (PeekMessageW(&message, window, 0, 0, PM_REMOVE)) { DispatchMessageW(&message); }
+    for (unsigned i = 0; i < 4; ++i) { Check(output->Present(0, 0), "output before screenshot key"); }
+    Check(effects.FinishUI(ui.texture.Get()), "screenshot key update"); effects.PresentCompleted();
+    PostMessageW(window, WM_KEYUP, VK_F9, (1u << 31) | (1u << 30) | 1);
+    while (PeekMessageW(&message, window, 0, 0, PM_REMOVE)) { DispatchMessageW(&message); }
+    bool requested{};
+    for (unsigned i = 0; i < 1000 && !requested; ++i) {
+        Check(effects.FinishUI(ui.texture.Get()), "screenshot save update");
+        requested = effects.TakeScreenshotRequest(shot);
+        effects.PresentCompleted();
+        if (!requested) { Sleep(10); }
+    }
+    Require(requested, "owned runtime screenshot is queued after ReShade saves it");
+    const auto shotPath = std::filesystem::u8path(shot.path);
+    std::printf("screenshot request=%s quality=%d\n", shot.path.c_str(), shot.jpegQuality);
+    Require(std::filesystem::exists(shotPath) && shotPath.extension() == ".png" && shotPath.stem() == "TRPProbe",
+        "request names ReShade's saved file");
+    Require(shot.jpegQuality == 90, "unset JPEG quality uses ReShade's default");
+    Require(shot.replaceAllowed, "closed-overlay screenshot permits final-frame replacement");
+    for (unsigned i = 0; i < 20; ++i) { Check(effects.FinishUI(ui.texture.Get()), "post-screenshot update"); effects.PresentCompleted(); Sleep(5); }
+    Require(!effects.TakeScreenshotRequest(shot), "one key press queues one replacement");
+    std::filesystem::remove(shotPath);
+    // A normal ReShade screenshot deliberately excludes its GUI. Its file must
+    // survive when our only available final frame includes the open overlay.
+    owned->open_overlay(true, api::input_source::none);
+    Require(effects.OverlayOpen(), "open overlay for screenshot preservation");
+    PostMessageW(window, WM_KEYDOWN, VK_F9, 1);
+    while (PeekMessageW(&message, window, 0, 0, PM_REMOVE)) { DispatchMessageW(&message); }
+    Check(effects.FinishUI(ui.texture.Get()), "open-overlay screenshot key"); effects.PresentCompleted();
+    PostMessageW(window, WM_KEYUP, VK_F9, (1u << 31) | (1u << 30) | 1);
+    while (PeekMessageW(&message, window, 0, 0, PM_REMOVE)) { DispatchMessageW(&message); }
+    requested = false;
+    for (unsigned i = 0; i < 1000 && !requested; ++i) {
+        Check(effects.FinishUI(ui.texture.Get()), "open-overlay screenshot update");
+        requested = effects.TakeScreenshotRequest(shot);
+        effects.PresentCompleted();
+        if (!requested) { Sleep(10); }
+    }
+    Require(requested && !shot.replaceAllowed, "GUI-inclusive frame must not overwrite a normal screenshot");
+    Require(std::filesystem::exists(std::filesystem::u8path(shot.path)), "ReShade original still exists for rejected replacement");
+    std::filesystem::remove(std::filesystem::u8path(shot.path));
+    owned->open_overlay(false, api::input_source::none);
     owned->set_effects_state(true);
     effects.SetBeforeUpscaling(false);
     color.Paint(context.Get(), scene);

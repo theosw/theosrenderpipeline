@@ -2,6 +2,7 @@
 
 #include <d3d11.h>
 #include <dxgi.h>
+#include "RCASParameters.h"
 
 // D3D11 DLSS Super Resolution backend using the public NVIDIA NGX SDK.
 // The interface retains the game integration's existing settings contract.
@@ -104,7 +105,7 @@ private:
 	ID3D11Texture2D* sharpenTexture{ nullptr };
 	ID3D11UnorderedAccessView* sharpenUAV{ nullptr };
 	ID3D11ComputeShader* rcasShader{ nullptr };
-	float rcasCompiledSharpness{ -1.0f };
+	TheosRenderPipeline::RCASParameters rcasParameters;
 	ID3D11Texture2D* directDestination{ nullptr };
 	ID3D11UnorderedAccessView* directDestinationUAV{ nullptr };
 

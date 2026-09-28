@@ -8,11 +8,14 @@
 #include "SourceNvidiaFrameEvaluator.h"
 #include "SourceGenerationPolicy.h"
 #include "PerformanceTuning.h"
+#include "NeuralCombatMode.h"
+#include "WeatherAppearanceRuntime.h"
 
 struct NvidiaHost::SourceNvidiaEvaluationOperations
 {
     NvidiaHost& host;
     RenderPipeline& upscaler;
+    TheosRenderPipeline::SourceDLSSG::NeuralOptions neuralOptions;
     sl::Constants constants{};
 
     bool NeuralEligible(const TheosRenderPipeline::SourceNvidiaFrameGuides& frame) const
@@ -26,9 +29,10 @@ struct NvidiaHost::SourceNvidiaEvaluationOperations
     {
 #if !defined(TRP_NO_NEURAL_RENDERING)
         auto& backend = TheosRenderPipeline::SourceDLSSG::Backend::Get();
-        const auto options = backend.NeuralConfiguration();
+        auto& options = neuralOptions;
         sl::Constants preview{};
         const bool eligible = NeuralEligible(frame);
+        TheosRenderPipeline::NeuralRendering::ApplyCombatMode(options, eligible);
         const bool cameraValid = options.enabled && options.beforeUpscaling && eligible &&
             TheosRenderPipeline::SourceDLSSG::CaptureCameraConstants(upscaler.mGraphicsState,
                 frame.renderWidth, frame.renderHeight, frame.jitterX, frame.jitterY,
@@ -130,14 +134,16 @@ bool NvidiaHost::EvaluateSourceNvidiaFrame(bool nativeUIHandoff, bool resetHisto
     frame.renderHeight = renderHeight_;
     frame.outputWidth = outputWidth_;
     frame.outputHeight = outputHeight_;
-    frame.sharpness = upscaler.mSharpening ? upscaler.mSharpness : 0.0f;
+    auto neuralOptions = TheosRenderPipeline::SourceDLSSG::Backend::Get().NeuralConfiguration();
+    const float appearanceSharpness = TheosRenderPipeline::Appearance::Runtime::Get().Apply(neuralOptions, upscaler.mSharpness);
+    frame.sharpness = upscaler.mSharpening ? appearanceSharpness : 0.0f;
     frame.jitterX = upscaler.mJitterOffsets[0] * jitterEnabled;
     frame.jitterY = upscaler.mJitterOffsets[1] * jitterEnabled;
     frame.motionScaleX = static_cast<float>(renderWidth_);
     frame.motionScaleY = static_cast<float>(renderHeight_);
     frame.reset = resetHistory || loadingScreenRoute_.NeedsTemporalReset();
     frame.jitterEnabled = upscaler.mEnableJitter;
-    SourceNvidiaEvaluationOperations operations{*this, upscaler};
+    SourceNvidiaEvaluationOperations operations{*this, upscaler, std::move(neuralOptions)};
     loadingScreenResult_ = S_OK;
     const auto result = TheosRenderPipeline::SourceNvidiaFrameEvaluator::Evaluate(context_.Get(), frame, operations);
     if (!result.upscaled) {

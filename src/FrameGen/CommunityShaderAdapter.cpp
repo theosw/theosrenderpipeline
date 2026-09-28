@@ -3,6 +3,8 @@
 #include "SourceDLSSGBackend.h"
 #include "ReShadeIntegration.h"
 #include "RenderPipeline.h"
+#include "NeuralCombatMode.h"
+#include "WeatherAppearanceRuntime.h"
 
 namespace TheosRenderPipeline
 {
@@ -25,12 +27,18 @@ namespace TheosRenderPipeline
         options.worldOnly = true;
         options.tuning.uiCorrection = false;
         options.reconstruction.producerColor = options.beforeUpscaling;
-        // Late NR follows the completed scene's range, retained from the last
-        // frame and corrected at CompleteWorld if CS HDR changed in between.
+        // CS owns its sharpening. Only TRP NR tuning is applied on this route.
+        Appearance::Runtime::Get().Apply(options, RenderPipeline::GetSingleton()->mSharpness);
+        // Apply appearance to saved preferences before transient combat overrides.
+#if !defined(TRP_NO_NEURAL_RENDERING)
+        NeuralRendering::ApplyCombatMode(options, eligible_);
+#endif
+        // Adapt the frame after appearance has sampled the saved preferences.
+        // CompleteWorld corrects the retained range if CS toggles HDR this frame.
         if (!options.beforeUpscaling) {
             options.reconstruction = NeuralRendering::CompletedSceneContract(options.reconstruction, extendedScene_);
         }
-        if (options != options_) { neuralBoundaryReported_ = false; }
+        if (!SourceDLSSG::SameHistoryOptions(options, options_)) { neuralBoundaryReported_ = false; }
         options_ = std::move(options);
         // Early CS color is unfinished producer RGB, not a display-ready image.
         // The paired proxy transfers only NR's changes back to the retained scene.
@@ -58,7 +66,7 @@ namespace TheosRenderPipeline
             logger::info("[CS Adapter] NR input={} allocation={}x{} active={}x{} format={} passes={} inputScale={} resolve={} HDR={} producerColor={}; UI excluded",
                 options_.beforeUpscaling ? "pre-upscale world" : "post-processing scene",
                 desc.Width, desc.Height, extent.width, extent.height, static_cast<unsigned>(desc.Format),
-                options_.passes, options_.reconstruction.inputScale, static_cast<unsigned>(options_.reconstruction.method),
+                options_.EffectivePasses(), options_.reconstruction.inputScale, static_cast<unsigned>(options_.reconstruction.method),
                 options_.reconstruction.colorIsHDR, options_.reconstruction.producerColor);
             neuralBoundaryReported_ = true;
         }

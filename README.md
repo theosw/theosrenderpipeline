@@ -11,6 +11,8 @@ Neural Rendering (NR), and native-resolution menus and HUD. Current version:
 - NR before or after DLSS/DLAA, one or two independently configured passes,
   input scaling and tuning, in both editions. NR defaults off.
 - Optional peripheral compression and combined NR preparation, both off by default.
+- Optional weather and time profiles for NR tuning and sharpening, with smooth
+  transitions and separate interior settings. See [appearance profiles](package/APPEARANCE-PROFILES.md).
 - ReShade source-frame effects, explicit depth and placement controls.
 - Native UI composition, inventory/spell previews, loading artwork and external
   ImGui integration, with live GPU measurements beside the settings.
@@ -18,6 +20,13 @@ Neural Rendering (NR), and native-resolution menus and HUD. Current version:
 **End** opens settings. **Apply** changes the session; **Save as default** persists
 settings and window layout; **Discard** drops unapplied edits. NR keyboard
 shortcuts are opt-in. HDR is unsupported.
+
+With two NR passes selected, optional **One pass in combat** and **One pass while
+weapons/spells are drawn** controls temporarily skip the second pass. The return
+delay defaults to five seconds after all selected conditions clear and pauses
+with the game. Your saved pass count, resolution and tuning remain unchanged.
+The second pass stays allocated and its history resets when it resumes. These
+options default off; their effect on responsiveness depends on the workload.
 
 ## Install
 

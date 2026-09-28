@@ -1,4 +1,5 @@
 #include "ReShadeIntegration.h"
+#include "ScreenshotWorker.h"
 #include "ReShadeSwapChain.h"
 #include "FrameGen/D3D11ContextIsolation.h"
 #include <Psapi.h>
@@ -6,8 +7,12 @@
 #include <reshade/reshade_events.hpp>
 #include <algorithm>
 #include <atomic>
+#include <cstdlib>
 #include <cstring>
+#include <deque>
 #include <memory>
+#include <mutex>
+#include <string_view>
 #include <vector>
 
 namespace TheosRenderPipeline
@@ -22,8 +27,12 @@ namespace TheosRenderPipeline
         using Destroy = void (*)(api::effect_runtime*);
         using Update = void (*)(api::effect_runtime*);
         using Register = void (*)(Event, void*);
+        using GetConfig = bool (*)(HMODULE, api::effect_runtime*, const char*, const char*, char*, size_t*);
         HMODULE module{}, addon{};
-        Create create{}; Destroy destroy{}; Update update{};
+        Create create{}; Destroy destroy{}; Update update{}; GetConfig getConfig{};
+        std::mutex screenshotMutex;
+        std::deque<std::string> screenshots;
+        std::atomic_bool screenshotPending{};
         HWND window{};
         ComPtr<ID3D11Device> device;
         ComPtr<ID3D11DeviceContext> context;
@@ -42,7 +51,7 @@ namespace TheosRenderPipeline
         bool nativeOutput{}, disabled{};
         std::atomic<api::effect_runtime*> overlayRuntime{};
         static thread_local bool internal;
-        bool before{}, attempted{}, updated{};
+        bool before{}, attempted{}, updated{}, screenshotOverlay{};
         Counters counts{};
         std::string config, status{"ReShade not loaded"};
 
@@ -66,6 +75,25 @@ namespace TheosRenderPipeline
             auto& s = Data();
             if (value == s.overlayRuntime.load()) { s.overlayOpen = open; }
             return false;
+        }
+        // ReShade's worker thread, after the file was written. Automatic
+        // runtimes capture their own presented image and are left alone, as
+        // are the " original"/" overlay" variants, which describe this
+        // runtime's effect and GUI stages rather than the presented frame.
+        static void Screenshot(api::effect_runtime* value, const char* path) noexcept
+        {
+            ScreenshotBoundary([&] {
+                auto& s = Data();
+                if (!path || !*path || value != s.overlayRuntime.load()) { return S_OK; }
+                const auto stem = std::filesystem::u8path(path).stem().u8string();
+                const std::string_view name(reinterpret_cast<const char*>(stem.data()), stem.size());
+                if (name.ends_with(" original") || name.ends_with(" overlay")) { return S_OK; }
+                std::scoped_lock lock(s.screenshotMutex);
+                if (s.screenshots.size() >= 4) { return S_OK; } // Bounded; ReShade keeps its file.
+                s.screenshots.emplace_back(path);
+                s.screenshotPending = true;
+                return S_OK;
+            });
         }
         HRESULT Failed(HRESULT hr, const char* operation)
         {
@@ -144,6 +172,10 @@ namespace TheosRenderPipeline
             overlayRuntime = nullptr;
             if (runtime) { destroy(runtime); runtime = nullptr; }
             overlayOpen = false;
+            {
+                std::scoped_lock lock(screenshotMutex);
+                screenshots.clear(); screenshotPending = false;
+            }
             facade.Reset(); ui.Reset(); color.Reset(); depth.Reset(); emptyDepth.Reset();
             colorRTV.Reset(); colorSRGB.Reset(); depthSRV.Reset(); emptyDepthSRV.Reset();
             displayDepth.Reset(); displayDepthSRV.Reset(); displayDepthUAV.Reset(); depthScale.Reset();
@@ -215,13 +247,15 @@ namespace TheosRenderPipeline
             std::string base(length, '\0'); basePath(base.data(), &length); base.resize(std::strlen(base.c_str()));
             const auto path = (std::filesystem::u8path(base) / "ReShade.ini").u8string();
             s.config.assign(reinterpret_cast<const char*>(path.data()), path.size());
-            const auto getConfig = reinterpret_cast<bool (*)(HMODULE, api::effect_runtime*, const char*, const char*, char*, size_t*)>(GetProcAddress(module, "ReShadeGetConfigValue"));
+            const auto getConfig = reinterpret_cast<State::GetConfig>(GetProcAddress(module, "ReShadeGetConfigValue"));
+            s.getConfig = getConfig;
             char disabled[16]{}; size_t disabledSize = sizeof(disabled);
             if (getConfig && getConfig(s.addon, nullptr, "GENERAL", "Disable", disabled, &disabledSize)) {
                 s.disabled = std::strcmp(disabled, "1") == 0 || _stricmp(disabled, "true") == 0;
             }
             registerEvent(Event::init_device, reinterpret_cast<void*>(&State::InitDevice));
             registerEvent(Event::reshade_open_overlay, reinterpret_cast<void*>(&State::Open));
+            registerEvent(Event::reshade_screenshot, reinterpret_cast<void*>(&State::Screenshot));
             s.status = s.disabled ? "ReShade disabled in ReShade.ini" : "ReShade API 14 registered; waiting for source color";
             return;
         }
@@ -350,11 +384,34 @@ namespace TheosRenderPipeline
         s.runtime->render_effects(s.runtime->get_command_queue()->get_immediate_command_list(), {0}, {0});
         hr = s.CopyColor(ui, s.ui.Get(), s.output);
         if (FAILED(hr)) { return s.Failed(hr, "ReShade UI input copy failed"); }
+        // Opening/closing can occur during the update. Conservatively keep
+        // ReShade's normal file if either boundary sees the overlay open.
+        s.screenshotOverlay = s.overlayOpen.load();
         s.update(s.runtime);
+        s.screenshotOverlay = s.screenshotOverlay || s.overlayOpen.load();
         s.updated = true; ++s.counts.updates;
         return s.Failed(s.CopyColor(s.ui.Get(), ui, s.output), "ReShade UI output copy failed");
     }
     void ReShadeIntegration::PresentCompleted() { auto& s = Data(); s.attempted = s.updated = false; }
+    bool ReShadeIntegration::TakeScreenshotRequest(ScreenshotRequest& request)
+    {
+        auto& s = Data();
+        if (!s.screenshotPending.load()) { return false; }
+        {
+            std::scoped_lock lock(s.screenshotMutex);
+            if (s.screenshots.empty()) { return false; }
+            request.path = std::move(s.screenshots.front());
+            s.screenshots.pop_front();
+            s.screenshotPending = !s.screenshots.empty();
+        }
+        request.replaceAllowed = s.updated && !s.screenshotOverlay && !s.overlayOpen.load();
+        request.jpegQuality = 90; // ReShade's default.
+        char value[16]{}; size_t size = sizeof(value);
+        if (s.getConfig && s.getConfig(s.addon, s.runtime, "SCREENSHOT", "JPEGQuality", value, &size)) {
+            if (const auto quality = std::atoi(value); quality > 0) { request.jpegQuality = quality; }
+        }
+        return true;
+    }
     void ReShadeIntegration::ResetAfterRetirement()
     {
         auto& s = Data(); State::InternalScope internal{s};

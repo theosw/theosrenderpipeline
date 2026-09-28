@@ -436,18 +436,14 @@ bool DLSSBackend::EnsureExposureTexture()
 
 bool DLSSBackend::EnsureRCAS(float a_sharpness)
 {
-	// Coarse quantization: slider drags recompile per frame otherwise.
-	if (rcasShader && std::abs(a_sharpness - rcasCompiledSharpness) < 0.025f) {
-		return true;
-	}
+	if (FAILED(rcasParameters.Update(device, context, a_sharpness))) { return false; }
+	if (rcasShader) { return true; }
 
 	const auto shaderPath = GetPluginDirectory() / L"TheosRenderPipeline\\RCAS.hlsl";
-	const auto sharpnessValue = std::format("{:.3f}", a_sharpness);
-	const D3D_SHADER_MACRO macros[]{ { "SHARPNESS", sharpnessValue.c_str() }, { nullptr, nullptr } };
 
 	ID3DBlob* blob = nullptr;
 	ID3DBlob* errors = nullptr;
-	if (FAILED(D3DCompileFromFile(shaderPath.c_str(), macros, nullptr, "main", "cs_5_0", 0, 0, &blob, &errors))) {
+	if (FAILED(D3DCompileFromFile(shaderPath.c_str(), nullptr, nullptr, "main", "cs_5_0", 0, 0, &blob, &errors))) {
 		logger::error("[DLSSBackend] RCAS compile failed: {}", errors ? static_cast<const char*>(errors->GetBufferPointer()) : "unknown");
 		if (errors) {
 			errors->Release();
@@ -469,8 +465,7 @@ bool DLSSBackend::EnsureRCAS(float a_sharpness)
 		rcasShader->Release();
 	}
 	rcasShader = compiled;
-	rcasCompiledSharpness = a_sharpness;
-	logger::info("[DLSSBackend] RCAS compiled (sharpness {:.3f})", a_sharpness);
+	logger::info("[DLSSBackend] RCAS compiled with runtime strength");
 	return true;
 }
 
@@ -642,6 +637,7 @@ bool DLSSBackend::Evaluate(
 		ID3D11UnorderedAccessView* uavs[]{ targetUAV };
 		{
 			ScopedD3D11PerformanceStage timer{ context, PerformanceTuning::D3D11Stage::kRCAS };
+			auto parameters = rcasParameters.Bind(context);
 			context->CSSetShader(rcasShader, nullptr, 0);
 			context->CSSetShaderResources(0, 1, srvs);
 			context->CSSetUnorderedAccessViews(0, 1, uavs, nullptr);
