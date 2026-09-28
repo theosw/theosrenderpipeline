@@ -55,6 +55,7 @@ public:
         settings = Sanitize(std::move(settings));
         if (settings_ == settings) { return; }
         settings_ = std::move(settings);
+        claims_ = ResolveClaims(settings_);
         twoPassAllocation_ = PresetsRequestTwoPasses(settings_);
         selectionDirty_ = true;
         ++revision_;
@@ -91,8 +92,8 @@ public:
             if (selectionDirty_ || !old.valid || context.interior != old.interior ||
                 context.incoming.record != old.incoming.record || context.outgoing.record != old.outgoing.record ||
                 context.incoming.group != old.incoming.group || context.outgoing.group != old.outgoing.group) {
-                const auto incoming = Select(settings_, context.incoming, context.interior);
-                const auto outgoing = Valid(context.outgoing.record) && !context.interior ? Select(settings_, context.outgoing, false) : incoming;
+                const auto incoming = Select(claims_, context.incoming, context.interior);
+                const auto outgoing = Valid(context.outgoing.record) && !context.interior ? Select(claims_, context.outgoing, false) : incoming;
                 incoming_ = Flatten(incoming); outgoing_ = Flatten(outgoing);
                 result.incoming = Names(incoming); result.outgoing = Names(outgoing);
                 result.sharpnessSource = SourceOf(incoming, "Sharpness");
@@ -130,6 +131,7 @@ private:
     bool twoPassAllocation_{};
     std::uint64_t selectionResolutions_{};
     Settings settings_;
+    Claims claims_;
     Snapshot snapshot_;
     Smoother smoother_;
     SourceDLSSG::NeuralOptions previousBase_;

@@ -1,6 +1,8 @@
 #pragma once
 
 #include "WeatherAppearanceController.h"
+#include <SimpleIni.h>
+#include <filesystem>
 #include <chrono>
 #include <mutex>
 #include <memory>
@@ -22,6 +24,13 @@ public:
     void CaptureCatalogue();
     std::shared_ptr<const std::vector<WeatherEntry>> Catalogue() const { std::scoped_lock lock(mutex_); return catalogue_; }
     void Apply(SourceDLSSG::NeuralOptions& options, bool& sharpening, float& sharpness);
+    // Presets are one file each in this folder, relative to the game directory.
+    static std::filesystem::path PresetFolder() { return L"Data\\SKSE\\Plugins\\TheosRenderPipeline\\Presets"; }
+    // Reads the main INI's appearance settings and every preset file.
+    static Settings Load(const CSimpleIniA& ini);
+    // Writes each preset's file, renames files of renamed presets and deletes
+    // files of deleted ones. Returns the settings with their saved file names.
+    static Settings SavePresets(Settings settings, bool& ok);
 private:
     mutable std::mutex mutex_;
     Controller controller_;

@@ -68,52 +68,75 @@ template<class Ini> Profile LoadProfile(const Ini& ini, const std::string& secti
     }
     return profile;
 }
-template<class Ini> Settings LoadSettings(const Ini& ini)
+inline constexpr std::array<const char*, 6> GroupLabels{"Outdoors", "Clear", "Cloudy", "Rain", "Snow", "Interior"};
+inline std::optional<std::size_t> ParseGroup(std::string_view text)
 {
-    Settings settings;
-    settings.enabled = ini.GetBoolValue("Appearance", "Enabled", false);
-    settings.smoothingSeconds = static_cast<float>(ini.GetDoubleValue("Appearance", "SmoothingSeconds", 2));
-    for (std::size_t i = 0; i < Times.size(); ++i) {
-        settings.hours[i] = static_cast<float>(ini.GetDoubleValue("Appearance", (std::string(Times[i]) + "Hour").c_str(), DefaultHours[i]));
+    const auto key = Lower(std::string(text));
+    if (key == "exterior") { return 0; }
+    for (std::size_t i = 0; i < GroupLabels.size(); ++i) { if (key == Lower(GroupLabels[i])) { return i; } }
+    return std::nullopt;
+}
+inline std::vector<std::string> Split(std::string_view text, char separator)
+{
+    std::vector<std::string> parts;
+    while (!text.empty()) {
+        const auto end = text.find(separator);
+        auto part = text.substr(0, end);
+        while (!part.empty() && part.front() == ' ') { part.remove_prefix(1); }
+        while (!part.empty() && part.back() == ' ') { part.remove_suffix(1); }
+        if (!part.empty()) { parts.emplace_back(part); }
+        if (end == std::string_view::npos) { break; }
+        text.remove_prefix(end + 1);
     }
-    const long format = ini.GetLongValue("Appearance", "Format", 1);
+    return parts;
+}
+// "Plugin.esp|0ABCDE": plugin identity and local FormID, stable across load orders.
+inline std::optional<Record> ParseRecord(std::string_view text)
+{
+    const auto bar = text.rfind('|');
+    if (bar == std::string_view::npos) { return std::nullopt; }
+    Record record{std::string(text.substr(0, bar))};
+    auto id = text.substr(bar + 1);
+    if (id.starts_with("0x") || id.starts_with("0X")) { id.remove_prefix(2); }
+    const auto [end, ec] = std::from_chars(id.data(), id.data() + id.size(), record.localID, 16);
+    if (ec != std::errc{} || end != id.data() + id.size()) { return std::nullopt; }
+    record = Normalize(std::move(record));
+    return Valid(record) ? std::optional(record) : std::nullopt;
+}
+// Formats 1-3 kept presets and their assignments in the main INI.
+template<class Ini> void LoadLegacyPresets(const Ini& ini, long format, Settings& settings)
+{
     const bool shared = format >= 2;
     if (shared) {
         const auto count = std::clamp(ini.GetLongValue("Appearance", "PresetCount", 0), 0L, static_cast<long>(MaxPresets));
         for (long i = 0; i < count; ++i) {
             const auto section = std::format("Appearance.Preset{}", i);
             const auto id = ini.GetLongValue(section.c_str(), "ID", 0);
-            if (id > 0) {
+            if (id > 0 && !FindPreset(settings, static_cast<std::uint32_t>(id))) {
                 settings.presets.push_back({static_cast<std::uint32_t>(id), ini.GetValue(section.c_str(), "Name", ""), LoadProfile(ini, section, format)});
             }
         }
     }
     for (std::size_t i = 0; i < Groups.size(); ++i) {
         const auto section = std::string("Appearance.") + Groups[i];
-        if (shared) {
-            settings.groups[i] = static_cast<std::uint32_t>((std::max)(0L, ini.GetLongValue(section.c_str(), "Preset", 0)));
-        } else {
-            if (HasProfile(ini, section)) { settings.groups[i] = AddPreset(settings, Groups[i], LoadProfile(ini, section, format)); }
-        }
+        auto* preset = shared ? FindPreset(settings, static_cast<std::uint32_t>((std::max)(0L, ini.GetLongValue(section.c_str(), "Preset", 0)))) :
+            HasProfile(ini, section) ? FindPreset(settings, AddPreset(settings, Groups[i], LoadProfile(ini, section, format))) : nullptr;
+        if (preset) { preset->groups[i] = true; }
     }
     const auto count = std::clamp(ini.GetLongValue("Appearance", "WeatherCount", 0), 0L, static_cast<long>(MaxWeathers));
     for (long i = 0; i < count; ++i) {
         const auto section = std::format("Appearance.Weather{}", i);
-        Record record{ini.GetValue(section.c_str(), "Plugin", "")};
-        std::string id = ini.GetValue(section.c_str(), "FormID", "");
-        if (id.starts_with("0x") || id.starts_with("0X")) { id.erase(0, 2); }
-        const auto [end, ec] = std::from_chars(id.data(), id.data() + id.size(), record.localID, 16);
-        if (ec == std::errc{} && end == id.data() + id.size()) {
-            const auto preset = shared ? static_cast<std::uint32_t>((std::max)(0L, ini.GetLongValue(section.c_str(), "Preset", 0))) :
-                AddPreset(settings, std::format("{} / {:06X}", record.plugin, record.localID), LoadProfile(ini, section, format));
-            settings.weathers.push_back({std::move(record), preset});
-        }
+        const auto record = ParseRecord(std::format("{}|{}", ini.GetValue(section.c_str(), "Plugin", ""), ini.GetValue(section.c_str(), "FormID", "")));
+        if (!record) { continue; }
+        auto* preset = shared ? FindPreset(settings, static_cast<std::uint32_t>((std::max)(0L, ini.GetLongValue(section.c_str(), "Preset", 0)))) :
+            FindPreset(settings, AddPreset(settings, std::format("{} / {:06X}", record->plugin, record->localID), LoadProfile(ini, section, format)));
+        if (preset) { preset->weathers.push_back(*record); }
     }
-    return Sanitize(std::move(settings));
 }
-template<class Ini> void StoreProfile(Ini& ini, const std::string& section, const Profile& profile)
+// A preset file: [Preset] holds the name and when it applies; [Changes] and
+// [Changes.Night] etc. hold only the settings it changes.
+template<class Ini> void StoreChanges(Ini& ini, const std::string& section, const Profile& profile)
 {
-    ini.SetBoolValue(section.c_str(), "Enabled", profile.enabled);
     for (const auto& change : profile.changes) {
         const auto* field = FindField(change.key);
         if (!field) { continue; }
@@ -123,6 +146,71 @@ template<class Ini> void StoreProfile(Ini& ini, const std::string& section, cons
         }
     }
 }
+template<class Ini> bool LoadPresetFile(const Ini& file, NamedProfile& preset)
+{
+    if (!file.GetSection("Preset")) { return false; }
+    preset.name = file.GetValue("Preset", "Name", preset.name.c_str());
+    preset.profile = LoadProfile(file, "Changes", 3);
+    preset.profile.enabled = file.GetBoolValue("Preset", "Enabled", true);
+    for (const auto& group : Split(file.GetValue("Preset", "UseWhen", ""), '|')) {
+        if (const auto index = ParseGroup(group)) { preset.groups[*index] = true; }
+    }
+    const auto count = std::clamp(file.GetLongValue("Preset", "WeatherCount", 0), 0L, static_cast<long>(MaxWeathers));
+    for (long i = 0; i < count; ++i) {
+        if (const auto record = ParseRecord(file.GetValue("Preset", std::format("Weather{}", i).c_str(), ""))) { preset.weathers.push_back(*record); }
+    }
+    return true;
+}
+template<class Ini> void StorePresetFile(Ini& file, const NamedProfile& preset)
+{
+    file.Reset();
+    file.SetLongValue("Preset", "Format", 1);
+    file.SetValue("Preset", "Name", preset.name.c_str());
+    file.SetBoolValue("Preset", "Enabled", preset.profile.enabled);
+    std::string groups;
+    for (std::size_t i = 0; i < GroupLabels.size(); ++i) {
+        if (preset.groups[i]) { groups += std::format("{}{}", groups.empty() ? "" : "|", GroupLabels[i]); }
+    }
+    file.SetValue("Preset", "UseWhen", groups.c_str());
+    file.SetLongValue("Preset", "WeatherCount", static_cast<long>(preset.weathers.size()));
+    for (std::size_t i = 0; i < preset.weathers.size(); ++i) {
+        const auto& record = preset.weathers[i];
+        file.SetValue("Preset", std::format("Weather{}", i).c_str(), std::format("{}|{:06X}", record.plugin, record.localID).c_str());
+    }
+    StoreChanges(file, "Changes", preset.profile);
+}
+// files: each preset file's name and contents, in any order. PresetOrder in the
+// main INI gives their priority; files it does not list follow by name.
+template<class Ini> Settings LoadSettings(const Ini& ini, const std::vector<std::pair<std::string, const Ini*>>& files = {})
+{
+    Settings settings;
+    settings.smoothingSeconds = static_cast<float>(ini.GetDoubleValue("Appearance", "SmoothingSeconds", 2));
+    for (std::size_t i = 0; i < Times.size(); ++i) {
+        settings.hours[i] = static_cast<float>(ini.GetDoubleValue("Appearance", (std::string(Times[i]) + "Hour").c_str(), DefaultHours[i]));
+    }
+    const long format = ini.GetLongValue("Appearance", "Format", 1);
+    if (format <= 3) { LoadLegacyPresets(ini, format, settings); }
+    auto order = Split(ini.GetValue("Appearance", "PresetOrder", ""), '|');
+    for (auto& name : order) { name = Lower(name); }
+    auto sorted = files;
+    const auto rank = [&](const std::string& name) {
+        return std::pair(static_cast<std::size_t>(std::ranges::find(order, Lower(name)) - order.begin()), Lower(name));
+    };
+    std::ranges::stable_sort(sorted, {}, [&](const auto& file) { return rank(file.first); });
+    for (const auto& [name, file] : sorted) {
+        NamedProfile preset;
+        preset.name = name.substr(0, name.size() - (Lower(name).ends_with(".ini") ? 4 : 0));
+        if (!file || !LoadPresetFile(*file, preset)) { continue; }
+        const auto id = AddPreset(settings, preset.name, preset.profile);
+        if (auto* added = FindPreset(settings, id)) {
+            added->groups = preset.groups;
+            added->weathers = std::move(preset.weathers);
+            added->file = name;
+        }
+    }
+    return Sanitize(std::move(settings));
+}
+// The main INI keeps the schedule, smoothing and preset order; presets live in files.
 template<class Ini> void StoreSettings(Ini& ini, Settings settings)
 {
     settings = Sanitize(std::move(settings));
@@ -132,36 +220,21 @@ template<class Ini> void StoreSettings(Ini& ini, Settings settings)
         ini.Delete(section.c_str(), nullptr);
         for (const auto* time : Times) { ini.Delete((section + "." + time).c_str(), nullptr); }
     };
-    // Replace only this feature's indexed records, including retired legacy time sections.
+    // Remove formats 1-3's presets and assignments; the preset files replace them.
     for (long i = 0; i < oldCount; ++i) { removeProfile(std::format("Appearance.Weather{}", i)); }
     for (long i = 0; i < oldPresets; ++i) { removeProfile(std::format("Appearance.Preset{}", i)); }
-    ini.SetLongValue("Appearance", "Format", 3);
+    for (const auto* group : Groups) { removeProfile(std::string("Appearance.") + group); }
+    ini.Delete("Appearance", "WeatherCount");
+    ini.Delete("Appearance", "PresetCount");
+    ini.SetLongValue("Appearance", "Format", 4);
     ini.SetBoolValue("Appearance", "Enabled", settings.enabled);
     StoreFloat(ini, "Appearance", "SmoothingSeconds", settings.smoothingSeconds);
     for (std::size_t i = 0; i < Times.size(); ++i) {
         StoreFloat(ini, "Appearance", (std::string(Times[i]) + "Hour").c_str(), settings.hours[i]);
     }
-    for (std::size_t i = 0; i < Groups.size(); ++i) {
-        const auto section = std::string("Appearance.") + Groups[i];
-        removeProfile(section);
-        ini.SetLongValue(section.c_str(), "Preset", settings.groups[i]);
-    }
-    ini.SetLongValue("Appearance", "PresetCount", static_cast<long>(settings.presets.size()));
-    for (std::size_t i = 0; i < settings.presets.size(); ++i) {
-        const auto section = std::format("Appearance.Preset{}", i);
-        const auto& preset = settings.presets[i];
-        ini.SetLongValue(section.c_str(), "ID", preset.id);
-        ini.SetValue(section.c_str(), "Name", preset.name.c_str());
-        StoreProfile(ini, section, preset.profile);
-    }
-    ini.SetLongValue("Appearance", "WeatherCount", static_cast<long>(settings.weathers.size()));
-    for (std::size_t i = 0; i < settings.weathers.size(); ++i) {
-        const auto section = std::format("Appearance.Weather{}", i);
-        const auto& entry = settings.weathers[i];
-        ini.SetValue(section.c_str(), "Plugin", entry.record.plugin.c_str());
-        ini.SetValue(section.c_str(), "FormID", std::format("{:06X}", entry.record.localID).c_str());
-        ini.SetLongValue(section.c_str(), "Preset", entry.preset);
-    }
+    std::string order;
+    for (const auto& preset : settings.presets) { order += std::format("{}{}", order.empty() ? "" : "|", PresetFileName(preset.name)); }
+    ini.SetValue("Appearance", "PresetOrder", order.c_str());
 }
 // Copy ENB's authored clock markers and dawn/dusk boundaries into TRP anchors.
 // This is an explicit editable approximation, not ENB's internal phase weights.
