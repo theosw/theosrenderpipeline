@@ -48,9 +48,16 @@ namespace TheosRenderPipeline::Overlay
 					const auto key = static_cast<ImGuiKey>((base == 0x30 ? ImGuiKey_0 : ImGuiKey_Keypad0) + digit);
 					io.AddKeyEvent(key, current[vk]);
 					if (current[vk] && !previous_[vk] && io.WantTextInput &&
-						!current[0x11] && !current[0x12] && !current[0x5B] && !current[0x5C] &&
-						(base == 0x60 || !current[0x10])) {
-						io.AddInputCharacter('0' + digit);
+						!current[0x11] && !current[0x12] && !current[0x5B] && !current[0x5C]) {
+						// The number row types what the layout gives, such as e-acute on French AZERTY;
+						// without a layout translator it types the digit, as numeric fields expect.
+						int typed = 0;
+						if (base == 0x30) {
+							translate(vk, current, [&](wchar_t c) {
+								if (c >= 0x20 && c != 0x7F) { io.AddInputCharacterUTF16(c); ++typed; }
+							});
+						}
+						if (!typed && (base == 0x60 || !current[0x10])) { io.AddInputCharacter('0' + digit); }
 					}
 				}
 			}
@@ -90,10 +97,11 @@ namespace TheosRenderPipeline::Overlay
 			return vk == 0x20 || (vk >= 0x30 && vk <= 0x39) || (vk >= 0x41 && vk <= 0x5A) ||
 				(vk >= 0x60 && vk <= 0x6F && vk != 0x6C) || (vk >= 0xBA && vk <= 0xC0) || (vk >= 0xDB && vk <= 0xDF) || vk == 0xE2;
 		}
-		// Matches the digit characters Update already added.
+		// Keys the number loop above already typed: the keypad digits, and the number
+		// row except with AltGr (Ctrl+Alt), which that loop leaves to the layout here.
 		static bool TypedAsDigit(unsigned vk, const Keys& keys)
 		{
-			return (vk >= 0x60 && vk <= 0x69) || (vk >= 0x30 && vk <= 0x39 && !keys[0x10] && !keys[0x11]);
+			return (vk >= 0x60 && vk <= 0x69) || (vk >= 0x30 && vk <= 0x39 && !(keys[0x11] && keys[0x12]));
 		}
 		struct Key { unsigned vk; ImGuiKey imgui; };
 		static constexpr Key editingKeys_[]{
