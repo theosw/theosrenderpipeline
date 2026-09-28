@@ -54,12 +54,13 @@ public:
     {
         settings = Sanitize(std::move(settings));
         if (settings_ == settings) { return; }
+        // Keep the settings frames were last drawn with, to compare what is shown.
+        if (!configurationChanged_) { drawn_ = std::move(settings_); }
         settings_ = std::move(settings);
         claims_ = ResolveClaims(settings_);
         twoPassAllocation_ = PresetsRequestTwoPasses(settings_);
         selectionDirty_ = true;
-        ++revision_;
-        smoother_.Reset();
+        configurationChanged_ = true;
     }
     void Pause(bool paused)
     {
@@ -102,7 +103,17 @@ public:
             }
             result.setup = Blend(Resolve(outgoing_, settings_, context.hour, base), Resolve(incoming_, settings_, context.hour, base),
                 context.interior ? 1 : context.transition);
+            // A configuration edit restarts NR history only if it changes what is shown
+            // now; editing an unused preset or saving file names leaves it alone.
+            if (configurationChanged_ && Evaluate(drawn_, context, base).setup != result.setup) {
+                ++revision_;
+                smoother_.Reset();
+            }
+            configurationChanged_ = false;
+            drawn_ = {};
         } else {
+            configurationChanged_ = false;
+            drawn_ = {};
             result.setup = base;
             result.incoming = result.outgoing = result.sharpnessSource = "Base";
             selectionDirty_ = true;
@@ -130,8 +141,9 @@ private:
     bool selectionDirty_{true};
     bool twoPassAllocation_{};
     std::uint64_t selectionResolutions_{};
-    Settings settings_;
+    Settings settings_, drawn_;
     Claims claims_;
+    bool configurationChanged_{};
     Snapshot snapshot_;
     Smoother smoother_;
     SourceDLSSG::NeuralOptions previousBase_;

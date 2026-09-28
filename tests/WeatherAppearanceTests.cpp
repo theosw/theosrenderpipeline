@@ -242,6 +242,17 @@ static void FrameHistory()
     }
     Require(lastIntensity > 1 && base == manual && controller.Configuration() == settings, "ramp changes frames, never defaults or profiles");
     Require(controller.SelectionResolutions() == 2, "ordinary weather progress resolves and labels presets only on identity changes");
+    // Editing a preset that is not in use keeps NR history.
+    auto unused = settings;
+    AddPreset(unused, "Unused", Look(1.9f, .8f));
+    controller.Configure(unused);
+    auto quiet = base; scene.hour += .0001f;
+    ApplyFrame(controller, scene, quiet, 1.0f / 60);
+    Require(!history.ResetFor(quiet, true, false), "editing an unused preset keeps NR history");
+    controller.Configure(settings);
+    quiet = base; scene.hour += .0001f;
+    ApplyFrame(controller, scene, quiet, 1.0f / 60);
+    Require(!history.ResetFor(quiet, true, false), "removing an unused preset keeps NR history");
     settings.presets[1].profile = Look(.45f, .15f);
     settings.presets[1].name = "Edited shared rain";
     controller.Configure(settings);
