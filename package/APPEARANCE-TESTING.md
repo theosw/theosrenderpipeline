@@ -21,7 +21,8 @@ weather, game hour and resolved preset names shown in the Neural Rendering tab.
 5. **Controls and persistence:** test Pause presets, Apply, Discard,
    Save as default and a manual restart. Check preset names, shared assignments and
    distinct time points survive. Delete a copy and confirm its assignments fall
-   back. Check the Image tab reports preset sharpening. Verify text search/name
+   back. Check the Image tab reports preset sharpening.
+   Type a preset name and a weather search, including Shift and AltGr characters. Verify text search/name
    editing releases input when the menu closes.
 6. **NR routes and cost:** check the intended linked/independent passes and NR
    placement. Compare paused/active frame-time samples in the same scene,

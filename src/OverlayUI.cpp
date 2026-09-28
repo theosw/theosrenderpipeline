@@ -107,7 +107,16 @@ void OverlayUI::PollInput()
 			keys[vk] = (::GetAsyncKeyState(static_cast<int>(vk)) & 0x8000) != 0;
 		}
 	}
-	numericInput.Update(io, keys, focused);
+	const auto keyboardLayout = ::GetKeyboardLayout(::GetWindowThreadProcessId(hwnd, nullptr));
+	numericInput.Update(io, keys, focused, [&](unsigned vk, const auto& down, auto&& emit) {
+		BYTE state[256]{};
+		for (unsigned i = 0; i < 256; ++i) { state[i] = down[i] ? 0x80 : 0; }
+		if (::GetKeyState(VK_CAPITAL) & 1) { state[VK_CAPITAL] |= 1; }
+		wchar_t text[8]{};
+		// Flag 4 leaves the thread's dead-key state untouched; dead keys type nothing.
+		const int count = ::ToUnicodeEx(vk, ::MapVirtualKeyExW(vk, MAPVK_VK_TO_VSC, keyboardLayout), state, text, 8, 4, keyboardLayout);
+		for (int i = 0; i < count; ++i) { emit(text[i]); }
+	});
 	SetTextInputCapture(focused && io.WantTextInput);
 }
 

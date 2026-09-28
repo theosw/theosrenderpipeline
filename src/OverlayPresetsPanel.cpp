@@ -70,6 +70,7 @@ std::string UsedWhen(const Appearance::Settings& settings, const Appearance::Nam
     return preset.profile.enabled ? text : "Off | " + text;
 }
 void Note(const char* text) { ImGui::TextDisabled("%s", text); }
+const char* ShownName(const Appearance::NamedProfile& preset) { return preset.name.empty() ? "Unnamed preset" : preset.name.c_str(); }
 void Tooltip(const char* text)
 {
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) { ImGui::SetTooltip("%s", text); }
@@ -186,7 +187,7 @@ void OverlayUI::DrawPresetList()
         const auto& preset = settings.presets[i];
         const bool now = preset.id == nowNeural || (!cs && preset.id == nowSharpening);
         const auto count = weatherCounts.find(preset.id);
-        if (PresetRow(static_cast<int>(preset.id), preset.name.c_str(), UsedWhen(settings, preset, count == weatherCounts.end() ? 0 : count->second),
+        if (PresetRow(static_cast<int>(preset.id), ShownName(preset), UsedWhen(settings, preset, count == weatherCounts.end() ? 0 : count->second),
                 presetSelected == preset.id, now, !preset.profile.enabled)) { presetSelected = preset.id; }
     } }
 
@@ -257,7 +258,7 @@ void OverlayUI::DrawPresetEditor()
         presetPickerSelection.clear();
     }
 
-    DrawSettingsHeading(preset.name.c_str());
+    DrawSettingsHeading(ShownName(preset));
     Note("Replaces Base's values below whenever this preset applies. Everything else keeps using Base.");
     char name[81]{}; std::snprintf(name, sizeof(name), "%s", preset.name.c_str());
     if (ImGui::InputText("Name", name, sizeof(name))) { preset.name = name; }
@@ -315,7 +316,7 @@ void OverlayUI::DrawPresetEditor()
     if (scene.valid && !scene.interior) { Tooltip(WeatherLabel(scene.incoming.record, *catalogue).c_str()); }
 
     if (ImGui::BeginPopup("weatherPicker")) {
-        ImGui::Text("Add weathers to %s", preset.name.c_str());
+        ImGui::Text("Add weathers to %s", ShownName(preset));
         ImGui::PushItemWidth(420);
         ImGui::InputTextWithHint("Search", "Name, plugin, FormID or weather type", presetSearch, sizeof(presetSearch));
         const char* filters[]{"All", "Unclassified", "Clear", "Cloudy", "Rain", "Snow"};
@@ -395,13 +396,14 @@ void OverlayUI::DrawPresetEditor()
     ImGui::TextDisabled("%s", second ? "NR pass 1" : "NR");
     ImGui::PushID("pass1"); NeuralSliders(point.passes[0]); ImGui::PopID();
     if (second) { ImGui::TextDisabled("NR pass 2"); ImGui::PushID("pass2"); NeuralSliders(point.passes[1]); ImGui::PopID(); }
+    else if (nr.neuralPasses == 2) { Note("Pass 2 uses these values: it is set to match Pass 1 in Base."); }
     ImGui::EndDisabled();
     if (cs) { Note("Community Shaders owns sharpening on this setup, so presets change NR only."); }
     else {
         ImGui::BeginDisabled(!profile.sharpening);
         ImGui::SliderFloat("Sharpening", &point.sharpness, 0, 1, "%.3f");
         ImGui::EndDisabled();
-        Note(settingsDraft.sharpening ? "Base sharpening is in the Image tab." : "Sharpening is off in the Image tab, so this has no effect.");
+        if (!settingsDraft.sharpening) { Note("Sharpening is off in Base, so this has no effect."); }
     }
     if (ImGui::Button(presetTimed ? "Set this time from Base" : "Reset to Base")) { point = EditedValues(settingsDraft); }
     if (!presetTimed) { const auto value = point; profile.points.fill(value); }
@@ -410,15 +412,11 @@ void OverlayUI::DrawPresetEditor()
     if (ImGui::CollapsingHeader("More options")) {
         ImGui::Checkbox("Use this preset", &profile.enabled);
         Tooltip("Unticked presets keep their settings but are ignored.");
-        ImGui::Checkbox("Change NR", &profile.neural);
-        ImGui::SameLine();
-        ImGui::BeginDisabled(cs); ImGui::Checkbox("Change sharpening", &profile.sharpening); ImGui::EndDisabled();
-        Note("Unticked values follow Base or a less specific preset.");
     }
     bool remove = false;
     if (ImGui::Button("Delete preset...")) { ImGui::OpenPopup("deletePreset"); }
     if (ImGui::BeginPopup("deletePreset")) {
-        ImGui::Text("Delete \"%s\"?", preset.name.c_str());
+        ImGui::Text("Delete \"%s\"?", ShownName(preset));
         ImGui::TextDisabled("Where it applied, Base or a less specific preset is used.\nDiscard undoes unapplied edits.");
         if (ImGui::Button("Delete")) { remove = true; ImGui::CloseCurrentPopup(); }
         ImGui::SameLine();
@@ -434,6 +432,6 @@ void OverlayUI::DrawPresetSharpeningStatus()
 {
     const auto state = Appearance::Runtime::Get().State();
     if (!state.result.active || state.result.incomingSharpening == "Manual defaults") { return; }
-    ImGui::TextDisabled("Now %.2f from the \"%s\" preset. This slider is Base.", state.result.values.sharpness,
+    ImGui::TextDisabled("Now %.2f from the \"%s\" preset; the value above is Base.", state.result.values.sharpness,
         state.result.incomingSharpening.c_str());
 }

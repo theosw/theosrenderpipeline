@@ -20,7 +20,8 @@ restart the game; it is not saved.
 
 ## Create and edit presets
 
-1. Tune Base: the normal NR controls, and sharpening in the Image tab.
+1. Tune Base: the Look, Quality and Performance sections of the Neural Rendering
+   tab. Sharpening is in Look and applies with or without NR.
 2. **Create new preset** starts from Base. **Duplicate** copies the selected preset.
 3. Under **Use when**, tick weather types (Clear, Cloudy, Rain, Snow), Interior or
    Outdoors, and add specific weathers.
@@ -32,11 +33,10 @@ restart the game; it is not saved.
 5. **Apply** for this session or **Save as default** for future sessions.
    **Discard** restores the applied configuration.
 
-**More options** can ignore a preset without deleting it (**Use this preset**) or
-limit it to NR or sharpening. Presets never enable NR or sharpening themselves.
-When a preset changes sharpening, the Image tab shows the value in use; its slider
-remains Base. Community Shaders owns sharpening on its route, so only TRP NR is
-automated there. Network preset, style, skin controls, resolution, placement and
+**More options** can ignore a preset without deleting it (**Use this preset**).
+Presets never enable NR or sharpening themselves. The Image tab shows Base
+sharpening read-only, and the value in use when a preset changes it. Community
+Shaders owns sharpening on its route, so only TRP NR is automated there. Network preset, style, skin controls, resolution, placement and
 pass count stay in Base. **Timing...** holds the times of day and transition
 smoothing. See the [focused game check](APPEARANCE-TESTING.md) before relying on a
 new preset set.
