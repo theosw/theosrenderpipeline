@@ -16,7 +16,12 @@ template<class Ini> void StoreFloat(Ini& ini, const char* section, const char* k
 }
 template<class Ini> std::optional<float> ReadFloat(const Ini& ini, const char* section, const char* key)
 {
-    if (!ini.GetValue(section, key, nullptr)) { return std::nullopt; }
+    const char* text = ini.GetValue(section, key, nullptr);
+    if (!text) { return std::nullopt; }
+    // On/off settings may be written as words, like Enabled = true.
+    const auto word = Lower(text);
+    if (word == "true" || word == "on" || word == "yes") { return 1.0f; }
+    if (word == "false" || word == "off" || word == "no") { return 0.0f; }
     // Malformed values load as NaN; Sanitize replaces them with the setting's default.
     return static_cast<float>(ini.GetDoubleValue(section, key, std::numeric_limits<double>::quiet_NaN()));
 }
@@ -192,7 +197,15 @@ template<class Ini> Settings LoadSettings(const Ini& ini, const std::vector<std:
     const long format = ini.GetLongValue("Appearance", "Format", 1);
     if (format <= 3) {
         LoadLegacyPresets(ini, format, settings);
-        if (legacyBase) { for (auto& preset : settings.presets) { DropBaseEqual(preset.profile, *legacyBase); } }
+        if (legacyBase) { DropBaseEqual(settings.presets, *legacyBase); }
+        // Those formats had a master switch; presets it kept off stay off, per preset.
+        if (!ini.GetBoolValue("Appearance", "Enabled", false)) {
+            for (auto& preset : settings.presets) { preset.profile.enabled = false; }
+        }
+        // A save interrupted after writing files leaves both; the file is newer.
+        std::erase_if(settings.presets, [&](const auto& preset) {
+            return std::ranges::any_of(files, [&](const auto& file) { return Lower(file.first) == Lower(PresetFileName(preset.name)); });
+        });
     }
     auto order = Split(ini.GetValue("Appearance", "PresetOrder", ""), '|');
     for (auto& name : order) { name = Lower(name); }

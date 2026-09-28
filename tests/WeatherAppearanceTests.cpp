@@ -499,6 +499,18 @@ static void PresetFiles()
     auto edited = withPack;
     RemovePreset(edited, added.id);
     Require(edited.removedFiles == std::vector<std::string>{"Added pack.ini"}, "deleting a loaded preset queues its file for removal");
+    auto words = std::make_unique<CSimpleIniA>();
+    words->LoadData("[Preset]\nUseWhen = Snow\n[Changes]\nNeuralRendering = true\nPeripheralCompression = on\nInputHDR = No\n");
+    Saved wordy; wordy.files.emplace_back("Words.ini", std::move(words));
+    const auto wordSettings = Load(wordy);
+    const auto& wordPreset = wordSettings.presets[0].profile;
+    Require(FindChange(wordPreset, "NeuralRendering")->points[0] == 1 && FindChange(wordPreset, "PeripheralCompression")->points[0] == 1 &&
+        FindChange(wordPreset, "InputHDR")->points[0] == 0, "on/off settings accept true/false, on/off and yes/no");
+    Settings unusedTwo;
+    SetChange(FindPreset(unusedTwo, AddPreset(unusedTwo, "Two passes"))->profile, "Passes", 2);
+    Require(!PresetsRequestTwoPasses(unusedTwo), "a two-pass preset used nowhere does not keep two passes allocated");
+    FindPreset(unusedTwo, unusedTwo.presets[0].id)->groups[3] = true;
+    Require(PresetsRequestTwoPasses(unusedTwo), "a used two-pass preset keeps two passes allocated");
     Settings named;
     AddPreset(named, "Rain"); AddPreset(named, "rain"); AddPreset(named, "Rain?");
     Require(named.presets[1].name == "rain 2" && PresetFileName("Rain?") == "Rain_.ini" && PresetFileName("con") == "con_.ini" &&
@@ -549,6 +561,28 @@ static void MigrationAndSchedule()
     Require(!format2.presets[0].groups[4] && WeatherCount(format2) == 0, "dangling references cannot retarget new presets");
     const auto base = BaseSetup(1.5f, .5f);
     Require(LoadSettings(shared, {}, &base).presets[0].profile.changes.empty(), "older values equal to Base are not kept as changes");
+    Require(!format2.presets[0].profile.enabled && !format2.enabled, "presets the old master switch kept off stay off");
+    // A more specific older preset's Base value still cancels a less specific one's change.
+    CSimpleIniA layered;
+    layered.SetBoolValue("Appearance", "Enabled", true);
+    WriteLegacyProfile(layered, "Appearance.Rain", 1.5f, .5f);
+    layered.SetLongValue("Appearance", "WeatherCount", 1);
+    layered.SetValue("Appearance.Weather0", "Plugin", "Skyrim.esm");
+    layered.SetValue("Appearance.Weather0", "FormID", "10A241");
+    WriteLegacyProfile(layered, "Appearance.Weather0", 1.0f, .5f);
+    const auto layeredBase = BaseSetup(1.0f, .5f);
+    const auto kept2 = LoadSettings(layered, {}, &layeredBase);
+    auto storm = Scene(); storm.incoming = {Normalize({"Skyrim.esm", 0x10A241}), Group::Rain};
+    Require(Near(Evaluate(kept2, storm, layeredBase).setup.tuning.intensity, 1.0f) && !FindChange(kept2.presets[0].profile, "Sharpness"),
+        "older Base-equal values stay where they cancel another preset");
+    // A save interrupted after writing files leaves both copies; the file wins.
+    CSimpleIniA both;
+    both.SetBoolValue("Appearance", "Enabled", true);
+    WriteLegacyProfile(both, "Appearance.Rain", 1.5f, .5f);
+    auto rainFile = std::make_unique<CSimpleIniA>();
+    rainFile->LoadData("[Preset]\nUseWhen = Rain\n[Changes]\nPass1Style = 3\n");
+    const auto merged = LoadSettings(both, {{std::string("Rain.ini"), rainFile.get()}});
+    Require(merged.presets.size() == 1 && FindChange(merged.presets[0].profile, "Pass1Style"), "older presets saved to files are not duplicated");
     Settings full;
     const auto kept = AddPreset(full, "Full", Look(1, .3f));
     Saved pinned; Save(pinned, full);

@@ -153,6 +153,7 @@ WeatherCount = 1
 Weather0 = Skyrim.esm|10A241
 
 [Changes]
+Pass2SameAsPass1 = 0
 Pass2Style = 7
 
 [Changes.Night]
@@ -162,7 +163,9 @@ Pass1Intensity = 1.2
 `UseWhen` accepts Outdoors, Clear, Cloudy, Rain, Snow and Interior. Weathers are a
 plugin name and its local FormID, so they work in any load order. `[Changes]` uses
 the same keys as the Neural Rendering settings; look settings go in the six time
-sections (Night, Dawn, Sunrise, Day, Sunset, Dusk).
+sections (Night, Dawn, Sunrise, Day, Sunset, Dusk). On/off settings accept 1/0 or
+true/false. Pass 2 settings apply only while Pass 2 has its own settings,
+`Pass2SameAsPass1 = 0`; the editor adds it when you change a Pass 2 setting.
 
 ## Persistence and compatibility
 

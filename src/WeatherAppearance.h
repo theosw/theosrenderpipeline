@@ -235,12 +235,14 @@ inline bool UsesPresets(const Settings& settings)
 {
     return std::ranges::any_of(settings.presets, [](const auto& preset) { return preset.profile.enabled; });
 }
-// Presets that request two passes keep two allocated, so dropping to one never recreates NR.
+// Presets that request two passes keep two allocated, so dropping to one never
+// recreates NR. A preset that applies nowhere does not.
 inline bool PresetsRequestTwoPasses(const Settings& settings)
 {
     return std::ranges::any_of(settings.presets, [](const auto& preset) {
         const auto* passes = FindChange(preset.profile, "Passes");
-        return preset.profile.enabled && passes && passes->points[0] == 2;
+        const bool used = std::ranges::any_of(preset.groups, std::identity{}) || !preset.weathers.empty();
+        return preset.profile.enabled && used && passes && passes->points[0] == 2;
     });
 }
 inline bool ValidHours(const std::array<float, 6>& hours)
@@ -266,14 +268,28 @@ inline Profile Sanitize(Profile profile)
     profile.changes = std::move(changes);
     return profile;
 }
-// Drops changes equal to base at every time. Only for presets from formats that
-// stored every look value; a full copy pins Base's values on purpose.
-inline void DropBaseEqual(Profile& profile, const Setup& base)
+inline bool EqualsBase(const Change& change, const Setup& base)
 {
-    std::erase_if(profile.changes, [&](const auto& change) {
-        const auto* field = FindField(change.key);
-        return field && std::ranges::all_of(change.points, [&](float point) { return std::abs(point - field->get(base)) < 0.0005f; });
-    });
+    const auto* field = FindField(change.key);
+    return field && std::ranges::all_of(change.points, [&](float point) { return std::abs(point - field->get(base)) < 0.0005f; });
+}
+// Formats 1-3 stored every look value, so most equal Base. Drop those, except for
+// settings another of those presets changes: they replaced whole channels, so a
+// more specific preset's Base value could cancel a less specific preset's change.
+// Only for those formats; a full copy pins Base's values on purpose.
+inline void DropBaseEqual(std::span<NamedProfile> presets, const Setup& base)
+{
+    std::vector<std::string_view> layered;
+    for (const auto& preset : presets) {
+        for (const auto& change : preset.profile.changes) {
+            if (!EqualsBase(change, base)) { layered.push_back(change.key); }
+        }
+    }
+    for (auto& preset : presets) {
+        std::erase_if(preset.profile.changes, [&](const auto& change) {
+            return EqualsBase(change, base) && std::ranges::find(layered, change.key) == layered.end();
+        });
+    }
 }
 inline Settings Sanitize(Settings settings)
 {
@@ -287,12 +303,9 @@ inline Settings Sanitize(Settings settings)
     for (auto& preset : settings.presets) {
         if (!preset.id || preset.id > 0x7FFFFFFF || clean.presets.size() == MaxPresets || FindPreset(clean, preset.id)) { continue; }
         for (char& c : preset.name) { if (static_cast<unsigned char>(c) < 32) { c = ' '; } }
-        // INI values cannot safely retain leading/trailing whitespace or line breaks.
-        const auto start = preset.name.find_first_not_of(' ');
-        preset.name = start == std::string::npos ? std::format("Preset {}", preset.id) :
-            preset.name.substr(start, preset.name.find_last_not_of(' ') - start + 1);
-        if (preset.name.size() > 80) { preset.name.resize(80); }
+        if (preset.name.find_first_not_of(' ') == std::string::npos) { preset.name = std::format("Preset {}", preset.id); }
         // The file name is the preset's name, so keep only what a file name allows.
+        // Names are not shortened: a loaded file keeps its name and so its file.
         preset.name = UniqueName(clean, PresetStem(preset.name));
         preset.profile = Sanitize(std::move(preset.profile));
         std::vector<Record> unique;

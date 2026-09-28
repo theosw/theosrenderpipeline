@@ -130,7 +130,8 @@ bool RenderPipeline::SaveINI(const TheosRenderPipeline::Overlay::Layout* layout)
     bool presetsSaved = false;
     auto& appearance = TheosRenderPipeline::Appearance::Runtime::Get();
     const auto savedPresets = appearance.SavePresets(appearance.Configuration(), presetsSaved);
-    TheosRenderPipeline::Appearance::StoreSettings(ini, savedPresets);
+    // Keep older-format presets in the main INI until every preset file is written.
+    if (presetsSaved) { TheosRenderPipeline::Appearance::StoreSettings(ini, savedPresets); }
     appearance.Configure(savedPresets);
 	ini.SetBoolValue("Debug", "LogMenuMetrics", mLogMenuMetrics);
     if (layout) { TheosRenderPipeline::Overlay::StoreLayout(ini, *layout); }

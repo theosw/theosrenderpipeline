@@ -2,8 +2,6 @@
 #include "WeatherAppearanceRuntime.h"
 #include "WeatherAppearanceINI.h"
 #include "FrameGen/SourceDLSSGSettings.h"
-#include <fstream>
-#include <iterator>
 #include "WeatherEditorID.h"
 
 namespace TheosRenderPipeline::Appearance
@@ -156,16 +154,35 @@ Settings Runtime::SavePresets(Settings settings, bool& ok)
     std::size_t unchanged = 0;
     for (auto& preset : settings.presets) {
         const auto name = PresetFileName(preset.name);
+        std::filesystem::path path;
+        try {
+            path = folder / Utf8Path(name);
+        } catch (const std::exception&) {
+            logger::error("[Appearance] preset name is not valid UTF-8; not saved: {}", name);
+            ok = false;
+            continue;
+        }
+        // A rename that changes only letter case must rename the file itself.
+        if (!preset.file.empty() && preset.file != name && Lower(preset.file) == Lower(name)) {
+            try { std::filesystem::rename(folder / Utf8Path(preset.file), path, error); } catch (const std::exception&) {}
+        }
+        // Leave files that already hold this preset alone, whatever their layout, so
+        // hand-written files and presets from mods stay untouched.
+        CSimpleIniA existing;
+        existing.SetUnicode();
+        NamedProfile stored;
+        if (preset.file == name && existing.LoadFile(path.c_str()) >= 0 && LoadPresetFile(existing, stored)) {
+            stored.profile = Sanitize(std::move(stored.profile));
+            if (stored.profile == preset.profile && stored.groups == preset.groups && stored.weathers == preset.weathers) {
+                ++unchanged;
+                written.push_back(Lower(name));
+                continue;
+            }
+        }
         CSimpleIniA file;
         file.SetUnicode();
         StorePresetFile(file, preset);
-        // Leave unchanged files alone, so presets from mods keep their files untouched.
-        const auto path = folder / Utf8Path(name);
-        std::string text, current;
-        file.Save(text, true);
-        if (std::ifstream in{path, std::ios::binary}) { current.assign(std::istreambuf_iterator<char>(in), {}); }
-        if (text == current) { ++unchanged; }
-        else if (file.SaveFile(path.c_str()) < 0) {
+        if (file.SaveFile(path.c_str()) < 0) {
             logger::error("[Appearance] could not write preset file {}", name);
             ok = false;
             continue;
@@ -177,9 +194,11 @@ Settings Runtime::SavePresets(Settings settings, bool& ok)
     }
     for (const auto& name : settings.removedFiles) {
         if (std::ranges::find(written, Lower(name)) != written.end()) { continue; }
-        if (!std::filesystem::remove(folder / Utf8Path(name), error) && error) {
-            logger::warn("[Appearance] could not remove preset file {}", name);
-        }
+        try {
+            if (!std::filesystem::remove(folder / Utf8Path(name), error) && error) {
+                logger::warn("[Appearance] could not remove preset file {}", name);
+            }
+        } catch (const std::exception&) { logger::warn("[Appearance] could not remove preset file {}", name); }
     }
     settings.removedFiles.clear();
     logger::info("[Appearance] saved {} preset files ({} unchanged)", written.size(), unchanged);
