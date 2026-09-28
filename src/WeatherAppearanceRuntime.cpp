@@ -2,6 +2,8 @@
 #include "WeatherAppearanceRuntime.h"
 #include "WeatherAppearanceINI.h"
 #include "FrameGen/SourceDLSSGSettings.h"
+#include <fstream>
+#include <iterator>
 #include "WeatherEditorID.h"
 
 namespace TheosRenderPipeline::Appearance
@@ -151,12 +153,19 @@ Settings Runtime::SavePresets(Settings settings, bool& ok)
     std::error_code error;
     std::filesystem::create_directories(folder, error);
     std::vector<std::string> written;
+    std::size_t unchanged = 0;
     for (auto& preset : settings.presets) {
         const auto name = PresetFileName(preset.name);
         CSimpleIniA file;
         file.SetUnicode();
         StorePresetFile(file, preset);
-        if (file.SaveFile((folder / Utf8Path(name)).c_str()) < 0) {
+        // Leave unchanged files alone, so presets from mods keep their files untouched.
+        const auto path = folder / Utf8Path(name);
+        std::string text, current;
+        file.Save(text, true);
+        if (std::ifstream in{path, std::ios::binary}) { current.assign(std::istreambuf_iterator<char>(in), {}); }
+        if (text == current) { ++unchanged; }
+        else if (file.SaveFile(path.c_str()) < 0) {
             logger::error("[Appearance] could not write preset file {}", name);
             ok = false;
             continue;
@@ -173,7 +182,7 @@ Settings Runtime::SavePresets(Settings settings, bool& ok)
         }
     }
     settings.removedFiles.clear();
-    logger::info("[Appearance] saved {} preset files", written.size());
+    logger::info("[Appearance] saved {} preset files ({} unchanged)", written.size(), unchanged);
     return settings;
 }
 }
