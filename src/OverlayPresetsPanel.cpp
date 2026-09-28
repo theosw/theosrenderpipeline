@@ -301,18 +301,6 @@ void OverlayUI::DrawPresetList()
         ImGui::TextDisabled("Times must increase from Night to Dusk. Presets blend between neighbouring times.");
         ImGui::EndPopup();
     }
-    ImGui::SameLine();
-    if (ImGui::Button("Reload presets")) {
-        CSimpleIniA ini;
-        ini.SetUnicode();
-        ini.LoadFile(L"Data\\SKSE\\Plugins\\TheosRenderPipeline.ini");
-        settingsDraft.appearance = Appearance::Runtime::Load(ini);
-        actionMessage = std::format("Read {} presets from the Presets folder. Apply to use them.", settingsDraft.appearance.presets.size());
-        actionMessageIsError = false;
-    }
-    Tooltip("Reads the saved presets and the Presets folder again, including preset files you added. "
-        "Unsaved preset edits are discarded.\nEach preset is a file in Data\\SKSE\\Plugins\\TheosRenderPipeline\\Presets; "
-        "share it by copying the file, or install preset packs as mods.");
     settings.enabled = Appearance::UsesPresets(settings);
 }
 

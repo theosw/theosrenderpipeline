@@ -117,15 +117,21 @@ intermediate blended values.
 ## Preset files and sharing
 
 Each preset is one file in `Data/SKSE/Plugins/TheosRenderPipeline/Presets/`, named
-after the preset, such as `Moody rain.ini`. Share a preset by copying its file;
-put received files in that folder and choose **Reload presets**, or restart. Under
-Mod Organizer, preset packs can be installed as ordinary mods that contain this
-folder; presets you create or edit are written to MO2's Overwrite or to the mod
-that supplied the file.
+after the preset, such as `Moody rain.ini`. Files added to that folder load at the
+next game start.
+
+Under Mod Organizer, presets you create are written to Overwrite, like other
+settings the game creates; saving a preset that came from a mod updates that mod's
+file. To package presets, right-click Overwrite, choose **Create mod...** and name
+it, for example `TRP Presets - Moody Weather`. That mod is a preset pack: upload it
+as an ordinary Data mod, and players or modlists install and enable it like any
+other mod. When two mods contain the same preset file, MO2's mod order decides
+which one the game uses.
 
 A preset stores only the settings it changes, so it looks different on a
 different Base. **Save full copy** adds a copy with every setting stored, which
-looks the same for anyone. A preset file contains:
+looks the same for anyone; use it for packs meant to be a complete look, with
+Outdoors and Interior ticked. A preset file contains:
 
 ```ini
 [Preset]
@@ -156,8 +162,8 @@ not list, such as newly added packs, follow in name order. `Enabled` is written 
 whether any preset is in use, for older builds; this build derives it on load.
 
 Save as default writes every preset file, renames the file of a renamed preset and
-deletes the files of deleted presets; Discard undoes both before saving. Files
-added to the folder after loading are left alone until they are loaded. Presets
+deletes the files of deleted presets; Discard undoes both before saving. Preset
+files the game has not loaded are left alone. Presets
 from formats 1-3 in the main INI load as before and move into files at the next
 save, which removes their old sections. Unrelated INI settings remain intact.
 Older plugin builds cannot read format 4 or preset files; keep a backup before
