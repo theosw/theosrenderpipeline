@@ -122,11 +122,19 @@ next game start.
 
 Under Mod Organizer, presets you create are written to Overwrite, like other
 settings the game creates; saving a preset that came from a mod updates that mod's
-file. To package presets, right-click Overwrite, choose **Create mod...** and name
-it, for example `TRP Presets - Moody Weather`. That mod is a preset pack: upload it
-as an ordinary Data mod, and players or modlists install and enable it like any
-other mod. When two mods contain the same preset file, MO2's mod order decides
-which one the game uses.
+file. To package presets as a mod:
+
+1. In MO2, choose **Create empty mod** and name it, for example
+   `TRP Presets - Moody Weather`.
+2. Open the new mod's folder and create `SKSE/Plugins/TheosRenderPipeline/Presets/`.
+3. Copy the preset `.ini` files you want from MO2's Overwrite (the same path) into
+   that folder, and enable the mod.
+
+Right-clicking Overwrite and choosing **Create mod...** does the same in one step
+for everything Overwrite contains. The mod is a preset pack: upload it as an
+ordinary Data mod, and players or modlists install and enable it like any other
+mod. When two mods contain the same preset file, MO2's mod order decides which one
+the game uses.
 
 A preset stores only the settings it changes, so it looks different on a
 different Base. **Save full copy** adds a copy with every setting stored, which
