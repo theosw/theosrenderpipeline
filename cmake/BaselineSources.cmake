@@ -113,6 +113,9 @@ set(ARP_BASELINE_SOURCES
     src/FrameGen/SourceDLSSGHDR.cpp
     src/FrameGen/SourceDLSSGHDR.h
     src/FrameGen/HDRColorimetry.h
+    src/FrameGen/HDROutput.h
+    src/FrameGen/SourceDLSSGHDROutput.cpp
+    src/FrameGen/SourceDLSSGHDROutput.h
     src/FrameGen/SourceDLSSGInterop.cpp
     src/FrameGen/SourceDLSSGInterop.h
     src/FrameGen/SourceDLSSGMFG.h

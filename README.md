@@ -20,8 +20,8 @@ Neural Rendering (NR), and native-resolution menus and HUD. Current version:
 
 **End** opens settings. **Apply** changes the session; **Save as default** persists
 settings and window layout; **Discard** drops unapplied edits. NR keyboard
-shortcuts are opt-in. HDR is experimental and requires Community Shaders; see
-[HDR](#hdr-experimental).
+shortcuts are opt-in. HDR is experimental, through Community Shaders or TRP's own
+HDR output; see [HDR](#hdr-experimental).
 
 With two NR passes selected, optional **One pass in combat** and **One pass while
 weapons/spells are drawn** controls temporarily skip the second pass. The return
@@ -59,12 +59,28 @@ content brightness, then adjust to taste.
 Weathers and lighting built for ENB, such as NAT.ENB, need CS Effects 11 with a
 preset; without one the image is much darker in both SDR and HDR. Two
 full-resolution NR passes after upscaling are expensive; prefer one pass or NR
-before upscaling. HDR through ENB, Special K, RenoDX or Linear Lighting is not
+before upscaling. HDR through Special K, RenoDX or Linear Lighting is not
 supported, and most ReShade effects are not HDR-aware.
 
 Evidence is one Universal RTX 4080 SUPER LoreRim UltraCS setup with Effects 11:
 x4 generation, both NR placements and HDR on/off switching. Standard, other
 hardware and physical frame cadence remain untested.
+
+### TRP HDR output (ENB and non-CS setups)
+
+Without Community Shaders, **Image > HDR output** expands the finished SDR image,
+including ENB's, to HDR10. This is inverse tone mapping: SDR white is shown at
+paper white, the brightest areas are expanded towards peak brightness, and the
+native UI, menus and TRP overlay use their own brightness. Highlights the preset
+already clipped cannot be recovered, and 8-bit output can band in bright gradients.
+Frame generation receives matching HDR10 HUD-less and UI images. NR and ReShade
+still run on the SDR image.
+
+Enable Windows HDR, turn on **HDR output**, save as default and restart. Paper
+white, peak, UI brightness, highlight strength, expansion start and SDR decoding
+apply live. When Windows HDR is off for the game's display, output stays SDR.
+Leave ENB's own HDR-like effects as they are; this does not change the preset.
+This route has only standalone GPU checks so far; game acceptance is pending.
 
 ## Compatibility
 

@@ -48,6 +48,7 @@ private:
     void DrawPresetList();
     void DrawPresetEditor(const std::function<void(TheosRenderPipeline::SourceDLSSG::Preferences&, bool&, float&)>& drawSettings);
     void DrawPresetSharpeningStatus();
+    void DrawHDROutputSettings();
     void DrawTextureMemoryPanel(const FrameView& view);
     void DrawAdvancedPanel(float tabCardHeight, const FrameView& view);
     bool BeginSettingsColumns(const char* id, float height, const FrameView& view);

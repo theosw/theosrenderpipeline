@@ -7,7 +7,12 @@
 - D3D11 capture hooks now survive runtime state changes.
 - ReShade screenshots skip already-encoded HDR output instead of miscolouring it.
 
-HDR requires CS HDR Display; ENB-style weathers also need CS Effects 11 with a
+- Added experimental TRP HDR output for ENB and other non-CS setups: the finished
+  SDR image is expanded to HDR10 with paper white, peak, UI brightness and
+  highlight controls, and frame generation receives matching HDR10 HUD-less and
+  UI images. Off by default; enabling it needs a restart. Not yet game-tested.
+
+CS HDR requires CS HDR Display; ENB-style weathers also need CS Effects 11 with a
 preset. See the README's HDR notes for setup and tested scope.
 
 # 0.3.2

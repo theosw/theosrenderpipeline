@@ -134,11 +134,12 @@ HRESULT STDMETHODCALLTYPE SwapChain::ResizeBuffers(
 	if (!backend_.Quiesce()) { return E_FAIL; }
 	buffers_ = {}; nativeBuffers_ = {};
 	const auto gameFormat = a_format == DXGI_FORMAT_UNKNOWN ? gameFormat_ : a_format;
-	const auto result = inner_->ResizeBuffers(2, a_width, a_height, PresentationFormat(gameFormat),
+	const auto result = inner_->ResizeBuffers(2, a_width, a_height, backend_.NativeFormat(gameFormat),
 		(a_flags & ~0x6000u) | DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING);
 	// Old wrapper buffers are already gone. A failed native resize or partial
 	// rebuild cannot leave the backend advertised as ready for rendering.
 	if (!backend_.Check(result, "native ResizeBuffers")) { return result; }
+	backend_.ApplyNativeColorSpace();
 	gameFormat_ = gameFormat;
 	const auto rebuilt = RebuildBuffers();
 	if (!backend_.Check(rebuilt, "rebuild after ResizeBuffers")) { return rebuilt; }
@@ -148,7 +149,7 @@ HRESULT STDMETHODCALLTYPE SwapChain::ResizeBuffers(
 HRESULT STDMETHODCALLTYPE SwapChain::ResizeTarget(const DXGI_MODE_DESC* a_desc)
 {
 	if (!a_desc) { return E_INVALIDARG; }
-	auto desc = *a_desc; desc.Format = PresentationFormat(desc.Format);
+	auto desc = *a_desc; desc.Format = backend_.NativeFormat(desc.Format);
 	return inner_->ResizeTarget(&desc);
 }
 
@@ -282,6 +283,9 @@ HRESULT STDMETHODCALLTYPE SwapChain::CheckColorSpaceSupport(
 
 HRESULT STDMETHODCALLTYPE SwapChain::SetColorSpace1(DXGI_COLOR_SPACE_TYPE a_colorSpace)
 {
+	// Renderer-owned HDR signals the native colour space from the display
+	// state. The producer's buffer remains SDR whatever it requests.
+	if (backend_.HDRNative()) { return S_OK; }
 	const auto colorSpace = PresentationColorSpace(gameFormat_, a_colorSpace);
 	const auto result = inner3_ ? inner3_->SetColorSpace1(colorSpace) : E_NOINTERFACE;
 	if (SUCCEEDED(result)) { colorSpace_.store(colorSpace, std::memory_order_relaxed); }
@@ -306,9 +310,10 @@ HRESULT STDMETHODCALLTYPE SwapChain::ResizeBuffers1(
 	// ResizeBuffers1 path copies only the two application queue entries before
 	// DLSS-G expands the native count to six, causing DXGI to overread that copy.
 	// Supplying a larger caller array cannot repair its internal two-entry copy.
-	const auto result = inner_->ResizeBuffers(2, a_width, a_height, PresentationFormat(gameFormat),
+	const auto result = inner_->ResizeBuffers(2, a_width, a_height, backend_.NativeFormat(gameFormat),
 		(a_flags & ~0x6000u) | DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING);
 	if (!backend_.Check(result, "native ResizeBuffers1")) { return result; }
+	backend_.ApplyNativeColorSpace();
 	gameFormat_ = gameFormat;
 	const auto rebuilt = RebuildBuffers();
 	if (!backend_.Check(rebuilt, "rebuild after ResizeBuffers1")) { return rebuilt; }

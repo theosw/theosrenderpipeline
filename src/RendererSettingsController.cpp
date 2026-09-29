@@ -131,6 +131,8 @@ RendererSettingsResult RendererSettingsController::Apply(const RendererSettingsD
         source.ConfigureReflex(static_cast<sl::ReflexMode>(frameGen_.settings.sourceDLSSG.reflexMode));
         source.ConfigureOutputFPSLimit(frameGen_.settings.sourceDLSSG.outputFPSLimit);
         source.ConfigureGeneration(frameGen_.settings.sourceDLSSG.generation);
+        // Enabled is kept for saving; the backend applies it at the next swapchain creation.
+        source.ConfigureHDROutput(frameGen_.settings.sourceDLSSG.hdrOutput);
         TheosRenderPipeline::SourceDLSSG::NeuralOptions options;
         options.enabled = frameGen_.settings.sourceDLSSG.neuralEnabled &&
             NeuralSettingsUnavailable(upscaler_.mUpscaleType, capabilities) == nullptr;
