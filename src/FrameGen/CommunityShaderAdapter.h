@@ -45,7 +45,7 @@ namespace TheosRenderPipeline
         bool EvaluateWorld(ID3D11Texture2D* color, FrameExtent colorExtent);
         CommunityShaderFrame resources_;
         SourceDLSSG::CameraHistory history_, candidate_;
-        SourceDLSSG::NeuralOptions options_;
+        SourceDLSSG::NeuralOptions options_, evaluatedOptions_;
         sl::Constants camera_{};
         Microsoft::WRL::ComPtr<ID3D11DeviceContext> context_;
         bool cameraValid_{}, eligible_{}, reset_{}, worldBegun_{}, upscalingCompleted_{}, worldCompleted_{}, prepared_{};

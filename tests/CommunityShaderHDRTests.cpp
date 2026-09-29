@@ -1,6 +1,6 @@
 #include "CommunityShaderUIBoundary.h"
 #include "FrameGen/CommunityShaderFrame.h"
-#include "FrameGen/D3D11LiveSlot.h"
+#include "FrameGen/D3D11EntryObservers.h"
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -36,6 +36,7 @@ static UINT Pixel(ID3D11DeviceContext* context, ID3D11Texture2D* source)
     return pixel;
 }
 
+static D3D_DRIVER_TYPE driver = D3D_DRIVER_TYPE_WARP;
 static unsigned replayCount{};
 static void STDMETHODCALLTYPE Replay(ID3D11DeviceContext* context, UINT x, UINT y, UINT z)
 {
@@ -80,7 +81,7 @@ struct Fixture
     Fixture()
     {
         const D3D_FEATURE_LEVEL levels[]{D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0};
-        Check(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0, levels, 2,
+        Check(D3D11CreateDevice(nullptr, driver, nullptr, 0, levels, 2,
             D3D11_SDK_VERSION, &device, nullptr, &context), "WARP device");
         ComPtr<ID3DBlob> code, errors;
         Check(D3DCompile(shaderSource, sizeof(shaderSource) - 1, nullptr, nullptr, nullptr,
@@ -153,41 +154,21 @@ struct Fixture
 
 namespace LiveObservers
 {
-    using Copy = void (STDMETHODCALLTYPE*)(ID3D11DeviceContext*, ID3D11Resource*, ID3D11Resource*);
     static Fixture* fixture{};
-    static D3D11LiveSlot dispatchSlot, copySlot;
-    static unsigned dispatchCalls{}, copyCalls{};
-
-    static void STDMETHODCALLTYPE Dispatch(ID3D11DeviceContext* context, UINT x, UINT y, UINT z)
+    static unsigned dispatchCalls{}, copyCalls{}, transforms{};
+    static void Dispatch(ID3D11DeviceContext* context, UINT x, UINT y, UINT z, D3D11EntryObservers::Dispatch original)
     {
+        if (!fixture || context != fixture->context.Get()) { return; }
         ++dispatchCalls;
-        const auto original = reinterpret_cast<CommunityShaderFrame::Dispatch>(dispatchSlot.Original());
-        fixture->frame.CaptureDisplayTransform(context, x, y, z, original);
-        original(context, x, y, z);
+        if (fixture->frame.CaptureDisplayTransform(context, x, y, z, original) == S_OK) { ++transforms; }
     }
-    static void STDMETHODCALLTYPE CopyResource(ID3D11DeviceContext* context, ID3D11Resource* destination, ID3D11Resource* source)
+    static void CopyResource(ID3D11DeviceContext* context, ID3D11Resource* destination, ID3D11Resource* source)
     {
+        if (!fixture || context != fixture->context.Get()) { return; }
         ++copyCalls;
         if (D3D11FrameCopy::SameObject(destination, fixture->presentation.Get())) {
             fixture->frame.ConfirmPresentationCopy(source);
         }
-        reinterpret_cast<Copy>(copySlot.Original())(context, destination, source);
-    }
-    static void Install()
-    {
-        Require(dispatchSlot.Ensure(fixture->context.Get(), 41, reinterpret_cast<std::uintptr_t>(&Dispatch)), "install live Dispatch observer");
-        Require(copySlot.Ensure(fixture->context.Get(), 47, reinterpret_cast<std::uintptr_t>(&CopyResource)), "install live CopyResource observer");
-        dispatchCalls = copyCalls = 0;
-    }
-    static void Restore(std::size_t index, std::uintptr_t hook, std::uintptr_t original)
-    {
-        auto* slot = *reinterpret_cast<std::uintptr_t**>(fixture->context.Get()) + index;
-        DWORD previous{}, ignored{};
-        Require(VirtualProtect(slot, sizeof(*slot), PAGE_READWRITE, &previous), "unprotect test observer slot");
-        // Do not overwrite a replacement installed by the runtime.
-        InterlockedCompareExchangePointer(reinterpret_cast<void* volatile*>(slot),
-            reinterpret_cast<void*>(original), reinterpret_cast<void*>(hook));
-        Require(VirtualProtect(slot, sizeof(*slot), previous, &ignored), "restore test slot protection");
     }
     static void Composite()
     {
@@ -197,56 +178,74 @@ namespace LiveObservers
         ID3D11ShaderResourceView* inputs[]{f.sceneSRV.Get(), f.uiSRV.Get()};
         f.context->CSSetShaderResources(0, 2, inputs);
         f.context->CSSetUnorderedAccessViews(0, 1, f.outputUAV.GetAddressOf(), nullptr);
-        // Unlike Fixture::Composite, these reach capture only through the real
-        // context table. No direct helper calls can conceal a missing observer.
+        // Capture is reached only through real D3D11 calls and production entry
+        // hooks. Direct helper calls cannot conceal a missing observer.
         f.context->Dispatch(f.width / 4, f.height / 2, 1);
         f.context->ClearState();
         f.context->CopyResource(f.presentation.Get(), f.converted.Get());
     }
-    static bool Handoff()
+    static void Handoff()
     {
         Fixture f; fixture = &f;
-        f.Begin(1); f.FinishUI(); Install(); Composite();
-        Require(dispatchCalls && copyCalls && f.frame.PresentationStatus(f.desc) == State::Ready,
-            "live callbacks prepare a complete HDR frame");
-        const auto clean = Pixel(f.context.Get(), f.frame.Hudless(f.desc));
-        const auto visible = Pixel(f.context.Get(), f.presentation.Get());
-        Require(clean != visible, "live replay excludes the visible UI");
-        f.Present();
-
-        f.Begin(2); f.FinishUI(); Install();
-        // This ordinary runtime call can rewrite the context table after the
-        // last UI-boundary repair, without a SwapDeviceContextState call.
-        f.context->Flush();
-        Composite();
-        const auto state = f.frame.PresentationStatus(f.desc);
-        const bool continuous = dispatchCalls && copyCalls && state == State::Ready;
-        if (continuous) {
-            Require(Pixel(f.context.Get(), f.frame.Hudless(f.desc)) == clean, "continuous live capture stays HUDless");
-        } else {
-            Require((state == State::AwaitingTransform || state == State::AwaitingCopy) && !f.frame.Hudless(f.desc),
-                "lost observer refuses stale frame-generation inputs");
+        Require(D3D11EntryObservers::Ensure(f.context.Get(), Dispatch, CopyResource), "install entry observers");
+        ComPtr<ID3D11Device1> device1; ComPtr<ID3D11DeviceContext1> context1;
+        Check(f.device.As(&device1), "device1"); Check(f.context.As(&context1), "context1");
+        const D3D_FEATURE_LEVEL level = D3D_FEATURE_LEVEL_11_1;
+        ComPtr<ID3DDeviceContextState> scratch, saved;
+        Check(device1->CreateDeviceContextState(0, &level, 1, D3D11_SDK_VERSION, __uuidof(ID3D11Device), nullptr, &scratch), "scratch state");
+        ComPtr<ID3D11Query> query;
+        D3D11_QUERY_DESC queryDesc{D3D11_QUERY_TIMESTAMP_DISJOINT, 0};
+        Check(f.device->CreateQuery(&queryDesc, &query), "query");
+        UINT clean{}, visible{};
+        for (unsigned number = 1; number <= 64; ++number) {
+            f.Begin(number); f.FinishUI();
+            // No reinstallation after the UI boundary or these runtime calls.
+            switch (number % 4) {
+            case 0: f.context->Flush(); break;
+            case 1:
+                context1->SwapDeviceContextState(scratch.Get(), &saved);
+                context1->SwapDeviceContextState(saved.Get(), nullptr); saved.Reset();
+                break;
+            case 2: {
+                f.context->Begin(query.Get()); f.context->End(query.Get());
+                D3D11_QUERY_DATA_TIMESTAMP_DISJOINT data{};
+                f.context->GetData(query.Get(), &data, sizeof(data), D3D11_ASYNC_GETDATA_DONOTFLUSH);
+                break;
+            }
+            case 3: f.context->ClearState(); break;
+            }
+            dispatchCalls = copyCalls = transforms = 0;
+            Composite();
+            Require(dispatchCalls == 1 && copyCalls == 1 && transforms == 1 && f.frame.PresentationStatus(f.desc) == State::Ready,
+                "entry observers prepare each HDR frame exactly once after runtime mutations");
+            const auto actualClean = Pixel(f.context.Get(), f.frame.Hudless(f.desc));
+            const auto actualVisible = Pixel(f.context.Get(), f.presentation.Get());
+            if (number == 1) { clean = actualClean; visible = actualVisible; }
+            Require(clean != visible && actualClean == clean && actualVisible == visible,
+                "fresh HUDless replay and visible HDR UI survive every mutation");
+            f.Present();
+            Require(!f.frame.Hudless(f.desc), "completed presentation cannot supply stale FG inputs");
         }
-        std::printf("Live HDR observers after Flush: Dispatch=%u CopyResource=%u capture=%s\n",
-            dispatchCalls, copyCalls, continuous ? "ready" : "missing (known reliability gap)");
-        Require(Pixel(f.context.Get(), f.presentation.Get()) == visible, "visible HDR output survives a capture gap");
-        f.Present();
-
-        f.Begin(3); f.FinishUI(); Install(); Composite();
-        Require(f.frame.PresentationStatus(f.desc) == State::Ready, "next-frame observer repair recovers capture");
-        Require(Pixel(f.context.Get(), f.frame.Hudless(f.desc)) == clean, "recovered frame has fresh HUDless output");
-        f.Present();
-        Restore(41, reinterpret_cast<std::uintptr_t>(&Dispatch), dispatchSlot.Original());
-        Restore(47, reinterpret_cast<std::uintptr_t>(&CopyResource), copySlot.Original());
+        // Entry hooks are shared by devices. An unrelated context still forwards
+        // its work, without admitting it as the selected producer's frame.
+        Fixture unrelated;
+        unrelated.Begin(100); unrelated.FinishUI();
+        dispatchCalls = copyCalls = transforms = 0;
+        unrelated.Composite(true);
+        Require(dispatchCalls == 0 && copyCalls == 0 && transforms == 0,
+            "unrelated device work does not enter the selected producer");
         fixture = nullptr;
-        return continuous;
+        std::puts("Live HDR entry observers: 64/64 frames ready after flush/query/state changes; fresh HUDless and visible UI pixels verified.");
     }
 }
 
 int main(int argc, char** argv)
 {
+    const bool hardware = argc == 2 && std::string_view(argv[1]) == "--hardware";
+    // Retain the old acceptance command; continuity is now mandatory by default.
     const bool requireStable = argc == 2 && std::string_view(argv[1]) == "--require-stable-observers";
-    Require(argc == 1 || requireStable, "supported arguments");
+    Require(argc == 1 || requireStable || hardware, "supported arguments");
+    if (hardware) { driver = D3D_DRIVER_TYPE_HARDWARE; }
     Fixture f;
     // Old order: compositor cannot identify t1 and the late overlay is cleared.
     f.Begin(1); f.Composite(false);
@@ -320,10 +319,5 @@ int main(int argc, char** argv)
         Require(scope && !isolation.Accepts(alias.Get(), alias.Get()), "no producer capture during our isolation");
     }
     std::puts("CS HDR: late-boundary failure reproduced; early UI, FP16/PQ scene capture, producer state, suppression, test Present, loading, resize and context alias passed.");
-    const bool continuous = LiveObservers::Handoff();
-    // Default coverage checks the handoff, safe failure and recovery. This
-    // explicit acceptance probe must also pass before claiming reliable HDR FG.
-    if (requireStable) {
-        Require(continuous, "HDR observers must survive ordinary post-UI runtime work");
-    }
+    LiveObservers::Handoff();
 }

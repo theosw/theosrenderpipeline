@@ -36,12 +36,9 @@ namespace TheosRenderPipeline
 #if !defined(TRP_NO_NEURAL_RENDERING)
         NeuralRendering::ApplyCombatMode(options, eligible_);
 #endif
-        // Adapt the frame after appearance has sampled the saved preferences.
-        // CompleteWorld corrects the retained range if CS toggles HDR this frame.
-        if (!options.beforeUpscaling) {
-            options.reconstruction = NeuralRendering::CompletedSceneContract(options.reconstruction, extendedScene_);
-        }
-        if (!SourceDLSSG::SameHistoryOptions(options, options_)) { neuralBoundaryReported_ = false; }
+        // Keep the resolved preset until the actual completed scene is known.
+        // Re-reading global preferences at an HDR transition loses this frame's
+        // appearance overrides; using the previous format can miss a transition.
         options_ = std::move(options);
         // Early CS color is unfinished producer RGB, not a display-ready image.
         // The paired proxy transfers only NR's changes back to the retained scene.
@@ -60,6 +57,8 @@ namespace TheosRenderPipeline
     {
         D3D11ContextIsolation::Scope scope{resources_.Isolation(), context_.Get()};
         if (!scope) { status_ = "CS context unavailable at NR boundary"; return false; }
+        if (!SourceDLSSG::SameHistoryOptions(options_, evaluatedOptions_)) { neuralBoundaryReported_ = false; }
+        evaluatedOptions_ = options_;
         const bool result = SourceDLSSG::Backend::Get().EvaluateNeuralWorld(options_,
             cameraValid_ ? &camera_ : nullptr, eligible_, color, resources_.Motion(), resources_.Depth(),
             resources_.RenderExtent(), extent, reset_);
@@ -102,11 +101,9 @@ namespace TheosRenderPipeline
             extendedScene_ = extended;
             logger::info("[CS Adapter] completed scene format={} {}; late NR uses {} colour", static_cast<unsigned>(sceneDesc.Format),
                 extended ? "extended-range HDR" : "display-range", extended ? "producer-restored" : "the saved");
-            if (!options_.beforeUpscaling) {
-                auto options = SourceDLSSG::Backend::Get().NeuralConfiguration();
-                options_.reconstruction = NeuralRendering::CompletedSceneContract(options.reconstruction, extended);
-                neuralBoundaryReported_ = false;
-            }
+        }
+        if (!options_.beforeUpscaling) {
+            options_.reconstruction = NeuralRendering::CompletedSceneContract(options_.reconstruction, extended);
         }
         if (!options_.beforeUpscaling && !EvaluateWorld(scene, resources_.OutputExtent())) {
             worldBegun_ = false; return false;

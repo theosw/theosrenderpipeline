@@ -4,7 +4,7 @@
 #include "HookDetour.h"
 #include "FrameGen/NvidiaHost.h"
 #include "FrameGen/CommunityShaderAdapter.h"
-#include "FrameGen/D3D11LiveSlot.h"
+#include "FrameGen/D3D11EntryObservers.h"
 #include "RenderPipeline.h"
 #include "OverlayUI.h"
 #include "PerformanceTuning.h"
@@ -23,16 +23,8 @@ namespace TheosRenderPipeline::CommunityShaders
         using DrawInterface = void (*)(std::int64_t);
         DrawInterface interfaceOriginal{};
         CommunityShaderUIBoundary uiBoundary;
-        CommunityShaderFrame::Dispatch dispatchOriginal{};
-        using Copy = void (STDMETHODCALLTYPE*)(ID3D11DeviceContext*, ID3D11Resource*, ID3D11Resource*);
-        Copy copyOriginal{};
-        // The context's table is rewritten on every state swap, including our
-        // isolation's. These entries are reinstalled on the renderer's context.
-        D3D11LiveSlot liveDispatch, liveCopy;
         ID3D11DeviceContext* deviceContext{};
         ID3D11DeviceContext* producerContext{};
-        // One observation per producer call, even when one hooked table forwards to another.
-        thread_local unsigned contextHookDepth{};
         std::atomic<std::uint64_t> observedDispatches{}, observedCopies{}, observedPresents{};
         ID3D11DeviceContext* ProducerContext(RE::BSGraphics::Renderer* renderer);
         void ReportDisplayWait();
@@ -105,50 +97,28 @@ namespace TheosRenderPipeline::CommunityShaders
             producerOriginal(manager, effect, target, arg, flag);
             worldBoundary = previous;
         }
-        struct ContextHookScope
+        bool IsProducerContext(ID3D11DeviceContext* context)
         {
-            ContextHookScope() { ++contextHookDepth; }
-            ~ContextHookScope() { --contextHookDepth; }
-        };
+            return context == deviceContext || context == producerContext;
+        }
         void ObserveDispatch(ID3D11DeviceContext* context, UINT x, UINT y, UINT z, CommunityShaderFrame::Dispatch original)
         {
-            if (contextHookDepth == 0) {
+            if (IsProducerContext(context)) {
                 observedDispatches.fetch_add(1, std::memory_order_relaxed);
-                ContextHookScope scope;
                 if (!ReShadeIntegration::Get().Internal()) {
                     NvidiaHost::GetSingleton()->CommunityFrame().CaptureDisplayTransform(context, x, y, z, original);
                 }
             }
-            ContextHookScope scope;
-            original(context, x, y, z);
         }
-        void ObserveCopy(ID3D11DeviceContext* context, ID3D11Resource* destination, ID3D11Resource* source, Copy original)
+        void ObserveCopy(ID3D11DeviceContext* context, ID3D11Resource* destination, ID3D11Resource* source)
         {
-            if (contextHookDepth == 0) {
+            if (IsProducerContext(context)) {
                 observedCopies.fetch_add(1, std::memory_order_relaxed);
                 auto* host = NvidiaHost::GetSingleton();
                 if (!ReShadeIntegration::Get().Internal() && D3D11FrameCopy::SameObject(destination, host->GameFacingTexture())) {
                     host->CommunityFrame().ConfirmPresentationCopy(source);
                 }
             }
-            ContextHookScope scope;
-            original(context, destination, source);
-        }
-        void STDMETHODCALLTYPE Dispatch(ID3D11DeviceContext* context, UINT x, UINT y, UINT z)
-        {
-            ObserveDispatch(context, x, y, z, dispatchOriginal);
-        }
-        void STDMETHODCALLTYPE LiveDispatch(ID3D11DeviceContext* context, UINT x, UINT y, UINT z)
-        {
-            ObserveDispatch(context, x, y, z, reinterpret_cast<CommunityShaderFrame::Dispatch>(liveDispatch.Original()));
-        }
-        void STDMETHODCALLTYPE CopyResource(ID3D11DeviceContext* context, ID3D11Resource* destination, ID3D11Resource* source)
-        {
-            ObserveCopy(context, destination, source, copyOriginal);
-        }
-        void STDMETHODCALLTYPE LiveCopyResource(ID3D11DeviceContext* context, ID3D11Resource* destination, ID3D11Resource* source)
-        {
-            ObserveCopy(context, destination, source, reinterpret_cast<Copy>(liveCopy.Original()));
         }
         std::string Owner(std::uintptr_t address)
         {
@@ -158,20 +128,20 @@ namespace TheosRenderPipeline::CommunityShaders
                 reinterpret_cast<LPCWSTR>(address), &owner)) { GetModuleFileNameW(owner, path.data(), static_cast<DWORD>(path.size())); }
             return path[0] ? std::filesystem::path(path.data()).filename().string() : "unknown";
         }
-        // Call after our last isolated context work and before producer calls
-        // that must be observed, such as CS's HDR display composite.
+        // Discover renderer/proxy entries at an engine boundary. Entries already
+        // installed survive runtime table rewrites; there is no per-frame repair.
         void EnsureContextObservers()
         {
             if (!producerContext) { return; }
-            const bool dispatch = liveDispatch.Ensure(producerContext, 41, reinterpret_cast<std::uintptr_t>(&LiveDispatch));
-            const bool copy = liveCopy.Ensure(producerContext, 47, reinterpret_cast<std::uintptr_t>(&LiveCopyResource));
+            const bool observed = D3D11EntryObservers::Ensure(producerContext, &ObserveDispatch, &ObserveCopy);
             static bool reported{}, failed{};
-            if (!reported || (!(dispatch && copy) && !failed)) {
-                logger::info("[CS Adapter] renderer context=0x{:X} device=0x{:X} host=0x{:X}; live Dispatch={} ({}) CopyResource={} ({})",
+            if (!reported || (!observed && !failed)) {
+                const auto* table = *reinterpret_cast<std::uintptr_t**>(producerContext);
+                logger::info("[CS Adapter] renderer context=0x{:X} device=0x{:X} host=0x{:X}; entry observers={} Dispatch={} CopyResource={}",
                     reinterpret_cast<std::uintptr_t>(producerContext), reinterpret_cast<std::uintptr_t>(deviceContext),
                     reinterpret_cast<std::uintptr_t>(RenderPipeline::GetSingleton()->mContext),
-                    dispatch ? "observed" : "FAILED", Owner(liveDispatch.Original()), copy ? "observed" : "FAILED", Owner(liveCopy.Original()));
-                reported = true; failed = !(dispatch && copy);
+                    observed ? "installed" : "FAILED", Owner(table[41]), Owner(table[47]));
+                reported = true; failed = !observed;
             }
         }
         // The producer composes through the engine renderer's context.
@@ -187,8 +157,6 @@ namespace TheosRenderPipeline::CommunityShaders
             if (!frame) { return false; }
             NvidiaHost::GetSingleton()->CommunityFrame().SetUIBoundary(frame.Get());
             OverlayUI::GetSingleton()->OnPresent(frame.Get());
-            // Our frame work is done; CS HDR composites before our Present hook.
-            EnsureContextObservers();
             return true;
         }
         void Interface(std::int64_t arg)
@@ -206,9 +174,9 @@ namespace TheosRenderPipeline::CommunityShaders
             if (++frames % 600) { return; }
             const std::string_view status = NvidiaHost::GetSingleton()->CommunityFrame().Status();
             if (status.starts_with("Waiting for CS display")) {
-                logger::info("[CS Adapter] {}; observed dispatches={} copies={} presents={} reinstalls={}/{}", status,
+                logger::info("[CS Adapter] {}; observed dispatches={} copies={} presents={} entry hooks={}/{}", status,
                     observedDispatches.load(std::memory_order_relaxed), observedCopies.load(std::memory_order_relaxed),
-                    observedPresents.load(std::memory_order_relaxed), liveDispatch.Installs(), liveCopy.Installs());
+                    observedPresents.load(std::memory_order_relaxed), D3D11EntryObservers::DispatchEntries(), D3D11EntryObservers::CopyEntries());
             }
         }
         HRESULT STDMETHODCALLTYPE TopPresent(IDXGISwapChain* chain, UINT interval, UINT flags)
@@ -268,12 +236,10 @@ namespace TheosRenderPipeline::CommunityShaders
     }
     void InstallDeviceHooks(ID3D11DeviceContext* context, IDXGISwapChain* chain)
     {
-        InstallVTableHook(context, 41, &Dispatch, dispatchOriginal);
-        InstallVTableHook(context, 47, &CopyResource, copyOriginal);
         InstallVTableHook(chain, 8, &TopPresent, presentOriginal);
         gameSwapChain = chain;
         deviceContext = context;
-        if (!dispatchOriginal || !copyOriginal || !presentOriginal) {
+        if (!D3D11EntryObservers::Ensure(context, &ObserveDispatch, &ObserveCopy) || !presentOriginal) {
             util::report_and_fail("Could not preserve the CS display/Present chain.");
         }
     }
