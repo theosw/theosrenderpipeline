@@ -269,10 +269,26 @@ bool NvidiaHost::InitializeSourceUpscaler(const D3D11_TEXTURE2D_DESC& a_outputDe
     // Allocate the native handoff target before creating the DLSS feature.
     // The source backend imports the completed D3D11 output for presentation.
     const auto outputResult = gameTargets_.CreateUpscaleOutputAfterRetirement(device_.Get(), a_outputDesc);
+    const auto& allocation = gameTargets_.LastOutputAllocation();
+    logger::info("[NvidiaHost] handoff allocation format={} supportHr=0x{:08X} support=0x{:X} uavAttempted={} uavHr=0x{:08X} plainAttempted={} plainHr=0x{:08X} deviceStatusChecked={} deviceRemovedReason=0x{:08X} result=0x{:08X}",
+                 static_cast<std::uint32_t>(a_outputDesc.Format), static_cast<std::uint32_t>(allocation.formatSupportResult),
+                 allocation.formatSupport, allocation.unorderedAccessAttempted, static_cast<std::uint32_t>(allocation.unorderedAccessResult),
+                 allocation.plainAttempted, static_cast<std::uint32_t>(allocation.plainResult), allocation.deviceStatusChecked,
+                 static_cast<std::uint32_t>(allocation.deviceRemovedReason), static_cast<std::uint32_t>(outputResult));
     if (FAILED(outputResult) || !gameTargets_.UpscaleOutput())
     {
         status_ = std::format("TheosRenderPipeline DLSS native handoff texture creation failed (0x{:08X})", static_cast<std::uint32_t>(outputResult));
         return false;
+    }
+    {
+        // Whether the direct-output routes can be eligible at all is decided
+        // here, once, and is otherwise only observable as a per-session
+        // rejection after the user enables them.
+        D3D11_TEXTURE2D_DESC handoff{};
+        gameTargets_.UpscaleOutput()->GetDesc(&handoff);
+        logger::info("[NvidiaHost] native handoff target {}x{} format={} bind=0x{:X}; direct-output routes {}",
+                     handoff.Width, handoff.Height, static_cast<std::uint32_t>(handoff.Format), handoff.BindFlags,
+                     (handoff.BindFlags & D3D11_BIND_UNORDERED_ACCESS) ? "can be requested" : "unavailable on allocated target; using copy route");
     }
 
     auto* dlss = DLSSBackend::GetSingleton();
