@@ -39,6 +39,7 @@ namespace TheosRenderPipeline
             return false;
         }
         bool IsENBTarget(ID3D11View* view) const { return References(view, enbUI_.Get()); }
+        ID3D11Resource* ENBResource() const { return enbUI_.Get(); }
 
         HRESULT Ensure(ID3D11Device* device, ID3D11DeviceContext* context,
             ID3D11Texture2D* motion, ID3D11Texture2D* depth, UINT width, UINT height)
