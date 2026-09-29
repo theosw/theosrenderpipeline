@@ -170,10 +170,17 @@ void OverlayUI::DrawImagePanel(float tabCardHeight, const FrameView& view)
                         TheosRenderPipeline::DLSSPreset::Description(settingsDraft.dlssPreset))
                 .c_str());
         ImGui::Spacing();
+#if defined(TRP_NO_NEURAL_RENDERING)
+        // Without NR there is no Neural Rendering tab to hold sharpening.
         ImGui::Checkbox("Sharpening", &settingsDraft.sharpening);
         ImGui::BeginDisabled(!settingsDraft.sharpening);
         ImGui::SliderFloat("Strength##sharpness", &settingsDraft.sharpness, 0, 1, "%.2f");
         ImGui::EndDisabled();
+#else
+        DrawSettingsValue("Sharpening", settingsDraft.sharpening ? std::format("{:.2f}", settingsDraft.sharpness).c_str() : "Off");
+        DrawSettingsHelp("Set in the Neural Rendering tab. Applies with or without NR.");
+#endif
+        DrawPresetSharpeningStatus();
         ImGui::Separator();
 
         ImGui::Checkbox("Auto exposure", &settingsDraft.autoExposure);

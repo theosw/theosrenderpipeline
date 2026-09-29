@@ -25,10 +25,13 @@ namespace TheosRenderPipeline
             input.render.height, input.jitterX, input.jitterY, reset_, input.jittered, camera_, candidate_);
         auto options = SourceDLSSG::Backend::Get().NeuralConfiguration();
         options.worldOnly = true;
+        // CS owns its sharpening. Only TRP NR settings are applied on this route.
+        bool sharpening = false;
+        float sharpness = RenderPipeline::GetSingleton()->mSharpness;
+        Appearance::Runtime::Get().Apply(options, sharpening, sharpness);
+        // Route contract after presets, which may change placement or UI correction.
         options.tuning.uiCorrection = false;
         options.reconstruction.producerColor = options.beforeUpscaling;
-        // CS owns its sharpening. Only TRP NR tuning is applied on this route.
-        Appearance::Runtime::Get().Apply(options, RenderPipeline::GetSingleton()->mSharpness);
         // Apply appearance to saved preferences before transient combat overrides.
 #if !defined(TRP_NO_NEURAL_RENDERING)
         NeuralRendering::ApplyCombatMode(options, eligible_);

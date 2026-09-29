@@ -12,6 +12,7 @@
 #include "OverlayHotkeys.h"
 #include "OverlayLayout.h"
 #include "WeatherAppearanceINI.h"
+#include "WeatherAppearanceFiles.h"
 #include "WeatherAppearanceRuntime.h"
 
 #include <SimpleIni.h>
@@ -60,7 +61,7 @@ void RenderPipeline::LoadINI()
 	logger::info("[Overlay Input] NR shortcuts enabled={}", mEnableNRHotkeys);
 	mLogMenuMetrics = ini.GetBoolValue("Debug", "LogMenuMetrics", false);
 	mQualityLevel = std::clamp(mQualityLevel, 0, 4);
-    TheosRenderPipeline::Appearance::Runtime::Get().Configure(TheosRenderPipeline::Appearance::LoadSettings(ini));
+    TheosRenderPipeline::Appearance::Runtime::Get().Configure(TheosRenderPipeline::Appearance::Runtime::Load(ini));
 
 	// A reload after the feature exists (e.g. kDataLoaded) must not stomp the
 	// computed optimal bias with the INI's stored value.
@@ -126,7 +127,14 @@ bool RenderPipeline::SaveINI(const TheosRenderPipeline::Overlay::Layout* layout)
     frameGeneration->StoreUIComposition(ini);
     frameGeneration->StoreCompatibilityPreference(ini);
     TheosRenderPipeline::SourceDLSSG::StorePreferences(ini, sourceSettings.sourceDLSSG);
-    TheosRenderPipeline::Appearance::StoreSettings(ini, TheosRenderPipeline::Appearance::Runtime::Get().Configuration());
+    // Preset files first; the main INI's appearance settings follow only once every file is written.
+    auto& appearance = TheosRenderPipeline::Appearance::Runtime::Get();
+    const auto presets = TheosRenderPipeline::Appearance::SaveAppearance(ini, appearance.Configuration(),
+        TheosRenderPipeline::Appearance::Runtime::PresetFolder());
+    for (const auto& error : presets.errors) { logger::error("[Appearance] {}", error); }
+    logger::info("[Appearance] saved {} preset files ({} unchanged)", presets.files, presets.unchanged);
+    appearance.Configure(presets.settings);
+    const bool presetsSaved = presets.Ok();
 	ini.SetBoolValue("Debug", "LogMenuMetrics", mLogMenuMetrics);
     if (layout) { TheosRenderPipeline::Overlay::StoreLayout(ini, *layout); }
 	const auto rc = ini.SaveFile(L"Data\\SKSE\\Plugins\\TheosRenderPipeline.ini");
@@ -136,7 +144,7 @@ bool RenderPipeline::SaveINI(const TheosRenderPipeline::Overlay::Layout* layout)
 	}
 	logger::info("Settings saved (rc={})", static_cast<int>(rc));
 	if (sourceHost->StartupConfigured()) { sourceHost->SourceUpscalerSettingsSaved(); }
-	return true;
+	return presetsSaved;
 }
 
 void RenderPipeline::MessageHandler(SKSE::MessagingInterface::Message* a_msg)

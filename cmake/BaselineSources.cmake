@@ -37,6 +37,7 @@ set(ARP_BASELINE_SOURCES
     src/FrameGen/SourceFrameCoordinator.h
     src/FrameGen/SourceNvidiaFrameEvaluator.h
     src/FrameGen/SourceNvidiaFramePreparation.h
+    src/FrameGen/SourceCameraSelection.h
     src/FrameGen/D3D11FrameCopy.h
     src/FrameGen/D3D11ContextIsolation.h
     src/FrameGen/FinalFrameCapture.h
@@ -79,7 +80,9 @@ set(ARP_BASELINE_SOURCES
     src/WeatherAppearanceINI.h
     src/WeatherAppearanceRuntime.h
     src/WeatherAppearanceRuntime.cpp
-    src/OverlayAppearancePanel.cpp
+    src/WeatherAppearanceSetup.h
+    src/WeatherAppearanceFiles.h
+    src/OverlayPresetsPanel.cpp
     src/RenderPipeline.h
     src/ReShadeIntegration.cpp
     src/ReShadeIntegration.h
@@ -148,6 +151,8 @@ set(ARP_BASELINE_SOURCES
     src/OverlayAdvancedPanel.cpp
     src/OverlayUIStyle.cpp
     src/OverlayUIStyle.h
+    src/OverlayPresetDecor.h
+    src/OverlaySettingRows.h
     src/OverlayFrameGenerationPanel.cpp
     src/OverlayPerformancePanel.cpp
     src/OverlayUI.h

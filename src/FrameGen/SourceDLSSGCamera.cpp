@@ -1,4 +1,5 @@
 #include "SourceDLSSGCamera.h"
+#include "SourceCameraSelection.h"
 #include <PCH.h>
 #include "../RE/BSGraphics.h"
 
@@ -29,26 +30,16 @@ namespace TheosRenderPipeline::SourceDLSSG
 		};
 		auto* player = RE::PlayerCamera::GetSingleton();
 		if (!state || !width || !height || !player || !player->cameraRoot) { return unavailable("player camera or graphics state absent"); }
-		const BSGraphics::CameraStateData* selected = nullptr;
-		for (const auto& entry : state->GetRuntimeData().kCameraDataCacheA) {
-			// The cache can contain both jittered and unjittered versions of the
-			// same camera. Use the variant that produced the current raster guides.
-			if (!entry.pReferenceCamera || entry.UseJitter != jittered) { continue; }
-			// Select the actual player camera, not a shadow or reflection view.
-			auto* parent = entry.pReferenceCamera->parent;
-			for (unsigned depth = 0; parent && depth < 8; ++depth, parent = parent->parent) {
-				if (parent == player->cameraRoot.get()) {
-					if (selected) { return unavailable("multiple matching player views"); }
-					selected = &entry;
-					break;
-				}
-			}
-		}
+		const auto selection = SelectOwnedCameraView(RE::NiPointer<RE::NiAVObject>(player->cameraRoot),
+			state->GetRuntimeData().kCameraDataCacheA, jittered,
+			[](RE::NiAVObject* object) { return netimmerse_cast<RE::NiCamera*>(object) != nullptr; });
+		if (selection.ambiguous) { return unavailable("multiple matching player views"); }
+		const auto* selected = selection.entry;
 		if (!selected) { return unavailable("no matching player view in graphics cache"); }
 		DirectX::XMFLOAT4X4 projection, view;
 		DirectX::XMStoreFloat4x4(&projection, selected->CamViewData.m_ProjMatrixUnjittered);
 		DirectX::XMStoreFloat4x4(&view, selected->CamViewData.m_ViewMat);
-		const auto* camera = selected->pReferenceCamera;
+		const auto* camera = static_cast<const RE::NiCamera*>(selection.camera.get());
 		const auto& position = camera->world.translate;
 		const float aspect = static_cast<float>(width) / static_cast<float>(height);
 		if (projection._11 <= 0 || std::abs(projection._22 / projection._11 - aspect) > 0.02f) {
