@@ -2,7 +2,7 @@
 
 NVIDIA rendering integration for Skyrim: DLSS/DLAA, frame generation, optional
 Neural Rendering (NR), and native-resolution menus and HUD. Current version:
-**0.3.0**. See [CHANGELOG.md](CHANGELOG.md) for release changes.
+**0.3.2**. See [CHANGELOG.md](CHANGELOG.md) for release changes.
 
 ## Features
 

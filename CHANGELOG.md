@@ -1,3 +1,34 @@
+# 0.3.2
+
+- Added weather and time presets for individual NR settings and sharpening,
+  with Base inheritance, interior/weather assignments and per-setting reset.
+- Added shareable preset INI files, list priority, and full preset copies.
+- Moved presets and sharpening into the Neural Rendering tab alongside the
+  Pass 1 / Pass 2 controls; added keyboard-layout-aware text entry.
+- Added optional one-pass NR during combat or while weapons/spells are drawn,
+  with a configurable delay before the second pass resumes.
+- Corrected ReShade screenshots using a subsequent completed frame containing
+  DLSS, NR and the HUD; the existing capture limitations remain documented.
+
+Both editions retain NR and their existing frame-generation capabilities.
+NVIDIA runtime files are unchanged. HDR remains unsupported. Preset files use
+the new format and are not readable by earlier builds; preserve settings before
+switching back to an older version.
+
+# 0.3.1
+
+- Allow frame generation and Neural Rendering during RaceMenu character creation,
+  while retaining the loading-screen and fade guards.
+- Reduce NR activation work by embedding its shaders at build time and reusing
+  the verified runtime identity when toggling a retained NR feature. First-time
+  NVIDIA model and pipeline creation can still cause a pause.
+- Support Bottled Shaders' reverse-Z depth format and forward the correct depth
+  convention to frame generation and both NR placements.
+- Correct GPU timing scopes and the labels for rendering-stage measurements.
+
+NVIDIA runtime DLLs and configuration defaults are unchanged. HDR remains
+unsupported, and RTX 20/30 compatibility retains the documented test limits.
+
 # 0.3.0
 
 - Added experimental RTX 20 frame-generation compatibility in Universal.
