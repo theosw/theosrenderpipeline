@@ -20,6 +20,19 @@ namespace TheosRenderPipeline
         ID3D11Texture2D* UpscaleInput() const { return upscaleInput_.Get(); }
         ID3D11Texture2D* UpscaleOutput() const { return upscaleOutput_.Get(); }
 
+        struct OutputAllocation
+        {
+            HRESULT formatSupportResult{E_PENDING};
+            UINT formatSupport{};
+            bool unorderedAccessAttempted{};
+            HRESULT unorderedAccessResult{E_PENDING};
+            bool plainAttempted{};
+            HRESULT plainResult{E_PENDING};
+            bool deviceStatusChecked{};
+            HRESULT deviceRemovedReason{S_OK};
+        };
+        const OutputAllocation& LastOutputAllocation() const { return outputAllocation_; }
+
         static D3D11_TEXTURE2D_DESC GameFacingDesc(
             D3D11_TEXTURE2D_DESC output, UINT renderWidth, UINT renderHeight)
         {
@@ -84,20 +97,50 @@ namespace TheosRenderPipeline
 
         // A device that reports the capability can still reject the allocation,
         // so a failed unordered-access attempt retries the proven descriptor
-        // before reporting failure. The direct-output routes remain opt-in;
+        // while the device is healthy. Keep both results for startup diagnostics;
+        // another allocation cannot recover a lost device. The routes remain opt-in;
         // this only decides whether they can ever be eligible.
         HRESULT CreateUpscaleOutputAfterRetirement(ID3D11Device* device,
             const D3D11_TEXTURE2D_DESC& output)
         {
+            outputAllocation_ = {};
             if (!device) { return E_INVALIDARG; }
-            if (SupportsTypedUnorderedAccess(device, output.Format)) {
+            upscaleOutput_.Reset();
+            auto& allocation = outputAllocation_;
+            auto deviceFailure = [&](HRESULT failure) {
+                allocation.deviceStatusChecked = true;
+                allocation.deviceRemovedReason = device->GetDeviceRemovedReason();
+                if (FAILED(allocation.deviceRemovedReason)) { return allocation.deviceRemovedReason; }
+                if (failure == DXGI_ERROR_DEVICE_REMOVED || failure == DXGI_ERROR_DEVICE_RESET ||
+                    failure == DXGI_ERROR_DEVICE_HUNG || failure == DXGI_ERROR_DRIVER_INTERNAL_ERROR) {
+                    return failure;
+                }
+                return S_OK;
+            };
+            allocation.formatSupportResult = device->CheckFormatSupport(output.Format, &allocation.formatSupport);
+            if (FAILED(allocation.formatSupportResult)) {
+                const auto lost = deviceFailure(allocation.formatSupportResult);
+                if (FAILED(lost)) { return lost; }
+            }
+            if (SUCCEEDED(allocation.formatSupportResult) &&
+                (allocation.formatSupport & D3D11_FORMAT_SUPPORT_TYPED_UNORDERED_ACCESS_VIEW) != 0) {
                 const auto capable = UpscaleOutputDesc(output, true);
-                if (SUCCEEDED(device->CreateTexture2D(&capable, nullptr, upscaleOutput_.ReleaseAndGetAddressOf()))) {
+                allocation.unorderedAccessAttempted = true;
+                allocation.unorderedAccessResult = device->CreateTexture2D(&capable, nullptr, upscaleOutput_.ReleaseAndGetAddressOf());
+                if (SUCCEEDED(allocation.unorderedAccessResult)) {
                     return S_OK;
                 }
+                const auto lost = deviceFailure(allocation.unorderedAccessResult);
+                if (FAILED(lost)) { return lost; }
             }
             const auto desc = UpscaleOutputDesc(output);
-            return device->CreateTexture2D(&desc, nullptr, upscaleOutput_.ReleaseAndGetAddressOf());
+            allocation.plainAttempted = true;
+            allocation.plainResult = device->CreateTexture2D(&desc, nullptr, upscaleOutput_.ReleaseAndGetAddressOf());
+            if (FAILED(allocation.plainResult)) {
+                const auto lost = deviceFailure(allocation.plainResult);
+                if (FAILED(lost)) { return lost; }
+            }
+            return allocation.plainResult;
         }
 
         void ResetGameFacingAfterRetirement() { gameFacing_.Reset(); }
@@ -109,6 +152,7 @@ namespace TheosRenderPipeline
         }
 
     private:
+        OutputAllocation outputAllocation_;
         Microsoft::WRL::ComPtr<ID3D11Texture2D> gameFacing_;
         Microsoft::WRL::ComPtr<ID3D11Texture2D> upscaleInput_;
         Microsoft::WRL::ComPtr<ID3D11Texture2D> upscaleOutput_;

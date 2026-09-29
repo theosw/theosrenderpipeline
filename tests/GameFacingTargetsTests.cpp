@@ -129,18 +129,24 @@ namespace
         ULONG references_{ 1 };
     };
 
-    // Only CheckFormatSupport and CreateTexture2D carry behavior; the rest of
-    // the interface exists so the double can be instantiated at all.
+    // Drive allocation and device-loss results independently so the first
+    // failure cannot be hidden by a successful retry or a different second error.
     struct DeviceDouble final : ID3D11Device
     {
         bool reportUnorderedAccess{ false };
         bool rejectUnorderedAccessAllocation{ false };
         bool rejectEveryAllocation{ false };
+        HRESULT supportResult{S_OK};
+        HRESULT unorderedAccessFailure{E_OUTOFMEMORY};
+        HRESULT plainFailure{E_OUTOFMEMORY};
+        HRESULT deviceRemovedReason{S_OK};
+        unsigned deviceStatusChecks{};
         std::vector<D3D11_TEXTURE2D_DESC> attempts;
 
         HRESULT STDMETHODCALLTYPE CheckFormatSupport(DXGI_FORMAT, UINT* support) override
         {
             if (!support) { return E_POINTER; }
+            if (FAILED(supportResult)) { *support = 0; return supportResult; }
             *support = D3D11_FORMAT_SUPPORT_TEXTURE2D | D3D11_FORMAT_SUPPORT_RENDER_TARGET;
             if (reportUnorderedAccess) { *support |= D3D11_FORMAT_SUPPORT_TYPED_UNORDERED_ACCESS_VIEW; }
             return S_OK;
@@ -154,7 +160,7 @@ namespace
             const bool unorderedAccess = (desc->BindFlags & D3D11_BIND_UNORDERED_ACCESS) != 0;
             if (rejectEveryAllocation || (unorderedAccess && rejectUnorderedAccessAllocation)) {
                 *texture = nullptr;
-                return E_OUTOFMEMORY;
+                return unorderedAccess ? unorderedAccessFailure : plainFailure;
             }
             *texture = new TextureDouble(*desc);
             return S_OK;
@@ -203,7 +209,7 @@ namespace
         HRESULT STDMETHODCALLTYPE SetPrivateDataInterface(REFGUID, const IUnknown*) override { return E_NOTIMPL; }
         D3D_FEATURE_LEVEL STDMETHODCALLTYPE GetFeatureLevel() override { return D3D_FEATURE_LEVEL_11_0; }
         UINT STDMETHODCALLTYPE GetCreationFlags() override { return 0; }
-        HRESULT STDMETHODCALLTYPE GetDeviceRemovedReason() override { return S_OK; }
+        HRESULT STDMETHODCALLTYPE GetDeviceRemovedReason() override { ++deviceStatusChecks; return deviceRemovedReason; }
         void STDMETHODCALLTYPE GetImmediateContext(ID3D11DeviceContext** context) override { if (context) { *context = nullptr; } }
         HRESULT STDMETHODCALLTYPE SetExceptionMode(UINT) override { return E_NOTIMPL; }
         UINT STDMETHODCALLTYPE GetExceptionMode() override { return 0; }
@@ -229,6 +235,11 @@ static void AllocationDecision()
         Require(!HasUnorderedAccess(device.attempts[0]),
             "an unsupported format is never asked for an unordered-access binding");
         Require(targets.UpscaleOutput() != nullptr, "the proven handoff target is published");
+        const auto& allocation = targets.LastOutputAllocation();
+        Require(allocation.formatSupportResult == S_OK && !allocation.unorderedAccessAttempted &&
+                allocation.unorderedAccessResult == E_PENDING && allocation.plainAttempted && allocation.plainResult == S_OK,
+            "unsupported binding is distinguishable from a failed UAV allocation");
+        Require(device.deviceStatusChecks == 0, "successful allocation does not poll device status");
     }
 
     {   // The capable path: one attempt, and it carries the binding.
@@ -243,6 +254,10 @@ static void AllocationDecision()
         D3D11_TEXTURE2D_DESC published{};
         targets.UpscaleOutput()->GetDesc(&published);
         Require(HasUnorderedAccess(published), "the published target carries the binding it was allocated with");
+        const auto& allocation = targets.LastOutputAllocation();
+        Require(allocation.unorderedAccessAttempted && allocation.unorderedAccessResult == S_OK && !allocation.plainAttempted,
+            "successful UAV allocation records no fallback attempt");
+        Require(device.deviceStatusChecks == 0, "successful UAV allocation does not poll device status");
     }
 
     {   // Reported support is not a guarantee that this particular allocation
@@ -262,6 +277,10 @@ static void AllocationDecision()
         targets.UpscaleOutput()->GetDesc(&published);
         Require(published.BindFlags == (D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET),
             "the retried target is the proven SRV/RTV descriptor");
+        const auto& allocation = targets.LastOutputAllocation();
+        Require(allocation.unorderedAccessResult == E_OUTOFMEMORY && allocation.plainResult == S_OK &&
+                allocation.deviceStatusChecked && allocation.deviceRemovedReason == S_OK,
+            "successful healthy-device fallback preserves the original out-of-memory result");
     }
 
     {   // A genuine allocation failure is reported, not masked by the retry.
@@ -269,8 +288,12 @@ static void AllocationDecision()
         DeviceDouble device;
         device.reportUnorderedAccess = true;
         device.rejectEveryAllocation = true;
-        Require(FAILED(targets.CreateUpscaleOutputAfterRetirement(&device, output)),
+        device.plainFailure = E_FAIL;
+        Require(targets.CreateUpscaleOutputAfterRetirement(&device, output) == E_FAIL,
             "an unallocatable handoff target reports failure");
+        Require(targets.LastOutputAllocation().unorderedAccessResult == E_OUTOFMEMORY &&
+                targets.LastOutputAllocation().plainResult == E_FAIL,
+            "different failures from the two allocations are both retained");
         Require(device.attempts.size() == 2, "both descriptors are attempted before reporting failure");
         Require(targets.UpscaleOutput() == nullptr,
             "a failed allocation leaves no handoff target behind");
@@ -289,6 +312,55 @@ static void AllocationDecision()
             "a later failed allocation reports failure");
         Require(targets.UpscaleOutput() == nullptr,
             "a failed reallocation releases the previous target instead of leaving it live");
+    }
+
+    for (const auto failure : {DXGI_ERROR_DEVICE_REMOVED, DXGI_ERROR_DEVICE_RESET,
+                              DXGI_ERROR_DEVICE_HUNG, DXGI_ERROR_DRIVER_INTERNAL_ERROR}) {
+        Targets targets;
+        DeviceDouble device;
+        device.reportUnorderedAccess = true;
+        device.rejectUnorderedAccessAllocation = true;
+        device.unorderedAccessFailure = failure;
+        Require(targets.CreateUpscaleOutputAfterRetirement(&device, output) == failure,
+            "a terminal allocation result is preserved even if the device query returns S_OK");
+        Require(device.attempts.size() == 1 && !targets.LastOutputAllocation().plainAttempted && !targets.UpscaleOutput(),
+            "a lost device is not retried with another descriptor");
+    }
+
+    {   // A generic allocation error can mask an independently confirmed device loss.
+        Targets targets;
+        DeviceDouble device;
+        device.reportUnorderedAccess = true;
+        Require(SUCCEEDED(targets.CreateUpscaleOutputAfterRetirement(&device, output)), "initial live target");
+        device.attempts.clear();
+        device.rejectUnorderedAccessAllocation = true;
+        device.deviceRemovedReason = DXGI_ERROR_DEVICE_HUNG;
+        Require(targets.CreateUpscaleOutputAfterRetirement(&device, output) == DXGI_ERROR_DEVICE_HUNG,
+            "device loss takes precedence over an allocation error");
+        const auto& allocation = targets.LastOutputAllocation();
+        Require(device.attempts.size() == 1 && allocation.unorderedAccessResult == E_OUTOFMEMORY &&
+                allocation.deviceRemovedReason == DXGI_ERROR_DEVICE_HUNG && !allocation.plainAttempted && !targets.UpscaleOutput(),
+            "device-loss failure preserves both causes and releases the retired target without retrying");
+        device.rejectUnorderedAccessAllocation = false;
+        device.deviceRemovedReason = S_OK;
+        Require(SUCCEEDED(targets.CreateUpscaleOutputAfterRetirement(&device, output)) &&
+                !targets.LastOutputAllocation().deviceStatusChecked && targets.LastOutputAllocation().deviceRemovedReason == S_OK,
+            "a new allocation report cannot inherit a previous device failure");
+    }
+
+    {
+        Targets targets;
+        DeviceDouble device;
+        device.supportResult = E_FAIL;
+        Require(SUCCEEDED(targets.CreateUpscaleOutputAfterRetirement(&device, output)),
+            "a capability-query failure on a healthy device still allows the proven allocation");
+        Require(targets.LastOutputAllocation().formatSupportResult == E_FAIL && device.attempts.size() == 1 &&
+                !HasUnorderedAccess(device.attempts[0]), "query failure is retained separately from unsupported format");
+        device.attempts.clear();
+        device.deviceRemovedReason = DXGI_ERROR_DEVICE_REMOVED;
+        Require(targets.CreateUpscaleOutputAfterRetirement(&device, output) == DXGI_ERROR_DEVICE_REMOVED &&
+                device.attempts.empty() && !targets.UpscaleOutput(),
+            "device loss during the capability query prevents all allocation attempts");
     }
 
     {
