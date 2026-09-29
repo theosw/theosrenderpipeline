@@ -86,7 +86,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		ID3D11Device* Device11() const { return device11_.Get(); }
 		ID3D12CommandQueue* Queue() const { return queue_.Get(); }
 		Interop& Transport() { return interop_; }
-		HRESULT BeforePresent(ID3D12Resource* a_source, ID3D12Resource* a_destination);
+		HRESULT BeforePresent(ID3D12Resource* a_source, ID3D12Resource* a_destination, DXGI_COLOR_SPACE_TYPE a_colorSpace);
 		HRESULT AfterPresent(HRESULT a_result);
 #if defined(ARP_DEVELOPER_DIAGNOSTICS)
 		HRESULT RequestOutputCapture(std::uint64_t id) { return outputCapture_.Request(id); }
@@ -110,7 +110,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		void RecordPresentationFeedback(std::uint32_t a_presentCount,
 			std::int64_t a_observedQpc, std::int64_t a_syncQpc);
 		void ResetPresentationFeedback();
-		void RecordScreenshot(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_output, bool a_hdrEncoded) noexcept;
+		void RecordScreenshot(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_output, DXGI_COLOR_SPACE_TYPE a_colorSpace) noexcept;
 		void FinishScreenshot() noexcept;
 		static void StreamlineLogCallback(sl::LogType a_type, const char* a_message);
 		HMODULE interposer_{};

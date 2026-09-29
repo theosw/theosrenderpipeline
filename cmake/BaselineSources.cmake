@@ -17,6 +17,8 @@ set(ARP_BASELINE_SOURCES
     src/RuntimePathSettings.h
     src/CommunityShaderIntegration.cpp
     src/CommunityShaderIntegration.h
+    src/CommunityShaderUIBoundary.h
+    src/FrameGen/D3D11EntryObservers.h
     src/DLSSBackend.h
     src/RCASParameters.h
     src/DLSSFeatureParameters.h

@@ -44,6 +44,20 @@ if(TRP_NR_VENDOR_BENCHMARK)
     target_include_directories(TRPNeuralPeripheralBenchmark PRIVATE . ../../src "${NGX_SDK}/include")
     target_link_libraries(TRPNeuralPeripheralBenchmark PRIVATE d3d12 d3d11 d3dcompiler dxgi bcrypt version
         "${NGX_SDK}/lib/Windows_x86_64/nvsdk_ngx_d.lib")
+    # Manual colour probe: NR behaviour for SDR, linear-HDR and PQ encodings.
+    add_executable(TRPNeuralHDRRangeProbe HDRRangeProbe.cpp
+        ../../src/FrameGen/SourceDLSSGNeuralRendering.cpp
+        ../../src/FrameGen/SourceDLSSGNeuralResolve.cpp
+        ../../src/FrameGen/SourceDLSSGInterop.cpp
+        ../../src/FrameGen/NeuralRenderingFeatureSession.cpp
+        ../../src/FrameGen/NeuralRenderingModulePathHook.cpp
+        ../../src/FrameGen/NeuralRenderingRuntimeIdentity.cpp)
+    target_compile_features(TRPNeuralHDRRangeProbe PRIVATE cxx_std_23)
+    trp_target_neural_shaders(TRPNeuralHDRRangeProbe)
+    target_compile_definitions(TRPNeuralHDRRangeProbe PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN TRP_NR_VENDOR_BENCHMARK)
+    target_include_directories(TRPNeuralHDRRangeProbe PRIVATE . ../../src "${NGX_SDK}/include")
+    target_link_libraries(TRPNeuralHDRRangeProbe PRIVATE d3d12 d3d11 d3dcompiler dxgi bcrypt version
+        "${NGX_SDK}/lib/Windows_x86_64/nvsdk_ngx_d.lib")
 endif()
 # Header-only configuration contract; the main build already supplies SimpleIni.
 if(TRP_SIMPLEINI_INCLUDE_DIR)

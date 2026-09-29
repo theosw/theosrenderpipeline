@@ -357,7 +357,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			!Check(interop_.Submit(Work::FrameGeneration), "submit guide tags")) { return false; }
 		return true;
 	}
-	void Backend::RecordScreenshot(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_output, bool a_hdrEncoded) noexcept
+	void Backend::RecordScreenshot(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_output, DXGI_COLOR_SPACE_TYPE a_colorSpace) noexcept
 	{
 		// Protect configuration/path allocations as well as GPU HRESULTs.
 		ScreenshotBoundary([&] {
@@ -368,11 +368,12 @@ namespace TheosRenderPipeline::SourceDLSSG
 				logger::warn("[Screenshot] ReShade overlay open or UI frame unavailable; keeping ReShade's file {}. Close the ReShade overlay before taking a corrected screenshot.", request.path);
 				return S_OK;
 			}
-			if (a_hdrEncoded) {
-				logger::warn("[Screenshot] HDR output is not converted; keeping ReShade's file {}", request.path);
+			if (!FinalFrameCapture::Supports(a_output->GetDesc().Format, a_colorSpace)) {
+				logger::warn("[Screenshot] Output format={} colour space={} is not converted; keeping ReShade's file {}",
+					static_cast<unsigned>(a_output->GetDesc().Format), static_cast<unsigned>(a_colorSpace), request.path);
 				return S_OK;
 			}
-			const auto result = screenshotCapture_.Record(device12_.Get(), a_list, a_output);
+			const auto result = screenshotCapture_.Record(device12_.Get(), a_list, a_output, a_colorSpace);
 			if (FAILED(result)) {
 				logger::warn("[Screenshot] final frame capture unavailable (0x{:08X}); keeping ReShade's file {}",
 					static_cast<std::uint32_t>(result), request.path);
@@ -415,7 +416,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			return S_OK;
 		});
 	}
-	HRESULT Backend::BeforePresent(ID3D12Resource* a_source, ID3D12Resource* a_destination)
+	HRESULT Backend::BeforePresent(ID3D12Resource* a_source, ID3D12Resource* a_destination, DXGI_COLOR_SPACE_TYPE a_colorSpace)
 	{
 		if (!Ready()) { return FAILED(fault_) ? fault_ : E_UNEXPECTED; }
 		FinishScreenshot();
@@ -469,7 +470,11 @@ namespace TheosRenderPipeline::SourceDLSSG
 		} else {
 			outputResult = Interop::RecordCopy(list, realSource, a_destination);
 		}
-		if (SUCCEEDED(outputResult)) { RecordScreenshot(list, a_destination, hdrEncoded); }
+		if (SUCCEEDED(outputResult)) {
+			// CS can deliver already-encoded PQ through an equal-format copy.
+			// A conversion performed here is not the only source of HDR output.
+			RecordScreenshot(list, a_destination, hdrEncoded ? DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020 : a_colorSpace);
+		}
 		const bool transitionBlocked = TransitionBlocked();
 		const auto transitionWarmup = transitionWarmupPresents_.load(std::memory_order_acquire);
 		const bool generationAllowed = enabled_ && !transitionBlocked && transitionWarmup == 0;

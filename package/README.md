@@ -126,8 +126,14 @@ ENB is optional. With Community Shaders, keep CS upscaling enabled and disable
 CS frame generation and CS Reflex. TRP provides FG/Reflex/NR while CS retains
 upscaling, render scale, sharpening and colour. Assign CS a separate menu key,
 such as F8, avoiding keys already assigned to ReShade or capture tools. TRP keeps End.
-HDR is not supported in this release. Keep CS HDR off; it can leave the TRP
-menu invisible and frame generation inactive.
+HDR is experimental and works only through CS HDR Display (tested with CS 1.9.1,
+HDR Display 1.2.2 and Universal on one RTX 4080 SUPER; Standard is untested).
+Enable Windows HDR and use borderless windowed. In CS's HDR Display settings, set
+peak brightness to your monitor's value and start paper white near the Windows SDR
+content brightness. Weathers built for ENB, such as NAT.ENB, need CS Effects 11
+with a preset; without one the image is much darker in both SDR and HDR. Prefer
+one NR pass or NR before upscaling; two full-resolution passes after upscaling
+are expensive.
 
 Earlier 0.1.4 builds have positive Skyrim 1.6.1170/RTX 4080 SUPER reports with Cabbage
 ENB and Bottle's Community Shaders build/Effects 11, including logged x4 and

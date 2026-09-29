@@ -1,7 +1,10 @@
 #include <PCH.h>
 #include "CommunityShaderIntegration.h"
+#include "CommunityShaderUIBoundary.h"
+#include "HookDetour.h"
 #include "FrameGen/NvidiaHost.h"
 #include "FrameGen/CommunityShaderAdapter.h"
+#include "FrameGen/D3D11EntryObservers.h"
 #include "RenderPipeline.h"
 #include "OverlayUI.h"
 #include "PerformanceTuning.h"
@@ -17,9 +20,14 @@ namespace TheosRenderPipeline::CommunityShaders
         thread_local bool worldBoundary{};
         using PostProcessing = void (*)(RE::ImageSpaceManager*, std::uint32_t, RE::RENDER_TARGET, void*, bool);
         PostProcessing engineOriginal{}, producerOriginal{};
-        CommunityShaderFrame::Dispatch dispatchOriginal{};
-        using Copy = void (STDMETHODCALLTYPE*)(ID3D11DeviceContext*, ID3D11Resource*, ID3D11Resource*);
-        Copy copyOriginal{};
+        using DrawInterface = void (*)(std::int64_t);
+        DrawInterface interfaceOriginal{};
+        CommunityShaderUIBoundary uiBoundary;
+        ID3D11DeviceContext* deviceContext{};
+        ID3D11DeviceContext* producerContext{};
+        std::atomic<std::uint64_t> observedDispatches{}, observedCopies{}, observedPresents{};
+        ID3D11DeviceContext* ProducerContext(RE::BSGraphics::Renderer* renderer);
+        void ReportDisplayWait();
         using Present = HRESULT (STDMETHODCALLTYPE*)(IDXGISwapChain*, UINT, UINT);
         Present presentOriginal{};
         IDXGISwapChain* gameSwapChain{};
@@ -69,6 +77,8 @@ namespace TheosRenderPipeline::CommunityShaders
                 }
                 input.output = {host->OutputWidth(), host->OutputHeight()};
                 input.context = pipeline->mContext; input.graphics = state; input.world = World();
+                input.producerContext = ProducerContext(renderer);
+                ReportDisplayWait();
                 input.motion = reinterpret_cast<ID3D11Texture2D*>(renderer->GetRuntimeData().renderTargets[RE::RENDER_TARGETS::kMOTION_VECTOR].texture);
                 input.depth = reinterpret_cast<ID3D11Texture2D*>(renderer->GetDepthStencilData().depthStencils[RE::RENDER_TARGETS_DEPTHSTENCIL::kMAIN].texture);
                 input.frame = state->GetFrameCount(); input.jittered = GetGameTAA();
@@ -87,32 +97,108 @@ namespace TheosRenderPipeline::CommunityShaders
             producerOriginal(manager, effect, target, arg, flag);
             worldBoundary = previous;
         }
-        void STDMETHODCALLTYPE Dispatch(ID3D11DeviceContext* context, UINT x, UINT y, UINT z)
+        bool IsProducerContext(ID3D11DeviceContext* context)
         {
-            if (!ReShadeIntegration::Get().Internal()) {
-                NvidiaHost::GetSingleton()->CommunityFrame().CaptureDisplayTransform(context, x, y, z, dispatchOriginal);
-            }
-            dispatchOriginal(context, x, y, z);
+            return context == deviceContext || context == producerContext;
         }
-        void STDMETHODCALLTYPE CopyResource(ID3D11DeviceContext* context, ID3D11Resource* destination, ID3D11Resource* source)
+        void ObserveDispatch(ID3D11DeviceContext* context, UINT x, UINT y, UINT z, CommunityShaderFrame::Dispatch original)
         {
-            auto* host = NvidiaHost::GetSingleton();
-            if (!ReShadeIntegration::Get().Internal() && D3D11FrameCopy::SameObject(destination, host->GameFacingTexture())) {
-                host->CommunityFrame().ConfirmPresentationCopy(source);
+            if (IsProducerContext(context)) {
+                observedDispatches.fetch_add(1, std::memory_order_relaxed);
+                if (!ReShadeIntegration::Get().Internal()) {
+                    NvidiaHost::GetSingleton()->CommunityFrame().CaptureDisplayTransform(context, x, y, z, original);
+                }
             }
-            copyOriginal(context, destination, source);
+        }
+        void ObserveCopy(ID3D11DeviceContext* context, ID3D11Resource* destination, ID3D11Resource* source)
+        {
+            if (IsProducerContext(context)) {
+                observedCopies.fetch_add(1, std::memory_order_relaxed);
+                auto* host = NvidiaHost::GetSingleton();
+                if (!ReShadeIntegration::Get().Internal() && D3D11FrameCopy::SameObject(destination, host->GameFacingTexture())) {
+                    host->CommunityFrame().ConfirmPresentationCopy(source);
+                }
+            }
+        }
+        std::string Owner(std::uintptr_t address)
+        {
+            HMODULE owner{};
+            std::array<wchar_t, MAX_PATH> path{};
+            if (address && GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                reinterpret_cast<LPCWSTR>(address), &owner)) { GetModuleFileNameW(owner, path.data(), static_cast<DWORD>(path.size())); }
+            return path[0] ? std::filesystem::path(path.data()).filename().string() : "unknown";
+        }
+        // Discover renderer/proxy entries at an engine boundary. Entries already
+        // installed survive runtime table rewrites; there is no per-frame repair.
+        void EnsureContextObservers()
+        {
+            if (!producerContext) { return; }
+            const bool observed = D3D11EntryObservers::Ensure(producerContext, &ObserveDispatch, &ObserveCopy);
+            static bool reported{}, failed{};
+            if (!reported || (!observed && !failed)) {
+                const auto* table = *reinterpret_cast<std::uintptr_t**>(producerContext);
+                logger::info("[CS Adapter] renderer context=0x{:X} device=0x{:X} host=0x{:X}; entry observers={} Dispatch={} CopyResource={}",
+                    reinterpret_cast<std::uintptr_t>(producerContext), reinterpret_cast<std::uintptr_t>(deviceContext),
+                    reinterpret_cast<std::uintptr_t>(RenderPipeline::GetSingleton()->mContext),
+                    observed ? "installed" : "FAILED", Owner(table[41]), Owner(table[47]));
+                reported = true; failed = !observed;
+            }
+        }
+        // The producer composes through the engine renderer's context.
+        ID3D11DeviceContext* ProducerContext(RE::BSGraphics::Renderer* renderer)
+        {
+            producerContext = renderer ? reinterpret_cast<ID3D11DeviceContext*>(renderer->GetRuntimeData().context) : nullptr;
+            EnsureContextObservers();
+            return producerContext;
+        }
+        bool CompleteUI()
+        {
+            auto frame = Framebuffer();
+            if (!frame) { return false; }
+            NvidiaHost::GetSingleton()->CommunityFrame().SetUIBoundary(frame.Get());
+            OverlayUI::GetSingleton()->OnPresent(frame.Get());
+            return true;
+        }
+        void Interface(std::int64_t arg)
+        {
+            // Chain all producer UI redirection and game drawing first. CS HDR
+            // retains its UI target until its later display composite, which can
+            // run before our Present hook is reached.
+            uiBoundary.DrawInterface([&] { interfaceOriginal(arg); }, CompleteUI);
+        }
+        void ReportDisplayWait()
+        {
+            // Throttled per world frame: which boundary an HDR frame is still
+            // waiting for, and whether our observers see the producer's calls.
+            static std::uint64_t frames{};
+            if (++frames % 600) { return; }
+            const std::string_view status = NvidiaHost::GetSingleton()->CommunityFrame().Status();
+            if (status.starts_with("Waiting for CS display")) {
+                logger::info("[CS Adapter] {}; observed dispatches={} copies={} presents={} entry hooks={}/{}", status,
+                    observedDispatches.load(std::memory_order_relaxed), observedCopies.load(std::memory_order_relaxed),
+                    observedPresents.load(std::memory_order_relaxed), D3D11EntryObservers::DispatchEntries(), D3D11EntryObservers::CopyEntries());
+            }
         }
         HRESULT STDMETHODCALLTYPE TopPresent(IDXGISwapChain* chain, UINT interval, UINT flags)
         {
-            if (chain == gameSwapChain && !(flags & DXGI_PRESENT_TEST)) {
+            const bool ours = chain == gameSwapChain;
+            const bool test = (flags & DXGI_PRESENT_TEST) != 0;
+            if (ours && !test) {
                 // These direct-output routes only run in the non-CS backend.
                 // Clear stale activity even when CS skipped its world callback.
                 PerformanceTuning::GetSingleton()->BeginRouteFrame();
-                auto frame = Framebuffer();
-                NvidiaHost::GetSingleton()->CommunityFrame().SetUIBoundary(frame.Get());
-                OverlayUI::GetSingleton()->OnPresent(frame.Get());
+                observedPresents.fetch_add(1, std::memory_order_relaxed);
             }
-            return presentOriginal(chain, interval, flags);
+            if (ours) {
+                // UI normally completed at the interface boundary. Late drawing is
+                // a fallback only when the UI is the game-facing framebuffer itself.
+                auto frame = Framebuffer();
+                uiBoundary.BeforePresent(test, D3D11FrameCopy::SameObject(frame.Get(),
+                    NvidiaHost::GetSingleton()->GameFacingTexture()), CompleteUI);
+            }
+            const auto result = presentOriginal(chain, interval, flags);
+            if (ours) { uiBoundary.AfterPresent(test); }
+            return result;
         }
     }
 
@@ -141,16 +227,19 @@ namespace TheosRenderPipeline::CommunityShaders
             reinterpret_cast<std::uintptr_t>(&EnginePostProcessing)));
         if (!engineOriginal) { util::report_and_fail("Could not preserve the engine postprocessing function for Community Shaders."); }
         producerOriginal = reinterpret_cast<PostProcessing>(SKSE::GetTrampoline().write_call<5>(Callsite(), &ProducerPostProcessing));
+        interfaceOriginal = reinterpret_cast<DrawInterface>(HookSafety::InstallEntryDetour(
+            REL::RelocationID(79947, 82084).address(), reinterpret_cast<std::uintptr_t>(&Interface)));
+        if (!interfaceOriginal) { util::report_and_fail("Could not preserve the Community Shaders interface draw chain."); }
         installed = true;
         logger::info("[CS Adapter] engine postprocessing chain installed; CS owns upscaling, jitter and render scale");
+        logger::info("[CS Adapter] interface completion boundary installed; overlay and UI identity precede display composition");
     }
     void InstallDeviceHooks(ID3D11DeviceContext* context, IDXGISwapChain* chain)
     {
-        InstallVTableHook(context, 41, &Dispatch, dispatchOriginal);
-        InstallVTableHook(context, 47, &CopyResource, copyOriginal);
         InstallVTableHook(chain, 8, &TopPresent, presentOriginal);
         gameSwapChain = chain;
-        if (!dispatchOriginal || !copyOriginal || !presentOriginal) {
+        deviceContext = context;
+        if (!D3D11EntryObservers::Ensure(context, &ObserveDispatch, &ObserveCopy) || !presentOriginal) {
             util::report_and_fail("Could not preserve the CS display/Present chain.");
         }
     }

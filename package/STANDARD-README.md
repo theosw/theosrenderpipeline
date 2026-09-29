@@ -79,8 +79,14 @@ TRP or KreatE. Do not use F8 if it is already assigned to ReShade or a capture t
 Standard 0.1.4 was tested with Bottle's CS build/Effects 11 on Skyrim 1.6.1170
 and an RTX 4080 SUPER, with native x2 and both NR placements. Other CS builds
 need confirmation.
-HDR is not supported in this release. Keep CS HDR off; it can leave the TRP
-menu invisible and frame generation inactive.
+HDR is experimental and works only through CS HDR Display (tested with CS 1.9.1,
+HDR Display 1.2.2 and Universal on one RTX 4080 SUPER; Standard is untested).
+Enable Windows HDR and use borderless windowed. In CS's HDR Display settings, set
+peak brightness to your monitor's value and start paper white near the Windows SDR
+content brightness. Weathers built for ENB, such as NAT.ENB, need CS Effects 11
+with a preset; without one the image is much darker in both SDR and HDR. Prefer
+one NR pass or NR before upscaling; two full-resolution passes after upscaling
+are expensive.
 
 ## ReShade (optional)
 

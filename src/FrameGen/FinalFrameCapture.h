@@ -34,8 +34,8 @@ namespace TheosRenderPipeline
             std::vector<std::uint8_t> bgr; // Tightly packed 24-bit rows.
         };
 
-        // SDR presentation formats only. HDR10 output is PQ-encoded, so a plain
-        // 8-bit image of it would have the wrong colours.
+        // Storage layouts supported by the SDR converter. RGB10 can also hold
+        // PQ data, so Record must validate the presentation colour space too.
         static UINT BytesPerPixel(DXGI_FORMAT format)
         {
             switch (format) {
@@ -47,7 +47,12 @@ namespace TheosRenderPipeline
             }
         }
 
-        // Presented values are already display-encoded; alpha is discarded.
+        static bool Supports(DXGI_FORMAT format, DXGI_COLOR_SPACE_TYPE colorSpace)
+        {
+            return colorSpace == DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709 && BytesPerPixel(format);
+        }
+
+        // Values have already been validated as SDR display encoding; alpha is discarded.
         static bool ToBGR(DXGI_FORMAT format, UINT width, UINT height,
             const std::uint8_t* rows, std::size_t pitch, std::vector<std::uint8_t>& out)
         {
@@ -107,12 +112,13 @@ namespace TheosRenderPipeline
         // Records a copy of `output` after the presentation copy in the same
         // list. The resource enters and leaves COMMON. Nothing is recorded on
         // failure, so the caller's list remains valid.
-        HRESULT Record(ID3D12Device* device, ID3D12GraphicsCommandList* list, ID3D12Resource* output)
+        HRESULT Record(ID3D12Device* device, ID3D12GraphicsCommandList* list, ID3D12Resource* output,
+            DXGI_COLOR_SPACE_TYPE colorSpace)
         {
             if (recorded_) { return E_ILLEGAL_METHOD_CALL; }
             if (!device || !list || !output) { return E_INVALIDARG; }
             const auto desc = output->GetDesc();
-            if (!BytesPerPixel(desc.Format) || desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
+            if (!Supports(desc.Format, colorSpace) || desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
                 !desc.Width || !desc.Height || desc.Width > 16384 || desc.Height > 16384 ||
                 desc.MipLevels != 1 || desc.DepthOrArraySize != 1 || desc.SampleDesc.Count != 1) { return E_INVALIDARG; }
             if (!fence_) {

@@ -15,6 +15,8 @@ namespace TheosRenderPipeline
         struct Input
         {
             ID3D11DeviceContext* context{};
+            // The engine renderer's context, through which the producer composes.
+            ID3D11DeviceContext* producerContext{};
             BSGraphics::State* graphics{};
             ID3D11Texture2D* world{};
             ID3D11Texture2D* motion{};
@@ -43,11 +45,13 @@ namespace TheosRenderPipeline
         bool EvaluateWorld(ID3D11Texture2D* color, FrameExtent colorExtent);
         CommunityShaderFrame resources_;
         SourceDLSSG::CameraHistory history_, candidate_;
-        SourceDLSSG::NeuralOptions options_;
+        SourceDLSSG::NeuralOptions options_, evaluatedOptions_;
         sl::Constants camera_{};
         Microsoft::WRL::ComPtr<ID3D11DeviceContext> context_;
         bool cameraValid_{}, eligible_{}, reset_{}, worldBegun_{}, upscalingCompleted_{}, worldCompleted_{}, prepared_{};
         bool neuralBoundaryReported_{};
+        // Last completed scene was CS HDR Display's extended-range FP16 target.
+        bool extendedScene_{};
         const char* status_{"Waiting for a CS world frame"};
     };
 }
