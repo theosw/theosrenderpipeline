@@ -20,7 +20,8 @@ Neural Rendering (NR), and native-resolution menus and HUD. Current version:
 
 **End** opens settings. **Apply** changes the session; **Save as default** persists
 settings and window layout; **Discard** drops unapplied edits. NR keyboard
-shortcuts are opt-in. HDR is unsupported.
+shortcuts are opt-in. HDR is experimental and requires Community Shaders; see
+[HDR](#hdr-experimental).
 
 With two NR passes selected, optional **One pass in combat** and **One pass while
 weapons/spells are drawn** controls temporarily skip the second pass. The return
@@ -43,9 +44,27 @@ renderer DLL. The NVIDIA host is required even when interpolation is off.
 
 The DLL selects Community Shaders integration when CommunityShaders.dll is loaded;
 otherwise TRP owns upscaling, with optional ENB. With CS, disable its frame
-generation, Reflex and HDR; CS retains its shading, upscaling and UI. Keep SSE
-ReShade Helper disabled when using TRP's ReShade integration. Use one shading
+generation and Reflex; CS retains its shading, upscaling, UI and HDR output.
+Keep SSE ReShade Helper disabled when using TRP's ReShade integration. Use one shading
 setup per profile and disable competing upscaler/frame-generation injectors.
+
+## HDR (experimental)
+
+HDR works only through Community Shaders' HDR Display (tested with CS 1.9.1 and
+HDR Display 1.2.2). CS composes the HDR10 image; TRP adds frame generation and NR.
+Enable Windows HDR and use borderless windowed. In CS's HDR Display settings, set
+peak brightness to your monitor's value and start paper white near the Windows SDR
+content brightness, then adjust to taste.
+
+Weathers and lighting built for ENB, such as NAT.ENB, need CS Effects 11 with a
+preset; without one the image is much darker in both SDR and HDR. Two
+full-resolution NR passes after upscaling are expensive; prefer one pass or NR
+before upscaling. HDR through ENB, Special K, RenoDX or Linear Lighting is not
+supported, and most ReShade effects are not HDR-aware.
+
+Evidence is one Universal RTX 4080 SUPER LoreRim UltraCS setup with Effects 11:
+x4 generation, both NR placements and HDR on/off switching. Standard, other
+hardware and physical frame cadence remain untested.
 
 ## Compatibility
 

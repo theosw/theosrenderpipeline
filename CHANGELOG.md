@@ -1,3 +1,15 @@
+# Unreleased
+
+- Added experimental HDR with Community Shaders HDR Display. TRP identifies the
+  UI before CS composes HDR, so the menu stays visible and frame generation runs.
+- Frame generation receives CS's own HDR10 conversion of the HUD-less scene.
+- NR after upscaling keeps HDR highlights and its normal look on CS's HDR scene.
+- D3D11 capture hooks now survive runtime state changes.
+- ReShade screenshots skip already-encoded HDR output instead of miscolouring it.
+
+HDR requires CS HDR Display; ENB-style weathers also need CS Effects 11 with a
+preset. See the README's HDR notes for setup and tested scope.
+
 # 0.3.2
 
 - Added weather and time presets for individual NR settings and sharpening,
