@@ -1,6 +1,11 @@
-# Theo's Render Pipeline — Universal, 0.3.0
+# Theo's Render Pipeline — Universal, 0.3.2
 
-This release adds experimental RTX 20 DLSS-G/MFG compatibility and retains
+Version 0.3.2 adds per-setting weather/time presets in the Neural Rendering tab,
+shareable preset files, optional one-pass NR during combat or drawn weapons,
+and corrected ReShade screenshots. Existing compatibility routes and NVIDIA
+runtime files are retained. HDR remains unsupported.
+
+Version 0.3.0 added experimental RTX 20 DLSS-G/MFG compatibility and retains
 all 0.2.5 fixes. The separate RTX 2060 test records x2/x3/x4/x6, NR and loading
 recovery. The combined release has positive ENB/RTX 4080 SUPER regression feedback
 with x4/NR and loading recovery. Broader RTX 20 coverage remains unverified.
@@ -28,7 +33,7 @@ This package includes the full renderer, configuration and sharpening shader.
 It requires no other Theo's Render Pipeline package. NVIDIA DLLs are supplied
 separately: download the SR/FG files below, and the NR runtime if you want NR.
 Alternatively, install Standard first and Universal after it in MO2; Standard
-0.3.0 supplies the runtime bundle (0.2.5 retains the same DLLs). The NR-enabled
+0.3.2 supplies the runtime bundle (0.2.5 retains the same DLLs). The NR-enabled
 Standard download supplies all eight runtimes, including NR. In that setup,
 skip the runtime downloads below.
 
@@ -86,10 +91,11 @@ and drag the column divider to change the layout. The pipeline bar above the
 tabs shows the applied rendering order. Advanced contains Lab mode for detailed
 runtime information and the information needed for problem reports.
 
-With two NR passes, leave **Use Pass 1 settings** checked for linked controls,
-or uncheck it to tune Pass 2 resolution, network preset and appearance separately.
-**Copy Pass 1** copies the settings without relinking. Both passes use the same
-placement, and two passes can substantially increase inference cost.
+The Neural Rendering tab contains **Base** and named presets. Presets change
+only their edited settings; other settings follow Base. Sharpening is here too.
+Pass 2 follows Pass 1 until you edit a Pass 2 setting; **Match Pass 1** relinks it.
+Both passes use the same placement, and two passes can substantially increase
+inference cost. See [preset files and weather/time controls](APPEARANCE-PROFILES.md).
 
 - DLSS starts at 67%, preset K, with sharpening enabled.
 - Frame generation starts on at x2. Choose x4 or another supported multiplier

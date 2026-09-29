@@ -1,4 +1,9 @@
-# Theo's Render Pipeline — Standard, 0.3.0
+# Theo's Render Pipeline — Standard, 0.3.2
+
+Version 0.3.2 adds per-setting weather/time presets in the Neural Rendering tab,
+shareable preset files, optional one-pass NR during combat or drawn weapons,
+and corrected ReShade screenshots. Existing compatibility routes and NVIDIA
+runtime files are retained. HDR remains unsupported.
 
 RTX 20 users need Universal's compatibility path installed after Standard.
 This edition supplies the retained runtime bundle and all 0.2.5 fixes.
@@ -58,10 +63,11 @@ and drag the column divider to change the layout. The pipeline bar above the
 tabs shows the applied rendering order. Advanced contains Lab mode for detailed
 runtime information and the information needed for problem reports.
 
-With two NR passes, leave **Use Pass 1 settings** checked for linked controls,
-or uncheck it to tune Pass 2 resolution, network preset and appearance separately.
-**Copy Pass 1** copies the settings without relinking. Both passes use the same
-placement, and two passes can substantially increase inference cost.
+The Neural Rendering tab contains **Base** and named presets. Presets change
+only their edited settings; other settings follow Base. Sharpening is here too.
+Pass 2 follows Pass 1 until you edit a Pass 2 setting; **Match Pass 1** relinks it.
+Both passes use the same placement, and two passes can substantially increase
+inference cost. See [preset files and weather/time controls](APPEARANCE-PROFILES.md).
 
 ## Community Shaders
 
@@ -105,7 +111,7 @@ the tested world-only effects setup.
 ## With the Universal edition
 
 For the RTX 40 MFG unlock or experimental RTX 20/30 support, install the matching
-0.3.0 Universal ZIP after Standard in MO2's left pane. Let Universal win file conflicts. Universal uses
+0.3.2 Universal ZIP after Standard in MO2's left pane. Let Universal win file conflicts. Universal uses
 the NVIDIA runtimes included here, including NR.
 
 Both editions contain settings files; the later mod's files win. Switching
