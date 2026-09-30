@@ -21,6 +21,8 @@
   default), and frame generation receives matching HDR10 HUD-less and
   UI images. Off by default; enabling it needs a restart. Tested on one ENB
   setup; see the README's HDR notes.
+- Fixed late overlays disappearing over opaque UI in TRP HDR output, and kept
+  their frame-generation UI and HUD-less layers consistent with the final image.
 
 CS HDR requires CS HDR Display; ENB-style weathers also need CS Effects 11 with a
 preset. See the README's HDR notes for setup and tested scope.

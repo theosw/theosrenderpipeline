@@ -26,7 +26,8 @@ static void Check(HRESULT hr, const char* why)
 namespace
 {
     constexpr UINT W = 64, H = 64;
-    bool Overlay(UINT x, UINT y) { return x >= W / 2 - 6 && x < W / 2 && y < 12; }
+    // Cross the native UI boundary and all alpha values, including fully opaque.
+    bool Overlay(UINT x, UINT) { return x >= W / 2 - 6 && x < W / 2 + 6; }
     // Additive UI (a glow): colour with zero alpha, blended as dest + src.
     bool Additive(UINT x, UINT y) { return x >= W - 6 && (y % 16) < 6; }
 
@@ -149,6 +150,76 @@ namespace
         std::uint16_t v[4]; std::memcpy(v, &data[i * 8], 8);
         return { v[0] / 65535.0f, v[1] / 65535.0f, v[2] / 65535.0f, v[3] / 65535.0f };
     }
+
+    void CheckLateOverlays(GPU& gpu, HDROutputPass& pass, HDROutput::Settings settings)
+    {
+        // Columns: unchanged, one-code rounding, opaque white/black,
+        // translucent coloured/tinted UI, opaque grey, opaque blue.
+        // Rows exercise native alpha 0, 0.5 and 1; HDR layers must agree in all cases.
+        std::vector<std::uint32_t> scene(W * H), ui(W * H), composite(W * H);
+        for (UINT y = 0; y < H; ++y) {
+            for (UINT x = 0; x < W; ++x) {
+                const UINT i = y * W + x, kind = x % 8;
+                const float a = (y % 3) * 0.5f;
+                scene[i] = Pack(0.15f + 0.4f * x / (W - 1), 0.25f, 0.35f, 1);
+                ui[i] = Pack(0.4f * a, 0.2f * a, 0.05f * a, a);
+                const float alpha = Channel8(ui[i], 3);
+                float base[3]{};
+                for (int k = 0; k < 3; ++k) { base[k] = Channel8(ui[i], k) + (1-alpha) * Channel8(scene[i], k); }
+                composite[i] = Pack(base[0], base[1], base[2], 1);
+                if (kind == 1) { composite[i] = Pack(Channel8(composite[i],0) + 1.0f/255, Channel8(composite[i],1), Channel8(composite[i],2), 1); }
+                if (kind == 2) { composite[i] = Pack(1,1,1,1); }
+                if (kind == 3) { composite[i] = Pack(0,0,0,1); }
+                if (kind == 4) { composite[i] = Pack(0.35f*0.9f + 0.65f*base[0], 0.35f*0.2f + 0.65f*base[1], 0.35f*0.5f + 0.65f*base[2], 1); }
+                if (kind == 5) { composite[i] = Pack(0.65f*0.05f + 0.35f*base[0], 0.65f*0.85f + 0.35f*base[1], 0.65f*0.3f + 0.35f*base[2], 1); }
+                if (kind == 6) { composite[i] = Pack(0.8f,0.8f,0.8f,1); }
+                if (kind == 7) { composite[i] = Pack(0,0,1,1); }
+            }
+        }
+        auto s = gpu.Texture(DXGI_FORMAT_R8G8B8A8_UNORM, false);
+        auto u = gpu.Texture(DXGI_FORMAT_R8G8B8A8_UNORM, false);
+        auto c = gpu.Texture(DXGI_FORMAT_R8G8B8A8_UNORM, false);
+        auto b = gpu.Texture(HDROutputPass::kOutputFormat, true);
+        gpu.Upload(s.Get(), scene); gpu.Upload(u.Get(), ui); gpu.Upload(c.Get(), composite); gpu.Submit();
+        for (auto transfer : {HDROutput::Transfer::Gamma22, HDROutput::Transfer::SRGB}) {
+            settings.transfer = transfer;
+            Check(pass.RecordCompose(gpu.device.Get(), gpu.list.Get(), 0, HDROutput::MakeShaderConstants(settings, false),
+                c.Get(), u.Get(), s.Get(), b.Get()), "late-overlay matrix");
+            gpu.Submit();
+            const auto output = gpu.Read(b.Get(), 4), world = gpu.Read(pass.HudlessTarget(), 4), layer = gpu.Read(pass.UITarget(), 8);
+            float worstIdentity = 0;
+            for (UINT i = 0; i < W * H; ++i) {
+                const UINT kind = (i % W) % 8;
+                const float a = Channel8(ui[i], 3);
+                const auto out = Unpack10(output, i), hudless = Unpack10(world, i);
+                const auto tag = Unpack16(layer, i);
+                const auto originalWorld = HDROutput::EncodeScene({Channel8(scene[i],0), Channel8(scene[i],1), Channel8(scene[i],2)}, settings);
+                const auto originalUI = HDROutput::EncodeUIPremultiplied({Channel8(ui[i],0), Channel8(ui[i],1), Channel8(ui[i],2)}, a, settings);
+                float visibleChange = 0;
+                for (int k = 0; k < 3; ++k) {
+                    Require(std::fabs(hudless[k] - originalWorld[k]) <= 1.5f/1023, "late overlay never contaminates the world tag");
+                    worstIdentity = (std::max)(worstIdentity, std::fabs(out[k] - std::clamp(tag[k] + (1-tag[3])*hudless[k], 0.0f, 1.0f)));
+                    const float before = std::clamp(originalUI[k] + (1-a)*originalWorld[k], 0.0f, 1.0f);
+                    visibleChange = (std::max)(visibleChange, std::fabs(out[k] - before));
+                    if (kind <= 1) {
+                        Require(std::fabs(out[k]-before) <= 1.5f/1023 && std::fabs(tag[k]-originalUI[k]) <= 2e-4f,
+                            "unchanged and one-code noise preserve native composition");
+                    }
+                    if (kind == 2 || kind == 3 || kind == 7) {
+                        const auto expected = HDROutput::EncodeUI(kind == 2 ? HDROutput::RGB{1,1,1} :
+                            kind == 3 ? HDROutput::RGB{0,0,0} : HDROutput::RGB{0,0,1}, settings);
+                        Require(std::fabs(out[k]-expected[k]) <= 1.5f/1023, "opaque late UI survives at UI brightness");
+                    }
+                }
+                Require(tag[3] >= a - 1.0f/65535 && tag[3] <= 1, "late coverage is bounded and includes native UI");
+                if (kind <= 1) { Require(std::fabs(tag[3]-a) <= 1.0f/65535 + 1e-6f, "rounding does not create late coverage"); }
+                else { Require(visibleChange > 0.5f/1023, "late content changes output even over opaque native UI"); }
+                if (kind == 2 || kind == 3 || kind == 7) { Require(tag[3] == 1, "opaque late extremes have opaque coverage"); }
+            }
+            std::printf("late-overlay matrix transfer=%d identity=%.2f codes\n", int(transfer), worstIdentity*1023);
+            Require(worstIdentity <= 1.5f/1023, "every late-overlay pixel recomposes from the FG tags");
+        }
+    }
 }
 
 int main()
@@ -228,18 +299,23 @@ int main()
         const auto gotOut = Unpack10(out, i);
         for (int c = 0; c < 3; ++c) {
             worstHudless = (std::max)(worstHudless, std::fabs(gotHudless[c] - expectHudless[c]));
-            worstUI = (std::max)(worstUI, std::fabs(gotUI[c] - expectUI[c]));
             if (Overlay(i % W, i / W)) {
-                // The late overlay survives: its pixels are recovered from the composed frame.
-                worstOverlay = (std::max)(worstOverlay, std::fabs(gotOut[c] - HDROutput::EncodeScene({ 1, 1, 1 }, settings)[c]));
-                continue;
+                // Opaque late white is UI at UI brightness, over any prior alpha.
+                const auto whiteUI = HDROutput::EncodeUI({ 1, 1, 1 }, settings);
+                worstOverlay = (std::max)(worstOverlay, std::fabs(gotOut[c] - whiteUI[c]));
+                worstUI = (std::max)(worstUI, std::fabs(gotUI[c] - whiteUI[c]));
             }
+            else { worstUI = (std::max)(worstUI, std::fabs(gotUI[c] - expectUI[c])); }
             // DLSS-G composition identity on the actual encoded outputs.
             const float composed = (std::min)(1.0f, gotUI[c] + (1.0f - gotUI[3]) * gotHudless[c]);
             worstIdentity = (std::max)(worstIdentity, std::fabs(gotOut[c] - composed));
-            if (a == 0.0f && !Additive(i % W, i / W)) { worstBehind = (std::max)(worstBehind, std::fabs(gotOut[c] - gotHudless[c])); }
+            if (a == 0.0f && !Additive(i % W, i / W) && !Overlay(i % W, i / W)) {
+                worstBehind = (std::max)(worstBehind, std::fabs(gotOut[c] - gotHudless[c]));
+            }
         }
-        Require(std::fabs(gotUI[3] - a) <= 1.0f / 65535.0f + 1e-6f, "UI alpha preserved at 16-bit precision");
+        const float expectedAlpha = Overlay(i % W, i / W) ? 1.0f : a;
+        Require(std::fabs(gotUI[3] - expectedAlpha) <= 1.0f / 65535.0f + 1e-6f,
+            "native or late overlay alpha preserved at 16-bit precision");
         if (Additive(i % W, i / W)) {
             Require(gotUI[0] > 0.3f && gotOut[0] >= gotHudless[0], "additive UI survives in the UI tag and backbuffer");
         }
@@ -251,6 +327,8 @@ int main()
     Require(worstBehind <= 0.5f * code10 + 1e-6f, "uncovered pixels equal the HUD-less encoding");
     Require(worstIdentity <= 1.5f * code10, "backbuffer satisfies DLSS-G UI + (1 - a) * HUD-less");
     Require(worstOverlay <= 1.5f * code10, "content outside the tagged layers is retained");
+
+    CheckLateOverlays(gpu, pass, settings);
 
     // Encode: SDR passthrough is exact; UI-brightness encoding matches the reference.
     Check(pass.RecordEncode(gpu.device.Get(), gpu.list.Get(), 2, HDROutput::MakeShaderConstants(settings, true),

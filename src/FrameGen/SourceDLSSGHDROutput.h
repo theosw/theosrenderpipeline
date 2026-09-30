@@ -69,10 +69,12 @@ namespace TheosRenderPipeline::SourceDLSSG
 	// same encoding as the real frame (DLSS-G section 5.1):
 	//   HUD-less  = PQ(expanded scene)
 	//   UI        = PQ(UI at UI brightness) premultiplied by alpha
-	//   backbuffer = UI + (1 - alpha) * PQ(expanded scene behind the UI)
-	// Where the composed SDR frame differs from the tagged layers (for example
-	// a late native overlay), the scene behind the UI is recovered from it so
-	// that content is retained. Encode handles frames without separate UI: it writes the whole
+	//   backbuffer = UI + (1 - alpha) * HUD-less
+	// Where the composed SDR frame differs from the tagged layers, infer a late
+	// screen-space layer at UI brightness and fold it into the UI colour/alpha.
+	// The original world stays HUD-less, and all three outputs remain consistent.
+	// Actual late-draw alpha is unavailable; coverage is inferred from SDR colour.
+	// Encode handles frames without separate UI: it writes the whole
 	// frame at UI brightness, or passes SDR through when HDR is not displayable.
 	//
 	// All resources enter and leave in COMMON. The caller retires a command slot
