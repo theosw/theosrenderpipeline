@@ -1,9 +1,10 @@
-# Theo's Render Pipeline — Standard, 0.3.2
+# Theo's Render Pipeline — Standard, 0.3.4
 
-Version 0.3.2 adds per-setting weather/time presets in the Neural Rendering tab,
-shareable preset files, optional one-pass NR during combat or drawn weapons,
-and corrected ReShade screenshots. Existing compatibility routes and NVIDIA
-runtime files are retained. HDR remains unsupported.
+Version 0.3.4 adds experimental HDR output for ENB/non-CS setups, preserves late
+overlays in HDR frame generation, fixes Modex item-preview device loss and fades
+forced loading artwork in from black. TRP HDR output defaults off and needs a
+restart when enabled. Community Shaders HDR Display support from 0.3.3 is retained.
+Both editions retain NR; existing NVIDIA runtime files are unchanged.
 
 RTX 20 users need Universal's compatibility path installed after Standard.
 This edition supplies the retained runtime bundle and all 0.2.5 fixes.
@@ -91,7 +92,10 @@ Without CS (for example with ENB), the experimental **Image > HDR output** setti
 expands TRP's finished SDR image to HDR10 with its own paper white, peak and UI
 brightness. It needs Windows HDR, is off by default and applies after saving and
 restarting. Clipped highlights cannot be recovered. It has one ENB game test
-(Universal, RTX 4080 SUPER); see the main README for its scope.
+(Universal, RTX 4080 SUPER); see the [HDR guide](https://github.com/theosw/theosrenderpipeline#hdr-experimental)
+for its scope. Standard HDR gameplay is still unverified. Recurring NVIDIA
+flip-queue errors remain unresolved; physical frame cadence and other GPUs are
+unverified.
 
 ## ReShade (optional)
 

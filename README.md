@@ -2,7 +2,7 @@
 
 NVIDIA rendering integration for Skyrim: DLSS/DLAA, frame generation, optional
 Neural Rendering (NR), and native-resolution menus and HUD. Current version:
-**0.3.2**. See [CHANGELOG.md](CHANGELOG.md) for release changes.
+**0.3.4**. See [CHANGELOG.md](CHANGELOG.md) for release changes.
 
 ## Features
 
@@ -50,7 +50,7 @@ setup per profile and disable competing upscaler/frame-generation injectors.
 
 ## HDR (experimental)
 
-HDR works only through Community Shaders' HDR Display (tested with CS 1.9.1 and
+With Community Shaders, HDR uses its HDR Display (tested with CS 1.9.1 and
 HDR Display 1.2.2). CS composes the HDR10 image; TRP adds frame generation and NR.
 Enable Windows HDR and use borderless windowed. In CS's HDR Display settings, set
 peak brightness to your monitor's value and start paper white near the Windows SDR
@@ -86,8 +86,9 @@ The panel shows the output pass's GPU time.
 Evidence is one Universal RTX 4080 SUPER LoreRim ENB setup at 5120x1440 on a
 1015-nit display: x4 generation, NR before upscaling, a loading door and live
 calibration. That run logged more NVIDIA "flip queue is empty" messages than a
-matched HDR-off run, without a visible hitch. Loading screens forced by
-**Request loading artwork** can briefly flash bright, more visibly in HDR.
+matched HDR-off run, without a visible hitch. Recurring vendor flip-queue errors
+remain unresolved. Loading screens forced by **Request loading artwork** now
+fade in from black. Later ENB checks also cover Wheeler and HUD/End over menus.
 Standard, other hardware and physical frame cadence remain untested.
 
 ## Compatibility

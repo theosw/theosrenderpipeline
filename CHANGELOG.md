@@ -1,4 +1,26 @@
-# Unreleased
+# 0.3.4
+
+- Added experimental TRP HDR output for ENB and other non-CS setups: expand the
+  finished SDR image to HDR10 with paper white, peak, UI brightness and highlight
+  controls. Paper white and UI follow Windows SDR content brightness by default.
+  Off by default; enabling it needs Save as default and a restart.
+- Keep late overlays visible over opaque UI in HDR, with matching frame-generation
+  UI/HUD-less layers and a separate UI brightness.
+- Fixed GPU device loss with Modex 3D item previews under DLSS by routing their
+  copies and clears to the native UI target while Modex draws.
+- Drop and log copies that fall outside the game-facing/native UI textures, and
+  include D3D11/D3D12 removal reasons in device-loss diagnostics.
+- Fade forced loading artwork in from black on door transitions, avoiding a brief
+  bright flash.
+
+Community Shaders HDR Display integration is retained. HDR remains experimental;
+ENB acceptance covers Universal on one RTX 4080 SUPER with x4, early NR, Wheeler,
+HUD/End over menus and loading recovery. Standard HDR, other hardware and physical
+frame cadence remain unverified. Recurring NVIDIA flip-queue errors are unresolved.
+Both editions retain NR and existing compatibility routes. NVIDIA runtimes are
+unchanged; TRP HDR output defaults off. See the README HDR notes for setup.
+
+# 0.3.3
 
 - Added experimental HDR with Community Shaders HDR Display. TRP identifies the
   UI before CS composes HDR, so the menu stays visible and frame generation runs.
@@ -6,26 +28,16 @@
 - NR after upscaling keeps HDR highlights and its normal look on CS's HDR scene.
 - D3D11 capture hooks now survive runtime state changes.
 - ReShade screenshots skip already-encoded HDR output instead of miscolouring it.
-- Fixed a GPU device loss with Modex's 3D item preview under DLSS. Its preview
-  copies and clears now use the native UI target while its menu draws; set
-  `Modex=0` in TheosRenderPipelineImGui.ini to disable this adapter.
-- Copies that would fall outside the game-facing or native UI textures are now
-  dropped and logged instead of reaching the GPU.
-- Device-loss log entries now include the D3D11/D3D12 removal reason.
-- Loading screens that **Request loading artwork** shows for doors now fade in
-  from black, like the game's own loading screens, avoiding a brief bright flash.
+- Fixed camera capture dereferencing stale cached camera pointers by selecting
+  and retaining a live camera.
+- Fixed the optional direct DLSS and direct sharpening output routes on eligible
+  textures, with allocation fallback and clearer failure diagnostics. Both
+  options remain off by default.
 
-- Added experimental TRP HDR output for ENB and other non-CS setups: the finished
-  SDR image is expanded to HDR10 with paper white, peak, UI brightness and
-  highlight controls (paper white and UI follow Windows' SDR content brightness by
-  default), and frame generation receives matching HDR10 HUD-less and
-  UI images. Off by default; enabling it needs a restart. Tested on one ENB
-  setup; see the README's HDR notes.
-- Fixed late overlays disappearing over opaque UI in TRP HDR output, and kept
-  their frame-generation UI and HUD-less layers consistent with the final image.
-
-CS HDR requires CS HDR Display; ENB-style weathers also need CS Effects 11 with a
+HDR requires CS HDR Display; ENB-style weathers also need CS Effects 11 with a
 preset. See the README's HDR notes for setup and tested scope.
+NVIDIA runtime DLLs and configuration defaults are unchanged. Both editions
+retain NR and their existing frame-generation capabilities.
 
 # 0.3.2
 
