@@ -129,6 +129,7 @@ RendererSettingsResult RendererSettingsController::Apply(const RendererSettingsD
     {
         auto& source = TheosRenderPipeline::SourceDLSSG::Backend::Get();
         source.ConfigureReflex(static_cast<sl::ReflexMode>(frameGen_.settings.sourceDLSSG.reflexMode));
+        source.ConfigureUIRecomposition(frameGen_.settings.sourceDLSSG.uiRecomposition);
         source.ConfigureOutputFPSLimit(frameGen_.settings.sourceDLSSG.outputFPSLimit);
         source.ConfigureGeneration(frameGen_.settings.sourceDLSSG.generation);
         // Enabled is kept for saving; the backend applies it at the next swapchain creation.

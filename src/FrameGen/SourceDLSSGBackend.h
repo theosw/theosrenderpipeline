@@ -59,6 +59,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 			return true;
 		}
 		sl::ReflexMode ReflexConfiguration() const { return reflexMode_.load(std::memory_order_relaxed); }
+		void ConfigureUIRecomposition(bool a_enabled) { uiRecomposition_.store(a_enabled, std::memory_order_relaxed); }
+		bool UIRecompositionConfiguration() const { return uiRecomposition_.load(std::memory_order_relaxed); }
 		bool ConfigureOutputFPSLimit(int a_fps)
 		{
 			if (a_fps < 0 || a_fps > 1000) { return false; }
@@ -148,6 +150,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		sl::Result reportedOptionsResult_{ sl::Result::eOk };
 		MFGUnlock mfgUnlock_;
 		std::atomic<sl::ReflexMode> reflexMode_{ sl::ReflexMode::eLowLatency };
+		std::atomic<bool> uiRecomposition_{ true };
 		std::atomic<int> outputFPSLimit_{ 0 };
 		mutable std::mutex presentationFeedbackMutex_;
 		PresentationFeedbackTracker presentationFeedback_;

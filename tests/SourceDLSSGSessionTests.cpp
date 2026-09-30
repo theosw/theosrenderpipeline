@@ -95,7 +95,7 @@ namespace
         api.setReflexOptions = Reflex; api.reflexSleep = Sleep; api.marker = Marker; api.context = &value;
         return api;
     }
-    bool TryPrepare(Session& session, bool depthInverted = false)
+    bool TryPrepare(Session& session, bool depthInverted = false, bool layers = false)
     {
         sl::Constants c{};
         for (auto* m : {&c.cameraViewToClip, &c.clipToCameraView, &c.clipToPrevClip, &c.prevClipToClip}) {
@@ -111,20 +111,21 @@ namespace
         c.motionVectors3D = sl::eFalse; c.reset = sl::eFalse;
         FrameGuides guides{};
         guides.displayWidth = 2560; guides.displayHeight = 1440;
-        for (auto* texture : {&guides.motion, &guides.depth}) {
+        for (auto* texture : {&guides.motion, &guides.depth, &guides.ui, &guides.hudless}) {
+            if (!layers && (texture == &guides.ui || texture == &guides.hudless)) { continue; }
             texture->resource = sl::Resource(sl::ResourceType::eTex2d, texture, 0);
             texture->resource.width = 2560; texture->resource.height = 1440;
             texture->extent = {0, 0, 2560, 1440};
         }
         return session.Prepare(c, guides, reinterpret_cast<sl::CommandBuffer*>(0x2000)) && session.CompleteInputWrites();
     }
-    void Prepare(Session& session)
+    void Prepare(Session& session, bool layers = false)
     {
-        Require(TryPrepare(session), "prepare valid world and completed input writes");
+        Require(TryPrepare(session, false, layers), "prepare valid world and completed input writes");
     }
-    void Frame(Session& session, unsigned outputs, bool enabled = true)
+    void Frame(Session& session, unsigned outputs, bool enabled = true, bool layers = false)
     {
-        Prepare(session);
+        Prepare(session, layers);
         Require(session.BeforePresent(enabled), "options budget warning must not stop native Present");
         runtime->Call("native-present");
         runtime->state.numFramesActuallyPresented = outputs;
@@ -179,6 +180,27 @@ int main()
         Require(s.Snapshot().failure == SessionFailure::None && !r.lastReset, "normal success recovers without resetting history");
         Require(s.Snapshot().optionsResult == sl::Result::eOk && s.Snapshot().optionsWarnings == 7,
             "successful submission clears active warning without discarding cumulative count");
+    }
+    // UI recomposition is an options change that needs both HUD-less and UI layers.
+    {
+        Runtime r; Session s; Require(s.Start(API(r), 7), "recomposition scenario starts");
+        Require(r.submitted.enableUserInterfaceRecomposition == sl::eFalse, "recomposition starts off");
+        Frame(s, 2, true, true);
+        Require(r.submitted.enableUserInterfaceRecomposition == sl::eFalse, "unrequested recomposition stays off");
+        s.RequestUIRecomposition(true);
+        Frame(s, 2, true, false);
+        Require(r.submitted.enableUserInterfaceRecomposition == sl::eFalse, "missing layers never request recomposition");
+        Frame(s, 2, true, true);
+        Require(r.submitted.enableUserInterfaceRecomposition == sl::eTrue && r.submitted.mode == sl::DLSSGMode::eOn,
+            "requested recomposition is submitted with both layers");
+        Frame(s, 1, false, false);
+        Require(r.submitted.mode == sl::DLSSGMode::eOff && r.submitted.enableUserInterfaceRecomposition == sl::eTrue,
+            "generation off retains the codepath choice");
+        s.RequestUIRecomposition(false);
+        const auto calls = r.optionsCalls;
+        Frame(s, 2, true, true);
+        Require(r.optionsCalls == calls + 1 && r.submitted.enableUserInterfaceRecomposition == sl::eFalse,
+            "live disable is submitted on the next generated frame");
     }
     // Startup, no-world pass-through, and resize also use the same options boundary.
     {

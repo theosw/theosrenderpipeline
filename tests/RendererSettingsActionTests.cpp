@@ -44,6 +44,16 @@ void Generation()
         }
     }
     Require(!ValidGenerationRequest({0,0,false}) && !ValidGenerationRequest({6,0,false}), "bad multipliers remain invalid");
+    {
+        CSimpleIniA ini;
+        Require(LoadPreferences(ini).uiRecomposition, "existing INIs without the key get UI recomposition on");
+        Preferences preferences; preferences.uiRecomposition = false;
+        StorePreferences(ini, preferences);
+        Require(!LoadPreferences(ini).uiRecomposition, "a saved opt-out round trips");
+        RendererSettingsDraft current; current.valid = true;
+        auto draft = current; draft.sourceDLSSG.uiRecomposition = false;
+        Require(CountRendererSettingsChanges(draft, current) == 1, "UI recomposition participates in Apply/Discard");
+    }
 }
 void Neural()
 {

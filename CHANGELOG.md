@@ -1,3 +1,9 @@
+# Unreleased
+
+- Reduce HUD ghosting in generated frames: DLSS-G now interpolates the HUD-less
+  scene and the UI separately (UI recomposition). On by default, including for
+  existing INIs; toggle it live under Frame generation. Small GPU/VRAM cost.
+
 # 0.3.4
 
 - Added experimental TRP HDR output for ENB and other non-CS setups: expand the
