@@ -3,12 +3,15 @@ set(ARP_BASELINE_SOURCES
     compatibility/ImGuiCompat/ImGuiIntegration.cpp
     compatibility/ImGuiCompat/ImGuiIntegration.h
     compatibility/ImGuiCompat/CursorMapping.h
+    compatibility/ImGuiCompat/ModexMenuScope.cpp
+    compatibility/ImGuiCompat/ModexMenuScope.h
     compatibility/Shared/FileHash.h
     compatibility/Shared/ModuleInfo.h
     include/PCH.h
     include/SolFGLateOverlayAPI.h
     include/SolFGStartupOverlayAPI.h
     include/SolFGTextureProviderAPI.h
+    src/D3D11ContextSlots.h
     src/DLSSBackend.cpp
     src/GameHookValidation.cpp
     src/GameHookValidation.h
@@ -67,6 +70,7 @@ set(ARP_BASELINE_SOURCES
     src/FrameGen/StartupOverlayPass.h
     src/FrameGen/NativeUIFrame.h
     src/FrameGen/NativeUIAttachments.h
+    src/FrameGen/NativeUICopyRoute.h
     src/FrameGen/NativeUIContexts.h
     src/FrameGen/SourceNativeUI.cpp
     src/FrameGen/NativeUIComposition.cpp

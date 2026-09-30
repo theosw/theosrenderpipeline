@@ -14,6 +14,7 @@
 #include "RenderPipeline.h"
 #include "FrameGen/SourceFrameGeneration.h"
 #include "FrameGen/LoadingArtwork.h"
+#include "FrameGen/NativeUICopyRoute.h"
 #include "FrameGen/NvidiaHost.h"
 #include "FrameGen/SourceHostBoundary.h"
 #include "FrameGen/StartupUIClipping.h"
@@ -23,8 +24,11 @@
 #include "PerformanceTuning.h"
 #include "SkyrimRuntime.h"
 
-#include <d3d11.h>
+#include <d3d11_1.h>
 #include <dxgi1_6.h>
+
+#include "../compatibility/ImGuiCompat/ModexMenuScope.h"
+#include "D3D11ContextSlots.h"
 
 #include <map>
 
@@ -37,6 +41,8 @@ decltype(&ID3D11DeviceContext::RSSetViewports) ptrRSSetViewports;
 decltype(&ID3D11DeviceContext::RSSetScissorRects) ptrRSSetScissorRects;
 decltype(&ID3D11DeviceContext::DrawIndexed) ptrDrawIndexed;
 decltype(&ID3D11DeviceContext::Draw) ptrDraw;
+decltype(&ID3D11DeviceContext::CopySubresourceRegion) ptrCopySubresourceRegion;
+decltype(&ID3D11DeviceContext1::ClearView) ptrClearView;
 
 namespace
 {
@@ -693,21 +699,96 @@ void WINAPI hk_ID3D11DeviceContext_Draw(
 	}
 }
 
+namespace
+{
+	// Redirect only inside a producer's own draw scope. The native UI texture
+	// holds just the UI layer, so engine or host copies of the frame must keep
+	// their original surface.
+	bool ProducerSurfaceRedirect(ID3D11DeviceContext* context)
+	{
+		auto* host = NvidiaHost::GetSingleton();
+		return TheosRenderPipeline::ModexMenuScope::DisplayActive() && host->SourceContext(context) &&
+			host->NativeUIPassActive() && !host->NativeUIInternalBind();
+	}
+
+	void LogProducerCopy(TheosRenderPipeline::NativeUICopyRoute::Decision a_decision, const TheosRenderPipeline::NativeUICopyRoute::Copy& a_copy)
+	{
+		using Decision = TheosRenderPipeline::NativeUICopyRoute::Decision;
+		static std::atomic_uint32_t redirected{ 0 }, dropped{ 0 };
+		auto& count = a_decision == Decision::Redirected ? redirected : dropped;
+		const auto sample = count.fetch_add(1, std::memory_order_relaxed) + 1;
+		if (sample > 3 && sample % 1000 != 0) { return; }
+		const auto box = a_copy.box ? *a_copy.box : D3D11_BOX{};
+		const auto message = std::format("[NativeUICopy] {} copy {} dst=({},{}) box=({},{})-({},{}) full={}",
+			a_decision == Decision::Redirected ? "producer" : "out-of-range", sample,
+			a_copy.dstX, a_copy.dstY, box.left, box.top, box.right, box.bottom, a_copy.box == nullptr);
+		if (a_decision == Decision::Redirected) {
+			logger::info("{} redirected to the native UI target", message);
+		} else {
+			logger::warn("{} dropped; the region does not fit its resources", message);
+		}
+	}
+}
+
+void WINAPI hk_ID3D11DeviceContext_CopySubresourceRegion(ID3D11DeviceContext* This, ID3D11Resource* pDstResource, UINT DstSubresource,
+	UINT DstX, UINT DstY, UINT DstZ, ID3D11Resource* pSrcResource, UINT SrcSubresource, const D3D11_BOX* pSrcBox)
+{
+	using namespace TheosRenderPipeline::NativeUICopyRoute;
+	auto* host = NvidiaHost::GetSingleton();
+	ID3D11Resource* const surfaces[]{ host->GameFacingTexture(), host->UIAttachments().ENBResource() };
+	Copy copy{ pDstResource, DstSubresource, DstX, DstY, DstZ, pSrcResource, SrcSubresource, pSrcBox };
+	const auto decision = Route(copy, ProducerSurfaceRedirect(This), surfaces, host->NativeUIRenderTexture());
+	if (decision != Decision::Original) { LogProducerCopy(decision, copy); }
+	if (decision == Decision::Dropped) { return; }
+	(This->*ptrCopySubresourceRegion)(copy.dst, copy.dstSubresource, copy.dstX, copy.dstY, copy.dstZ,
+		copy.src, copy.srcSubresource, copy.box);
+}
+
+void WINAPI hk_ID3D11DeviceContext1_ClearView(ID3D11DeviceContext1* This, ID3D11View* pView, const FLOAT Color[4],
+	const D3D11_RECT* pRect, UINT NumRects)
+{
+	auto* view = pView;
+	if (ProducerSurfaceRedirect(This)) {
+		auto* host = NvidiaHost::GetSingleton();
+		ID3D11Resource* const surfaces[]{ host->GameFacingTexture(), host->UIAttachments().ENBResource() };
+		view = TheosRenderPipeline::NativeUICopyRoute::RouteClearView(pView, true, surfaces, host->NativeUIRenderRTV());
+		static std::atomic_uint32_t logged{ 0 };
+		if (view != pView && logged.fetch_add(1, std::memory_order_relaxed) < 3) {
+			logger::info("[NativeUICopy] producer ClearView redirected to the native UI target rects={}", NumRects);
+		}
+	}
+	(This->*ptrClearView)(view, Color, pRect, NumRects);
+}
+
 // When frame generation proxies the swapchain, the game's swapchain request
 // is satisfied with a D3D12-backed proxy (doodlum's ENBFrameGeneration
 // architecture, ffx_api runtime).
 void InstallUpscalerContextHooks(ID3D11Device* device, ID3D11DeviceContext* deviceContext)
 {
+    namespace Slots = TheosRenderPipeline::D3D11ContextSlots;
     TheosRenderPipeline::InstallVTableHook(device, 5, &hk_ID3D11Device_CreateTexture2D, ptrCreateTexture2D);
     TheosRenderPipeline::InstallPixelSamplerHook(deviceContext);
-    TheosRenderPipeline::InstallVTableHook(deviceContext, 8, &hk_ID3D11DeviceContext_PSSetShaderResources, ptrPSSetShaderResources);
+    TheosRenderPipeline::InstallVTableHook(deviceContext, Slots::kPSSetShaderResources, &hk_ID3D11DeviceContext_PSSetShaderResources, ptrPSSetShaderResources);
     TheosRenderPipeline::InstallAdditionalSamplerHooks(deviceContext);
-    TheosRenderPipeline::InstallVTableHook(deviceContext, 33, &hk_ID3D11DeviceContext_OMSetRenderTargets, ptrOMSetRenderTargets);
-    TheosRenderPipeline::InstallVTableHook(deviceContext, 35, &hk_ID3D11DeviceContext_OMSetBlendState, ptrOMSetBlendState);
-    TheosRenderPipeline::InstallVTableHook(deviceContext, 44, &hk_ID3D11DeviceContext_RSSetViewports, ptrRSSetViewports);
-    TheosRenderPipeline::InstallVTableHook(deviceContext, 45, &hk_ID3D11DeviceContext_RSSetScissorRects, ptrRSSetScissorRects);
-    TheosRenderPipeline::InstallVTableHook(deviceContext, 12, &hk_ID3D11DeviceContext_DrawIndexed, ptrDrawIndexed);
-    TheosRenderPipeline::InstallVTableHook(deviceContext, 13, &hk_ID3D11DeviceContext_Draw, ptrDraw);
+    TheosRenderPipeline::InstallVTableHook(deviceContext, Slots::kOMSetRenderTargets, &hk_ID3D11DeviceContext_OMSetRenderTargets, ptrOMSetRenderTargets);
+    TheosRenderPipeline::InstallVTableHook(deviceContext, Slots::kOMSetBlendState, &hk_ID3D11DeviceContext_OMSetBlendState, ptrOMSetBlendState);
+    TheosRenderPipeline::InstallVTableHook(deviceContext, Slots::kRSSetViewports, &hk_ID3D11DeviceContext_RSSetViewports, ptrRSSetViewports);
+    TheosRenderPipeline::InstallVTableHook(deviceContext, Slots::kRSSetScissorRects, &hk_ID3D11DeviceContext_RSSetScissorRects, ptrRSSetScissorRects);
+    TheosRenderPipeline::InstallVTableHook(deviceContext, Slots::kDrawIndexed, &hk_ID3D11DeviceContext_DrawIndexed, ptrDrawIndexed);
+    TheosRenderPipeline::InstallVTableHook(deviceContext, Slots::kDraw, &hk_ID3D11DeviceContext_Draw, ptrDraw);
+    // Copy routing is a compatibility layer, not part of the required render
+    // path: without it, producers keep their original copies and clears.
+    if (!TheosRenderPipeline::TryInstallVTableHook(deviceContext, Slots::kCopySubresourceRegion,
+            &hk_ID3D11DeviceContext_CopySubresourceRegion, ptrCopySubresourceRegion)) {
+        logger::warn("[NativeUICopy] CopySubresourceRegion hook unavailable; producer copies are neither routed nor range-checked");
+    }
+    // Producers reach ClearView through ID3D11DeviceContext1; hook the table
+    // that QueryInterface returns for this same context.
+    Microsoft::WRL::ComPtr<ID3D11DeviceContext1> context1;
+    if (FAILED(deviceContext->QueryInterface(IID_PPV_ARGS(&context1))) ||
+        !TheosRenderPipeline::TryInstallVTableHook(context1.Get(), Slots::kClearView, &hk_ID3D11DeviceContext1_ClearView, ptrClearView)) {
+        logger::warn("[NativeUICopy] ClearView hook unavailable; producer ClearView calls keep their original target");
+    }
 }
 
 struct UpscalerHooks
@@ -740,8 +821,9 @@ struct UpscalerHooks
 
 			auto* host = NvidiaHost::GetSingleton();
 			const bool savedNativeDraw = inventory3DNativeDraw;
+			// Modex renders item previews through this manager from its own menu.
 			inventory3DNativeDraw = ui && host->DedicatedUITextureMode() && host->NativeUIPassActive() &&
-				(magicMenuOpen || ui->IsMenuOpen(RE::InventoryMenu::MENU_NAME) ||
+				(magicMenuOpen || TheosRenderPipeline::ModexMenuScope::DisplayActive() || ui->IsMenuOpen(RE::InventoryMenu::MENU_NAME) ||
 					ui->IsMenuOpen(RE::ContainerMenu::MENU_NAME) || ui->IsMenuOpen(RE::BarterMenu::MENU_NAME));
 			const auto result = func(a_manager);
 			inventory3DNativeDraw = savedNativeDraw;

@@ -12,12 +12,17 @@ namespace TheosRenderPipeline
         }
     }
 
-    template<class Hook, class Original> void InstallVTableHook(void* instance, std::size_t index, Hook hook, Original& original)
+    template<class Hook, class Original> bool TryInstallVTableHook(void* instance, std::size_t index, Hook hook, Original& original)
     {
         std::uintptr_t table{};
-        if (!HookSafety::Read(reinterpret_cast<std::uintptr_t>(instance), &table, sizeof(table)) || !table ||
-            !deviceHookSlots.Install(reinterpret_cast<std::uintptr_t*>(table) + index,
-                reinterpret_cast<std::uintptr_t>(hook), original)) {
+        return HookSafety::Read(reinterpret_cast<std::uintptr_t>(instance), &table, sizeof(table)) && table &&
+            deviceHookSlots.Install(reinterpret_cast<std::uintptr_t*>(table) + index,
+                reinterpret_cast<std::uintptr_t>(hook), original);
+    }
+
+    template<class Hook, class Original> void InstallVTableHook(void* instance, std::size_t index, Hook hook, Original& original)
+    {
+        if (!TryInstallVTableHook(instance, index, hook, original)) {
             util::report_and_fail(std::format("Could not safely install a renderer vtable hook (slot {}). Restart Skyrim; see TheosRenderPipeline.log.", index));
         }
     }
