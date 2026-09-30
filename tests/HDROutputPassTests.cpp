@@ -27,6 +27,8 @@ namespace
 {
     constexpr UINT W = 64, H = 64;
     bool Overlay(UINT x, UINT y) { return x >= W / 2 - 6 && x < W / 2 && y < 12; }
+    // Additive UI (a glow): colour with zero alpha, blended as dest + src.
+    bool Additive(UINT x, UINT y) { return x >= W - 6 && (y % 16) < 6; }
 
     struct GPU
     {
@@ -176,12 +178,12 @@ int main()
             scene[y * W + x] = Pack(r, g, b, 1);
             const float a = x < W / 2 ? 0.0f : ((y % 16) / 15.0f);
             const float ur = 0.9f * a, ug = 0.85f * a, ub = 0.4f * a;
-            ui[y * W + x] = Pack(ur, ug, ub, a);
+            ui[y * W + x] = Additive(x, y) ? Pack(0.5f, 0.3f, 0.1f, 0.0f) : Pack(ur, ug, ub, a);
             // Producer composition in SDR, as TRP's native UI compositor does.
             const auto s = scene[y * W + x], u = ui[y * W + x];
             const float ua = Channel8(u, 3);
             composite[y * W + x] = Pack(Channel8(s, 0) * (1 - ua) + Channel8(u, 0), Channel8(s, 1) * (1 - ua) + Channel8(u, 1),
-                Channel8(s, 2) * (1 - ua) + Channel8(u, 2), 1);
+                Channel8(s, 2) * (1 - ua) + Channel8(u, 2), 1); // Pack saturates, as UNORM blending does.
             // A late overlay drawn only into the composed frame (not a tagged layer).
             if (Overlay(x, y)) { composite[y * W + x] = Pack(1, 1, 1, 1); }
         }
@@ -220,26 +222,27 @@ int main()
         const auto expectHudless = HDROutput::EncodeScene(s, settings);
         const auto gotHudless = Unpack10(hudless, i);
         const float a = Channel8(ui[i], 3);
-        const HDROutput::RGB straight = a > 1.0f / 1024.0f ?
-            HDROutput::RGB{ std::clamp(Channel8(ui[i], 0) / a, 0.0f, 1.0f), std::clamp(Channel8(ui[i], 1) / a, 0.0f, 1.0f),
-                std::clamp(Channel8(ui[i], 2) / a, 0.0f, 1.0f) } : HDROutput::RGB{};
-        const auto expectUI = HDROutput::EncodeUI(straight, settings);
+        const auto expectUI = HDROutput::EncodeUIPremultiplied(
+            { Channel8(ui[i], 0), Channel8(ui[i], 1), Channel8(ui[i], 2) }, a, settings);
         const auto gotUI = Unpack16(uiOut, i);
         const auto gotOut = Unpack10(out, i);
         for (int c = 0; c < 3; ++c) {
             worstHudless = (std::max)(worstHudless, std::fabs(gotHudless[c] - expectHudless[c]));
-            worstUI = (std::max)(worstUI, std::fabs(gotUI[c] - expectUI[c] * a));
+            worstUI = (std::max)(worstUI, std::fabs(gotUI[c] - expectUI[c]));
             if (Overlay(i % W, i / W)) {
                 // The late overlay survives: its pixels are recovered from the composed frame.
                 worstOverlay = (std::max)(worstOverlay, std::fabs(gotOut[c] - HDROutput::EncodeScene({ 1, 1, 1 }, settings)[c]));
                 continue;
             }
             // DLSS-G composition identity on the actual encoded outputs.
-            const float composed = gotUI[c] + (1.0f - gotUI[3]) * gotHudless[c];
+            const float composed = (std::min)(1.0f, gotUI[c] + (1.0f - gotUI[3]) * gotHudless[c]);
             worstIdentity = (std::max)(worstIdentity, std::fabs(gotOut[c] - composed));
-            if (a == 0.0f) { worstBehind = (std::max)(worstBehind, std::fabs(gotOut[c] - gotHudless[c])); }
+            if (a == 0.0f && !Additive(i % W, i / W)) { worstBehind = (std::max)(worstBehind, std::fabs(gotOut[c] - gotHudless[c])); }
         }
         Require(std::fabs(gotUI[3] - a) <= 1.0f / 65535.0f + 1e-6f, "UI alpha preserved at 16-bit precision");
+        if (Additive(i % W, i / W)) {
+            Require(gotUI[0] > 0.3f && gotOut[0] >= gotHudless[0], "additive UI survives in the UI tag and backbuffer");
+        }
     }
     std::printf("max error: hudless=%.2f codes ui=%.5f identity=%.2f codes uncovered=%.2f codes overlay=%.2f codes\n",
         worstHudless / code10, worstUI, worstIdentity / code10, worstBehind / code10, worstOverlay / code10);
@@ -270,6 +273,21 @@ int main()
     std::printf("max error: passthrough=%.2f codes encode=%.2f codes\n", worstPassthrough / code10, worstEncoded / code10);
     Require(worstPassthrough <= 0.5f * code10 + 1e-6f, "SDR passthrough");
     Require(worstEncoded <= 1.5f * code10, "UI-brightness encode matches CPU reference");
+
+    // A world frame without separate layers still expands the whole frame.
+    Check(pass.RecordEncode(gpu.device.Get(), gpu.list.Get(), 1, HDROutput::MakeShaderConstants(settings, false, true),
+        compositeTexture.Get(), backbuffer.Get()), "record whole-frame expansion");
+    gpu.Submit();
+    const auto expanded = gpu.Read(backbuffer.Get(), 4);
+    float worstExpanded = 0;
+    for (UINT i = 0; i < W * H; ++i) {
+        const HDROutput::RGB c{ Channel8(composite[i], 0), Channel8(composite[i], 1), Channel8(composite[i], 2) };
+        const auto expect = HDROutput::EncodeScene(c, settings);
+        const auto e = Unpack10(expanded, i);
+        for (int k = 0; k < 3; ++k) { worstExpanded = (std::max)(worstExpanded, std::fabs(e[k] - expect[k])); }
+    }
+    std::printf("max error: whole-frame expansion=%.2f codes\n", worstExpanded / code10);
+    Require(worstExpanded <= 1.5f * code10, "whole-frame expansion matches CPU reference");
 
     // Repeated slot reuse with retained views stays valid; timing harvests each
     // slot's previous pair when that slot is recorded again.

@@ -14,7 +14,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 cbuffer Output : register(b0) {
     float4 Red; float4 Green; float4 Blue;
     float4 Scale; // paper nits, UI nits, expansion start, maximum scale
-    float4 Mode;  // transfer (0 = 2.2, 1 = sRGB), passthrough
+    float4 Mode;  // transfer (0 = 2.2, 1 = sRGB), passthrough, expand whole frame
 };
 Texture2D<float4> composite : register(t0);
 Texture2D<float4> ui : register(t1);
@@ -48,10 +48,19 @@ float3 EncodeHDR10(float3 nits709) {
 }
 float3 EncodeScene(float3 c) { return EncodeHDR10(Expand(Decode(c)) * Scale.x); }
 float3 EncodeUI(float3 c) { return EncodeHDR10(Decode(c) * Scale.y); }
+// Premultiplied UI: the part covered by alpha is encoded at UI brightness and
+// premultiplied again; light beyond alpha (additive glows) is added separately.
+float3 EncodeUIPremultiplied(float3 rgb, float a) {
+    float3 covered = min(rgb, a);
+    float3 straight = a > (1.0 / 1024.0) ? covered / a : 0.0;
+    return saturate(EncodeUI(straight) * a + EncodeUI(max(rgb - covered, 0.0)));
+}
 
 float4 PSEncode(Vertex v) : SV_Target {
     float4 c = composite.Load(int3(v.position.xy, 0));
-    return Mode.y > 0.5 ? float4(c.rgb, 1.0) : float4(EncodeUI(c.rgb), 1.0);
+    if (Mode.y > 0.5) { return float4(c.rgb, 1.0); }
+    // World frames without a separate UI layer still expand; menus stay at UI brightness.
+    return float4(Mode.z > 0.5 ? EncodeScene(c.rgb) : EncodeUI(c.rgb), 1.0);
 }
 
 struct Targets { float4 backbuffer : SV_Target0; float4 hudless : SV_Target1; float4 ui : SV_Target2; };
@@ -60,17 +69,18 @@ Targets PSCompose(Vertex v) {
     float4 c = composite.Load(p), u = ui.Load(p), s = scene.Load(p);
     float a = saturate(u.a);
     // The native UI layer is premultiplied in the producer's SDR encoding.
-    float3 straight = a > (1.0 / 1024.0) ? saturate(u.rgb / a) : 0.0;
-    float3 uiPQ = EncodeUI(straight) * a;
+    float3 uiPQ = EncodeUIPremultiplied(u.rgb, a);
     // Where the composed frame is the tagged layers, use the exact HUD-less
     // scene so the DLSS-G identity holds; recovering it from 8-bit codes would
     // amplify rounding in expanded highlights. Where other content was drawn
     // (a late overlay), recover the scene behind the UI from the composed frame.
-    float3 difference = abs(c.rgb - (u.rgb + (1.0 - a) * s.rgb));
-    bool layered = max(difference.r, max(difference.g, difference.b)) <= 2.5 / 255.0;
-    float3 behind = layered || a >= (1.0 - 1.0 / 512.0) ? s.rgb : saturate((c.rgb - u.rgb) / (1.0 - a));
+    // The blend between them is gradual, so small differences do not form edges.
+    float3 difference = abs(c.rgb - saturate(u.rgb + (1.0 - a) * s.rgb));
+    float extra = saturate((max(difference.r, max(difference.g, difference.b)) - 1.5 / 255.0) / (2.0 / 255.0));
+    float3 recovered = a < (1.0 - 1.0 / 512.0) ? saturate((c.rgb - u.rgb) / (1.0 - a)) : s.rgb;
+    float3 behind = lerp(s.rgb, recovered, extra);
     Targets t;
-    t.backbuffer = float4(uiPQ + (1.0 - a) * EncodeScene(behind), 1.0);
+    t.backbuffer = float4(saturate(uiPQ + (1.0 - a) * EncodeScene(behind)), 1.0);
     t.hudless = float4(EncodeScene(s.rgb), 1.0);
     t.ui = float4(uiPQ, a);
     return t;

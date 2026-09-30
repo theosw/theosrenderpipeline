@@ -69,6 +69,9 @@ int main()
     Require(!s.enabled && MaximumScale(s) == 5.0f, "defaults: off, 1000/200 nits");
     s.highlightStrength = 0.0f;
     Require(MaximumScale(s) == 1.0f, "zero strength keeps SDR range");
+    Settings dimPeak; dimPeak.paperWhiteNits = 300.0f; dimPeak.peakNits = 250.0f;
+    Require(Sanitize(dimPeak).peakNits == 250.0f && MaximumScale(Sanitize(dimPeak)) == 1.0f,
+        "peak below paper white is kept and means no expansion");
     s.highlightStrength = 0.5f;
     Require(Near(MaximumScale(s), 3.0f, 1e-6f), "strength blends the maximum");
     Settings bad;
@@ -76,7 +79,7 @@ int main()
     bad.peakNits = 10.0f; bad.uiNits = 5000.0f; bad.highlightStrength = 3.0f; bad.expansionStart = 1.5f;
     bad.transfer = static_cast<Transfer>(7);
     bad = Sanitize(bad);
-    Require(bad.paperWhiteNits == 200.0f && bad.peakNits == 200.0f && bad.uiNits == 1000.0f &&
+    Require(bad.paperWhiteNits == 200.0f && bad.peakNits == kMinimumNits && bad.uiNits == 1000.0f &&
         bad.highlightStrength == 1.0f && bad.expansionStart == 0.95f && bad.transfer == Transfer::Gamma22, "sanitize");
     const auto constants = MakeShaderConstants(Settings{}, true);
     Require(constants.scale[0] == 200.0f && constants.scale[1] == 200.0f && constants.scale[3] == 5.0f &&
@@ -87,6 +90,14 @@ int main()
     Require(Near(EncodeScene({1, 1, 1}, calibrated)[1], EncodePQ(200.0f), 1e-4f), "scene white at paper white");
     Require(Near(EncodeUI({1, 1, 1}, calibrated)[0], EncodePQ(100.0f), 1e-4f), "UI white at UI brightness");
     Require(Near(EncodeScene({1, 1, 1}, Settings{})[1], EncodePQ(1000.0f), 1e-4f), "expanded white at peak");
+
+    // Premultiplied UI: covered colour matches straight encoding; additive light is kept.
+    Settings uiSettings; uiSettings.uiNits = 200.0f;
+    const auto body = EncodeUIPremultiplied({0.4f, 0.2f, 0.1f}, 0.5f, uiSettings);
+    const auto straightUI = EncodeUI({0.8f, 0.4f, 0.2f}, uiSettings);
+    Require(Near(body[0], straightUI[0] * 0.5f, 1e-5f) && Near(body[2], straightUI[2] * 0.5f, 1e-5f), "premultiplied UI body");
+    const auto glow = EncodeUIPremultiplied({0.5f, 0.3f, 0.1f}, 0.0f, uiSettings);
+    Require(Near(glow[0], EncodeUI({0.5f, 0.3f, 0.1f}, uiSettings)[0], 1e-5f) && glow[0] > 0.3f, "additive UI glow kept");
 
     // INI round trip through the shared preferences.
     CSimpleIniA ini;

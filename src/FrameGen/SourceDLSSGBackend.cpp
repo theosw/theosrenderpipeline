@@ -7,6 +7,7 @@
 #include "../PluginPaths.h"
 #include "../ScreenshotFile.h"
 #include <d3dcompiler.h>
+#include <chrono>
 
 namespace TheosRenderPipeline::SourceDLSSG
 {
@@ -459,7 +460,6 @@ namespace TheosRenderPipeline::SourceDLSSG
 	{
 		if (!Ready()) { return FAILED(fault_) ? fault_ : E_UNEXPECTED; }
 		FinishScreenshot();
-		PollDisplayHDR(false);
 		const auto oldReflexRequest = session_.Snapshot().reflexRequested;
 		const auto oldReflexSubmitted = session_.Snapshot().reflexSubmitted;
 		const auto oldFrameLimit = session_.Snapshot().frameLimitSubmittedUs;
@@ -520,7 +520,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (SUCCEEDED(outputResult)) {
 			// CS can deliver already-encoded PQ through an equal-format copy.
 			// A conversion performed here is not the only source of HDR output.
-			RecordScreenshot(list, a_destination, outputColorSpace);
+			// Renderer-owned HDR keeps the finished SDR frame; save that instead of PQ.
+			if (rendererHDR) { RecordScreenshot(list, realSource, DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709); }
+			else { RecordScreenshot(list, a_destination, outputColorSpace); }
 		}
 		const bool transitionBlocked = TransitionBlocked();
 		const auto transitionWarmup = transitionWarmupPresents_.load(std::memory_order_acquire);
@@ -581,6 +583,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// (or another native error) with an unexplained E_FAIL.
 		if (FAILED(a_result)) { Check(a_result, "native Present"); }
 		if (!CheckSession(session_.AfterPresent(SUCCEEDED(a_result)))) { return FAILED(a_result) ? a_result : fault_; }
+		// Between frames: the next Prepare and BeforePresent both see any new
+		// display state, and the colour space changes before that frame's Present.
+		if (SUCCEEDED(a_result)) { PollDisplayHDR(false); }
 		if (SUCCEEDED(a_result) && !TransitionBlocked()) {
 			auto remaining = transitionWarmupPresents_.load(std::memory_order_acquire);
 			while (remaining && !transitionWarmupPresents_.compare_exchange_weak(
@@ -705,20 +710,18 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (!a_force && hdrPollCountdown_ && --hdrPollCountdown_) { return; }
 		hdrPollCountdown_ = 120;
 		// Windows' SDR content brightness can change without a new DXGI factory.
-		const bool refreshSDR = ++hdrSDRPolls_ % 5 == 0;
+		const bool refreshSDR = ++hdrSDRPolls_ % 5 == 0 && HDROutputConfiguration().matchWindowsSDR;
 		const auto monitor = MonitorFromWindow(window_, MONITOR_DEFAULTTONEAREST);
 		if (!a_force && hdrFactory_ && hdrFactory_->IsCurrent() && monitor == hdrMonitor_ && hdrColorSpaceApplied_) {
 			if (refreshSDR) { RefreshSDRWhite(); }
 			return;
 		}
 		// A fresh factory reports the current Windows HDR state of each output.
-		LARGE_INTEGER start{}, stop{}, frequency{};
-		QueryPerformanceCounter(&start);
+		const auto start = std::chrono::steady_clock::now();
 		ComPtr<IDXGIFactory1> factory;
 		const auto created = CreateDXGIFactory1(IID_PPV_ARGS(&factory));
 		const auto display = SUCCEEDED(created) ? QueryDisplayHDR(factory.Get(), window_) : DisplayHDR{};
-		QueryPerformanceCounter(&stop); QueryPerformanceFrequency(&frequency);
-		const double queryUs = frequency.QuadPart ? static_cast<double>(stop.QuadPart - start.QuadPart) * 1e6 / static_cast<double>(frequency.QuadPart) : 0.0;
+		const double queryUs = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - start).count();
 		hdrFactory_ = factory;
 		hdrMonitor_ = display.monitor ? display.monitor : monitor;
 		hdrDeviceName_ = display.deviceName;
@@ -737,7 +740,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			hdrState_.reason = hdrDisplay_ ? "HDR10 output" : display.known ?
 				"Windows HDR is off for this display; SDR output" : "display HDR state unavailable; SDR output";
 		}
-		RefreshSDRWhite();
+		if (HDROutputConfiguration().matchWindowsSDR) { RefreshSDRWhite(); }
 		if (changed) {
 			ApplyNativeColorSpace();
 			logger::info("[HDROutput] display known={} hdr={} maxLuminance={:.0f} colourSpace={} factory=0x{:08X}",
@@ -747,15 +750,19 @@ namespace TheosRenderPipeline::SourceDLSSG
 	}
 	void Backend::RefreshSDRWhite()
 	{
-		LARGE_INTEGER start{}, stop{}, frequency{};
-		QueryPerformanceCounter(&start);
-		const float nits = QuerySDRWhiteNits(hdrDeviceName_.data());
-		QueryPerformanceCounter(&stop); QueryPerformanceFrequency(&frequency);
-		const double us = frequency.QuadPart ? static_cast<double>(stop.QuadPart - start.QuadPart) * 1e6 / static_cast<double>(frequency.QuadPart) : 0.0;
+		const auto start = std::chrono::steady_clock::now();
+		const float queried = QuerySDRWhiteNits(hdrDeviceName_.data());
+		const double us = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - start).count();
+		// A failed read during a display-config change keeps the last level for
+		// the same display; a different display starts from its own reading.
+		const bool sameDisplay = hdrSDRDevice_ == hdrDeviceName_;
+		const float nits = queried > 0.0f || !sameDisplay ? queried : hdrSDRWhiteNits_;
+		hdrSDRDevice_ = hdrDeviceName_;
 		const bool changed = std::fabs(nits - hdrSDRWhiteNits_) >= 1.0f;
 		hdrSDRWhiteNits_ = nits;
 		std::scoped_lock lock(hdrMutex_);
 		++hdrState_.sdrWhiteQueries;
+		if (queried <= 0.0f) { ++hdrState_.sdrWhiteFailures; }
 		hdrState_.sdrWhiteQueryMaxUs = (std::max)(hdrState_.sdrWhiteQueryMaxUs, us);
 		hdrState_.windowsSDRWhiteNits = nits;
 		if (changed) {
@@ -804,11 +811,15 @@ namespace TheosRenderPipeline::SourceDLSSG
 				hdrTimestampFrequency_ = 0;
 			}
 		}
-		// Tagged layers must be written even if the display changed since Prepare;
-		// that frame keeps its tagged encoding and the next frame follows the display.
+		// Display state changes only between frames (AfterPresent), so tags,
+		// encoding and colour space agree within a frame.
 		const bool compose = a_prepared && hdrFrameTagged_;
 		const bool hdr = compose || hdrDisplay_;
-		const auto constants = HDROutput::MakeShaderConstants(HDROutput::Effective(HDROutputConfiguration(), hdrSDRWhiteNits_), !hdr);
+		// A prepared world frame without both layers (for example native UI off)
+		// still expands; menus and loading without generation stay at UI brightness.
+		const bool expandWholeFrame = hdr && !compose && a_prepared;
+		const auto constants = HDROutput::MakeShaderConstants(HDROutput::Effective(HDROutputConfiguration(), hdrSDRWhiteNits_),
+			!hdr, expandWholeFrame);
 		const auto slot = interop_.CurrentSlot(Work::SwapChain);
 		const auto result = compose ?
 			hdrOutputPass_->RecordCompose(device12_.Get(), a_list, slot, constants, a_source, ui_.texture12.Get(), hudless_.texture12.Get(), a_destination) :

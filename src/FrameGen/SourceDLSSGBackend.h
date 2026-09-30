@@ -184,7 +184,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		HMONITOR hdrMonitor_{};
 		std::uint32_t hdrPollCountdown_{};
 		std::uint64_t hdrTimestampFrequency_{};
-		std::array<wchar_t, 32> hdrDeviceName_{};
+		std::array<wchar_t, 32> hdrDeviceName_{}, hdrSDRDevice_{};
 		float hdrSDRWhiteNits_{};
 		std::uint32_t hdrSDRPolls_{};
 		bool hdrNative_{}, hdrDisplay_{}, hdrFrameTagged_{}, hdrColorSpaceApplied_{};

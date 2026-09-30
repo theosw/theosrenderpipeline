@@ -58,7 +58,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		std::uint64_t displayQueries{};
 		double displayQueryTotalUs{}, displayQueryMaxUs{};
 		float windowsSDRWhiteNits{};      // 0 when unknown.
-		std::uint64_t sdrWhiteQueries{};
+		std::uint64_t sdrWhiteQueries{}, sdrWhiteFailures{};
 		double sdrWhiteQueryMaxUs{};
 		const char* reason{"not requested"};
 	};

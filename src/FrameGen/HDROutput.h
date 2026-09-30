@@ -35,7 +35,9 @@ namespace TheosRenderPipeline::HDROutput
         auto finite = [](float v, float fallback) { return std::isfinite(v) ? v : fallback; };
         const Settings defaults;
         value.paperWhiteNits = std::clamp(finite(value.paperWhiteNits, defaults.paperWhiteNits), kMinimumNits, 1000.0f);
-        value.peakNits = std::clamp(finite(value.peakNits, defaults.peakNits), value.paperWhiteNits, kMaximumNits);
+        // Peak below paper white means no expansion (see MaximumScale), so it is
+        // not clamped to the manual paper white that Windows matching may replace.
+        value.peakNits = std::clamp(finite(value.peakNits, defaults.peakNits), kMinimumNits, kMaximumNits);
         value.uiNits = std::clamp(finite(value.uiNits, defaults.uiNits), kMinimumNits, 1000.0f);
         value.highlightStrength = std::clamp(finite(value.highlightStrength, defaults.highlightStrength), 0.0f, 1.0f);
         value.expansionStart = std::clamp(finite(value.expansionStart, defaults.expansionStart), 0.1f, 0.95f);
@@ -85,7 +87,7 @@ namespace TheosRenderPipeline::HDROutput
     // Maximum scene value relative to paper white.
     inline float MaximumScale(const Settings& s)
     {
-        return 1.0f + (s.peakNits / s.paperWhiteNits - 1.0f) * s.highlightStrength;
+        return (std::max)(1.0f, 1.0f + (s.peakNits / s.paperWhiteNits - 1.0f) * s.highlightStrength);
     }
 
     // ---- CPU reference. The shader in SourceDLSSGHDROutput.cpp mirrors these. ----
@@ -154,16 +156,31 @@ namespace TheosRenderPipeline::HDROutput
             Decode(encodedSDR[1], s.transfer) * s.uiNits, Decode(encodedSDR[2], s.transfer) * s.uiNits});
     }
 
+    // Premultiplied SDR UI to premultiplied HDR10 UI. Light beyond alpha (additive
+    // glows) is kept as additive light instead of being clamped away.
+    inline RGB EncodeUIPremultiplied(RGB premultiplied, float alpha, const Settings& s)
+    {
+        RGB covered{}, excess{}, straight{};
+        for (int c = 0; c < 3; ++c) {
+            covered[c] = (std::min)(premultiplied[c], alpha);
+            excess[c] = (std::max)(premultiplied[c] - covered[c], 0.0f);
+            straight[c] = alpha > 1.0f / 1024.0f ? covered[c] / alpha : 0.0f;
+        }
+        const auto body = EncodeUI(straight, s), glow = EncodeUI(excess, s);
+        return {std::clamp(body[0] * alpha + glow[0], 0.0f, 1.0f), std::clamp(body[1] * alpha + glow[1], 0.0f, 1.0f),
+            std::clamp(body[2] * alpha + glow[2], 0.0f, 1.0f)};
+    }
+
     // Constants consumed by the output shader: five float4 rows.
     struct ShaderConstants
     {
         std::array<float, 4> red, green, blue; // BT.709 -> BT.2020 rows; w unused.
         std::array<float, 4> scale;            // paper nits, UI nits, expansion start, maximum scale.
-        std::array<float, 4> mode;             // transfer, passthrough, 0, 0.
+        std::array<float, 4> mode;             // transfer, passthrough, expand whole frame, 0.
     };
     static_assert(sizeof(ShaderConstants) == 20 * sizeof(float));
 
-    inline ShaderConstants MakeShaderConstants(Settings s, bool passthrough)
+    inline ShaderConstants MakeShaderConstants(Settings s, bool passthrough, bool expandWholeFrame = false)
     {
         s = Sanitize(s);
         const auto& m = SourceDLSSG::HDRColorimetry::k709To2020;
@@ -172,7 +189,7 @@ namespace TheosRenderPipeline::HDROutput
         c.green = {float(m[1][0]), float(m[1][1]), float(m[1][2]), 0.0f};
         c.blue = {float(m[2][0]), float(m[2][1]), float(m[2][2]), 0.0f};
         c.scale = {s.paperWhiteNits, s.uiNits, s.expansionStart, MaximumScale(s)};
-        c.mode = {static_cast<float>(s.transfer), passthrough ? 1.0f : 0.0f, 0.0f, 0.0f};
+        c.mode = {static_cast<float>(s.transfer), passthrough ? 1.0f : 0.0f, expandWholeFrame ? 1.0f : 0.0f, 0.0f};
         return c;
     }
 }
