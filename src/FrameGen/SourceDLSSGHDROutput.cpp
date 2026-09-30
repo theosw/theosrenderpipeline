@@ -176,6 +176,43 @@ Targets PSCompose(Vertex v) {
 		return S_OK;
 	}
 
+	HRESULT HDROutputPass::EnableTiming(ID3D12Device* device, std::uint64_t frequency)
+	{
+		if (timestamps_) { return S_OK; }
+		if (!device || !frequency) { return E_INVALIDARG; }
+		D3D12_QUERY_HEAP_DESC heapDesc{ D3D12_QUERY_HEAP_TYPE_TIMESTAMP, 2 * kCommandSlots, 0 };
+		ComPtr<ID3D12QueryHeap> heap;
+		auto hr = device->CreateQueryHeap(&heapDesc, IID_PPV_ARGS(&heap));
+		if (FAILED(hr)) { return hr; }
+		D3D12_RESOURCE_DESC desc{};
+		desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER; desc.Width = 2 * kCommandSlots * sizeof(std::uint64_t);
+		desc.Height = 1; desc.DepthOrArraySize = 1; desc.MipLevels = 1; desc.SampleDesc.Count = 1;
+		desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+		D3D12_HEAP_PROPERTIES properties{}; properties.Type = D3D12_HEAP_TYPE_READBACK;
+		ComPtr<ID3D12Resource> readback;
+		hr = device->CreateCommittedResource(&properties, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_COPY_DEST,
+			nullptr, IID_PPV_ARGS(&readback));
+		if (FAILED(hr)) { return hr; }
+		void* mapped{};
+		// Persistently mapped; each pair is read only after its slot has retired.
+		hr = readback->Map(0, nullptr, &mapped);
+		if (FAILED(hr)) { return hr; }
+		timestamps_ = heap; timestampReadback_ = readback;
+		mappedTimestamps_ = static_cast<const std::uint64_t*>(mapped);
+		timestampFrequency_ = frequency;
+		return S_OK;
+	}
+
+	void HDROutputPass::HarvestTiming(std::size_t slot)
+	{
+		if (!mappedTimestamps_ || !timingPending_[slot]) { return; }
+		timingPending_[slot] = false;
+		const auto begin = mappedTimestamps_[2 * slot], end = mappedTimestamps_[2 * slot + 1];
+		if (end <= begin) { return; }
+		const double us = static_cast<double>(end - begin) * 1e6 / static_cast<double>(timestampFrequency_);
+		++harvested_.samples; harvested_.totalUs += us; harvested_.maxUs = (std::max)(harvested_.maxUs, us);
+	}
+
 	bool HDROutputPass::TargetsMatch(UINT width, UINT height) const
 	{
 		return hudless_ && ui_ && hudless_->GetDesc().Width == width && hudless_->GetDesc().Height == height;
@@ -225,8 +262,12 @@ Targets PSCompose(Vertex v) {
 		if (compose && (!Readable(ui, width, height) || !Readable(scene, width, height) || !TargetsMatch(width, height) ||
 			ui == scene || ui == composite || scene == composite)) { return E_INVALIDARG; }
 		const auto initialized = Initialize(device); if (FAILED(initialized)) { return initialized; }
-		// The owner has retired this command-ring slot before updating its views.
+		// The owner has retired this command-ring slot before updating its views,
+		// so its previous timestamp pair is complete.
+		HarvestTiming(slot);
 		retained_[slot] = { composite, ui, scene, backbuffer };
+		const auto first = static_cast<UINT>(2 * slot);
+		if (timestamps_) { list->EndQuery(timestamps_.Get(), D3D12_QUERY_TYPE_TIMESTAMP, first); }
 		std::array<ID3D12Resource*, 3> inputs{ composite, compose ? ui : composite, compose ? scene : composite };
 		const auto srvSize = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 		auto srv = srv_[slot]->GetCPUDescriptorHandleForHeapStart();
@@ -267,6 +308,12 @@ Targets PSCompose(Vertex v) {
 			Transition(list, ui, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COMMON);
 		}
 		Transition(list, composite, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COMMON);
+		if (timestamps_) {
+			list->EndQuery(timestamps_.Get(), D3D12_QUERY_TYPE_TIMESTAMP, first + 1);
+			list->ResolveQueryData(timestamps_.Get(), D3D12_QUERY_TYPE_TIMESTAMP, first, 2,
+				timestampReadback_.Get(), first * sizeof(std::uint64_t));
+			timingPending_[slot] = true;
+		}
 		return S_OK;
 	}
 }

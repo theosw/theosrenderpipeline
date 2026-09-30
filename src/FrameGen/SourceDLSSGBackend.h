@@ -182,6 +182,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		HWND window_{};
 		HMONITOR hdrMonitor_{};
 		std::uint32_t hdrPollCountdown_{};
+		std::uint64_t hdrTimestampFrequency_{};
 		bool hdrNative_{}, hdrDisplay_{}, hdrFrameTagged_{}, hdrColorSpaceApplied_{};
 		// Replaces a ReShade screenshot of the UI-only source runtime with the
 		// final real frame. Failures keep ReShade's file and never fault rendering.

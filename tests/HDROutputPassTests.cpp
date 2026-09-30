@@ -270,12 +270,24 @@ int main()
     Require(worstPassthrough <= 0.5f * code10 + 1e-6f, "SDR passthrough");
     Require(worstEncoded <= 1.5f * code10, "UI-brightness encode matches CPU reference");
 
-    // Repeated slot reuse with retained views stays valid.
+    // Repeated slot reuse with retained views stays valid; timing harvests each
+    // slot's previous pair when that slot is recorded again.
+    UINT64 frequency{};
+    Check(gpu.queue->GetTimestampFrequency(&frequency), "timestamp frequency");
+    Check(pass.EnableTiming(gpu.device.Get(), frequency), "enable timing");
+    Check(pass.EnableTiming(gpu.device.Get(), frequency), "timing is idempotent");
+    Require(pass.TakeTiming().samples == 0, "no samples before a timed slot is reused");
+    HDROutputTiming timing;
     for (std::size_t slot = 0; slot < kCommandSlots * 2; ++slot) {
         Check(pass.RecordCompose(gpu.device.Get(), gpu.list.Get(), slot % kCommandSlots, constants, compositeTexture.Get(),
             uiTexture.Get(), sceneTexture.Get(), backbuffer.Get()), "repeated compose");
         gpu.Submit();
+        timing.Add(pass.TakeTiming());
     }
+    std::printf("timing: samples=%llu avg=%.1f us max=%.1f us\n", static_cast<unsigned long long>(timing.samples),
+        timing.AverageUs(), timing.maxUs);
+    Require(timing.samples == kCommandSlots, "each reused slot yields one GPU sample");
+    Require(std::isfinite(timing.AverageUs()) && timing.maxUs >= timing.AverageUs(), "finite GPU timing");
     std::printf("HDR output pass checks passed\n");
     return 0;
 }

@@ -89,6 +89,11 @@ void OverlayUI::DrawHDROutputSettings()
             std::format("{} (display reports {:.0f} nits)", state.reason, state.displayMaxNits) : std::string(state.reason);
         if (state.display) { ImGui::TextDisabled("%s", status.c_str()); }
         else { ImGui::TextColored(kAmber, "%s", status.c_str()); }
+        if (state.gpu.samples)
+        {
+            ImGui::TextDisabled("Output pass GPU: %.2f ms average, %.2f ms max", state.gpu.AverageUs() / 1000.0,
+                                state.gpu.maxUs / 1000.0);
+        }
     }
     ImGui::BeginDisabled(!hdr.enabled);
     ImGui::SliderFloat("Paper white##hdr", &hdr.paperWhiteNits, HDR::kMinimumNits, 500.0f, "%.0f nits");

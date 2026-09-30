@@ -216,6 +216,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
 		if (!Check(device12_->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&queue_)), "presenting queue") ||
 			!Check(interop_.Initialize(device11_.Get(), device12_.Get(), queue_.Get()), "shared interop")) { return fault_; }
+		if (FAILED(queue_->GetTimestampFrequency(&hdrTimestampFrequency_))) { hdrTimestampFrequency_ = 0; }
 #if !defined(TRP_NO_NEURAL_RENDERING)
 		if (FAILED(queue_->GetTimestampFrequency(&neuralTimestampFrequency_)) || !neuralTimestampFrequency_) {
 			neuralTimestampFrequency_ = 0;
@@ -706,15 +707,25 @@ namespace TheosRenderPipeline::SourceDLSSG
 		const auto monitor = MonitorFromWindow(window_, MONITOR_DEFAULTTONEAREST);
 		if (!a_force && hdrFactory_ && hdrFactory_->IsCurrent() && monitor == hdrMonitor_ && hdrColorSpaceApplied_) { return; }
 		// A fresh factory reports the current Windows HDR state of each output.
+		LARGE_INTEGER start{}, stop{}, frequency{};
+		QueryPerformanceCounter(&start);
 		ComPtr<IDXGIFactory1> factory;
 		const auto created = CreateDXGIFactory1(IID_PPV_ARGS(&factory));
 		const auto display = SUCCEEDED(created) ? QueryDisplayHDR(factory.Get(), window_) : DisplayHDR{};
+		QueryPerformanceCounter(&stop); QueryPerformanceFrequency(&frequency);
+		const double queryUs = frequency.QuadPart ? static_cast<double>(stop.QuadPart - start.QuadPart) * 1e6 / static_cast<double>(frequency.QuadPart) : 0.0;
 		hdrFactory_ = factory;
 		hdrMonitor_ = display.monitor ? display.monitor : monitor;
 		const bool changed = display.active != hdrDisplay_ || !hdrColorSpaceApplied_;
 		hdrDisplay_ = display.active;
 		{
 			std::scoped_lock lock(hdrMutex_);
+			++hdrState_.displayQueries; hdrState_.displayQueryTotalUs += queryUs;
+			hdrState_.displayQueryMaxUs = (std::max)(hdrState_.displayQueryMaxUs, queryUs);
+			if (!a_force && (hdrState_.displayQueries <= 3 || hdrState_.displayQueries % 50 == 0)) {
+				logger::info("[HDROutput] display re-query {} took {:.0f} us (factory was not current or the monitor changed)",
+					hdrState_.displayQueries, queryUs);
+			}
 			hdrState_.display = hdrDisplay_; hdrState_.displayKnown = display.known;
 			hdrState_.displayMaxNits = display.maxLuminance;
 			hdrState_.reason = hdrDisplay_ ? "HDR10 output" : display.known ?
@@ -762,6 +773,12 @@ namespace TheosRenderPipeline::SourceDLSSG
 		bool a_prepared, DXGI_COLOR_SPACE_TYPE& a_colorSpace)
 	{
 		if (!hdrOutputPass_) { hdrOutputPass_ = std::make_unique<HDROutputPass>(); }
+		if (hdrTimestampFrequency_) {
+			if (const auto timing = hdrOutputPass_->EnableTiming(device12_.Get(), hdrTimestampFrequency_); FAILED(timing)) {
+				logger::warn("[HDROutput] GPU timing unavailable (0x{:08X}); output continues", static_cast<std::uint32_t>(timing));
+				hdrTimestampFrequency_ = 0;
+			}
+		}
 		// Tagged layers must be written even if the display changed since Prepare;
 		// that frame keeps its tagged encoding and the next frame follows the display.
 		const bool compose = a_prepared && hdrFrameTagged_;
@@ -775,10 +792,13 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (SUCCEEDED(result)) {
 			std::scoped_lock lock(hdrMutex_);
 			++(compose ? hdrState_.composedFrames : hdrState_.encodedFrames);
+			hdrState_.gpu.Add(hdrOutputPass_->TakeTiming());
 			const auto total = hdrState_.composedFrames + hdrState_.encodedFrames;
 			if (total <= 3 || total % 3600 == 0) {
-				logger::info("[HDROutput] frames composed={} encoded={} hdr={} {}", hdrState_.composedFrames,
-					hdrState_.encodedFrames, hdr, hdrState_.reason);
+				const auto& q = hdrState_;
+				logger::info("[HDROutput] frames composed={} encoded={} hdr={} gpuSamples={} gpuAvgUs={:.1f} gpuMaxUs={:.1f} displayQueries={} displayQueryAvgUs={:.0f} displayQueryMaxUs={:.0f} {}",
+					q.composedFrames, q.encodedFrames, hdr, q.gpu.samples, q.gpu.AverageUs(), q.gpu.maxUs, q.displayQueries,
+					q.displayQueries ? q.displayQueryTotalUs / static_cast<double>(q.displayQueries) : 0.0, q.displayQueryMaxUs, q.reason);
 			}
 		}
 		return result;

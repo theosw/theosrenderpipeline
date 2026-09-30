@@ -3,6 +3,8 @@
 #include "SourceDLSSGInterop.h"
 #include <d3d12.h>
 #include <dxgi1_6.h>
+#include <algorithm>
+#include <utility>
 
 namespace TheosRenderPipeline::SourceDLSSG
 {
@@ -25,6 +27,19 @@ namespace TheosRenderPipeline::SourceDLSSG
 		return gameFormat == DXGI_FORMAT_R8G8B8A8_UNORM || gameFormat == DXGI_FORMAT_B8G8R8A8_UNORM;
 	}
 
+	// GPU time of the output pass on the presenting queue, harvested only after
+	// each command slot retires (no CPU wait).
+	struct HDROutputTiming
+	{
+		std::uint64_t samples{};
+		double totalUs{}, maxUs{};
+		void Add(const HDROutputTiming& other)
+		{
+			samples += other.samples; totalUs += other.totalUs; maxUs = (std::max)(maxUs, other.maxUs);
+		}
+		double AverageUs() const { return samples ? totalUs / static_cast<double>(samples) : 0.0; }
+	};
+
 	// Published for the overlay and logs.
 	struct HDROutputState
 	{
@@ -34,6 +49,10 @@ namespace TheosRenderPipeline::SourceDLSSG
 		bool displayKnown{};
 		float displayMaxNits{};
 		std::uint64_t composedFrames{}, encodedFrames{};
+		HDROutputTiming gpu;
+		// Display re-queries create a DXGI factory and enumerate outputs on the render thread.
+		std::uint64_t displayQueries{};
+		double displayQueryTotalUs{}, displayQueryMaxUs{};
 		const char* reason{"not requested"};
 	};
 
@@ -68,7 +87,12 @@ namespace TheosRenderPipeline::SourceDLSSG
 		HRESULT CreateTargets(ID3D12Device* device, UINT width, UINT height); // Caller has drained.
 		ID3D12Resource* HudlessTarget() const { return hudless_.Get(); }
 		ID3D12Resource* UITarget() const { return ui_.Get(); }
+		// Optional; a failure leaves the pass untimed. Frequency is the presenting queue's.
+		HRESULT EnableTiming(ID3D12Device* device, std::uint64_t frequency);
+		// Returns samples harvested since the previous call.
+		HDROutputTiming TakeTiming() { return std::exchange(harvested_, {}); }
 	private:
+		void HarvestTiming(std::size_t slot);
 		HRESULT Initialize(ID3D12Device* device);
 		HRESULT Record(ID3D12Device* device, ID3D12GraphicsCommandList* list, std::size_t slot,
 			const HDROutput::ShaderConstants& constants, ID3D12Resource* composite, ID3D12Resource* ui,
@@ -79,5 +103,11 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// Retained per slot until that slot retires.
 		std::array<std::array<Microsoft::WRL::ComPtr<ID3D12Resource>, 4>, kCommandSlots> retained_;
 		Microsoft::WRL::ComPtr<ID3D12Resource> hudless_, ui_;
+		Microsoft::WRL::ComPtr<ID3D12QueryHeap> timestamps_;
+		Microsoft::WRL::ComPtr<ID3D12Resource> timestampReadback_;
+		const std::uint64_t* mappedTimestamps_{};
+		std::uint64_t timestampFrequency_{};
+		std::array<bool, kCommandSlots> timingPending_{};
+		HDROutputTiming harvested_;
 	};
 }
