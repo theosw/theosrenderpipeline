@@ -45,6 +45,7 @@ HRESULT NvidiaHost::CreateSwapChain(IDXGIFactory* a_factory, ID3D11Device* a_dev
     const auto& settings = SourceFrameGeneration::GetSingleton()->settings;
     auto& backend = TheosRenderPipeline::SourceDLSSG::Backend::Get();
     backend.ConfigureReflex(static_cast<sl::ReflexMode>(settings.sourceDLSSG.reflexMode));
+    backend.ConfigureUIRecomposition(settings.sourceDLSSG.uiRecomposition);
     backend.ConfigureOutputFPSLimit(settings.sourceDLSSG.outputFPSLimit);
     backend.ConfigureGeneration(settings.sourceDLSSG.generation);
     backend.ConfigureMFGUnlock(settings.sourceDLSSGMFGUnlock);

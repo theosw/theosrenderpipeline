@@ -101,7 +101,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// intervening real Present, not a multiplier change or a normal frame call.
 		if (optionsPendingPresent_ && submittedMode_ == snapshot_.options.mode &&
 			submittedGeneratedFrames_ == snapshot_.options.numFramesToGenerate &&
-			submittedDynamicTarget_ == snapshot_.options.dynamicTargetFrameRate) { return true; }
+			submittedDynamicTarget_ == snapshot_.options.dynamicTargetFrameRate &&
+			submittedUIRecomposition_ == snapshot_.options.enableUserInterfaceRecomposition) { return true; }
 		const auto result = api_.setOptions(viewport_, snapshot_.options);
 		snapshot_.optionsResult = result;
 		// NVIDIA stores the options before appending this advisory budget result.
@@ -112,6 +113,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		submittedMode_ = snapshot_.options.mode;
 		submittedGeneratedFrames_ = snapshot_.options.numFramesToGenerate;
 		submittedDynamicTarget_ = snapshot_.options.dynamicTargetFrameRate;
+		submittedUIRecomposition_ = snapshot_.options.enableUserInterfaceRecomposition;
 		optionsPendingPresent_ = true;
 		return true;
 	}
@@ -280,6 +282,13 @@ namespace TheosRenderPipeline::SourceDLSSG
 		snapshot_.options.dynamicTargetFrameRate = static_cast<float>(selection.effective.dynamicTargetFPS);
 		snapshot_.options.mode = !enable ? sl::DLSSGMode::eOff :
 			selection.effective.dynamic ? sl::DLSSGMode::eDynamic : sl::DLSSGMode::eOn;
+		// Recomposition needs both layers. Retain the last choice while generation
+		// is off so a transient untagged frame does not reallocate its codepath.
+		if (enable) {
+			const bool layers = guides_.ui.resource.native && guides_.hudless.resource.native;
+			snapshot_.options.enableUserInterfaceRecomposition =
+				snapshot_.uiRecompositionRequested && layers ? sl::eTrue : sl::eFalse;
+		}
 		if (!SubmitOptions("DLSS-G options") ||
 			!Mark(sl::PCLMarker::ePresentStart, "PresentStart")) { return false; }
 		snapshot_.stage = SessionStage::PresentPending;

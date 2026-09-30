@@ -13,6 +13,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 	{
 		int reflexMode{ 1 };
 		int outputFPSLimit{ 0 };
+		// Interpolate the HUD-less scene and UI layer separately. Live toggle.
+		bool uiRecomposition{ false };
 		GenerationRequest generation{};
 		bool neuralEnabled{ false };
 		bool neuralBeforeUpscaling{ true };
@@ -51,6 +53,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		value.generation.generatedFrames = static_cast<std::uint32_t>(ini.GetLongValue(section, "GeneratedFrames", 1));
 		value.generation.dynamic = ini.GetBoolValue(section, "DynamicMFG", false);
 		value.generation.dynamicTargetFPS = static_cast<std::uint32_t>(ini.GetLongValue(section, "DynamicTargetFPS", 0));
+		value.uiRecomposition = ini.GetBoolValue(section, "UIRecomposition", false);
 		value.neuralEnabled = ini.GetBoolValue(section, "NeuralRenderingEnabled", false);
 		value.neuralBeforeUpscaling = ini.GetBoolValue(section, "NRBeforeUpscaling", value.neuralBeforeUpscaling);
 		value.neuralPasses = static_cast<int>(ini.GetLongValue(section, "NRPasses", 1));
@@ -81,6 +84,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		ini.SetLongValue(section, "GeneratedFrames", value.generation.generatedFrames);
 		ini.SetBoolValue(section, "DynamicMFG", value.generation.dynamic);
 		ini.SetLongValue(section, "DynamicTargetFPS", value.generation.dynamicTargetFPS);
+		ini.SetBoolValue(section, "UIRecomposition", value.uiRecomposition);
 		ini.SetBoolValue(section, "NeuralRenderingEnabled", value.neuralEnabled);
 		ini.SetBoolValue(section, "NRBeforeUpscaling", value.neuralBeforeUpscaling);
 		ini.SetLongValue(section, "NRPasses", value.neuralPasses);

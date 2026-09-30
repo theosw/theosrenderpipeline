@@ -156,6 +156,16 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& v
                 ImGui::TextWrapped("Saved/requested MFG is unsupported here. The runtime uses the supported count; "
                                    "your requested preference is retained.");
             }
+            ImGui::Checkbox("UI recomposition##sourceDLSSG", &settingsDraft.sourceDLSSG.uiRecomposition);
+            DrawSettingsHelp("Generates the scene and HUD separately to reduce HUD ghosting in motion. "
+                             "Small GPU and VRAM cost. Apply to compare live.");
+            if (frameGenerationRuntimeActive && sourceState.uiRecompositionRequested)
+            {
+                if (sourceState.options.enableUserInterfaceRecomposition == sl::eTrue)
+                    ImGui::TextDisabled("Submitted to DLSS-G");
+                else
+                    ImGui::TextColored(kOchre, "Waiting for HUD-less and UI layers");
+            }
             ImGui::Separator();
             ImGui::TextUnformatted("NVIDIA Reflex");
             const auto requestedReflex = static_cast<sl::ReflexMode>(settingsDraft.sourceDLSSG.reflexMode);

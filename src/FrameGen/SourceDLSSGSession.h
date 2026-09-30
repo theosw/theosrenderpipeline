@@ -98,6 +98,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		std::uint32_t frameLimitRequestedUs{}, frameLimitSubmittedUs{};
 		GenerationRequest generationRequested{};
 		bool generationLimited{};
+		bool uiRecompositionRequested{};
 		bool mfgUnlockRequested{}, mfgUnlockReady{};
 
 		// Submitted options alone do not establish an active session: also check
@@ -139,6 +140,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 			snapshot_.generationRequested = a_request;
 			return true;
 		}
+		// Submitted only while generating with both HUD-less and UI layers tagged.
+		void RequestUIRecomposition(bool a_enabled) { snapshot_.uiRecompositionRequested = a_enabled; }
 		bool RequestOutputFPSLimit(int a_fps)
 		{
 			if (a_fps < 0 || a_fps > 1000) { return false; }
@@ -178,6 +181,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		sl::DLSSGMode submittedMode_{ sl::DLSSGMode::eOff };
 		std::uint32_t submittedGeneratedFrames_{ 1 };
 		float submittedDynamicTarget_{};
+		sl::Boolean submittedUIRecomposition_{ sl::eFalse };
 		bool started_{ false };
 		bool needsReset_{ true };
 		ReflexTelemetryTracker reflexTelemetry_;

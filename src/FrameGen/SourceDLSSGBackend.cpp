@@ -275,6 +275,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			return owner.Check(result, "input reuse fence");
 		};
 		session_.RequestReflexMode(ReflexConfiguration());
+		session_.RequestUIRecomposition(UIRecompositionConfiguration());
 		session_.RequestOutputFPSLimit(outputFPSLimit_.load(std::memory_order_relaxed));
 		if (!CheckSession(session_.Start(api_, 1))) { return fault_; }
 		mfgUnlock_.Tick();
@@ -472,10 +473,12 @@ namespace TheosRenderPipeline::SourceDLSSG
 		const auto oldFrameLimit = session_.Snapshot().frameLimitSubmittedUs;
 		const auto oldGeneration = session_.Snapshot().generationRequested;
 		const auto oldLimited = session_.Snapshot().generationLimited;
+		const auto oldRecomposition = session_.Snapshot().options.enableUserInterfaceRecomposition;
 		mfgUnlock_.Tick();
 		session_.SetMFGUnlockState(mfgUnlock_.Snapshot().UsesCompatibilityUnlock(), mfgUnlock_.Snapshot().Ready());
 		session_.RequestGeneration(GenerationConfiguration());
 		session_.RequestReflexMode(ReflexConfiguration());
+		session_.RequestUIRecomposition(UIRecompositionConfiguration());
 		session_.RequestOutputFPSLimit(outputFPSLimit_.load(std::memory_order_relaxed));
 		const bool prepared = session_.Snapshot().stage == SessionStage::Rendering;
 		if (prepared) {
@@ -560,6 +563,12 @@ namespace TheosRenderPipeline::SourceDLSSG
 			logger::info("[SourceDLSSG] MFG requestedGenerated={} requestedDynamic={} targetFPS={} submittedGenerated={} submittedMode={} maxGenerated={} limited={}",
 				s.generationRequested.generatedFrames, s.generationRequested.dynamic, s.generationRequested.dynamicTargetFPS,
 				s.options.numFramesToGenerate, static_cast<int>(s.options.mode), s.state.numFramesToGenerateMax, s.generationLimited);
+		}
+		if (oldRecomposition != session_.Snapshot().options.enableUserInterfaceRecomposition) {
+			const auto& s = session_.Snapshot();
+			logger::info("[SourceDLSSG] UI recomposition frame={} requested={} submitted={} mode={}",
+				s.frameIndex, s.uiRecompositionRequested, s.options.enableUserInterfaceRecomposition == sl::eTrue,
+				static_cast<int>(s.options.mode));
 		}
 #if !defined(TRP_NO_NEURAL_RENDERING)
 		{
