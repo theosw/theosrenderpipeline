@@ -46,12 +46,12 @@ void Generation()
     Require(!ValidGenerationRequest({0,0,false}) && !ValidGenerationRequest({6,0,false}), "bad multipliers remain invalid");
     {
         CSimpleIniA ini;
-        Require(!LoadPreferences(ini).uiRecomposition, "missing UI recomposition key keeps the released default");
-        Preferences preferences; preferences.uiRecomposition = true;
+        Require(LoadPreferences(ini).uiRecomposition, "existing INIs without the key get UI recomposition on");
+        Preferences preferences; preferences.uiRecomposition = false;
         StorePreferences(ini, preferences);
-        Require(LoadPreferences(ini).uiRecomposition, "UI recomposition round trips");
+        Require(!LoadPreferences(ini).uiRecomposition, "a saved opt-out round trips");
         RendererSettingsDraft current; current.valid = true;
-        auto draft = current; draft.sourceDLSSG.uiRecomposition = true;
+        auto draft = current; draft.sourceDLSSG.uiRecomposition = false;
         Require(CountRendererSettingsChanges(draft, current) == 1, "UI recomposition participates in Apply/Discard");
     }
 }

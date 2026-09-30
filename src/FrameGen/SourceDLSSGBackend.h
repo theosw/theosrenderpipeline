@@ -150,7 +150,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		sl::Result reportedOptionsResult_{ sl::Result::eOk };
 		MFGUnlock mfgUnlock_;
 		std::atomic<sl::ReflexMode> reflexMode_{ sl::ReflexMode::eLowLatency };
-		std::atomic<bool> uiRecomposition_{ false };
+		std::atomic<bool> uiRecomposition_{ true };
 		std::atomic<int> outputFPSLimit_{ 0 };
 		mutable std::mutex presentationFeedbackMutex_;
 		PresentationFeedbackTracker presentationFeedback_;
