@@ -7,6 +7,7 @@
 #include "../PluginPaths.h"
 #include "../ScreenshotFile.h"
 #include <d3dcompiler.h>
+#include <chrono>
 
 namespace TheosRenderPipeline::SourceDLSSG
 {
@@ -223,6 +224,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
 		if (!Check(device12_->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&queue_)), "presenting queue") ||
 			!Check(interop_.Initialize(device11_.Get(), device12_.Get(), queue_.Get()), "shared interop")) { return fault_; }
+		if (FAILED(queue_->GetTimestampFrequency(&hdrTimestampFrequency_))) { hdrTimestampFrequency_ = 0; }
 #if !defined(TRP_NO_NEURAL_RENDERING)
 		if (FAILED(queue_->GetTimestampFrequency(&neuralTimestampFrequency_)) || !neuralTimestampFrequency_) {
 			neuralTimestampFrequency_ = 0;
@@ -236,7 +238,21 @@ namespace TheosRenderPipeline::SourceDLSSG
 		upgradedFactory.Attach(static_cast<IDXGIFactory*>(factory));
 		if (!Check(factoryResult, "upgrade factory") || !upgradedFactory) { return E_FAIL; }
 		auto desc = a_desc;
-		desc.BufferDesc.Format = PresentationFormat(a_desc.BufferDesc.Format);
+		window_ = a_desc.OutputWindow;
+		{
+			const auto hdr = HDROutputConfiguration();
+			const char* reason = "not requested";
+			if (hdr.enabled) {
+				if (CommunityShaders::Active()) { reason = "Community Shaders owns HDR on this route"; }
+				else if (!HDROutputEligibleFormat(a_desc.BufferDesc.Format)) { reason = "producer does not finish in 8-bit SDR"; }
+				else { hdrNative_ = true; reason = "waiting for display state"; }
+			}
+			std::scoped_lock lock(hdrMutex_);
+			hdrState_.requested = hdr.enabled; hdrState_.native = hdrNative_; hdrState_.reason = reason;
+			logger::info("[HDROutput] requested={} native={} gameFormat={} {}", hdr.enabled, hdrNative_,
+				static_cast<int>(a_desc.BufferDesc.Format), reason);
+		}
+		desc.BufferDesc.Format = NativeFormat(a_desc.BufferDesc.Format);
 		desc.BufferCount = 2;
 		desc.Flags &= ~(0x2000u | 0x4000u);
 		// The pinned DLSS-G runtime submits immediate Presents with ALLOW_TEARING,
@@ -246,6 +262,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		ComPtr<IDXGISwapChain> native;
 		if (!Check(upgradedFactory->CreateSwapChain(queue_.Get(), &desc, &native), "Streamline swapchain")) { return fault_; }
 		retainedNative_ = native;
+		PollDisplayHDR(true);
 		api_.context = this;
 		api_.waitForInputReaders = [](void* context, void* fence, std::uint64_t value) {
 			auto& owner = *static_cast<Backend*>(context);
@@ -356,6 +373,29 @@ namespace TheosRenderPipeline::SourceDLSSG
 		guides.motion = tag(motion_); guides.depth = tag(depth_);
 		if (a_ui) { guides.ui = tag(ui_); }
 		if (a_hudless) { guides.hudless = tag(hudless_); }
+		hdrFrameTagged_ = false;
+		if (hdrNative_ && hdrDisplay_) {
+			// DLSS-G needs HUD-less and UI in the backbuffer's HDR10 encoding.
+			// BeforePresent writes these targets; without both layers, tag neither.
+			const bool layers = a_ui && a_hudless && HDROutputEligibleFormat(hudless_.desc.Format) &&
+				hudless_.desc.Width == a_width && hudless_.desc.Height == a_height &&
+				ui_.desc.Width == a_width && ui_.desc.Height == a_height;
+			guides.ui = {}; guides.hudless = {};
+			if (layers) {
+				if (!EnsureHDRTargets(a_width, a_height)) { return false; }
+				auto tag12 = [](ID3D12Resource* resource) {
+					const auto d = resource->GetDesc();
+					TaggedTexture t;
+					t.resource = sl::Resource(sl::ResourceType::eTex2d, resource, D3D12_RESOURCE_STATE_COMMON);
+					t.resource.width = static_cast<UINT>(d.Width); t.resource.height = d.Height;
+					t.extent = { 0, 0, static_cast<UINT>(d.Width), d.Height };
+					return t;
+				};
+				guides.ui = tag12(hdrOutputPass_->UITarget());
+				guides.hudless = tag12(hdrOutputPass_->HudlessTarget());
+				hdrFrameTagged_ = true;
+			}
+		}
 		guides.displayWidth = a_width; guides.displayHeight = a_height;
 		if (!Check(interop_.SignalD3D11(Work::FrameGeneration), "D3D11 guides ready")) { return false; }
 		ID3D12GraphicsCommandList* list = nullptr;
@@ -469,18 +509,27 @@ namespace TheosRenderPipeline::SourceDLSSG
 		}
 #endif
 		HRESULT outputResult;
-		const bool hdrEncoded = realSource->GetDesc().Format == DXGI_FORMAT_R16G16B16A16_FLOAT &&
+		DXGI_COLOR_SPACE_TYPE outputColorSpace = a_colorSpace;
+		const bool rendererHDR = hdrNative_ && a_destination->GetDesc().Format == HDROutputPass::kOutputFormat &&
+			HDROutputEligibleFormat(realSource->GetDesc().Format);
+		const bool hdrEncoded = !rendererHDR && realSource->GetDesc().Format == DXGI_FORMAT_R16G16B16A16_FLOAT &&
 			a_destination->GetDesc().Format == DXGI_FORMAT_R10G10B10A2_UNORM;
-		if (hdrEncoded) {
+		if (rendererHDR) {
+			outputResult = RecordOutput(list, realSource, a_destination, prepared, outputColorSpace);
+		} else if (hdrEncoded) {
 			if (!hdrPass_) { hdrPass_ = std::make_unique<HDRPass>(); }
 			outputResult = hdrPass_->Record(device12_.Get(), list, interop_.CurrentSlot(Work::SwapChain), realSource, a_destination);
+			outputColorSpace = DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020;
 		} else {
 			outputResult = Interop::RecordCopy(list, realSource, a_destination);
 		}
+		hdrFrameTagged_ = false;
 		if (SUCCEEDED(outputResult)) {
 			// CS can deliver already-encoded PQ through an equal-format copy.
 			// A conversion performed here is not the only source of HDR output.
-			RecordScreenshot(list, a_destination, hdrEncoded ? DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020 : a_colorSpace);
+			// Renderer-owned HDR keeps the finished SDR frame; save that instead of PQ.
+			if (rendererHDR) { RecordScreenshot(list, realSource, DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709); }
+			else { RecordScreenshot(list, a_destination, outputColorSpace); }
 		}
 		const bool transitionBlocked = TransitionBlocked();
 		const auto transitionWarmup = transitionWarmupPresents_.load(std::memory_order_acquire);
@@ -541,6 +590,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// (or another native error) with an unexplained E_FAIL.
 		if (FAILED(a_result)) { Check(a_result, "native Present"); }
 		if (!CheckSession(session_.AfterPresent(SUCCEEDED(a_result)))) { return FAILED(a_result) ? a_result : fault_; }
+		// Between frames: the next Prepare and BeforePresent both see any new
+		// display state, and the colour space changes before that frame's Present.
+		if (SUCCEEDED(a_result)) { PollDisplayHDR(false); }
 		if (SUCCEEDED(a_result) && !TransitionBlocked()) {
 			auto remaining = transitionWarmupPresents_.load(std::memory_order_acquire);
 			while (remaining && !transitionWarmupPresents_.compare_exchange_weak(
@@ -647,6 +699,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 		neuralPass_.reset(); // The presenting queue and NVIDIA input readers are retired.
 #endif
 		hdrPass_.reset();
+		hdrOutputPass_.reset();
+		hdrFrameTagged_ = false;
 		neuralHistory_.Invalidate();
 		neuralEligible_ = false;
 		neuralFrameBegun_ = neuralEvaluatedEarly_ = false;
@@ -656,6 +710,142 @@ namespace TheosRenderPipeline::SourceDLSSG
 			neuralSnapshot_.status = "NR retired for resize; next eligible frame recreates the feature";
 		}
 		return true;
+	}
+	void Backend::PollDisplayHDR(bool a_force)
+	{
+		if (!hdrNative_) { return; }
+		if (!a_force && hdrPollCountdown_ && --hdrPollCountdown_) { return; }
+		hdrPollCountdown_ = 120;
+		// Windows' SDR content brightness can change without a new DXGI factory.
+		const bool refreshSDR = ++hdrSDRPolls_ % 5 == 0 && HDROutputConfiguration().matchWindowsSDR;
+		const auto monitor = MonitorFromWindow(window_, MONITOR_DEFAULTTONEAREST);
+		if (!a_force && hdrFactory_ && hdrFactory_->IsCurrent() && monitor == hdrMonitor_ && hdrColorSpaceApplied_) {
+			if (refreshSDR) { RefreshSDRWhite(); }
+			return;
+		}
+		// A fresh factory reports the current Windows HDR state of each output.
+		const auto start = std::chrono::steady_clock::now();
+		ComPtr<IDXGIFactory1> factory;
+		const auto created = CreateDXGIFactory1(IID_PPV_ARGS(&factory));
+		const auto display = SUCCEEDED(created) ? QueryDisplayHDR(factory.Get(), window_) : DisplayHDR{};
+		const double queryUs = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - start).count();
+		hdrFactory_ = factory;
+		hdrMonitor_ = display.monitor ? display.monitor : monitor;
+		hdrDeviceName_ = display.deviceName;
+		const bool changed = display.active != hdrDisplay_ || !hdrColorSpaceApplied_;
+		hdrDisplay_ = display.active;
+		{
+			std::scoped_lock lock(hdrMutex_);
+			++hdrState_.displayQueries; hdrState_.displayQueryTotalUs += queryUs;
+			hdrState_.displayQueryMaxUs = (std::max)(hdrState_.displayQueryMaxUs, queryUs);
+			if (!a_force && (hdrState_.displayQueries <= 3 || hdrState_.displayQueries % 50 == 0)) {
+				logger::info("[HDROutput] display re-query {} took {:.0f} us (factory was not current or the monitor changed)",
+					hdrState_.displayQueries, queryUs);
+			}
+			hdrState_.display = hdrDisplay_; hdrState_.displayKnown = display.known;
+			hdrState_.displayMaxNits = display.maxLuminance;
+			hdrState_.reason = hdrDisplay_ ? "HDR10 output" : display.known ?
+				"Windows HDR is off for this display; SDR output" : "display HDR state unavailable; SDR output";
+		}
+		if (HDROutputConfiguration().matchWindowsSDR) { RefreshSDRWhite(); }
+		if (changed) {
+			ApplyNativeColorSpace();
+			logger::info("[HDROutput] display known={} hdr={} maxLuminance={:.0f} colourSpace={} factory=0x{:08X}",
+				display.known, hdrDisplay_, display.maxLuminance, hdrDisplay_ ? "PQ BT.2020" : "sRGB BT.709",
+				static_cast<std::uint32_t>(created));
+		}
+	}
+	void Backend::RefreshSDRWhite()
+	{
+		const auto start = std::chrono::steady_clock::now();
+		const float queried = QuerySDRWhiteNits(hdrDeviceName_.data());
+		const double us = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - start).count();
+		// A failed read during a display-config change keeps the last level for
+		// the same display; a different display starts from its own reading.
+		const bool sameDisplay = hdrSDRDevice_ == hdrDeviceName_;
+		const float nits = queried > 0.0f || !sameDisplay ? queried : hdrSDRWhiteNits_;
+		hdrSDRDevice_ = hdrDeviceName_;
+		const bool changed = std::fabs(nits - hdrSDRWhiteNits_) >= 1.0f;
+		hdrSDRWhiteNits_ = nits;
+		std::scoped_lock lock(hdrMutex_);
+		++hdrState_.sdrWhiteQueries;
+		if (queried <= 0.0f) { ++hdrState_.sdrWhiteFailures; }
+		hdrState_.sdrWhiteQueryMaxUs = (std::max)(hdrState_.sdrWhiteQueryMaxUs, us);
+		hdrState_.windowsSDRWhiteNits = nits;
+		if (changed) {
+			logger::info("[HDROutput] Windows SDR content brightness={:.0f} nits display={} query={:.0f} us",
+				nits, std::filesystem::path(hdrDeviceName_.data()).string(), us);
+		}
+	}
+	void Backend::ApplyNativeColorSpace()
+	{
+		hdrColorSpaceApplied_ = false;
+		ComPtr<IDXGISwapChain3> chain;
+		if (!hdrNative_ || !retainedNative_ || FAILED(retainedNative_.As(&chain))) { return; }
+		auto space = hdrDisplay_ ? DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020 : DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709;
+		UINT support{};
+		HRESULT result = chain->CheckColorSpaceSupport(space, &support);
+		if (SUCCEEDED(result) && (support & DXGI_SWAP_CHAIN_COLOR_SPACE_SUPPORT_FLAG_PRESENT)) { result = chain->SetColorSpace1(space); }
+		else if (SUCCEEDED(result)) { result = DXGI_ERROR_UNSUPPORTED; }
+		if (FAILED(result) && hdrDisplay_) {
+			logger::warn("[HDROutput] HDR10 colour space rejected (0x{:08X}); SDR output", static_cast<std::uint32_t>(result));
+			hdrDisplay_ = false;
+			space = DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709;
+			result = chain->SetColorSpace1(space);
+			std::scoped_lock lock(hdrMutex_);
+			hdrState_.display = false; hdrState_.reason = "display rejected the HDR10 colour space; SDR output";
+		}
+		if (FAILED(result)) {
+			logger::warn("[HDROutput] colour space {} not applied (0x{:08X})", static_cast<int>(space), static_cast<std::uint32_t>(result));
+		}
+		hdrColorSpaceApplied_ = SUCCEEDED(result);
+	}
+	bool Backend::EnsureHDRTargets(UINT a_width, UINT a_height)
+	{
+		if (!hdrOutputPass_) { hdrOutputPass_ = std::make_unique<HDROutputPass>(); }
+		if (hdrOutputPass_->TargetsMatch(a_width, a_height)) { return true; }
+		if (hdrOutputPass_->HudlessTarget() && (!Check(interop_.SignalD3D11(Work::FrameGeneration), "retire HDR output targets") ||
+			!Check(interop_.Drain(), "drain HDR output targets"))) { return false; }
+		return Check(hdrOutputPass_->CreateTargets(device12_.Get(), a_width, a_height), "HDR output target allocation");
+	}
+	HRESULT Backend::RecordOutput(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_source, ID3D12Resource* a_destination,
+		bool a_prepared, DXGI_COLOR_SPACE_TYPE& a_colorSpace)
+	{
+		if (!hdrOutputPass_) { hdrOutputPass_ = std::make_unique<HDROutputPass>(); }
+		if (hdrTimestampFrequency_) {
+			if (const auto timing = hdrOutputPass_->EnableTiming(device12_.Get(), hdrTimestampFrequency_); FAILED(timing)) {
+				logger::warn("[HDROutput] GPU timing unavailable (0x{:08X}); output continues", static_cast<std::uint32_t>(timing));
+				hdrTimestampFrequency_ = 0;
+			}
+		}
+		// Display state changes only between frames (AfterPresent), so tags,
+		// encoding and colour space agree within a frame.
+		const bool compose = a_prepared && hdrFrameTagged_;
+		const bool hdr = compose || hdrDisplay_;
+		// A prepared world frame without both layers (for example native UI off)
+		// still expands; menus and loading without generation stay at UI brightness.
+		const bool expandWholeFrame = hdr && !compose && a_prepared;
+		const auto constants = HDROutput::MakeShaderConstants(HDROutput::Effective(HDROutputConfiguration(), hdrSDRWhiteNits_),
+			!hdr, expandWholeFrame);
+		const auto slot = interop_.CurrentSlot(Work::SwapChain);
+		const auto result = compose ?
+			hdrOutputPass_->RecordCompose(device12_.Get(), a_list, slot, constants, a_source, ui_.texture12.Get(), hudless_.texture12.Get(), a_destination) :
+			hdrOutputPass_->RecordEncode(device12_.Get(), a_list, slot, constants, a_source, a_destination);
+		a_colorSpace = hdr ? DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020 : DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709;
+		if (SUCCEEDED(result)) {
+			std::scoped_lock lock(hdrMutex_);
+			++(compose ? hdrState_.composedFrames : hdrState_.encodedFrames);
+			hdrState_.gpu.Add(hdrOutputPass_->TakeTiming());
+			const auto total = hdrState_.composedFrames + hdrState_.encodedFrames;
+			if (total <= 3 || total % 3600 == 0) {
+				const auto& q = hdrState_;
+				logger::info("[HDROutput] frames composed={} encoded={} hdr={} gpuSamples={} gpuAvgUs={:.1f} gpuMaxUs={:.1f} displayQueries={} displayQueryAvgUs={:.0f} displayQueryMaxUs={:.0f} sdrWhiteNits={:.0f} sdrWhiteQueries={} sdrWhiteQueryMaxUs={:.0f} {}",
+					q.composedFrames, q.encodedFrames, hdr, q.gpu.samples, q.gpu.AverageUs(), q.gpu.maxUs, q.displayQueries,
+					q.displayQueries ? q.displayQueryTotalUs / static_cast<double>(q.displayQueries) : 0.0, q.displayQueryMaxUs,
+					q.windowsSDRWhiteNits, q.sdrWhiteQueries, q.sdrWhiteQueryMaxUs, q.reason);
+			}
+		}
+		return result;
 	}
 	bool Backend::ResumeAfterResize()
 	{

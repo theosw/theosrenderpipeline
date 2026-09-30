@@ -15,7 +15,14 @@
 - Loading screens that **Request loading artwork** shows for doors now fade in
   from black, like the game's own loading screens, avoiding a brief bright flash.
 
-HDR requires CS HDR Display; ENB-style weathers also need CS Effects 11 with a
+- Added experimental TRP HDR output for ENB and other non-CS setups: the finished
+  SDR image is expanded to HDR10 with paper white, peak, UI brightness and
+  highlight controls (paper white and UI follow Windows' SDR content brightness by
+  default), and frame generation receives matching HDR10 HUD-less and
+  UI images. Off by default; enabling it needs a restart. Tested on one ENB
+  setup; see the README's HDR notes.
+
+CS HDR requires CS HDR Display; ENB-style weathers also need CS Effects 11 with a
 preset. See the README's HDR notes for setup and tested scope.
 
 # 0.3.2

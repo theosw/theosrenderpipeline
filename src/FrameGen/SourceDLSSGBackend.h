@@ -9,6 +9,7 @@
 #include "SourceDLSSGNeuralAvailability.h"
 #endif
 #include "SourceDLSSGHDR.h"
+#include "SourceDLSSGHDROutput.h"
 #include "FinalFrameCapture.h"
 #include "SourceDLSSGMFG.h"
 #include "SourceDLSSGPresentationFeedback.h"
@@ -64,6 +65,21 @@ namespace TheosRenderPipeline::SourceDLSSG
 			outputFPSLimit_.store(a_fps, std::memory_order_relaxed);
 			return true;
 		}
+		// Enabled is read once at swapchain creation; calibration applies live.
+		void ConfigureHDROutput(const HDROutput::Settings& a_settings)
+		{
+			std::scoped_lock lock(hdrMutex_); hdrSettings_ = HDROutput::Sanitize(a_settings);
+		}
+		HDROutput::Settings HDROutputConfiguration() const { std::scoped_lock lock(hdrMutex_); return hdrSettings_; }
+		HDROutputState HDRState() const { std::scoped_lock lock(hdrMutex_); return hdrState_; }
+		// Native swapchain format for a game-facing format. Renderer-owned HDR
+		// keeps 8-bit producers unchanged and presents RGB10A2 underneath.
+		DXGI_FORMAT NativeFormat(DXGI_FORMAT a_gameFormat) const
+		{
+			return hdrNative_ && HDROutputEligibleFormat(a_gameFormat) ? HDROutputPass::kOutputFormat : PresentationFormat(a_gameFormat);
+		}
+		bool HDRNative() const { return hdrNative_; }
+		void ApplyNativeColorSpace();
 		void SetEnabled(bool a_enabled) { enabled_ = a_enabled; }
 		void SetTransitionBlocked(bool a_blocked);
 		bool TransitionBlocked() const { return transitionBlocked_.load(std::memory_order_acquire); }
@@ -113,6 +129,11 @@ namespace TheosRenderPipeline::SourceDLSSG
 		void RecordScreenshot(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_output, DXGI_COLOR_SPACE_TYPE a_colorSpace) noexcept;
 		void FinishScreenshot() noexcept;
 		static void StreamlineLogCallback(sl::LogType a_type, const char* a_message);
+		void PollDisplayHDR(bool a_force);
+		void RefreshSDRWhite();
+		bool EnsureHDRTargets(UINT a_width, UINT a_height);
+		HRESULT RecordOutput(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_source, ID3D12Resource* a_destination,
+			bool a_prepared, DXGI_COLOR_SPACE_TYPE& a_colorSpace);
 		HMODULE interposer_{};
 		std::array<HMODULE, 6> runtimeModules_{}; // Retained with this process-resident owner.
 		PFun_slInit* init_{};
@@ -153,6 +174,20 @@ namespace TheosRenderPipeline::SourceDLSSG
 		const char* neuralReportedUnavailable_{};
 #endif
 		std::unique_ptr<HDRPass> hdrPass_;
+		// Renderer-owned HDR output (render thread except the guarded settings/state).
+		mutable std::mutex hdrMutex_;
+		HDROutput::Settings hdrSettings_;
+		HDROutputState hdrState_;
+		std::unique_ptr<HDROutputPass> hdrOutputPass_;
+		Microsoft::WRL::ComPtr<IDXGIFactory1> hdrFactory_;
+		HWND window_{};
+		HMONITOR hdrMonitor_{};
+		std::uint32_t hdrPollCountdown_{};
+		std::uint64_t hdrTimestampFrequency_{};
+		std::array<wchar_t, 32> hdrDeviceName_{}, hdrSDRDevice_{};
+		float hdrSDRWhiteNits_{};
+		std::uint32_t hdrSDRPolls_{};
+		bool hdrNative_{}, hdrDisplay_{}, hdrFrameTagged_{}, hdrColorSpaceApplied_{};
 		// Replaces a ReShade screenshot of the UI-only source runtime with the
 		// final real frame. Failures keep ReShade's file and never fault rendering.
 		FinalFrameCapture screenshotCapture_;

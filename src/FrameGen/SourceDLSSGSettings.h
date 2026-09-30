@@ -4,6 +4,7 @@
 #include "NeuralRenderingReconstruction.h"
 #include "NeuralCombatPolicy.h"
 #include "SourceDLSSGGeneration.h"
+#include "HDROutput.h"
 
 namespace TheosRenderPipeline::SourceDLSSG
 {
@@ -20,6 +21,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		NeuralRendering::Tuning neuralTuning{};
 		NeuralRendering::Reconstruction neuralReconstruction{};
 		NeuralRendering::SecondPassSettings neuralSecondPass{};
+		HDROutput::Settings hdrOutput{};
 		bool operator==(const Preferences&) const = default;
 	};
 
@@ -33,6 +35,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		value.neuralCombat = NeuralRendering::SanitizeCombatSettings(value.neuralCombat);
 		value.neuralReconstruction = NeuralRendering::SanitizeReconstruction(value.neuralReconstruction);
 		value.neuralSecondPass = NeuralRendering::SanitizeSecondPass(value.neuralSecondPass);
+		value.hdrOutput = HDROutput::Sanitize(value.hdrOutput);
 		return value;
 	}
 
@@ -64,6 +67,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		nr.uiCorrection = ini.GetBoolValue(section, "NRUICorrection", false);
 		value.neuralReconstruction = NeuralRendering::LoadReconstruction(ini, section);
 		value.neuralSecondPass = NeuralRendering::LoadSecondPass(ini, section, value.neuralReconstruction, value.neuralTuning);
+		value.hdrOutput = HDROutput::Load(ini);
 		return SanitizePreferences(value);
 	}
 
@@ -93,5 +97,6 @@ namespace TheosRenderPipeline::SourceDLSSG
 		ini.SetBoolValue(section, "NRUICorrection", nr.uiCorrection);
 		NeuralRendering::StoreReconstruction(ini, section, value.neuralReconstruction);
 		NeuralRendering::StoreSecondPass(ini, section, value.neuralSecondPass);
+		HDROutput::Store(ini, value.hdrOutput);
 	}
 }

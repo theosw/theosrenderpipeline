@@ -1,6 +1,7 @@
 #include "CommunityShaderIntegration.h"
 #include "DLSSPreset.h"
 #include "FrameGen/NvidiaHost.h"
+#include "FrameGen/SourceDLSSGBackend.h"
 #include "OverlayFrameView.h"
 #include "OverlayUI.h"
 #include "OverlayUIStyle.h"
@@ -69,6 +70,75 @@ void ApplyTexturePreset(TextureProviderBridge::Settings& a_settings, int a_prese
 }
 } // namespace
 
+void OverlayUI::DrawHDROutputSettings()
+{
+    namespace HDR = TheosRenderPipeline::HDROutput;
+    auto& hdr = settingsDraft.sourceDLSSG.hdrOutput;
+    const auto state = TheosRenderPipeline::SourceDLSSG::Backend::Get().HDRState();
+    DrawSettingsHeading("HDR output (experimental)", "on/off: save and restart");
+    ImGui::Checkbox("HDR output", &hdr.enabled);
+    DrawSettingsHelp("Expands the finished SDR image (including ENB) to HDR10 and shows the UI at its own "
+                     "brightness. Highlights the preset already clipped cannot be recovered. Requires Windows HDR.");
+    if (hdr.enabled != state.requested)
+    {
+        ImGui::TextColored(kAmber, "Save as default and restart to %s HDR output", hdr.enabled ? "allocate" : "release");
+    }
+    else if (state.requested)
+    {
+        const auto status = state.displayMaxNits > 0.0f ?
+            std::format("{} (display reports {:.0f} nits)", state.reason, state.displayMaxNits) : std::string(state.reason);
+        if (state.display) { ImGui::TextDisabled("%s", status.c_str()); }
+        else { ImGui::TextColored(kAmber, "%s", status.c_str()); }
+        if (state.gpu.samples)
+        {
+            ImGui::TextDisabled("Output pass GPU: %.2f ms average, %.2f ms max", state.gpu.AverageUs() / 1000.0,
+                                state.gpu.maxUs / 1000.0);
+        }
+    }
+    ImGui::BeginDisabled(!hdr.enabled);
+    ImGui::Checkbox("Match Windows SDR brightness##hdr", &hdr.matchWindowsSDR);
+    const bool windowsKnown = state.windowsSDRWhiteNits >= HDR::kMinimumNits;
+    if (hdr.matchWindowsSDR)
+    {
+        if (windowsKnown) { ImGui::TextDisabled("Paper white and UI: %.0f nits from Windows", state.windowsSDRWhiteNits); }
+        else if (state.requested) { ImGui::TextColored(kAmber, "Windows SDR brightness unavailable; using the values below"); }
+    }
+    DrawSettingsHelp("Uses Windows' SDR content brightness (Settings > Display > HDR) for paper white and UI, "
+                     "so whites match the desktop. Untick to set them here.");
+    const bool followsWindows = hdr.matchWindowsSDR && windowsKnown;
+    // While following Windows, show the values in use; the manual values stay saved for unticking.
+    auto effective = HDR::Effective(hdr, state.windowsSDRWhiteNits);
+    ImGui::BeginDisabled(followsWindows);
+    ImGui::SliderFloat("Paper white##hdr", followsWindows ? &effective.paperWhiteNits : &hdr.paperWhiteNits,
+                       HDR::kMinimumNits, 500.0f, "%.0f nits");
+    DrawSettingsHelp("Brightness of SDR white in the scene. Start near the Windows SDR content brightness.");
+    ImGui::EndDisabled();
+    ImGui::SliderFloat("Peak brightness##hdr", &hdr.peakNits, effective.paperWhiteNits, 4000.0f, "%.0f nits");
+    if (state.displayMaxNits > 0.0f && ImGui::SmallButton("Use display peak##hdr"))
+    {
+        hdr.peakNits = state.displayMaxNits;
+    }
+    DrawSettingsHelp("Brightest expanded highlight. Set to your display's peak.");
+    ImGui::BeginDisabled(followsWindows);
+    ImGui::SliderFloat("UI brightness##hdr", followsWindows ? &effective.uiNits : &hdr.uiNits,
+                       HDR::kMinimumNits, 500.0f, "%.0f nits");
+    ImGui::EndDisabled();
+    ImGui::SliderFloat("Highlight strength##hdr", &hdr.highlightStrength, 0.0f, 1.0f, "%.2f");
+    DrawSettingsHelp("0 keeps the SDR range at paper white; 1 expands the brightest pixels to peak brightness.");
+    ImGui::SliderFloat("Expansion start##hdr", &hdr.expansionStart, 0.1f, 0.95f, "%.2f");
+    DrawSettingsHelp("SDR brightness where expansion begins. Higher values boost only the brightest areas.");
+    const char* transfers[]{"Gamma 2.2", "sRGB"};
+    int transfer = static_cast<int>(hdr.transfer);
+    ImGui::SetNextItemWidth(-1);
+    if (ImGui::Combo("##hdrTransfer", &transfer, transfers, 2))
+    {
+        hdr.transfer = static_cast<HDR::Transfer>(transfer);
+    }
+    DrawSettingsHelp("How the SDR image is decoded. Gamma 2.2 matches most SDR monitors; sRGB lifts shadows.");
+    ImGui::EndDisabled();
+    hdr = HDR::Sanitize(hdr);
+}
+
 void OverlayUI::DrawImagePanel(float tabCardHeight, const FrameView& view)
 {
     auto* host = NvidiaHost::GetSingleton();
@@ -91,6 +161,9 @@ void OverlayUI::DrawImagePanel(float tabCardHeight, const FrameView& view)
                            "jitter. Change those settings in its menu.");
         DrawSettingsHelp(
             "TRP's Neural Rendering, frame generation and Reflex controls remain available in their own tabs.");
+        ImGui::Separator();
+        DrawSettingsHeading("HDR", "");
+        ImGui::TextWrapped("Use Community Shaders' HDR Display for HDR with Community Shaders.");
     }
     else
     {
@@ -185,6 +258,8 @@ void OverlayUI::DrawImagePanel(float tabCardHeight, const FrameView& view)
 
         ImGui::Checkbox("Auto exposure", &settingsDraft.autoExposure);
         ImGui::Checkbox("Camera jitter", &settingsDraft.enableJitter);
+        ImGui::Separator();
+        DrawHDROutputSettings();
 
         if (showDeveloperControls)
         {
