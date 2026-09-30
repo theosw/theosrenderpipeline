@@ -1,6 +1,7 @@
 #include <PCH.h>
 #include "NvidiaHost.h"
 #include "LoadingArtwork.h"
+#include <chrono>
 #include "RenderPipeline.h"
 #include "PerformanceTuning.h"
 #include <utility>
@@ -224,7 +225,27 @@ bool NvidiaHost::FinishSourceFrameForPresent()
         }
     }
     startupOverlay_.Consume();
+    ApplyLoadingFade(finished && ready);
     return finished;
+}
+
+void NvidiaHost::ApplyLoadingFade(bool composed)
+{
+    const double now = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+    if (TheosRenderPipeline::LoadingArtwork::TakeForcedTransition()) { loadingFade_.RequestFade(now); }
+    auto* ui = RE::UI::GetSingleton();
+    const bool loading = ui && ui->IsMenuOpen(RE::LoadingMenu::MENU_NAME);
+    const bool starting = !loadingFade_.Active();
+    const float factor = loadingFade_.Update(loading, now);
+    if (factor >= 1.0f || !composed) { return; }
+    InternalOperation internal(sourceUIInternal_);
+    if (!presentationFade_.Apply(context_.Get(), presentation_.Texture(), factor)) {
+        static std::atomic_bool logged{};
+        if (!logged.exchange(true)) { logger::warn("[LoadingArtwork] loading fade-in unavailable; artwork shows without it"); }
+    } else if (starting) {
+        logger::info("[LoadingArtwork] frame={} fading in forced loading screen over {:.1f} s", presentCount_,
+            TheosRenderPipeline::LoadingFadeIn::kDuration);
+    }
 }
 
 bool NvidiaHost::QueryStartupOverlay() const

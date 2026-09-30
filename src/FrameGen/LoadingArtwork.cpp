@@ -14,6 +14,7 @@ namespace TheosRenderPipeline::LoadingArtwork
     {
         LoadingWorldReadiness worldReadiness;
         std::atomic_bool worldReady{};
+        std::atomic_bool forcedTransition{};
 
         struct Transition
         {
@@ -33,6 +34,7 @@ namespace TheosRenderPipeline::LoadingArtwork
                     RenderPipeline::GetSingleton()->mRequestLoadingArtwork.load(std::memory_order_relaxed),
                     ready, gameCaller, callerRVA, show, suppress, immediate);
                 if (effective != suppress) {
+                    forcedTransition.store(true, std::memory_order_release);
                     logger::info("[LoadingArtwork] requested artwork for queued transition callerRVA=0x{:X}", callerRVA);
                 }
                 return original(show, location, effective, immediate);
@@ -47,8 +49,11 @@ namespace TheosRenderPipeline::LoadingArtwork
         worldReady.store(worldReadiness.Boundary(frame, world, mainMenu, loadingMenu), std::memory_order_relaxed);
     }
 
+    bool TakeForcedTransition() noexcept { return forcedTransition.exchange(false, std::memory_order_acq_rel); }
+
     void ResetAfterRetirement() noexcept
     {
+        forcedTransition.store(false, std::memory_order_relaxed);
         worldReady.store(false, std::memory_order_relaxed);
         worldReadiness.ResetAfterRetirement();
     }

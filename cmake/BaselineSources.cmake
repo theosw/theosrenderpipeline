@@ -50,6 +50,9 @@ set(ARP_BASELINE_SOURCES
     src/FrameGen/LoadingArtworkPolicy.h
     src/FrameGen/LoadingScreenState.h
     src/FrameGen/LoadingScreenUpscaler.h
+    src/FrameGen/LoadingFadeIn.h
+    src/FrameGen/PresentationFade.cpp
+    src/FrameGen/PresentationFade.h
     src/FrameGen/SourceFrameGeneration.h
     src/FrameGen/SourceFrameGeneration.cpp
     src/FrameGen/InventoryPreviewDraw.h

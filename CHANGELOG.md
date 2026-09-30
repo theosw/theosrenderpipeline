@@ -6,6 +6,8 @@
 - NR after upscaling keeps HDR highlights and its normal look on CS's HDR scene.
 - D3D11 capture hooks now survive runtime state changes.
 - ReShade screenshots skip already-encoded HDR output instead of miscolouring it.
+- Loading screens that **Request loading artwork** shows for doors now fade in
+  from black, like the game's own loading screens, avoiding a brief bright flash.
 
 HDR requires CS HDR Display; ENB-style weathers also need CS Effects 11 with a
 preset. See the README's HDR notes for setup and tested scope.
