@@ -70,19 +70,30 @@ Targets PSCompose(Vertex v) {
     float a = saturate(u.a);
     // The native UI layer is premultiplied in the producer's SDR encoding.
     float3 uiPQ = EncodeUIPremultiplied(u.rgb, a);
-    // Where the composed frame is the tagged layers, use the exact HUD-less
-    // scene so the DLSS-G identity holds; recovering it from 8-bit codes would
-    // amplify rounding in expanded highlights. Where other content was drawn
-    // (a late overlay), recover the scene behind the UI from the composed frame.
-    // The blend between them is gradual, so small differences do not form edges.
-    float3 difference = abs(c.rgb - saturate(u.rgb + (1.0 - a) * s.rgb));
+    // Keep the captured world intact. Content drawn after its UI composition
+    // belongs to an additional screen-space layer, including over opaque UI.
+    float3 base = saturate(u.rgb + (1.0 - a) * s.rgb);
+    float3 delta = c.rgb - base;
+    float3 difference = abs(delta);
+    // Ignore producer quantization; introduce small post-capture changes softly.
     float extra = saturate((max(difference.r, max(difference.g, difference.b)) - 1.5 / 255.0) / (2.0 / 255.0));
-    float3 recovered = a < (1.0 - 1.0 / 512.0) ? saturate((c.rgb - u.rgb) / (1.0 - a)) : s.rgb;
-    float3 behind = lerp(s.rgb, recovered, extra);
+    if (extra > 0.0) {
+        // Infer the smallest opacity that can produce the observed SDR change
+        // with a bounded overlay colour. Its premultiplied colour is then the
+        // residual c - (1-opacity)*base. The true late draw alpha is unavailable.
+        float3 coverage = delta >= 0.0 ? delta / max(1.0 - base, 1.0 / 65535.0) :
+                                       -delta / max(base, 1.0 / 65535.0);
+        float opacity = saturate(max(coverage.r, max(coverage.g, coverage.b)));
+        float3 straight = saturate((c.rgb - (1.0 - opacity) * base) / max(opacity, 1.0 / 65535.0));
+        opacity *= extra;
+        uiPQ = EncodeUI(straight) * opacity + (1.0 - opacity) * uiPQ;
+        a = opacity + (1.0 - opacity) * a;
+    }
+    float3 scenePQ = EncodeScene(s.rgb);
     Targets t;
-    t.backbuffer = float4(saturate(uiPQ + (1.0 - a) * EncodeScene(behind)), 1.0);
-    t.hudless = float4(EncodeScene(s.rgb), 1.0);
-    t.ui = float4(uiPQ, a);
+    t.backbuffer = float4(saturate(uiPQ + (1.0 - a) * scenePQ), 1.0);
+    t.hudless = float4(scenePQ, 1.0);
+    t.ui = float4(saturate(uiPQ), a);
     return t;
 })";
 
