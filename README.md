@@ -80,7 +80,14 @@ Enable Windows HDR, turn on **HDR output**, save as default and restart. Paper
 white, peak, UI brightness, highlight strength, expansion start and SDR decoding
 apply live. When Windows HDR is off for the game's display, output stays SDR.
 Leave ENB's own HDR-like effects as they are; this does not change the preset.
-This route has only standalone GPU checks so far; game acceptance is pending.
+The panel shows the output pass's GPU time.
+
+Evidence is one Universal RTX 4080 SUPER LoreRim ENB setup at 5120x1440 on a
+1015-nit display: x4 generation, NR before upscaling, a loading door and live
+calibration. That run logged more NVIDIA "flip queue is empty" messages than a
+matched HDR-off run, without a visible hitch. Loading screens forced by
+**Request loading artwork** can briefly flash bright, more visibly in HDR.
+Standard, other hardware and physical frame cadence remain untested.
 
 ## Compatibility
 

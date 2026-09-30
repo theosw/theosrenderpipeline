@@ -90,7 +90,8 @@ are expensive.
 Without CS (for example with ENB), the experimental **Image > HDR output** setting
 expands TRP's finished SDR image to HDR10 with its own paper white, peak and UI
 brightness. It needs Windows HDR, is off by default and applies after saving and
-restarting. Clipped highlights cannot be recovered. It has no game test yet.
+restarting. Clipped highlights cannot be recovered. It has one ENB game test
+(Universal, RTX 4080 SUPER); see the main README for its scope.
 
 ## ReShade (optional)
 

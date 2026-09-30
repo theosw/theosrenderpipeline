@@ -10,7 +10,8 @@
 - Added experimental TRP HDR output for ENB and other non-CS setups: the finished
   SDR image is expanded to HDR10 with paper white, peak, UI brightness and
   highlight controls, and frame generation receives matching HDR10 HUD-less and
-  UI images. Off by default; enabling it needs a restart. Not yet game-tested.
+  UI images. Off by default; enabling it needs a restart. Tested on one ENB
+  setup; see the README's HDR notes.
 
 CS HDR requires CS HDR Display; ENB-style weathers also need CS Effects 11 with a
 preset. See the README's HDR notes for setup and tested scope.
