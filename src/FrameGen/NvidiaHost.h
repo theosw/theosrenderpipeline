@@ -19,6 +19,8 @@
 #include "InventoryPreviewDraw.h"
 #include "LoadingScreenState.h"
 #include "LoadingScreenUpscaler.h"
+#include "LoadingFadeIn.h"
+#include "PresentationFade.h"
 #include "ReShadeIntegration.h"
 #include <atomic>
 #include <cstdint>
@@ -125,6 +127,7 @@ class NvidiaHost
     struct SourceNvidiaEvaluationOperations;
     bool EvaluateSourceNvidiaFrame(bool nativeUIHandoff, bool resetHistory);
     bool FinishSourceFrameForPresent();
+    void ApplyLoadingFade(bool composed);
     void EndNativeUIPass();
     void ReleaseSourceUpscaler();
     void ArmFrameGenerationWarmup();
@@ -146,6 +149,8 @@ class NvidiaHost
     TheosRenderPipeline::InventoryPreviewDraw previewDraw_;
     TheosRenderPipeline::LoadingScreenUpscaler loadingScreenUpscaler_;
     TheosRenderPipeline::LoadingScreenRoute loadingScreenRoute_;
+    TheosRenderPipeline::LoadingFadeIn loadingFade_;
+    TheosRenderPipeline::PresentationFade presentationFade_;
     HRESULT loadingScreenResult_{S_OK};
     bool loadingScreenLogged_{};
     std::uint64_t startupWorldFrame_{~std::uint64_t{}};

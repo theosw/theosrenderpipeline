@@ -128,6 +128,8 @@ void NvidiaHost::ReleaseSourceUpscaler()
     TheosRenderPipeline::LoadingArtwork::ResetAfterRetirement();
     loadingScreenUpscaler_.ResetAfterRetirement();
     loadingScreenRoute_.ResetAfterRetirement();
+    loadingFade_.Reset();
+    presentationFade_.ResetAfterRetirement();
     loadingScreenResult_ = S_OK;
     loadingScreenLogged_ = false;
     startupWorldFrame_ = ~std::uint64_t{};

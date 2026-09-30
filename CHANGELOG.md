@@ -12,6 +12,8 @@
 - Copies that would fall outside the game-facing or native UI textures are now
   dropped and logged instead of reaching the GPU.
 - Device-loss log entries now include the D3D11/D3D12 removal reason.
+- Loading screens that **Request loading artwork** shows for doors now fade in
+  from black, like the game's own loading screens, avoiding a brief bright flash.
 
 HDR requires CS HDR Display; ENB-style weathers also need CS Effects 11 with a
 preset. See the README's HDR notes for setup and tested scope.
