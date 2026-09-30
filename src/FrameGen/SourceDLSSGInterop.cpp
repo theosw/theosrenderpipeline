@@ -222,29 +222,72 @@ namespace TheosRenderPipeline::SourceDLSSG
 		return hr;
 	}
 
-	HRESULT Interop::WaitCPU(WorkContext& a_work, std::uint64_t a_value, DWORD a_timeoutMs,
-		AllocatorWaitTiming* a_timing)
+	HRESULT Interop::WaitCPU(WorkContext& a_work, std::uint64_t a_value, AllocatorWaitTiming* a_timing)
 	{
+		constexpr auto removed = (std::numeric_limits<std::uint64_t>::max)();
 		if (!a_value) { return S_OK; }
 		const auto completed = a_work.fence12->GetCompletedValue();
-		if (completed == (std::numeric_limits<std::uint64_t>::max)()) {
+		if (completed == removed) {
 			return Check(DXGI_ERROR_DEVICE_REMOVED);
 		}
 		if (completed >= a_value) { return S_OK; }
-		const auto begin = a_timing ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
+		const auto begin = std::chrono::steady_clock::now();
 		auto hr = a_work.fence12->SetEventOnCompletion(a_value, a_work.event);
 		if (FAILED(hr)) { return Check(hr); }
-		const auto wait = ::WaitForSingleObject(a_work.event, a_timeoutMs);
+		// A slow GPU after a cell load can take seconds per frame; that is not a
+		// fault. Keep waiting while the shared fence (D3D11 producer and D3D12
+		// queue) advances. Nothing is reset until the target actually retires.
+		RetirementWaitDiagnostics wait{ static_cast<Work>(&a_work - work_.data()), a_value, completed, completed };
+		auto progress = completed;
+		DWORD stalledMs = 0;
+		for (;;) {
+			const auto result = ::WaitForSingleObject(a_work.event, waitPolicy_.sliceMs);
+			wait.completedAtEnd = a_work.fence12->GetCompletedValue();
+			if (result == WAIT_OBJECT_0) {
+				if (wait.completedAtEnd >= a_value) { break; }
+				// An earlier wait can return after its target retired but before
+				// that registration set the auto-reset event. This one stays armed.
+				continue;
+			}
+			++wait.slices;
+			if (result != WAIT_TIMEOUT) { hr = HRESULT_FROM_WIN32(::GetLastError()); break; }
+			if (wait.completedAtEnd == removed) { hr = DXGI_ERROR_DEVICE_REMOVED; break; }
+			if (FAILED(hr = device12_->GetDeviceRemovedReason())) { break; }
+			if (wait.completedAtEnd >= a_value) { break; }
+			if (wait.completedAtEnd > progress) {
+				progress = wait.completedAtEnd;
+				stalledMs = 0;
+			} else if ((stalledMs += waitPolicy_.sliceMs) >= waitPolicy_.stallLimitMs) {
+				hr = HRESULT_FROM_WIN32(WAIT_TIMEOUT);
+				break;
+			}
+		}
+		const auto elapsed = std::chrono::steady_clock::now() - begin;
 		if (a_timing) {
 			a_timing->waited = true;
-			a_timing->nanoseconds = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
-				std::chrono::steady_clock::now() - begin).count());
+			a_timing->nanoseconds = static_cast<std::uint64_t>(
+				std::chrono::duration_cast<std::chrono::nanoseconds>(elapsed).count());
 		}
-		if (wait == WAIT_TIMEOUT) { return Check(HRESULT_FROM_WIN32(WAIT_TIMEOUT)); }
-		if (wait != WAIT_OBJECT_0) { return Check(HRESULT_FROM_WIN32(::GetLastError())); }
-		const auto retired = a_work.fence12->GetCompletedValue();
-		if (retired == (std::numeric_limits<std::uint64_t>::max)()) { return Check(DXGI_ERROR_DEVICE_REMOVED); }
-		return retired >= a_value ? S_OK : Check(E_FAIL);
+		if (SUCCEEDED(hr)) {
+			if (wait.completedAtEnd == removed) { hr = DXGI_ERROR_DEVICE_REMOVED; }
+			else if (wait.completedAtEnd < a_value) { hr = E_FAIL; }
+		}
+		if (wait.slices) {
+			wait.elapsedMs = static_cast<std::uint64_t>(
+				std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count());
+			wait.result = hr;
+			extendedWait_ = wait;
+			extendedWaitPending_ = true;
+		}
+		return FAILED(hr) ? Check(hr) : S_OK;
+	}
+
+	bool Interop::TakeExtendedWait(RetirementWaitDiagnostics& a_wait)
+	{
+		if (!extendedWaitPending_) { return false; }
+		a_wait = extendedWait_;
+		extendedWaitPending_ = false;
+		return true;
 	}
 
 	HRESULT Interop::Begin(Work a_work, ID3D12GraphicsCommandList** a_list, AllocatorWaitTiming* a_wait)
@@ -256,7 +299,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (!Ready() || !work || work->recording) { return E_UNEXPECTED; }
 		auto hr = WaitD3D12(a_work);
 		if (FAILED(hr)) { return hr; }
-		if (FAILED(hr = WaitCPU(*work, work->submitted[work->slot], 2000, a_wait))) { return hr; }
+		if (FAILED(hr = WaitCPU(*work, work->submitted[work->slot], a_wait))) { return hr; }
 		if (FAILED(hr = work->allocators[work->slot]->Reset())) { return Check(hr); }
 		if (FAILED(hr = work->lists[work->slot]->Reset(work->allocators[work->slot].Get(), nullptr))) { return Check(hr); }
 		work->recording = true;
@@ -280,12 +323,12 @@ namespace TheosRenderPipeline::SourceDLSSG
 		return S_OK;
 	}
 
-	HRESULT Interop::Drain(DWORD a_timeoutMs)
+	HRESULT Interop::Drain()
 	{
 		if (context11_) { context11_->Flush(); }
 		for (auto& work : work_) {
 			if (work.fence12 && work.value) {
-				const auto hr = WaitCPU(work, work.value, a_timeoutMs);
+				const auto hr = WaitCPU(work, work.value);
 				if (FAILED(hr)) { return hr; }
 			}
 		}

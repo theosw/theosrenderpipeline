@@ -30,6 +30,26 @@ namespace TheosRenderPipeline::SourceDLSSG
 		D3D11_TEXTURE2D_DESC desc{};
 	};
 
+	// A CPU retirement wait continues while its fence advances. Only a stall of
+	// stallLimitMs without progress, or device removal, is a failure.
+	struct RetirementWaitPolicy
+	{
+		DWORD sliceMs{ 2000 };
+		DWORD stallLimitMs{ 20000 };
+	};
+
+	// Recorded when a retirement wait outlasts one slice, for failure logging.
+	struct RetirementWaitDiagnostics
+	{
+		Work work{ Work::Count };
+		std::uint64_t target{};
+		std::uint64_t completedAtStart{};
+		std::uint64_t completedAtEnd{};
+		std::uint64_t elapsedMs{};
+		std::uint32_t slices{};
+		HRESULT result{ S_OK };
+	};
+
 	struct InputWaitDiagnostics
 	{
 		const char* stage{ "not called" };
@@ -67,7 +87,10 @@ namespace TheosRenderPipeline::SourceDLSSG
 		const InputWaitDiagnostics& LastInputWait() const { return inputWait_; }
 		HRESULT Begin(Work a_work, ID3D12GraphicsCommandList** a_list, AllocatorWaitTiming* a_wait = nullptr);
 		HRESULT Submit(Work a_work);
-		HRESULT Drain(DWORD a_timeoutMs = 2000);
+		HRESULT Drain();
+		void SetRetirementWaitPolicy(RetirementWaitPolicy a_policy) { waitPolicy_ = a_policy; }
+		// Returns and clears the most recent wait that outlasted one slice.
+		bool TakeExtendedWait(RetirementWaitDiagnostics& a_wait);
 		HRESULT Fault() const { return fault_; }
 		bool Ready() const { return ready_ && SUCCEEDED(fault_); }
 		std::uint64_t LastValue(Work a_work) const;
@@ -92,8 +115,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		};
 		WorkContext* Get(Work a_work);
 		HRESULT Check(HRESULT a_result);
-		HRESULT WaitCPU(WorkContext& a_work, std::uint64_t a_value, DWORD a_timeoutMs,
-			AllocatorWaitTiming* a_timing = nullptr);
+		HRESULT WaitCPU(WorkContext& a_work, std::uint64_t a_value, AllocatorWaitTiming* a_timing = nullptr);
 		void AbandonInFlightObjects();
 
 		Microsoft::WRL::ComPtr<ID3D11Device5> device11_;
@@ -103,6 +125,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 		Microsoft::WRL::ComPtr<IUnknown> fenceDeviceIdentity_;
 		std::array<WorkContext, static_cast<std::size_t>(Work::Count)> work_;
 		InputWaitDiagnostics inputWait_;
+		RetirementWaitPolicy waitPolicy_;
+		RetirementWaitDiagnostics extendedWait_;
+		bool extendedWaitPending_{ false };
 		HRESULT fault_{ S_OK };
 		bool ready_{ false };
 	};

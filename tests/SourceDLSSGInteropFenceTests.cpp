@@ -1,8 +1,10 @@
 #include "FrameGen/SourceDLSSGInterop.h"
 #include <dxgi1_4.h>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <string_view>
+#include <thread>
 
 using Microsoft::WRL::ComPtr;
 using namespace TheosRenderPipeline::SourceDLSSG;
@@ -102,6 +104,78 @@ int main(int argc, char** argv)
     Require(interop.WaitForInputReaders(input.Get(), 2) == E_UNEXPECTED, "input reuse during recording rejected");
     Check(interop.Submit(Work::FrameGeneration), "submit recorded frame");
     Check(interop.Drain(), "retire final frame");
-    std::puts("PASS: same-device input fences, foreign-device rejection, pending GPU wait, retirement and diagnostics");
+
+    // Fill every command slot behind queue work gated on the input fence, so
+    // the next Begin must wait for a submission the GPU has not yet reached.
+    RetirementWaitDiagnostics wait;
+    Require(!interop.TakeExtendedWait(wait), "prompt retirement records no extended wait");
+    auto fillSlots = [&](Interop& target) {
+        for (std::size_t slot = 0; slot < kCommandSlots; ++slot) {
+            ID3D12GraphicsCommandList* filled = nullptr;
+            Check(target.Begin(Work::FrameGeneration, &filled), "begin gated slot");
+            Check(target.Submit(Work::FrameGeneration), "submit gated slot");
+        }
+    };
+    auto release = [&](std::uint64_t first, std::uint64_t last, int gapMs) {
+        return std::thread([&input, first, last, gapMs] {
+            for (auto value = first; value <= last; ++value) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(gapMs));
+                input->Signal(value);
+            }
+        });
+    };
+
+    // A stall shorter than the limit is a slow GPU, not a fault.
+    interop.SetRetirementWaitPolicy({ 20, 1000 });
+    Check(interop.WaitForInputReaders(input.Get(), 3), "gate queue for short stall");
+    fillSlots(interop);
+    auto shortStall = release(3, 3, 150);
+    list = nullptr;
+    Check(interop.Begin(Work::FrameGeneration, &list), "begin recovers after short stall");
+    shortStall.join();
+    Require(list && interop.Ready(), "short stall leaves interop usable");
+    Require(interop.TakeExtendedWait(wait) && wait.work == Work::FrameGeneration && wait.slices > 0 &&
+        wait.result == S_OK && wait.completedAtEnd >= wait.target, "short stall is reported as an extended wait");
+    Check(interop.Submit(Work::FrameGeneration), "submit after short stall");
+    Check(interop.Drain(), "retire short stall");
+
+    // Steady progress keeps waiting beyond the no-progress limit. Timed-out
+    // slices accumulate well past the limit, so only a progress reset passes.
+    interop.SetRetirementWaitPolicy({ 20, 150 });
+    for (std::uint64_t gate = 4; gate <= 11; ++gate) {
+        Check(interop.WaitForInputReaders(input.Get(), gate), "gate queue for slow progress");
+    }
+    fillSlots(interop);
+    auto slowProgress = release(4, 11, 50);
+    list = nullptr;
+    Check(interop.Begin(Work::FrameGeneration, &list), "begin waits through slow progress");
+    slowProgress.join();
+    Require(list && interop.Ready(), "slow progress leaves interop usable");
+    Require(interop.TakeExtendedWait(wait) && wait.result == S_OK && wait.slices * 20 > 2 * 150 &&
+        wait.completedAtEnd > wait.completedAtStart, "slow progress outlasts the no-progress limit");
+    Check(interop.Submit(Work::FrameGeneration), "submit after slow progress");
+    Check(interop.Drain(), "retire slow progress");
+
+    // A frozen fence still fails, without resetting the in-flight slot.
+    {
+        Interop frozen;
+        Check(frozen.Initialize(device11.Get(), device12.Get(), queue.Get()), "initialize frozen interop");
+        frozen.SetRetirementWaitPolicy({ 20, 100 });
+        Check(frozen.WaitForInputReaders(input.Get(), 12), "gate queue indefinitely");
+        fillSlots(frozen);
+        const auto slot = frozen.CurrentSlot(Work::FrameGeneration);
+        const auto value = frozen.LastValue(Work::FrameGeneration);
+        list = nullptr;
+        const auto frozenResult = frozen.Begin(Work::FrameGeneration, &list);
+        Require(frozenResult == HRESULT_FROM_WIN32(WAIT_TIMEOUT) && !list, "frozen fence times out without a list");
+        Require(!frozen.Ready() && frozen.Fault() == HRESULT_FROM_WIN32(WAIT_TIMEOUT), "frozen timeout latches the fault");
+        Require(frozen.CurrentSlot(Work::FrameGeneration) == slot && frozen.LastValue(Work::FrameGeneration) == value,
+            "frozen timeout keeps the in-flight slot");
+        Require(frozen.TakeExtendedWait(wait) && wait.result == HRESULT_FROM_WIN32(WAIT_TIMEOUT) &&
+            wait.completedAtEnd == wait.completedAtStart && wait.completedAtEnd < wait.target, "frozen wait records no progress");
+        Check(input->Signal(12), "release frozen queue");
+        Check(frozen.Drain(), "frozen work retires after release");
+    }
+    std::puts("PASS: same-device input fences, foreign-device rejection, pending GPU wait, retirement, extended waits and diagnostics");
     return 0;
 }
