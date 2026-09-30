@@ -1,6 +1,8 @@
 #include "SourceDLSSGHDROutput.h"
 #include <d3dcompiler.h>
 #include <cstring>
+#include <cwchar>
+#include <vector>
 
 namespace TheosRenderPipeline::SourceDLSSG
 {
@@ -118,10 +120,35 @@ Targets PSCompose(Vertex v) {
 				result.known = true;
 				result.active = desc.ColorSpace == DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020;
 				result.maxLuminance = desc.MaxLuminance;
+				std::copy(std::begin(desc.DeviceName), std::end(desc.DeviceName), result.deviceName.begin());
+				result.deviceName.back() = L'\0';
 				return result;
 			}
 		}
 		return result;
+	}
+
+	float QuerySDRWhiteNits(const wchar_t* gdiDeviceName)
+	{
+		if (!gdiDeviceName || !*gdiDeviceName) { return 0.0f; }
+		UINT32 pathCount{}, modeCount{};
+		if (GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, &pathCount, &modeCount) != ERROR_SUCCESS) { return 0.0f; }
+		std::vector<DISPLAYCONFIG_PATH_INFO> paths(pathCount);
+		std::vector<DISPLAYCONFIG_MODE_INFO> modes(modeCount);
+		if (QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS, &pathCount, paths.data(), &modeCount, modes.data(), nullptr) != ERROR_SUCCESS) { return 0.0f; }
+		for (UINT32 i = 0; i < pathCount; ++i) {
+			DISPLAYCONFIG_SOURCE_DEVICE_NAME source{};
+			source.header.type = DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME; source.header.size = sizeof(source);
+			source.header.adapterId = paths[i].sourceInfo.adapterId; source.header.id = paths[i].sourceInfo.id;
+			if (DisplayConfigGetDeviceInfo(&source.header) != ERROR_SUCCESS || std::wcscmp(source.viewGdiDeviceName, gdiDeviceName) != 0) { continue; }
+			DISPLAYCONFIG_SDR_WHITE_LEVEL white{};
+			white.header.type = DISPLAYCONFIG_DEVICE_INFO_GET_SDR_WHITE_LEVEL; white.header.size = sizeof(white);
+			white.header.adapterId = paths[i].targetInfo.adapterId; white.header.id = paths[i].targetInfo.id;
+			if (DisplayConfigGetDeviceInfo(&white.header) != ERROR_SUCCESS) { return 0.0f; }
+			// Fixed point: 1000 = the 80-nit scRGB reference white.
+			return static_cast<float>(white.SDRWhiteLevel) / 1000.0f * 80.0f;
+		}
+		return 0.0f;
 	}
 
 	HRESULT HDROutputPass::Initialize(ID3D12Device* device)

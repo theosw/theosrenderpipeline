@@ -203,7 +203,8 @@ int main()
     Require(pass.RecordEncode(gpu.device.Get(), gpu.list.Get(), 0, {}, compositeTexture.Get(), compositeTexture.Get()) == E_INVALIDARG,
         "encode rejects a non-RGB10A2 destination");
 
-    const HDROutput::Settings settings{ true, 200.0f, 1000.0f, 150.0f, 1.0f, 0.6f, HDROutput::Transfer::Gamma22 };
+    const HDROutput::Settings settings{ .enabled = true, .matchWindowsSDR = false, .paperWhiteNits = 200.0f, .peakNits = 1000.0f,
+        .uiNits = 150.0f, .highlightStrength = 1.0f, .expansionStart = 0.6f, .transfer = HDROutput::Transfer::Gamma22 };
     const auto constants = HDROutput::MakeShaderConstants(settings, false);
     Check(pass.RecordCompose(gpu.device.Get(), gpu.list.Get(), 1, constants, compositeTexture.Get(), uiTexture.Get(),
         sceneTexture.Get(), backbuffer.Get()), "record compose");
@@ -288,6 +289,8 @@ int main()
         timing.AverageUs(), timing.maxUs);
     Require(timing.samples == kCommandSlots, "each reused slot yields one GPU sample");
     Require(std::isfinite(timing.AverageUs()) && timing.maxUs >= timing.AverageUs(), "finite GPU timing");
+    Require(QuerySDRWhiteNits(L"\\\\.\\TRP-NO-SUCH-DISPLAY") == 0.0f && QuerySDRWhiteNits(nullptr) == 0.0f,
+        "unknown display has no SDR white level");
     std::printf("HDR output pass checks passed\n");
     return 0;
 }

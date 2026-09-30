@@ -9,7 +9,8 @@
 
 - Added experimental TRP HDR output for ENB and other non-CS setups: the finished
   SDR image is expanded to HDR10 with paper white, peak, UI brightness and
-  highlight controls, and frame generation receives matching HDR10 HUD-less and
+  highlight controls (paper white and UI follow Windows' SDR content brightness by
+  default), and frame generation receives matching HDR10 HUD-less and
   UI images. Off by default; enabling it needs a restart. Tested on one ENB
   setup; see the README's HDR notes.
 

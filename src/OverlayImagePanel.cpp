@@ -96,15 +96,29 @@ void OverlayUI::DrawHDROutputSettings()
         }
     }
     ImGui::BeginDisabled(!hdr.enabled);
+    ImGui::Checkbox("Match Windows SDR brightness##hdr", &hdr.matchWindowsSDR);
+    const bool windowsKnown = state.windowsSDRWhiteNits >= HDR::kMinimumNits;
+    if (hdr.matchWindowsSDR)
+    {
+        if (windowsKnown) { ImGui::TextDisabled("Paper white and UI: %.0f nits from Windows", state.windowsSDRWhiteNits); }
+        else if (state.requested) { ImGui::TextColored(kAmber, "Windows SDR brightness unavailable; using the values below"); }
+    }
+    DrawSettingsHelp("Uses Windows' SDR content brightness (Settings > Display > HDR) for paper white and UI, "
+                     "so whites match the desktop. Untick to set them here.");
+    const bool followsWindows = hdr.matchWindowsSDR && windowsKnown;
+    ImGui::BeginDisabled(followsWindows);
     ImGui::SliderFloat("Paper white##hdr", &hdr.paperWhiteNits, HDR::kMinimumNits, 500.0f, "%.0f nits");
     DrawSettingsHelp("Brightness of SDR white in the scene. Start near the Windows SDR content brightness.");
+    ImGui::EndDisabled();
     ImGui::SliderFloat("Peak brightness##hdr", &hdr.peakNits, hdr.paperWhiteNits, 4000.0f, "%.0f nits");
     if (state.displayMaxNits > 0.0f && ImGui::SmallButton("Use display peak##hdr"))
     {
         hdr.peakNits = state.displayMaxNits;
     }
     DrawSettingsHelp("Brightest expanded highlight. Set to your display's peak.");
+    ImGui::BeginDisabled(followsWindows);
     ImGui::SliderFloat("UI brightness##hdr", &hdr.uiNits, HDR::kMinimumNits, 500.0f, "%.0f nits");
+    ImGui::EndDisabled();
     ImGui::SliderFloat("Highlight strength##hdr", &hdr.highlightStrength, 0.0f, 1.0f, "%.2f");
     DrawSettingsHelp("0 keeps the SDR range at paper white; 1 expands the brightest pixels to peak brightness.");
     ImGui::SliderFloat("Expansion start##hdr", &hdr.expansionStart, 0.1f, 0.95f, "%.2f");

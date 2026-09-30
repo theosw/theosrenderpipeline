@@ -4,6 +4,7 @@
 #include <d3d12.h>
 #include <dxgi1_6.h>
 #include <algorithm>
+#include <array>
 #include <utility>
 
 namespace TheosRenderPipeline::SourceDLSSG
@@ -17,8 +18,11 @@ namespace TheosRenderPipeline::SourceDLSSG
 		bool active{};
 		float maxLuminance{};
 		HMONITOR monitor{};
+		std::array<wchar_t, 32> deviceName{}; // GDI name, for DisplayConfig lookups.
 	};
 	DisplayHDR QueryDisplayHDR(IDXGIFactory1* factory, HWND window);
+	// Windows "SDR content brightness" for a GDI display in nits; 0 when unavailable.
+	float QuerySDRWhiteNits(const wchar_t* gdiDeviceName);
 
 	// Only producers that finish in 8-bit SDR use renderer-owned HDR. FP16/RGB10
 	// producers (Community Shaders HDR) keep their existing presentation path.
@@ -53,6 +57,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// Display re-queries create a DXGI factory and enumerate outputs on the render thread.
 		std::uint64_t displayQueries{};
 		double displayQueryTotalUs{}, displayQueryMaxUs{};
+		float windowsSDRWhiteNits{};      // 0 when unknown.
+		std::uint64_t sdrWhiteQueries{};
+		double sdrWhiteQueryMaxUs{};
 		const char* reason{"not requested"};
 	};
 

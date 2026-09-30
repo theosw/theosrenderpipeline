@@ -130,6 +130,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		void FinishScreenshot() noexcept;
 		static void StreamlineLogCallback(sl::LogType a_type, const char* a_message);
 		void PollDisplayHDR(bool a_force);
+		void RefreshSDRWhite();
 		bool EnsureHDRTargets(UINT a_width, UINT a_height);
 		HRESULT RecordOutput(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_source, ID3D12Resource* a_destination,
 			bool a_prepared, DXGI_COLOR_SPACE_TYPE& a_colorSpace);
@@ -183,6 +184,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 		HMONITOR hdrMonitor_{};
 		std::uint32_t hdrPollCountdown_{};
 		std::uint64_t hdrTimestampFrequency_{};
+		std::array<wchar_t, 32> hdrDeviceName_{};
+		float hdrSDRWhiteNits_{};
+		std::uint32_t hdrSDRPolls_{};
 		bool hdrNative_{}, hdrDisplay_{}, hdrFrameTagged_{}, hdrColorSpaceApplied_{};
 		// Replaces a ReShade screenshot of the UI-only source runtime with the
 		// final real frame. Failures keep ReShade's file and never fault rendering.

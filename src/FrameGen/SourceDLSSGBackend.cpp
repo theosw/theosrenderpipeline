@@ -704,8 +704,13 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (!hdrNative_) { return; }
 		if (!a_force && hdrPollCountdown_ && --hdrPollCountdown_) { return; }
 		hdrPollCountdown_ = 120;
+		// Windows' SDR content brightness can change without a new DXGI factory.
+		const bool refreshSDR = ++hdrSDRPolls_ % 5 == 0;
 		const auto monitor = MonitorFromWindow(window_, MONITOR_DEFAULTTONEAREST);
-		if (!a_force && hdrFactory_ && hdrFactory_->IsCurrent() && monitor == hdrMonitor_ && hdrColorSpaceApplied_) { return; }
+		if (!a_force && hdrFactory_ && hdrFactory_->IsCurrent() && monitor == hdrMonitor_ && hdrColorSpaceApplied_) {
+			if (refreshSDR) { RefreshSDRWhite(); }
+			return;
+		}
 		// A fresh factory reports the current Windows HDR state of each output.
 		LARGE_INTEGER start{}, stop{}, frequency{};
 		QueryPerformanceCounter(&start);
@@ -716,6 +721,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		const double queryUs = frequency.QuadPart ? static_cast<double>(stop.QuadPart - start.QuadPart) * 1e6 / static_cast<double>(frequency.QuadPart) : 0.0;
 		hdrFactory_ = factory;
 		hdrMonitor_ = display.monitor ? display.monitor : monitor;
+		hdrDeviceName_ = display.deviceName;
 		const bool changed = display.active != hdrDisplay_ || !hdrColorSpaceApplied_;
 		hdrDisplay_ = display.active;
 		{
@@ -731,11 +737,30 @@ namespace TheosRenderPipeline::SourceDLSSG
 			hdrState_.reason = hdrDisplay_ ? "HDR10 output" : display.known ?
 				"Windows HDR is off for this display; SDR output" : "display HDR state unavailable; SDR output";
 		}
+		RefreshSDRWhite();
 		if (changed) {
 			ApplyNativeColorSpace();
 			logger::info("[HDROutput] display known={} hdr={} maxLuminance={:.0f} colourSpace={} factory=0x{:08X}",
 				display.known, hdrDisplay_, display.maxLuminance, hdrDisplay_ ? "PQ BT.2020" : "sRGB BT.709",
 				static_cast<std::uint32_t>(created));
+		}
+	}
+	void Backend::RefreshSDRWhite()
+	{
+		LARGE_INTEGER start{}, stop{}, frequency{};
+		QueryPerformanceCounter(&start);
+		const float nits = QuerySDRWhiteNits(hdrDeviceName_.data());
+		QueryPerformanceCounter(&stop); QueryPerformanceFrequency(&frequency);
+		const double us = frequency.QuadPart ? static_cast<double>(stop.QuadPart - start.QuadPart) * 1e6 / static_cast<double>(frequency.QuadPart) : 0.0;
+		const bool changed = std::fabs(nits - hdrSDRWhiteNits_) >= 1.0f;
+		hdrSDRWhiteNits_ = nits;
+		std::scoped_lock lock(hdrMutex_);
+		++hdrState_.sdrWhiteQueries;
+		hdrState_.sdrWhiteQueryMaxUs = (std::max)(hdrState_.sdrWhiteQueryMaxUs, us);
+		hdrState_.windowsSDRWhiteNits = nits;
+		if (changed) {
+			logger::info("[HDROutput] Windows SDR content brightness={:.0f} nits display={} query={:.0f} us",
+				nits, std::filesystem::path(hdrDeviceName_.data()).string(), us);
 		}
 	}
 	void Backend::ApplyNativeColorSpace()
@@ -783,7 +808,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// that frame keeps its tagged encoding and the next frame follows the display.
 		const bool compose = a_prepared && hdrFrameTagged_;
 		const bool hdr = compose || hdrDisplay_;
-		const auto constants = HDROutput::MakeShaderConstants(HDROutputConfiguration(), !hdr);
+		const auto constants = HDROutput::MakeShaderConstants(HDROutput::Effective(HDROutputConfiguration(), hdrSDRWhiteNits_), !hdr);
 		const auto slot = interop_.CurrentSlot(Work::SwapChain);
 		const auto result = compose ?
 			hdrOutputPass_->RecordCompose(device12_.Get(), a_list, slot, constants, a_source, ui_.texture12.Get(), hudless_.texture12.Get(), a_destination) :
@@ -796,9 +821,10 @@ namespace TheosRenderPipeline::SourceDLSSG
 			const auto total = hdrState_.composedFrames + hdrState_.encodedFrames;
 			if (total <= 3 || total % 3600 == 0) {
 				const auto& q = hdrState_;
-				logger::info("[HDROutput] frames composed={} encoded={} hdr={} gpuSamples={} gpuAvgUs={:.1f} gpuMaxUs={:.1f} displayQueries={} displayQueryAvgUs={:.0f} displayQueryMaxUs={:.0f} {}",
+				logger::info("[HDROutput] frames composed={} encoded={} hdr={} gpuSamples={} gpuAvgUs={:.1f} gpuMaxUs={:.1f} displayQueries={} displayQueryAvgUs={:.0f} displayQueryMaxUs={:.0f} sdrWhiteNits={:.0f} sdrWhiteQueries={} sdrWhiteQueryMaxUs={:.0f} {}",
 					q.composedFrames, q.encodedFrames, hdr, q.gpu.samples, q.gpu.AverageUs(), q.gpu.maxUs, q.displayQueries,
-					q.displayQueries ? q.displayQueryTotalUs / static_cast<double>(q.displayQueries) : 0.0, q.displayQueryMaxUs, q.reason);
+					q.displayQueries ? q.displayQueryTotalUs / static_cast<double>(q.displayQueries) : 0.0, q.displayQueryMaxUs,
+					q.windowsSDRWhiteNits, q.sdrWhiteQueries, q.sdrWhiteQueryMaxUs, q.reason);
 			}
 		}
 		return result;

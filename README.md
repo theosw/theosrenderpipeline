@@ -76,9 +76,10 @@ already clipped cannot be recovered, and 8-bit output can band in bright gradien
 Frame generation receives matching HDR10 HUD-less and UI images. NR and ReShade
 still run on the SDR image.
 
-Enable Windows HDR, turn on **HDR output**, save as default and restart. Paper
-white, peak, UI brightness, highlight strength, expansion start and SDR decoding
-apply live. When Windows HDR is off for the game's display, output stays SDR.
+Enable Windows HDR, turn on **HDR output**, save as default and restart. By
+default, paper white and UI brightness follow Windows' SDR content brightness
+(**Match Windows SDR brightness**). Paper white, peak, UI brightness, highlight
+strength, expansion start and SDR decoding apply live. When Windows HDR is off for the game's display, output stays SDR.
 Leave ENB's own HDR-like effects as they are; this does not change the preset.
 The panel shows the output pass's GPU time.
 

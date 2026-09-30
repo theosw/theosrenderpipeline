@@ -93,10 +93,25 @@ int main()
     Require(ini.LoadData("[SourceDLSSG]\nNRPasses=1\n") >= 0, "old INI");
     auto preferences = SourceDLSSG::LoadPreferences(ini);
     Require(preferences.hdrOutput == Settings{}, "old INI keeps HDR output off with defaults");
-    preferences.hdrOutput = {true, 250.0f, 1400.0f, 180.0f, 0.8f, 0.65f, Transfer::SRGB};
+    Require(preferences.hdrOutput.matchWindowsSDR, "old INI matches Windows SDR brightness by default");
+    preferences.hdrOutput = {.enabled = true, .matchWindowsSDR = false, .paperWhiteNits = 250.0f, .peakNits = 1400.0f,
+        .uiNits = 180.0f, .highlightStrength = 0.8f, .expansionStart = 0.65f, .transfer = Transfer::SRGB};
     SourceDLSSG::StorePreferences(ini, preferences);
     Require(SourceDLSSG::LoadPreferences(ini) == preferences, "HDR output settings round trip");
-    Require(ini.GetBoolValue("HDROutput", "Enabled", false) && ini.GetLongValue("HDROutput", "SDRTransfer", 0) == 1, "HDR INI keys");
+    Require(ini.GetBoolValue("HDROutput", "Enabled", false) && ini.GetLongValue("HDROutput", "SDRTransfer", 0) == 1 &&
+        !ini.GetBoolValue("HDROutput", "MatchWindowsSDRBrightness", true), "HDR INI keys");
+
+    // Windows SDR brightness replaces paper white and UI only when matching and known.
+    Settings manual; manual.paperWhiteNits = 200.0f; manual.uiNits = 250.0f; manual.peakNits = 1000.0f;
+    auto effective = Effective(manual, 240.0f);
+    Require(effective.paperWhiteNits == 240.0f && effective.uiNits == 240.0f && effective.peakNits == 1000.0f, "matching uses Windows level");
+    effective = Effective(manual, 0.0f);
+    Require(effective.paperWhiteNits == 200.0f && effective.uiNits == 250.0f, "unknown Windows level keeps manual values");
+    Require(Effective(manual, std::numeric_limits<float>::quiet_NaN()).paperWhiteNits == 200.0f, "non-finite level ignored");
+    effective = Effective(manual, 1200.0f);
+    Require(effective.paperWhiteNits == 1000.0f && effective.peakNits >= effective.paperWhiteNits, "Windows level is sanitized");
+    manual.matchWindowsSDR = false;
+    Require(Effective(manual, 240.0f).paperWhiteNits == 200.0f, "manual mode ignores Windows level");
 
     std::printf("HDR output reference checks passed\n");
     return 0;

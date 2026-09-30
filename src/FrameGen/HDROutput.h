@@ -17,6 +17,7 @@ namespace TheosRenderPipeline::HDROutput
     struct Settings
     {
         bool enabled{false};             // Startup-owned: selects the native swapchain format.
+        bool matchWindowsSDR{true};      // Paper white and UI follow Windows' SDR content brightness.
         float paperWhiteNits{200.0f};    // SDR white in the scene.
         float peakNits{1000.0f};         // Brightest expanded highlight.
         float uiNits{200.0f};            // Native UI, menus and the TRP overlay.
@@ -47,6 +48,7 @@ namespace TheosRenderPipeline::HDROutput
         constexpr auto section = "HDROutput";
         Settings value;
         value.enabled = ini.GetBoolValue(section, "Enabled", value.enabled);
+        value.matchWindowsSDR = ini.GetBoolValue(section, "MatchWindowsSDRBrightness", value.matchWindowsSDR);
         value.paperWhiteNits = static_cast<float>(ini.GetDoubleValue(section, "PaperWhiteNits", value.paperWhiteNits));
         value.peakNits = static_cast<float>(ini.GetDoubleValue(section, "PeakNits", value.peakNits));
         value.uiNits = static_cast<float>(ini.GetDoubleValue(section, "UIBrightnessNits", value.uiNits));
@@ -61,12 +63,23 @@ namespace TheosRenderPipeline::HDROutput
         value = Sanitize(value);
         constexpr auto section = "HDROutput";
         ini.SetBoolValue(section, "Enabled", value.enabled);
+        ini.SetBoolValue(section, "MatchWindowsSDRBrightness", value.matchWindowsSDR);
         ini.SetDoubleValue(section, "PaperWhiteNits", value.paperWhiteNits);
         ini.SetDoubleValue(section, "PeakNits", value.peakNits);
         ini.SetDoubleValue(section, "UIBrightnessNits", value.uiNits);
         ini.SetDoubleValue(section, "HighlightStrength", value.highlightStrength);
         ini.SetDoubleValue(section, "ExpansionStart", value.expansionStart);
         ini.SetLongValue(section, "SDRTransfer", static_cast<long>(value.transfer));
+    }
+
+    // Settings used for output. When matching Windows, its SDR content brightness
+    // replaces paper white and UI brightness; an unknown level keeps the manual values.
+    inline Settings Effective(Settings s, float windowsSDRWhiteNits)
+    {
+        if (s.matchWindowsSDR && std::isfinite(windowsSDRWhiteNits) && windowsSDRWhiteNits >= kMinimumNits) {
+            s.paperWhiteNits = s.uiNits = windowsSDRWhiteNits;
+        }
+        return Sanitize(s);
     }
 
     // Maximum scene value relative to paper white.
