@@ -3,6 +3,7 @@
 #include "RenderPipeline.h"
 #include "FrameTrace.h"
 #include "MenuRenderState.h"
+#include "../compatibility/ImGuiCompat/ModexMenuScope.h"
 
 #include <string>
 #include <unordered_set>
@@ -45,6 +46,9 @@ RE::BSEventNotifyControl MenuOpenCloseEventHandler::ProcessEvent(const RE::MenuO
 {
 	using TheosRenderPipeline::MenuRenderBoundary;
 	static TheosRenderPipeline::MenuRenderState menuState;
+	if (a_event->opening && a_event->menuName == "ModexGUIMenu") {
+		TheosRenderPipeline::ModexMenuScope::OnMenuOpened();
+	}
 	bool transitionEvent = true;
 	auto boundary = MenuRenderBoundary::Main;
 	auto boundaryReason = FrameTrace::BoundaryReason::kMainMenu;

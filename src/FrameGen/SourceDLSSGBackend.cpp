@@ -32,6 +32,13 @@ namespace TheosRenderPipeline::SourceDLSSG
 			fault_ = a_result;
 			status_ = std::format("{} failed HRESULT=0x{:08X}", a_operation, static_cast<std::uint32_t>(a_result));
 			logger::error("[SourceDLSSG] {}", status_);
+			// Device loss is reported by whichever call observes it first; the
+			// removal reason identifies the fault (hung, page fault, reset).
+			if ((a_result == DXGI_ERROR_DEVICE_REMOVED || a_result == DXGI_ERROR_DEVICE_RESET ||
+					a_result == DXGI_ERROR_DEVICE_HUNG) && device12_) {
+				logger::error("[SourceDLSSG] D3D12 device removed reason=0x{:08X}",
+					static_cast<std::uint32_t>(device12_->GetDeviceRemovedReason()));
+			}
 		}
 		return false;
 	}

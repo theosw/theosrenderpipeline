@@ -166,6 +166,12 @@ void NvidiaHost::OnPresentCompleted(HRESULT a_result)
             logger::error("[NvidiaHost] outer Present failed result=0x{:08X} "
                           "failures={} presents={}",
                           static_cast<std::uint32_t>(a_result), failedPresentCount_, presentCount_);
+            if ((a_result == DXGI_ERROR_DEVICE_REMOVED || a_result == DXGI_ERROR_DEVICE_RESET ||
+                    a_result == DXGI_ERROR_DEVICE_HUNG) && device_)
+            {
+                logger::error("[NvidiaHost] D3D11 device removed reason=0x{:08X}",
+                              static_cast<std::uint32_t>(device_->GetDeviceRemovedReason()));
+            }
         }
     }
     else if (FAILED(previousResult))

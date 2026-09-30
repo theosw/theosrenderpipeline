@@ -6,6 +6,12 @@
 - NR after upscaling keeps HDR highlights and its normal look on CS's HDR scene.
 - D3D11 capture hooks now survive runtime state changes.
 - ReShade screenshots skip already-encoded HDR output instead of miscolouring it.
+- Fixed a GPU device loss with Modex's 3D item preview under DLSS. Its preview
+  copies and clears now use the native UI target while its menu draws; set
+  `Modex=0` in TheosRenderPipelineImGui.ini to disable this adapter.
+- Copies that would fall outside the game-facing or native UI textures are now
+  dropped and logged instead of reaching the GPU.
+- Device-loss log entries now include the D3D11/D3D12 removal reason.
 - Loading screens that **Request loading artwork** shows for doors now fade in
   from black, like the game's own loading screens, avoiding a brief bright flash.
 
