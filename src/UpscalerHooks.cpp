@@ -776,15 +776,18 @@ void InstallUpscalerContextHooks(ID3D11Device* device, ID3D11DeviceContext* devi
     TheosRenderPipeline::InstallVTableHook(deviceContext, Slots::kRSSetScissorRects, &hk_ID3D11DeviceContext_RSSetScissorRects, ptrRSSetScissorRects);
     TheosRenderPipeline::InstallVTableHook(deviceContext, Slots::kDrawIndexed, &hk_ID3D11DeviceContext_DrawIndexed, ptrDrawIndexed);
     TheosRenderPipeline::InstallVTableHook(deviceContext, Slots::kDraw, &hk_ID3D11DeviceContext_Draw, ptrDraw);
-    TheosRenderPipeline::InstallVTableHook(deviceContext, Slots::kCopySubresourceRegion,
-        &hk_ID3D11DeviceContext_CopySubresourceRegion, ptrCopySubresourceRegion);
+    // Copy routing is a compatibility layer, not part of the required render
+    // path: without it, producers keep their original copies and clears.
+    if (!TheosRenderPipeline::TryInstallVTableHook(deviceContext, Slots::kCopySubresourceRegion,
+            &hk_ID3D11DeviceContext_CopySubresourceRegion, ptrCopySubresourceRegion)) {
+        logger::warn("[NativeUICopy] CopySubresourceRegion hook unavailable; producer copies are neither routed nor range-checked");
+    }
     // Producers reach ClearView through ID3D11DeviceContext1; hook the table
     // that QueryInterface returns for this same context.
     Microsoft::WRL::ComPtr<ID3D11DeviceContext1> context1;
-    if (SUCCEEDED(deviceContext->QueryInterface(IID_PPV_ARGS(&context1)))) {
-        TheosRenderPipeline::InstallVTableHook(context1.Get(), Slots::kClearView, &hk_ID3D11DeviceContext1_ClearView, ptrClearView);
-    } else {
-        logger::warn("[NativeUICopy] ID3D11DeviceContext1 unavailable; producer ClearView calls keep their original target");
+    if (FAILED(deviceContext->QueryInterface(IID_PPV_ARGS(&context1))) ||
+        !TheosRenderPipeline::TryInstallVTableHook(context1.Get(), Slots::kClearView, &hk_ID3D11DeviceContext1_ClearView, ptrClearView)) {
+        logger::warn("[NativeUICopy] ClearView hook unavailable; producer ClearView calls keep their original target");
     }
 }
 
