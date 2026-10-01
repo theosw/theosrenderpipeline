@@ -2,7 +2,7 @@
 
 NVIDIA rendering integration for Skyrim: DLSS/DLAA, frame generation, optional
 Neural Rendering (NR), and native-resolution menus and HUD. Current version:
-**0.3.4**. See [CHANGELOG.md](CHANGELOG.md) for release changes.
+**0.3.5**. See [CHANGELOG.md](CHANGELOG.md) for release changes.
 
 ## Features
 
@@ -47,6 +47,15 @@ otherwise TRP owns upscaling, with optional ENB. With CS, disable its frame
 generation and Reflex; CS retains its shading, upscaling, UI and HDR output.
 Keep SSE ReShade Helper disabled when using TRP's ReShade integration. Use one shading
 setup per profile and disable competing upscaler/frame-generation injectors.
+
+## ReShade tested scope
+
+ReShade 6.8 was tested with Universal on Skyrim 1.6.1170, Cabbage ENB and
+an RTX 4080 SUPER: ordinary 6.8.0.2158 and full add-on 6.8.0.2155, with
+early NR and x4. Sky Reflection Fix's ReShade registration was excluded;
+Rumble passed a separate initial test. ReGrade+, combined third-party add-ons,
+Standard gameplay and CS with ReShade remain unverified. These were earlier
+development builds; the exact 0.3.5 package still needs its final game test.
 
 ## HDR (experimental)
 

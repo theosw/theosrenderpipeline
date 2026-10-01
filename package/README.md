@@ -1,10 +1,12 @@
-# Theo's Render Pipeline — Universal, 0.3.4
+# Theo's Render Pipeline — Universal, 0.3.5
 
-Version 0.3.4 adds experimental HDR output for ENB/non-CS setups, preserves late
-overlays in HDR frame generation, fixes Modex item-preview device loss and fades
-forced loading artwork in from black. TRP HDR output defaults off and needs a
-restart when enabled. Community Shaders HDR Display support from 0.3.3 is retained.
-Both editions retain NR; existing NVIDIA runtime files are unchanged.
+Version 0.3.5 enables DLSS-G UI recomposition by default to reduce HUD
+ghosting; toggle it live under Frame generation. GPU retirement waits now
+continue while the fence progresses, avoiding permanent black screens from
+recoverable multi-second stalls, and log extended waits. A fence with no
+progress still fails after 20 seconds. ReShade regression tests are expanded.
+Both editions retain NR, existing compatibility routes and unchanged NVIDIA
+runtimes. HDR remains experimental and defaults off.
 
 Version 0.3.0 added experimental RTX 20 DLSS-G/MFG compatibility and retains
 all 0.2.5 fixes. The separate RTX 2060 test records x2/x3/x4/x6, NR and loading
@@ -34,7 +36,7 @@ This package includes the full renderer, configuration and sharpening shader.
 It requires no other Theo's Render Pipeline package. NVIDIA DLLs are supplied
 separately: download the SR/FG files below, and the NR runtime if you want NR.
 Alternatively, install Standard first and Universal after it in MO2; Standard
-0.3.4 supplies the runtime bundle (0.2.5 retains the same DLLs). The NR-enabled
+0.3.5 supplies the runtime bundle (0.2.5 retains the same DLLs). The NR-enabled
 Standard download supplies all eight runtimes, including NR. In that setup,
 skip the runtime downloads below.
 
@@ -157,6 +159,13 @@ further testing. NR can be expensive on RTX 30: start with it off, then try one
 pass before upscaling and reduce NR input resolution if needed.
 
 ## ReShade (optional)
+
+ReShade 6.8 was tested with Universal on Skyrim 1.6.1170, Cabbage ENB and
+an RTX 4080 SUPER: ordinary 6.8.0.2158 and full add-on 6.8.0.2155, with
+early NR and x4. Sky Reflection Fix's ReShade registration was excluded;
+Rumble passed a separate initial test. ReGrade+, combined third-party add-ons,
+Standard gameplay and CS with ReShade remain unverified. These were earlier
+development builds; the exact 0.3.5 package still needs its final game test.
 
 Keep your existing ReShade installation, preset and hotkeys. **Disable SSE
 ReShade Helper.** TRP supplies the effects and overlay stages. Effects run after

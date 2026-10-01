@@ -1,11 +1,19 @@
-# Unreleased
+# 0.3.5
 
 - Reduce HUD ghosting in generated frames: DLSS-G now interpolates the HUD-less
   scene and the UI separately (UI recomposition). On by default, including for
   existing INIs; toggle it live under Frame generation. Small GPU/VRAM cost.
 - Fixed a black screen that could persist after a cell load while the game kept
   running: a multi-second GPU stall no longer counts as a fatal fault. TRP keeps
-  waiting while the GPU makes progress and logs long waits.
+  waiting while the GPU makes progress and logs long waits. A fence with no
+  progress still fails after 20 seconds; device removal remains a failure.
+- Expanded automated ReShade runtime ownership, input and lifecycle tests.
+
+Ordinary and full add-on ReShade 6.8 have scoped Universal/ENB gameplay
+evidence. ReGrade+ and some third-party add-on combinations remain unverified;
+this release does not add a runtime fix for those combinations. NVIDIA
+runtimes are unchanged. Both editions retain NR and existing compatibility
+routes; HDR remains experimental and off by default.
 
 # 0.3.4
 
