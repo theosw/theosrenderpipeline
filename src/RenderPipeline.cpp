@@ -192,7 +192,10 @@ bool RenderPipeline::IsEnabled()
 
 void RenderPipeline::GetJitters(float* a_outX, float* a_outY)
 {
-	const auto phase = DLSSBackend::GetSingleton()->GetJitterPhaseCount();
+	const auto* host = NvidiaHost::GetSingleton();
+    const auto phase = host->XeSSActive() && host->RenderWidth() && host->RenderHeight() ?
+        static_cast<int>(std::ceil(8.0 * host->OutputWidth() * host->OutputHeight() / (static_cast<double>(host->RenderWidth()) * host->RenderHeight()))) :
+        DLSSBackend::GetSingleton()->GetJitterPhaseCount();
 
 	mJitterIndex++;
 	DLSSBackend::GetJitterOffset(a_outX, a_outY, static_cast<int>(mJitterIndex), phase);
@@ -275,7 +278,7 @@ void RenderPipeline::InitUpscaler()
 	}
 	logger::info(
 		"NVIDIA host topology initialized: sourceOwner={} {} x {} -> {} x {} (scale {:.3f}, mip bias {:.2f})",
-		nvidiaHost->SplitSourceDLSSActive() ? "TheosRenderPipeline-DLSS" : "unavailable",
+		nvidiaHost->XeSSActive() ? "TheosRenderPipeline-XeSS" : nvidiaHost->SplitSourceDLSSActive() ? "TheosRenderPipeline-DLSS" : "unavailable",
 		mRenderSizeX,
 		mRenderSizeY,
 		mDisplaySizeX,

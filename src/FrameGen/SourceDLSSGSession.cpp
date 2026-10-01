@@ -64,13 +64,14 @@ namespace TheosRenderPipeline::SourceDLSSG
 		return token_ && Check(api_.marker(a_marker, *token_), a_operation);
 	}
 
-	bool Session::Start(const SessionAPI& a_api, std::uint32_t a_viewport)
+    bool Session::Start(const SessionAPI& a_api, std::uint32_t a_viewport, std::uint32_t firstApplicationFrame)
 	{
 		if (started_ || snapshot_.stage != SessionStage::Stopped) { return Fail(SessionFailure::InvalidSequence, "Start"); }
 		if (!a_api.Complete()) { return Fail(SessionFailure::InvalidAPI, "Start"); }
 		started_ = true;
 		api_ = a_api;
-		viewport_ = sl::ViewportHandle(a_viewport);
+        viewport_ = sl::ViewportHandle(a_viewport);
+        snapshot_.frameIndex = firstApplicationFrame;
 		snapshot_.options.flags = sl::DLSSGFlags::eRetainResourcesWhenOff;
 		snapshot_.options.queueParallelismMode = sl::DLSSGQueueParallelismMode::eBlockPresentingClientQueue;
 		snapshot_.options.numFramesToGenerate = 1;

@@ -97,7 +97,7 @@ int main()
     capabilities.neuralRuntime = true; capabilities.sourceHost = false;
     Require(ValidateRendererSettings(draft, capabilities), "external world cannot bypass unavailable host check");
 
-    for (int mode : {DLSS, DLAA}) for (bool before : {false, true}) {
+    for (int mode : {DLSS, DLAA, XeSS}) for (bool before : {false, true}) {
         draft.upscaleType = mode;
         draft.sourceDLSSG.neuralBeforeUpscaling = before;
         Require(SupportsNeuralRenderingMode(mode, false), "native DLSS and DLAA share the startup/apply NR mode policy");

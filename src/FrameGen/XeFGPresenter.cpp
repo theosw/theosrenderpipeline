@@ -12,7 +12,14 @@ namespace TheosRenderPipeline
             status_ = std::string(operation) + " XeFG result=" + std::to_string(result);
             return result == XEFG_SWAPCHAIN_RESULT_ERROR_DEVICE_OUT_OF_MEMORY ? E_OUTOFMEMORY : E_FAIL;
         }
-        if (result > 0) { ++snapshot_.warnings; }
+        if (result > 0) {
+            ++snapshot_.warnings;
+            if (log_ && (snapshot_.warnings <= 3 || result != lastWarning_ || operation != lastWarningOperation_ || snapshot_.warnings % 600 == 0)) {
+                const auto message = std::string("warning operation=") + operation + " result=" + std::to_string(result) + " count=" + std::to_string(snapshot_.warnings);
+                log_(message.c_str());
+            }
+            lastWarning_ = result; lastWarningOperation_ = operation;
+        }
         return S_OK;
     }
     HRESULT XeFGPresenter::LL(xell_result_t result, const char* operation)

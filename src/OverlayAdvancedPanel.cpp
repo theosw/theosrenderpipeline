@@ -22,7 +22,7 @@ void OverlayUI::DrawImageMeasurements(const FrameView& view)
                     view.upscaleHealth);
     DrawSettingsValue("Render", std::format("{} x {}", host->RenderWidth(), host->RenderHeight()).c_str());
     DrawSettingsValue("Output", std::format("{} x {}", view.nativeWidth, view.nativeHeight).c_str());
-    if (!cs)
+    if (!cs && !host->XeSSActive())
         DrawSettingsValue("Preset request", TheosRenderPipeline::DLSSPreset::ShortName(
                                                 host->SourceUpscalerSettings().Effective().preset));
     ImGui::Separator();

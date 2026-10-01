@@ -6,6 +6,8 @@
 #include "SourceRuntimeModuleDiagnostic.h"
 #include "../PluginPaths.h"
 #include "../ScreenshotFile.h"
+#include "../RenderPipeline.h"
+#include "SourceFrameGeneration.h"
 #include <d3dcompiler.h>
 #include <chrono>
 
@@ -151,6 +153,71 @@ namespace TheosRenderPipeline::SourceDLSSG
 		Backend::Get().runtimeDiagnostics_.Record(message);
 		logger::info("[SourceDLSSG/SL {}] {}", static_cast<int>(a_type), message);
 	}
+	bool Backend::InitializeNvidia(const std::filesystem::path& directory)
+	{
+		if (nvidiaInitialized_) { return true; }
+		if (!NvidiaAdapter()) { return Check(DXGI_ERROR_UNSUPPORTED, "NVIDIA provider requires NVIDIA hardware"); }
+		MFGUnlock::StartupScope startupScope(mfgUnlock_);
+		if (!Load(directory)) { return false; }
+		void* upgraded = device12_.Get();
+		mfgUnlock_.Prepare(device12_.Get(), directory_);
+		device12_->AddRef();
+		const auto upgradedResult = upgrade_(&upgraded);
+		upgradedDevice12_.Attach(static_cast<ID3D12Device*>(upgraded));
+		if (!Check(upgradedResult, "upgrade D3D12 device") || !upgradedDevice12_ ||
+			!Check(setDevice_(device12_.Get()), "slSetD3DDevice")) { return false; }
+		auto luid = device12_->GetAdapterLuid();
+		sl::AdapterInfo info{};
+		info.deviceLUID = reinterpret_cast<std::uint8_t*>(&luid);
+		info.deviceLUIDSizeInBytes = sizeof(luid);
+		for (const auto feature : { sl::kFeatureReflex, sl::kFeaturePCL, sl::kFeatureDLSS_G }) {
+			const auto operation = std::format("slIsFeatureSupported feature={}", feature);
+			logger::info("[SourceDLSSG] startup stage={}", operation);
+			if (!Check(supported_(feature, info), operation.c_str())) { return false; }
+		}
+		for (std::size_t index = 0; index < kStreamlineModules.size(); ++index) {
+			const auto* name = kStreamlineModules[index];
+			runtimeModules_[index] = TheosRenderPipeline::PluginPaths::RetainLoadedModule(directory_ / name);
+			if (!runtimeModules_[index]) {
+				const auto configured = directory_ / name;
+				const auto attributes = GetFileAttributesW(configured.c_str());
+				const bool exists = attributes != INVALID_FILE_ATTRIBUTES && !(attributes & FILE_ATTRIBUTE_DIRECTORY);
+				const auto otherPath = PluginPaths::ModulePath(GetModuleHandleW(name));
+				const bool overrideObserved = runtimeDiagnostics_.FrameGenerationOverrideObserved();
+				logger::error("[SourceDLSSG] module retention failed configured={} filePresent={} sameNameLoadedPath={} fgOverrideObserved={}",
+					configured.string(), exists, otherPath.empty() ? "none" : otherPath.string(), overrideObserved);
+				Check(E_FAIL, RuntimeModuleFailureMessage(std::filesystem::path(name).string(), overrideObserved).c_str());
+				return false;
+			}
+			logger::info("[SourceDLSSG] loaded {}", (directory_ / name).string());
+		}
+		auto resolve = [&](sl::Feature feature, const char* name, auto& function) {
+			void* address = nullptr;
+			if (!Check(featureFunction_(feature, name, address), name) || !address) { return Check(E_NOINTERFACE, name); }
+			function = reinterpret_cast<std::remove_reference_t<decltype(function)>>(address);
+			return true;
+		};
+		if (!resolve(sl::kFeatureReflex, "slReflexSetOptions", api_.setReflexOptions) ||
+			!resolve(sl::kFeatureReflex, "slReflexSleep", api_.reflexSleep) ||
+			!resolve(sl::kFeatureReflex, "slReflexGetState", api_.getReflexState) ||
+			!resolve(sl::kFeaturePCL, "slPCLSetMarker", api_.marker) ||
+			!resolve(sl::kFeatureDLSS_G, "slDLSSGGetState", api_.getState) ||
+			!resolve(sl::kFeatureDLSS_G, "slDLSSGSetOptions", api_.setOptions)) { return false; }
+		mfgUnlock_.BindWrapper(reinterpret_cast<const void*>(api_.setOptions));
+		nvidiaInitialized_ = true; return true;
+	}
+	bool Backend::UpgradeNvidiaFactory()
+	{
+		if (streamlineFactory_) { return true; }
+		void* factory = nativeFactory_.Get();
+		nativeFactory_.Get()->AddRef();
+		const auto factoryResult = upgrade_(&factory);
+		ComPtr<IDXGIFactory> upgradedFactory;
+		upgradedFactory.Attach(static_cast<IDXGIFactory*>(factory));
+		if (!Check(factoryResult, "upgrade factory") || !upgradedFactory) { return false; }
+		streamlineFactory_ = upgradedFactory;
+		return true;
+	}
 	HRESULT Backend::CreateSwapChain(IDXGIFactory* a_factory, ID3D11Device* a_device,
 		const DXGI_SWAP_CHAIN_DESC& a_desc, const std::filesystem::path& a_directory, IDXGISwapChain** a_result)
 	{
@@ -189,54 +256,19 @@ namespace TheosRenderPipeline::SourceDLSSG
 				static_cast<std::uint32_t>(adapterDesc.AdapterLuid.HighPart), adapterDesc.AdapterLuid.LowPart);
 		}
 		logger::info("[ReShade] {}", ReShadeIntegration::Get().Status());
-		MFGUnlock::StartupScope startupScope(mfgUnlock_);
-		if (!Load(a_directory)) { return fault_; }
-		void* upgraded = device12_.Get();
-		mfgUnlock_.Prepare(device12_.Get(), directory_);
-		device12_->AddRef();
-		const auto upgradedResult = upgrade_(&upgraded);
-		upgradedDevice12_.Attach(static_cast<ID3D12Device*>(upgraded));
-		if (!Check(upgradedResult, "upgrade D3D12 device") || !upgradedDevice12_ ||
-			!Check(setDevice_(device12_.Get()), "slSetD3DDevice")) { return E_FAIL; }
-		auto luid = device12_->GetAdapterLuid();
-		sl::AdapterInfo info{};
-		info.deviceLUID = reinterpret_cast<std::uint8_t*>(&luid);
-		info.deviceLUIDSizeInBytes = sizeof(luid);
-		for (const auto feature : { sl::kFeatureReflex, sl::kFeaturePCL, sl::kFeatureDLSS_G }) {
-			const auto operation = std::format("slIsFeatureSupported feature={}", feature);
-			logger::info("[SourceDLSSG] startup stage={}", operation);
-			if (!Check(supported_(feature, info), operation.c_str())) { return fault_; }
-		}
-		for (std::size_t index = 0; index < kStreamlineModules.size(); ++index) {
-			const auto* name = kStreamlineModules[index];
-			runtimeModules_[index] = TheosRenderPipeline::PluginPaths::RetainLoadedModule(directory_ / name);
-			if (!runtimeModules_[index]) {
-				const auto configured = directory_ / name;
-				const auto attributes = GetFileAttributesW(configured.c_str());
-				const bool exists = attributes != INVALID_FILE_ATTRIBUTES && !(attributes & FILE_ATTRIBUTE_DIRECTORY);
-				const auto otherPath = PluginPaths::ModulePath(GetModuleHandleW(name));
-				const bool overrideObserved = runtimeDiagnostics_.FrameGenerationOverrideObserved();
-				logger::error("[SourceDLSSG] module retention failed configured={} filePresent={} sameNameLoadedPath={} fgOverrideObserved={}",
-					configured.string(), exists, otherPath.empty() ? "none" : otherPath.string(), overrideObserved);
-				Check(E_FAIL, RuntimeModuleFailureMessage(std::filesystem::path(name).string(), overrideObserved).c_str());
-				return fault_;
-			}
-			logger::info("[SourceDLSSG] loaded {}", (directory_ / name).string());
-		}
-		auto resolve = [&](sl::Feature feature, const char* name, auto& function) {
-			void* address = nullptr;
-			if (!Check(featureFunction_(feature, name, address), name) || !address) { return Check(E_NOINTERFACE, name); }
-			function = reinterpret_cast<std::remove_reference_t<decltype(function)>>(address);
-			return true;
-		};
-		if (!resolve(sl::kFeatureReflex, "slReflexSetOptions", api_.setReflexOptions) ||
-			!resolve(sl::kFeatureReflex, "slReflexSleep", api_.reflexSleep) ||
-			!resolve(sl::kFeatureReflex, "slReflexGetState", api_.getReflexState) ||
-			!resolve(sl::kFeaturePCL, "slPCLSetMarker", api_.marker) ||
-			!resolve(sl::kFeatureDLSS_G, "slDLSSGGetState", api_.getState) ||
-			!resolve(sl::kFeatureDLSS_G, "slDLSSGSetOptions", api_.setOptions)) { return fault_; }
+		adapterVendor_ = adapterDesc.VendorId;
+        nativeFactory_ = a_factory;
+        const bool intelStartup = RenderPipeline::GetSingleton()->mUpscaleType == ::XeSS;
+        // Keep the compatibility startup scope through swapchain creation and
+        // the initial NVIDIA session, as on the accepted NVIDIA path.
+        std::unique_ptr<MFGUnlock::StartupScope> nvidiaStartup;
+        if (!intelStartup) { nvidiaStartup = std::make_unique<MFGUnlock::StartupScope>(mfgUnlock_); }
+        if (intelStartup) {
+            RequestProvider(FrameGenerationProvider::XeFG);
+            provider_ = FrameGenerationProvider::XeFG;
+            logger::info("[FrameGeneration] XeSS startup uses Intel XeFG/XeLL; NVIDIA runtimes are not initialized");
+        } else if (!InitializeNvidia(a_directory)) { return fault_; }
 		D3D12_COMMAND_QUEUE_DESC queueDesc{};
-		mfgUnlock_.BindWrapper(reinterpret_cast<const void*>(api_.setOptions));
 		queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
 		if (!Check(device12_->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&queue_)), "presenting queue") ||
 			!Check(interop_.Initialize(device11_.Get(), device12_.Get(), queue_.Get()), "shared interop")) { return fault_; }
@@ -247,14 +279,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			logger::warn("[DLSSNR Source] presenting queue does not expose GPU timestamp frequency; CPU boundary timing remains available");
 		}
 #endif
-		void* factory = a_factory;
-		a_factory->AddRef();
-		const auto factoryResult = upgrade_(&factory);
-		ComPtr<IDXGIFactory> upgradedFactory;
-		upgradedFactory.Attach(static_cast<IDXGIFactory*>(factory));
-		if (!Check(factoryResult, "upgrade factory") || !upgradedFactory) { return E_FAIL; }
-		nativeFactory_ = a_factory;
-		streamlineFactory_ = upgradedFactory;
+        if (!intelStartup && !UpgradeNvidiaFactory()) { return fault_; }
 		auto desc = a_desc;
 		window_ = a_desc.OutputWindow;
 		{
@@ -280,7 +305,13 @@ namespace TheosRenderPipeline::SourceDLSSG
 		desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
 		presenterDesc_ = desc;
 		ComPtr<IDXGISwapChain> native;
-		if (!Check(upgradedFactory->CreateSwapChain(queue_.Get(), &desc, &native), "Streamline swapchain")) { return fault_; }
+		if (intelStartup) {
+            const auto intelDirectory = PluginPaths::Directory() / L"TheosRenderPipeline" / L"Intel";
+            if (!Check(xess_.Open(device12_.Get(), intelDirectory), "XeSS context") ||
+                !CheckXeFG(xefg_.Probe(device12_.Get(), intelDirectory)) ||
+                !CheckXeFG(xefg_.Create(device12_.Get(), queue_.Get(), nativeFactory_.Get(), desc, true, &native))) { return fault_; }
+            providerStatus_ = "Intel XeFG presenter; latency owner=XeLL";
+        } else if (!Check(streamlineFactory_->CreateSwapChain(queue_.Get(), &desc, &native), "Streamline swapchain")) { return fault_; }
 		retainedNative_ = native;
 		PollDisplayHDR(true);
 		api_.context = this;
@@ -297,9 +328,12 @@ namespace TheosRenderPipeline::SourceDLSSG
 		session_.RequestReflexMode(ReflexConfiguration());
 		session_.RequestUIRecomposition(UIRecompositionConfiguration());
 		session_.RequestOutputFPSLimit(outputFPSLimit_.load(std::memory_order_relaxed));
-		if (!CheckSession(session_.Start(api_, 1))) { return fault_; }
-		mfgUnlock_.Tick();
-		session_.SetMFGUnlockState(mfgUnlock_.Snapshot().UsesCompatibilityUnlock(), mfgUnlock_.Snapshot().Ready());
+        if (!intelStartup) {
+            if (!CheckSession(session_.Start(api_, 1))) { return fault_; }
+            nvidiaSessionStarted_ = true;
+            mfgUnlock_.Tick();
+            session_.SetMFGUnlockState(mfgUnlock_.Snapshot().UsesCompatibilityUnlock(), mfgUnlock_.Snapshot().Ready());
+        }
 		session_.RequestGeneration(GenerationConfiguration());
 		auto* wrapper = new (std::nothrow) SwapChain(native.Get(), *this, a_desc.BufferDesc.Format);
 		if (!wrapper) { return E_OUTOFMEMORY; }
@@ -653,7 +687,13 @@ namespace TheosRenderPipeline::SourceDLSSG
 			// immediately after CreateSwapChain reproducibly faults in NVAPI.
 			// Use the next normal host output, never an extra/uninitialized Present.
 			if (a_result != S_OK) { return a_result; }
-			if (!CheckSession(session_.ResumeAfterResize(FrameIndex()))) { return fault_; }
+            const auto resumeFrame = FrameIndex();
+            if (!nvidiaSessionStarted_) {
+                if (!CheckSession(session_.Start(api_, 1, resumeFrame))) { return fault_; }
+                nvidiaSessionStarted_ = true;
+                mfgUnlock_.Tick();
+                session_.SetMFGUnlockState(mfgUnlock_.Snapshot().UsesCompatibilityUnlock(), mfgUnlock_.Snapshot().Ready());
+            } else if (!CheckSession(session_.ResumeAfterResize(resumeFrame))) { return fault_; }
 			nvidiaNeedsPresent_ = false;
 			providerStatus_ = "NVIDIA presenter; latency owner=Reflex";
 			logger::info("[FrameGeneration] NVIDIA replacement presented; Reflex resumed frame={}", FrameIndex());
@@ -975,8 +1015,12 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (nvidiaNeedsPresent_) { return false; }
 		const auto request = RequestedProvider();
 		if ((request == provider_ && !recreateXeFG_) || !cameraAvailable_ || TransitionBlocked()) { return false; }
-		if (request == FrameGenerationProvider::XeFG) {
-			const bool compatible = XeFGPresenter::SupportsFormat(presenterDesc_.BufferDesc.Format) &&
+        if (request == FrameGenerationProvider::NVIDIA && !NvidiaAdapter()) {
+            providerStatus_ = "NVIDIA frame generation requires NVIDIA hardware; Intel presenter retained";
+            RequestProvider(provider_); return false;
+        }
+        if (request == FrameGenerationProvider::XeFG) {
+            const bool compatible = XeFGPresenter::SupportsFormat(presenterDesc_.BufferDesc.Format) &&
 				hudless_.texture12 && XeFGPresenter::SupportsFormat(hudless_.desc.Format);
 			const auto result = compatible ? xefg_.Probe(device12_.Get(),
 				PluginPaths::Directory() / L"TheosRenderPipeline" / L"Intel") : DXGI_ERROR_UNSUPPORTED;
@@ -992,7 +1036,13 @@ namespace TheosRenderPipeline::SourceDLSSG
 	}
 	HRESULT Backend::CreatePresenter(FrameGenerationProvider provider, IDXGISwapChain** result)
 	{
-		return provider == FrameGenerationProvider::XeFG ?
+        std::unique_ptr<MFGUnlock::StartupScope> nvidiaStartup;
+        if (provider == FrameGenerationProvider::NVIDIA) {
+            nvidiaStartup = std::make_unique<MFGUnlock::StartupScope>(mfgUnlock_);
+            if (!InitializeNvidia(SourceFrameGeneration::GetSingleton()->settings.sourceDLSSGStreamlineDirectory) ||
+                !UpgradeNvidiaFactory()) { return fault_; }
+        }
+        return provider == FrameGenerationProvider::XeFG ?
 			xefg_.Create(device12_.Get(), queue_.Get(), nativeFactory_.Get(), presenterDesc_,
 				frameConstants_.depthInverted == sl::eTrue, result, session_.Snapshot().frameIndex) :
 			streamlineFactory_->CreateSwapChain(queue_.Get(), &presenterDesc_, result);

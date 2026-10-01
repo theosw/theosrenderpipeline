@@ -87,6 +87,7 @@ RendererSettingsResult RendererSettingsController::Apply(const RendererSettingsD
     bool actionMessageIsError = false;
     const bool sourceUpscaler = host_.StartupConfigured();
     RendererSettingsCapabilities capabilities{sourceUpscaler, false, host_.DedicatedUITextureMode(), CommunityShaders::Active()};
+    capabilities.nvidiaAdapter = SourceDLSSG::Backend::Get().NvidiaAdapter();
 #if !defined(TRP_NO_NEURAL_RENDERING)
     capabilities.neuralRuntime =
         TheosRenderPipeline::SourceDLSSG::NeuralRuntimePresent(frameGen_.settings.neuralRenderingRuntimePath);

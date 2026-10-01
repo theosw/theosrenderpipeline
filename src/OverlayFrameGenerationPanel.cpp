@@ -107,10 +107,15 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& v
         int provider = static_cast<int>(settingsDraft.sourceDLSSG.provider);
         const char* providers[]{"NVIDIA DLSS-G", "Intel XeFG x2 (experimental)"};
         ImGui::SetNextItemWidth(-1.0f);
-        if (ImGui::Combo("Provider", &provider, providers, 2)) {
-            settingsDraft.sourceDLSSG.provider = static_cast<TheosRenderPipeline::FrameGenerationProvider>(provider);
+        if (ImGui::BeginCombo("Provider", providers[std::clamp(provider, 0, 1)])) {
+            for (int i = 0; i < 2; ++i) {
+                ImGui::BeginDisabled(i == 0 && !sourceBackend.NvidiaAdapter());
+                if (ImGui::Selectable(providers[i], provider == i)) { settingsDraft.sourceDLSSG.provider = static_cast<TheosRenderPipeline::FrameGenerationProvider>(i); }
+                ImGui::EndDisabled();
+            }
+            ImGui::EndCombo();
         }
-        DrawSettingsHelp("Apply switches after a completed world frame. DLSS/DLAA and NR keep their settings. This candidate requires NVIDIA hardware.");
+        DrawSettingsHelp("Apply switches after a completed world frame. Upscaling and NR keep their settings. NVIDIA DLSS-G requires NVIDIA hardware; XeFG uses XeLL latency reduction.");
         if (sourceBackend.RequestedProvider() != sourceBackend.Provider()) {
             ImGui::TextDisabled("Provider change pending; waiting for world inputs...");
         }

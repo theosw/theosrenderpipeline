@@ -137,6 +137,12 @@ namespace
 int main()
 {
     {
+        Runtime r; Session s;
+        Require(s.Start(API(r), 7, 401) && s.Snapshot().frameIndex == 401 &&
+            r.token.index == 401 && s.Snapshot().stage == SessionStage::Simulation,
+            "lazy NVIDIA startup joins the Intel application timeline without a second Resume");
+    }
+    {
         Runtime r; Session s; Require(s.Start(API(r), 7), "provider suspend starts");
         Prepare(s, true); Require(s.BeforePresent(true), "provider suspend frame");
         const auto sleeps = std::count(r.calls.begin(), r.calls.end(), "sleep");

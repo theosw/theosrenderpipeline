@@ -17,6 +17,7 @@
 #include "SourceDLSSGRuntimeDiagnostics.h"
 #include "FrameGenerationProvider.h"
 #include "XeFGPresenter.h"
+#include "XeSSUpscaler.h"
 #if defined(ARP_DEVELOPER_DIAGNOSTICS)
 #include "FrameGen/SourceOutputCapture.h"
 #endif
@@ -125,6 +126,10 @@ namespace TheosRenderPipeline::SourceDLSSG
 		ID3D11Device* Device11() const { return device11_.Get(); }
 		ID3D12CommandQueue* Queue() const { return queue_.Get(); }
 		Interop& Transport() { return interop_; }
+        XeSSUpscaler& XeSS() { return xess_; }
+        const XeSSUpscaler& XeSS() const { return xess_; }
+		ID3D12Device* Device12() const { return device12_.Get(); }
+		bool NvidiaAdapter() const { return adapterVendor_ == 0x10DE; }
 		HRESULT BeforePresent(ID3D12Resource* a_source, ID3D12Resource* a_destination, DXGI_COLOR_SPACE_TYPE a_colorSpace);
 		HRESULT AfterPresent(HRESULT a_result);
 #if defined(ARP_DEVELOPER_DIAGNOSTICS)
@@ -136,6 +141,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 		friend class SwapChain; // Transport failures use the same first-error latch.
 		Backend() = default;
 		bool Load(const std::filesystem::path& a_directory);
+		bool InitializeNvidia(const std::filesystem::path& directory);
+		bool UpgradeNvidiaFactory();
 		bool PreflightProviderSwitch();
 		HRESULT CreatePresenter(FrameGenerationProvider provider, IDXGISwapChain** result);
 		bool Check(sl::Result a_result, const char* a_operation);
@@ -174,6 +181,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 		SessionAPI api_{};
 		Session session_;
 		XeFGPresenter xefg_;
+		XeSSUpscaler xess_;
+		UINT adapterVendor_{};
+		bool nvidiaInitialized_{}, nvidiaSessionStarted_{};
 		FrameGenerationProvider provider_{FrameGenerationProvider::NVIDIA};
 		std::atomic<FrameGenerationProvider> requestedProvider_{FrameGenerationProvider::NVIDIA};
 		Microsoft::WRL::ComPtr<IDXGIFactory> nativeFactory_, streamlineFactory_;

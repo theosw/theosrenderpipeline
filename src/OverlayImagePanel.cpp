@@ -177,17 +177,20 @@ void OverlayUI::DrawImagePanel(float tabCardHeight, const FrameView& view)
         {
             ImGui::TableNextColumn();
             ImGui::TextUnformatted("Mode");
-            const char* modes[]{"DLSS", "DLAA"};
-            int mode = settingsDraft.upscaleType == DLAA ? 1 : 0;
+            const char* modes[]{"DLSS", "DLAA", "XeSS (experimental)"};
+            int mode = settingsDraft.upscaleType == XeSS ? 2 : settingsDraft.upscaleType == DLAA ? 1 : 0;
             ImGui::SetNextItemWidth(-1);
-            if (ImGui::Combo("##mode", &mode, modes, 2))
+            if (ImGui::Combo("##mode", &mode, modes, 3))
             {
-                settingsDraft.upscaleType = mode ? DLAA : DLSS;
+                settingsDraft.upscaleType = mode == 2 ? XeSS : mode == 1 ? DLAA : DLSS;
             }
             ImGui::TableNextColumn();
             ImGui::TextUnformatted("Render scale");
-            const char* scales[]{"50% | Performance", "58% | Balanced", "67% | Quality", "33% | Ultra Performance",
+            const char* dlssScales[]{"50% | Performance", "58% | Balanced", "67% | Quality", "33% | Ultra Performance",
                                  "78% | Ultra Quality"};
+            const char* xessScales[]{"Performance", "Balanced", "Quality", "Ultra Performance", "Ultra Quality"};
+            const bool xess = settingsDraft.upscaleType == XeSS;
+            const auto* scales = xess ? xessScales : dlssScales;
             const bool native = settingsDraft.upscaleType == DLAA;
             ImGui::BeginDisabled(native);
             ImGui::SetNextItemWidth(-1);
@@ -207,7 +210,7 @@ void OverlayUI::DrawImagePanel(float tabCardHeight, const FrameView& view)
             ImGui::EndTable();
         }
         DrawSettingsHelp(
-            "DLAA uses native resolution. Lower DLSS render scales reduce the size of the rendered world.");
+            "DLAA uses native resolution. XeSS uses Intel's quality resolutions, shown in the pipeline after restart.");
         if (view.sourceDLSSGActive)
         {
             const auto& configuration = host->SourceUpscalerSettings();
@@ -230,6 +233,7 @@ void OverlayUI::DrawImagePanel(float tabCardHeight, const FrameView& view)
         }
 
         ImGui::Separator();
+        ImGui::BeginDisabled(settingsDraft.upscaleType == XeSS);
         ImGui::TextUnformatted("DLSS model preset");
         ImGui::SetNextItemWidth(-1);
         if (ImGui::BeginCombo("##dlssPreset", TheosRenderPipeline::DLSSPreset::Label(settingsDraft.dlssPreset)))
@@ -247,6 +251,7 @@ void OverlayUI::DrawImagePanel(float tabCardHeight, const FrameView& view)
             std::format("{}\nRequested preset; NVIDIA chooses the actual model. L/M require a supporting runtime.",
                         TheosRenderPipeline::DLSSPreset::Description(settingsDraft.dlssPreset))
                 .c_str());
+        ImGui::EndDisabled();
         ImGui::Spacing();
 #if defined(TRP_NO_NEURAL_RENDERING)
         // Without NR there is no Neural Rendering tab to hold sharpening.
@@ -261,7 +266,10 @@ void OverlayUI::DrawImagePanel(float tabCardHeight, const FrameView& view)
         DrawPresetSharpeningStatus();
         ImGui::Separator();
 
+        ImGui::BeginDisabled(settingsDraft.upscaleType == XeSS);
         ImGui::Checkbox("Auto exposure", &settingsDraft.autoExposure);
+        ImGui::EndDisabled();
+        if (settingsDraft.upscaleType == XeSS) { DrawSettingsHelp("XeSS preserves the SDR exposure supplied by the game and ENB."); }
         ImGui::Checkbox("Camera jitter", &settingsDraft.enableJitter);
         ImGui::Separator();
         DrawHDROutputSettings();

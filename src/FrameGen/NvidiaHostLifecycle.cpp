@@ -142,8 +142,9 @@ void NvidiaHost::ReleaseSourceUpscaler()
     {
         DLSSBackend::GetSingleton()->ReleaseFeature();
     }
+    if (xeSSActive_) { TheosRenderPipeline::SourceDLSSG::Backend::Get().XeSS().ReleaseAfterRetirement(); }
     upscalerReady_ = false;
-    splitSourceDLSSActive_ = false;
+    splitSourceDLSSActive_ = xeSSActive_ = false;
 }
 
 void NvidiaHost::OnPresentCompleted(HRESULT a_result)

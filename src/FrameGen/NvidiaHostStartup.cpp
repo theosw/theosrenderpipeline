@@ -8,6 +8,7 @@
 #include "SourceDLSSGCamera.h"
 #include "SourceFrameGeneration.h"
 #include "NeuralRenderingMode.h"
+#include "PluginPaths.h"
 #include <PCH.h>
 
 HRESULT NvidiaHost::CreateSwapChain(IDXGIFactory* a_factory, ID3D11Device* a_device, DXGI_SWAP_CHAIN_DESC* a_desc, IDXGISwapChain** a_swapChain)
@@ -145,9 +146,19 @@ bool NvidiaHost::CreateGameFacingResources(IDXGISwapChain* a_swapChain)
     auto* settings = RenderPipeline::GetSingleton();
     int queriedRenderWidth = 0;
     int queriedRenderHeight = 0;
-    const auto sizeQuery = [](int width, int height, int quality, int* renderWidth, int* renderHeight) {
+    const auto sizeQuery = [this](int width, int height, int quality, int* renderWidth, int* renderHeight) {
         if (TheosRenderPipeline::CommunityShaders::Active()) {
             *renderWidth = width; *renderHeight = height; return true;
+        }
+        if (sourceUpscalerSettings_.Startup().mode == XeSS) {
+            auto& backend = TheosRenderPipeline::SourceDLSSG::Backend::Get();
+            auto& sr = backend.XeSS();
+            TheosRenderPipeline::FrameExtent size{};
+            const auto directory = TheosRenderPipeline::PluginPaths::Directory() / L"TheosRenderPipeline" / L"Intel";
+            if (FAILED(sr.Open(backend.Device12(), directory)) || FAILED(sr.QuerySize(width, height, quality, size))) {
+                logger::error("[XeSS] {}", sr.Status()); return false;
+            }
+            *renderWidth = static_cast<int>(size.width); *renderHeight = static_cast<int>(size.height); return true;
         }
         return TheosRenderPipeline::SourceDLSSG::QueryRenderSize(width, height, quality, renderWidth, renderHeight);
     };
@@ -294,6 +305,20 @@ bool NvidiaHost::InitializeSourceUpscaler(const D3D11_TEXTURE2D_DESC& a_outputDe
                      (handoff.BindFlags & D3D11_BIND_UNORDERED_ACCESS) ? "can be requested" : "unavailable on allocated target; using copy route");
     }
 
+    if (sourceUpscalerSettings_.Startup().mode == XeSS) {
+        auto& backend = TheosRenderPipeline::SourceDLSSG::Backend::Get();
+        const auto creation = sourceUpscalerSettings_.BeginSubmission();
+        const auto hr = backend.XeSS().Initialize(backend.Transport(), device_.Get(),
+            {outputWidth_, outputHeight_}, creation.AllocationQuality(), a_outputDesc.Format);
+        sourceUpscalerSettings_.Completed(SUCCEEDED(hr));
+        if (FAILED(hr)) { status_ = std::format("XeSS initialization failed: {} (0x{:08X})", backend.XeSS().Status(), static_cast<unsigned>(hr)); return false; }
+        xeSSActive_ = upscalerReady_ = true;
+        AdoptEffectiveSourceUpscalerSettings();
+        if (!CreateNativeUIExtractionResources(a_outputDesc)) { logger::warn("[XeSS] native UI extraction unavailable; retaining HUD-less fallback"); }
+        status_ = "XeSS upscaling ready; native UI and shared frame-generation bridge retained";
+        logger::info("[XeSS] initialized render={}x{} output={}x{} quality={} NVIDIAAdapter={}", renderWidth_, renderHeight_, outputWidth_, outputHeight_, creation.quality, backend.NvidiaAdapter());
+        return true;
+    }
     auto* dlss = DLSSBackend::GetSingleton();
     dlss->SetupDevice(device_.Get(), context_.Get());
     const auto creation = sourceUpscalerSettings_.BeginSubmission();

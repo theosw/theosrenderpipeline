@@ -212,6 +212,8 @@ const char* ModeName(int a_mode)
     {
     case DLAA:
         return "DLAA";
+    case XeSS:
+        return "XeSS";
     default:
         return "DLSS";
     }

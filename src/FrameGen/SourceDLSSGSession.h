@@ -123,7 +123,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		Session() = default;
 		Session(const Session&) = delete;
 		Session& operator=(const Session&) = delete;
-		bool Start(const SessionAPI& a_api, std::uint32_t a_viewport);
+        bool Start(const SessionAPI& a_api, std::uint32_t a_viewport, std::uint32_t firstApplicationFrame = 0);
 		bool Prepare(const sl::Constants& a_constants, const FrameGuides& a_guides,
 			sl::CommandBuffer* a_commandList);
 		bool CompleteInputWrites();

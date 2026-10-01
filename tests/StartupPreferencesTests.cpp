@@ -2,6 +2,7 @@
 #include "FrameGen/SourceDLSSGMFG.h"
 #include <SimpleIni.h>
 #include "OverlayHotkeys.h"
+#include "NvidiaBaselinePolicy.h"
 #include <iostream>
 #include <stdexcept>
 
@@ -24,6 +25,13 @@ void CheckRoute(bool requested, midpoint_fix::AdapterKind adapter,
 int main(int argc, char** argv)
 {
     try {
+        CSimpleIniA intel;
+        intel.SetLongValue("Settings", "UpscaleType", XeSS);
+        Require(!TheosRenderPipeline::ValidateNvidiaBaseline(intel), "XeSS is admitted without selecting a legacy renderer");
+        for (int legacy : {1, 2}) {
+            intel.SetLongValue("Settings", "UpscaleType", legacy);
+            Require(TheosRenderPipeline::ValidateNvidiaBaseline(intel), "legacy FSR/XeSS probe modes remain rejected");
+        }
         Require(argc == 2, "expected packaged INI path");
         auto& owner = *SourceFrameGeneration::GetSingleton();
         CSimpleIniA packaged;

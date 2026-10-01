@@ -86,6 +86,8 @@ namespace TheosRenderPipeline
         xefg_swapchain_frame_constant_data_t constants_{};
         XeFGSnapshot snapshot_;
         std::string status_{"not initialized"};
+        int lastWarning_{};
+        std::string lastWarningOperation_;
         bool initialized_{}, frameBegun_{}, presentPending_{}, needsReset_{true};
     };
 }

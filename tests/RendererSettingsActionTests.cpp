@@ -70,6 +70,15 @@ void MenuKey()
 }
 void Neural()
 {
+    {
+        RendererSettingsDraft draft; draft.valid = true; draft.upscaleType = XeSS;
+        RendererSettingsCapabilities amd{true, true, true, false}; amd.nvidiaAdapter = false;
+        Require(!ValidateRendererSettings(draft, amd), "XeSS settings can apply without NVIDIA hardware");
+        draft.sourceDLSSG.neuralEnabled = true;
+        Require(ValidateRendererSettings(draft, amd), "NVIDIA NR cannot be enabled on a non-NVIDIA GPU");
+        draft.sourceDLSSG.neuralEnabled = false; draft.upscaleType = DLSS;
+        Require(ValidateRendererSettings(draft, amd), "unsupported DLSS startup cannot be saved on a non-NVIDIA GPU");
+    }
     RendererSettingsDraft current; current.valid = true; current.sourceDLSSG.neuralEnabled = true;
     auto draft = current; draft.upscaleType = DLAA; draft.qualityLevel = 4;
     RendererSettingsCapabilities lostUI{true,true,false,false};

@@ -112,6 +112,8 @@ set(ARP_BASELINE_SOURCES
     src/FrameGen/NeuralRenderingTuning.h
     src/FrameGen/SourceDLSSGBackend.cpp
     src/FrameGen/XeFGPresenter.cpp
+    src/FrameGen/XeSSUpscaler.cpp
+    src/FrameGen/XeSSUpscaler.h
     src/FrameGen/XeFGPresenter.h
     src/FrameGen/FrameGenerationProvider.h
     src/FrameGen/SourceDLSSGBackend.h

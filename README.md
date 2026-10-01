@@ -11,14 +11,23 @@ choice between NVIDIA DLSS-G and Intel XeFG x2. **Apply** switches the presenter
 after a completed world frame; DLSS/DLAA and NR settings are retained. XeLL owns
 latency while XeFG is active; Reflex resumes after the replacement NVIDIA
 swapchain's first normal Present. NVIDIA remains the packaged default.
-This first candidate still requires NVIDIA hardware for the shared host and
-does not establish AMD support, higher XeFG multipliers, or game acceptance.
+This branch also adds **Image > Mode > XeSS**. XeSS uses the shared D3D12 queue
+behind Skyrim's D3D11 renderer. Selecting it requires saving and restarting;
+Intel's runtime supplies the input resolution for each quality setting.
+XeSS startup creates XeFG/XeLL directly without loading NVIDIA Streamline or
+DLSS. It is the experimental cross-vendor configuration; AMD/Intel game
+acceptance and higher XeFG multipliers remain unverified. DLSS/DLAA and NR
+require NVIDIA RTX hardware. NR remains available with XeSS on NVIDIA hardware.
 XeFG requires compatible SDR/HDR10 layers; FP16/scRGB inputs are rejected
 before the current presenter is retired.
 
 Builds require Intel XeSS SDK commit `de0fb9c1c510661c571164e1418ceca8101dab69`,
-with XeFG 1.3 / XeLL 1.3 headers, at `.dependencies/xess` or `TRP_XEFG_SDK_DIR`.
+with XeSS SR / XeFG 1.3 / XeLL 1.3 headers, at `.dependencies/xess` or `TRP_XEFG_SDK_DIR`.
 Runtime DLLs belong in `Data/SKSE/Plugins/TheosRenderPipeline/Intel`.
+The XeSS configuration requires `libxess.dll` as well as `libxess_fg.dll` and
+`libxell.dll`. It currently accepts RGBA8 and RGBA16F upscaling inputs; XeFG's
+presentation layers still require SDR/HDR10. XeSS preserves the SDR exposure
+from Skyrim/ENB; the DLSS model and auto-exposure controls do not affect XeSS.
 The standalone owner fixture is in `tests/xefg`; it must be run explicitly
 against the identified Intel and NVIDIA runtime directories. Its SDK output
 counts do not prove physical display cadence.
@@ -58,7 +67,8 @@ DLLs. Follow the [Standard installation guide](package/STANDARD-README.md) or
 Standard includes the SR/FG and NR runtime bundle. Universal adds the compatibility
 paths and can use Standard's runtimes when installed after it in MO2, or separately
 supplied matching runtimes. Both editions retain NR. Enable only one winning
-renderer DLL. The NVIDIA host is required even when interpolation is off.
+renderer DLL. NVIDIA modes initialize the NVIDIA host even when interpolation
+is off; XeSS uses the Intel startup path.
 
 The DLL selects Community Shaders integration when CommunityShaders.dll is loaded;
 otherwise TRP owns upscaling, with optional ENB. With CS, disable its frame

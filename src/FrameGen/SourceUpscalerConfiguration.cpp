@@ -35,6 +35,10 @@ void NvidiaHost::ApplySourceUpscalerSettingsAfterPresent()
     const bool applied = TheosRenderPipeline::Upscaler::ApplyLive(sourceUpscalerSettings_,
         [&] { return backend.Quiesce(); },
         [&](const TheosRenderPipeline::Upscaler::Creation& request) {
+            if (xeSSActive_) {
+                // Sharpening is applied live after XeSS; DLSS model/exposure settings do not affect XeSS.
+                return true;
+            }
             return dlss->InitUpscale(renderWidth_, renderHeight_, outputWidth_, outputHeight_, inputDesc.Format,
                 request.sharpening, request.autoExposure, request.preset, request.AllocationQuality());
         },
