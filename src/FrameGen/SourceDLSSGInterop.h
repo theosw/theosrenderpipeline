@@ -16,7 +16,15 @@ namespace TheosRenderPipeline::SourceDLSSG
 	inline constexpr std::size_t kCommandSlots = 3;
 	inline constexpr std::size_t kPresentationSlots = 2;
 	enum class Work : std::size_t { Upscaling, FrameGeneration, SwapChain, Count };
-
+	inline constexpr const char* WorkName(Work a_work)
+	{
+		switch (a_work) {
+		case Work::Upscaling: return "upscaling";
+		case Work::FrameGeneration: return "frame-generation";
+		case Work::SwapChain: return "swapchain";
+		default: return "unavailable";
+		}
+	}
 	struct AllocatorWaitTiming
 	{
 		std::uint64_t nanoseconds{};
@@ -59,6 +67,24 @@ namespace TheosRenderPipeline::SourceDLSSG
 		const void* inputFenceOwner{};
 	};
 
+	// Snapshot of the interop operation that produced the first fault. The wait
+	// is the retirement wait's own record, not a second measurement of it.
+	struct InteropFailureDiagnostics
+	{
+		const char* stage{ "unavailable" };
+		Work work{ Work::Count };
+		std::size_t slot{};
+		std::uint64_t fenceValue{};
+		std::uint64_t submitted{};
+		RetirementWaitDiagnostics wait;
+		RetirementWaitPolicy waitPolicy;
+		DWORD waitResult{ WAIT_FAILED };
+		HRESULT result{ S_OK };
+		bool completedAvailable{};
+		bool waitPerformed{};
+		bool valid{};
+	};
+
 	class Interop final
 	{
 	public:
@@ -92,6 +118,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// Returns and clears the most recent wait that outlasted one slice.
 		bool TakeExtendedWait(RetirementWaitDiagnostics& a_wait);
 		HRESULT Fault() const { return fault_; }
+		const InteropFailureDiagnostics& LastFailure() const { return failure_; }
 		bool Ready() const { return ready_ && SUCCEEDED(fault_); }
 		std::uint64_t LastValue(Work a_work) const;
 		std::size_t CurrentSlot(Work a_work) const;
@@ -114,6 +141,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			bool recording{ false };
 		};
 		WorkContext* Get(Work a_work);
+		void Observe(const char* a_stage, Work a_work = Work::Count);
 		HRESULT Check(HRESULT a_result);
 		HRESULT WaitCPU(WorkContext& a_work, std::uint64_t a_value, AllocatorWaitTiming* a_timing = nullptr);
 		void AbandonInFlightObjects();
@@ -125,6 +153,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		Microsoft::WRL::ComPtr<IUnknown> fenceDeviceIdentity_;
 		std::array<WorkContext, static_cast<std::size_t>(Work::Count)> work_;
 		InputWaitDiagnostics inputWait_;
+		InteropFailureDiagnostics observation_, failure_;
 		RetirementWaitPolicy waitPolicy_;
 		RetirementWaitDiagnostics extendedWait_;
 		bool extendedWaitPending_{ false };

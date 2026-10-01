@@ -31,25 +31,26 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// Interop Begin/Drain results are checked immediately, so a pending
 		// extended wait belongs to this operation. A crawling fence is a slow
 		// GPU; a frozen one that times out suggests a stalled dependency.
+		const bool firstFailure = FAILED(a_result) && SUCCEEDED(fault_);
+		const auto& failure = interop_.LastFailure();
 		if (RetirementWaitDiagnostics wait; interop_.TakeExtendedWait(wait)) {
-			constexpr const char* works[]{ "upscaling", "frame generation", "swapchain" };
-			logger::warn("[SourceDLSSG] {} waited {} ms ({} slices) for {} retirement target={} completed={}->{} result=0x{:08X}",
-				a_operation, wait.elapsedMs, wait.slices,
-				wait.work < Work::Count ? works[static_cast<std::size_t>(wait.work)] : "unknown",
-				wait.target, wait.completedAtStart, wait.completedAtEnd, static_cast<std::uint32_t>(wait.result));
+			// A retained interop fault is always reported with its own wait record.
+			const bool reportCarriesWait = firstFailure && failure.valid &&
+				failure.wait.work == wait.work && failure.wait.target == wait.target;
+			if (!reportCarriesWait) {
+				logger::warn("[SourceDLSSG] {} waited {} ms ({} slices) for {} retirement target={} completed={}->{} result=0x{:08X}",
+					a_operation, wait.elapsedMs, wait.slices, WorkName(wait.work),
+					wait.target, wait.completedAtStart, wait.completedAtEnd, static_cast<std::uint32_t>(wait.result));
+			}
 		}
 		if (SUCCEEDED(a_result)) { return true; }
-		if (SUCCEEDED(fault_)) {
+		if (firstFailure) {
 			fault_ = a_result;
 			status_ = std::format("{} failed HRESULT=0x{:08X}", a_operation, static_cast<std::uint32_t>(a_result));
 			logger::error("[SourceDLSSG] {}", status_);
-			// Device loss is reported by whichever call observes it first; the
-			// removal reason identifies the fault (hung, page fault, reset).
-			if ((a_result == DXGI_ERROR_DEVICE_REMOVED || a_result == DXGI_ERROR_DEVICE_RESET ||
-					a_result == DXGI_ERROR_DEVICE_HUNG) && device12_) {
-				logger::error("[SourceDLSSG] D3D12 device removed reason=0x{:08X}",
-					static_cast<std::uint32_t>(device12_->GetDeviceRemovedReason()));
-			}
+			// Called once: fault_ keeps only the first failure.
+			deviceLoss_.Report(a_result, a_operation, session_.Snapshot().frameIndex,
+				device11_.Get(), device12_.Get(), failure);
 		}
 		return false;
 	}
@@ -171,6 +172,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 		}
 		device11_ = a_device;
 		device11_->GetImmediateContext(&context11_);
+		const auto diagnosticsPath = PluginPaths::Directory() / L"TheosRenderPipeline.Diagnostics.ini";
+		deviceLoss_.Configure(DeviceLossDiagnostics::ReadDREDSetting(diagnosticsPath.c_str()));
 		ComPtr<IDXGIDevice> dxgiDevice;
 		ComPtr<IDXGIAdapter> adapter;
 		if (!Check(device11_.As(&dxgiDevice), "D3D11 DXGI device") ||

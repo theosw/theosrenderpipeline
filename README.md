@@ -126,6 +126,26 @@ do not establish every GPU, modlist or checkbox. Recurring vendor RSYNC errors
 remain recorded in some runs; generated-FPS counters do not establish physical
 display cadence. DLAA/NR on RTX 30 and every CS build remain unverified.
 
+## GPU failure reports
+
+Device removal and stalled GPU work write a bounded `[GPUFailure]` report to
+`TheosRenderPipeline.log`, including the original operation, device-removal
+reasons and retained fence/slot state. Startup and configuration failures keep
+their own error line. This reports the failure; restarting the game remains necessary.
+For a requested GPU-fault investigation, create
+`Data/SKSE/Plugins/TheosRenderPipeline.Diagnostics.ini` with:
+
+```ini
+[DeviceLoss]
+EnableDRED=true
+```
+
+Restart after changing this diagnostic setting. DRED enables additional GPU
+tracking for subsequently created D3D12 devices in the process and can add
+overhead; leave the file absent during normal play. An absent or false setting
+leaves Windows and externally configured DRED settings unchanged. Empty DRED
+data does not exclude a GPU fault, and breadcrumbs do not identify a cause alone.
+
 ## Build
 
 Requires Windows, Visual Studio 2022 C++ tools/Windows SDK, CMake and vcpkg.

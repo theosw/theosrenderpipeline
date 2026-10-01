@@ -25,6 +25,10 @@ namespace TheosRenderPipeline::SourceDLSSG
 	{
 		if (FAILED(a_result) && SUCCEEDED(fault_)) {
 			fault_ = a_result;
+			failure_ = observation_;
+			failure_.waitPolicy = waitPolicy_;
+			failure_.result = a_result;
+			failure_.valid = true;
 		}
 		return a_result;
 	}
@@ -35,9 +39,22 @@ namespace TheosRenderPipeline::SourceDLSSG
 		return index < work_.size() ? &work_[index] : nullptr;
 	}
 
+	void Interop::Observe(const char* a_stage, Work a_work)
+	{
+		observation_ = {};
+		observation_.stage = a_stage;
+		observation_.work = a_work;
+		if (auto* context = Get(a_work)) {
+			observation_.slot = context->slot;
+			observation_.fenceValue = context->value;
+			observation_.submitted = context->submitted[context->slot];
+		}
+	}
+
 	HRESULT Interop::Initialize(ID3D11Device* a_device11, ID3D12Device* a_device12,
 		ID3D12CommandQueue* a_queue)
 	{
+		Observe("Initialize");
 		if (device11_ || !a_device11 || !a_device12 || !a_queue) {
 			return E_INVALIDARG;
 		}
@@ -66,9 +83,14 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (FAILED(hr = immediate.As(&context11_))) { return Check(hr); }
 		device12_ = a_device12;
 		queue_ = a_queue;
+		(void)queue_->SetName(L"TRP presenting queue");
 		for (auto& work : work_) {
 			if (FAILED(hr = device12_->CreateFence(0, D3D12_FENCE_FLAG_SHARED,
 				IID_PPV_ARGS(&work.fence12)))) { return Check(hr); }
+			wchar_t name[96]{};
+			const auto workIndex = static_cast<unsigned>(&work - work_.data());
+			swprintf_s(name, L"TRP work %u shared fence", workIndex);
+			(void)work.fence12->SetName(name);
 			HANDLE handle = nullptr;
 			hr = device12_->CreateSharedHandle(work.fence12.Get(), nullptr, GENERIC_ALL, nullptr, &handle);
 			if (FAILED(hr)) { return Check(hr); }
@@ -82,6 +104,10 @@ namespace TheosRenderPipeline::SourceDLSSG
 					IID_PPV_ARGS(&work.allocators[slot])))) { return Check(hr); }
 				if (FAILED(hr = device12_->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT,
 					work.allocators[slot].Get(), nullptr, IID_PPV_ARGS(&work.lists[slot])))) { return Check(hr); }
+				swprintf_s(name, L"TRP work %u slot %u allocator", workIndex, static_cast<unsigned>(slot));
+				(void)work.allocators[slot]->SetName(name);
+				swprintf_s(name, L"TRP work %u slot %u command list", workIndex, static_cast<unsigned>(slot));
+				(void)work.lists[slot]->SetName(name);
 				if (FAILED(hr = work.lists[slot]->Close())) { return Check(hr); }
 			}
 		}
@@ -97,6 +123,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 
 	HRESULT Interop::CreateSharedTexture(const D3D11_TEXTURE2D_DESC& a_desc, SharedTexture& a_output)
 	{
+		Observe("CreateSharedTexture");
 		if (!Ready()) { return FAILED(fault_) ? fault_ : E_UNEXPECTED; }
 		if (a_output.texture11 || a_output.texture12 ||
 			a_desc.Usage != D3D11_USAGE_DEFAULT || a_desc.CPUAccessFlags ||
@@ -134,6 +161,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 
 	HRESULT Interop::CopyInput(ID3D11Texture2D* a_input, const SharedTexture& a_destination)
 	{
+		Observe("CopyInput");
 		if (!Ready()) { return FAILED(fault_) ? fault_ : E_UNEXPECTED; }
 		if (!a_input || !a_destination.texture11 || a_input == a_destination.texture11.Get()) { return E_INVALIDARG; }
 		Microsoft::WRL::ComPtr<ID3D11Device> sourceDevice, destinationDevice;
@@ -152,6 +180,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 
 	HRESULT Interop::CopyInputRegion(ID3D11Texture2D* a_input, const SharedTexture& a_destination, FrameExtent a_extent)
 	{
+		Observe("CopyInputRegion");
 		if (!Ready()) { return FAILED(fault_) ? fault_ : E_UNEXPECTED; }
 		if (a_destination.desc.Width != a_extent.width || a_destination.desc.Height != a_extent.height) { return E_INVALIDARG; }
 		return D3D11FrameCopy::Color(context11_.Get(), a_input, a_destination.texture11.Get(), a_extent);
@@ -159,12 +188,15 @@ namespace TheosRenderPipeline::SourceDLSSG
 
 	HRESULT Interop::SignalD3D11(Work a_work)
 	{
+		Observe("D3D11 Wait before Signal", a_work);
 		auto* work = Get(a_work);
 		if (!Ready() || !work || work->recording) { return E_UNEXPECTED; }
 		if (work->value) {
 			const auto wait = context11_->Wait(work->fence11.Get(), work->value);
 			if (FAILED(wait)) { return Check(wait); }
 		}
+		observation_.stage = "D3D11 Signal";
+		observation_.fenceValue = work->value + 1;
 		const auto hr = context11_->Signal(work->fence11.Get(), ++work->value);
 		context11_->Flush();
 		return Check(hr);
@@ -172,6 +204,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 
 	HRESULT Interop::WaitD3D12(Work a_work)
 	{
+		Observe("D3D12 queue Wait", a_work);
 		auto* work = Get(a_work);
 		if (!Ready() || !work) { return E_UNEXPECTED; }
 		return work->value ? Check(queue_->Wait(work->fence12.Get(), work->value)) : S_OK;
@@ -179,6 +212,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 
 	HRESULT Interop::WaitD3D11(Work a_work)
 	{
+		Observe("D3D11 context Wait", a_work);
 		auto* work = Get(a_work);
 		if (!Ready() || !work) { return E_UNEXPECTED; }
 		return work->value ? Check(context11_->Wait(work->fence11.Get(), work->value)) : S_OK;
@@ -186,6 +220,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 
 	HRESULT Interop::WaitForInputReaders(ID3D12Fence* a_fence, std::uint64_t a_value)
 	{
+		Observe("input reader validation", Work::FrameGeneration);
 		inputWait_ = {};
 		inputWait_.stage = "preconditions";
 		auto* work = Get(Work::FrameGeneration);
@@ -209,11 +244,13 @@ namespace TheosRenderPipeline::SourceDLSSG
 		inputWait_.stage = "prior frame queue Wait";
 		auto hr = WaitD3D12(Work::FrameGeneration);
 		if (FAILED(hr)) { return hr; }
-		inputWait_.stage = "input fence queue Wait";
+		// Only these two calls are direct; WaitD3D12/WaitD3D11 observe their own.
+		inputWait_.stage = observation_.stage = "input fence queue Wait";
 		if (a_fence && a_value && FAILED(hr = queue_->Wait(a_fence, a_value))) { return Check(hr); }
 		// This queue signal also follows the most recent native Present. It
 		// covers the default DLSS-G presenting-queue block when no fence is given.
-		inputWait_.stage = "bridge queue Signal";
+		inputWait_.stage = observation_.stage = "bridge queue Signal";
+		observation_.fenceValue = work->value + 1;
 		hr = queue_->Signal(work->fence12.Get(), ++work->value);
 		if (FAILED(hr)) { return Check(hr); }
 		inputWait_.stage = "D3D11 bridge Wait";
@@ -226,22 +263,31 @@ namespace TheosRenderPipeline::SourceDLSSG
 	{
 		constexpr auto removed = (std::numeric_limits<std::uint64_t>::max)();
 		if (!a_value) { return S_OK; }
+		// The failure snapshot owns this record, so a fault retains exactly what
+		// the wait measured. Diagnostics add no timer or fence query.
+		auto& wait = observation_.wait;
+		observation_.stage = "fence GetCompletedValue before wait";
 		const auto completed = a_work.fence12->GetCompletedValue();
+		wait = { static_cast<Work>(&a_work - work_.data()), a_value, completed, completed };
+		observation_.completedAvailable = true;
 		if (completed == removed) {
 			return Check(DXGI_ERROR_DEVICE_REMOVED);
 		}
 		if (completed >= a_value) { return S_OK; }
 		const auto begin = std::chrono::steady_clock::now();
+		observation_.stage = "fence SetEventOnCompletion";
 		auto hr = a_work.fence12->SetEventOnCompletion(a_value, a_work.event);
 		if (FAILED(hr)) { return Check(hr); }
 		// A slow GPU after a cell load can take seconds per frame; that is not a
 		// fault. Keep waiting while the shared fence (D3D11 producer and D3D12
 		// queue) advances. Nothing is reset until the target actually retires.
-		RetirementWaitDiagnostics wait{ static_cast<Work>(&a_work - work_.data()), a_value, completed, completed };
 		auto progress = completed;
 		DWORD stalledMs = 0;
 		for (;;) {
+			observation_.stage = "fence retirement wait";
 			const auto result = ::WaitForSingleObject(a_work.event, waitPolicy_.sliceMs);
+			observation_.waitPerformed = true;
+			observation_.waitResult = result;
 			wait.completedAtEnd = a_work.fence12->GetCompletedValue();
 			if (result == WAIT_OBJECT_0) {
 				if (wait.completedAtEnd >= a_value) { break; }
@@ -252,12 +298,14 @@ namespace TheosRenderPipeline::SourceDLSSG
 			++wait.slices;
 			if (result != WAIT_TIMEOUT) { hr = HRESULT_FROM_WIN32(::GetLastError()); break; }
 			if (wait.completedAtEnd == removed) { hr = DXGI_ERROR_DEVICE_REMOVED; break; }
+			observation_.stage = "device removal check after wait slice";
 			if (FAILED(hr = device12_->GetDeviceRemovedReason())) { break; }
 			if (wait.completedAtEnd >= a_value) { break; }
 			if (wait.completedAtEnd > progress) {
 				progress = wait.completedAtEnd;
 				stalledMs = 0;
 			} else if ((stalledMs += waitPolicy_.sliceMs) >= waitPolicy_.stallLimitMs) {
+				observation_.stage = "fence stalled retirement";
 				hr = HRESULT_FROM_WIN32(WAIT_TIMEOUT);
 				break;
 			}
@@ -272,10 +320,10 @@ namespace TheosRenderPipeline::SourceDLSSG
 			if (wait.completedAtEnd == removed) { hr = DXGI_ERROR_DEVICE_REMOVED; }
 			else if (wait.completedAtEnd < a_value) { hr = E_FAIL; }
 		}
+		wait.elapsedMs = static_cast<std::uint64_t>(
+			std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count());
+		wait.result = hr;
 		if (wait.slices) {
-			wait.elapsedMs = static_cast<std::uint64_t>(
-				std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count());
-			wait.result = hr;
 			extendedWait_ = wait;
 			extendedWaitPending_ = true;
 		}
@@ -300,7 +348,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 		auto hr = WaitD3D12(a_work);
 		if (FAILED(hr)) { return hr; }
 		if (FAILED(hr = WaitCPU(*work, work->submitted[work->slot], a_wait))) { return hr; }
+		observation_.stage = "command allocator Reset";
 		if (FAILED(hr = work->allocators[work->slot]->Reset())) { return Check(hr); }
+		observation_.stage = "command list Reset";
 		if (FAILED(hr = work->lists[work->slot]->Reset(work->allocators[work->slot].Get(), nullptr))) { return Check(hr); }
 		work->recording = true;
 		*a_list = work->lists[work->slot].Get();
@@ -309,6 +359,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 
 	HRESULT Interop::Submit(Work a_work)
 	{
+		Observe("command list Close", a_work);
 		auto* work = Get(a_work);
 		if (!Ready() || !work || !work->recording) { return E_UNEXPECTED; }
 		auto hr = work->lists[work->slot]->Close();
@@ -316,6 +367,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (FAILED(hr)) { return Check(hr); }
 		ID3D12CommandList* lists[]{ work->lists[work->slot].Get() };
 		queue_->ExecuteCommandLists(1, lists);
+		observation_.stage = "D3D12 queue Signal after ExecuteCommandLists";
+		observation_.fenceValue = work->value + 1;
 		hr = queue_->Signal(work->fence12.Get(), ++work->value);
 		if (FAILED(hr)) { return Check(hr); }
 		work->submitted[work->slot] = work->value;
@@ -328,6 +381,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (context11_) { context11_->Flush(); }
 		for (auto& work : work_) {
 			if (work.fence12 && work.value) {
+				Observe("Drain", static_cast<Work>(&work - work_.data()));
 				const auto hr = WaitCPU(work, work.value);
 				if (FAILED(hr)) { return hr; }
 			}
