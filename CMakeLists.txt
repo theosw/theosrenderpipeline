@@ -327,6 +327,7 @@ if(TRP_BUILD_COMPATIBILITY_TESTS)
     target_include_directories(TRPReShadeIntegrationTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src" "${CMAKE_CURRENT_SOURCE_DIR}/include")
     target_link_libraries(TRPReShadeIntegrationTests PRIVATE d3d11 d3d12 d3dcompiler dxgi)
     add_test(NAME ReShadeAbsent COMMAND TRPReShadeIntegrationTests)
+    add_subdirectory(tests/reshade-lifecycle)
     add_executable(TRPSourceDLSSGInteropFenceTests tests/SourceDLSSGInteropFenceTests.cpp
         src/FrameGen/SourceDLSSGInterop.cpp)
     target_compile_features(TRPSourceDLSSGInteropFenceTests PRIVATE cxx_std_23)

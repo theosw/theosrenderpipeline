@@ -14,6 +14,9 @@ using TheosRenderPipeline::ReShadeIntegration;
 namespace api = reshade::api;
 static api::effect_runtime* owned{};
 static unsigned draws{}, automaticDraws{}, automaticRuntimes{};
+// Both placements exceed ReShade 6.8's 160x120 minimum runtime size.
+static constexpr UINT outputWidth = 512, outputHeight = 256;
+static constexpr UINT renderWidth = 256, renderHeight = 128;
 static UINT expectedDepthWidth{}, expectedDepthHeight{};
 static bool depthExtentMatched{};
 static void Init(api::effect_runtime* runtime)
@@ -64,15 +67,15 @@ int main(int argc, char** argv)
     Require(argc == 1 || requireReShade, "supported arguments");
     WNDCLASSW wc{}; wc.hInstance = GetModuleHandleW(nullptr); wc.lpfnWndProc = DefWindowProcW; wc.lpszClassName = L"TRPReShadeFixture";
     RegisterClassW(&wc);
-    HWND window = CreateWindowW(wc.lpszClassName, L"TRP offline ReShade fixture", WS_POPUP, 0, 0, 64, 32, nullptr, nullptr, wc.hInstance, nullptr);
+    HWND window = CreateWindowW(wc.lpszClassName, L"TRP offline ReShade fixture", WS_POPUP, 0, 0, outputWidth, outputHeight, nullptr, nullptr, wc.hInstance, nullptr);
     Require(window != nullptr, "hidden fixture window");
     ComPtr<IDXGIFactory4> factory; Check(CreateDXGIFactory1(IID_PPV_ARGS(&factory)), "factory");
     ComPtr<ID3D11Device> device; ComPtr<ID3D11DeviceContext> context;
     Check(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION,
         &device, nullptr, &context), "D3D11 device");
-    auto& effects = ReShadeIntegration::Get(); effects.Discover(window); effects.Configure(device.Get(), context.Get(), {64, 32});
+    auto& effects = ReShadeIntegration::Get(); effects.Discover(window); effects.Configure(device.Get(), context.Get(), {outputWidth, outputHeight});
     effects.SetBeforeUpscaling(false);
-    Surface color(device.Get(), 64, 32), earlyColor(device.Get(), 32, 16), depth(device.Get(), 32, 16, DXGI_FORMAT_R32_FLOAT), ui(device.Get(), 64, 32);
+    Surface color(device.Get(), outputWidth, outputHeight), earlyColor(device.Get(), renderWidth, renderHeight), depth(device.Get(), renderWidth, renderHeight, DXGI_FORMAT_R32_FLOAT), ui(device.Get(), outputWidth, outputHeight);
     const std::array<float, 4> scene{0.25f, 0.5f, 0.25f, 1};
     color.Paint(context.Get(), scene); ui.Paint(context.Get(), scene); depth.Paint(context.Get(), {0.5f, 0, 0, 0});
     // Device creation is required even when the optional injector is absent.
@@ -90,7 +93,7 @@ int main(int argc, char** argv)
         HANDLE complete = CreateEventW(nullptr, FALSE, FALSE, nullptr); Require(complete != nullptr, "absent fence event");
         Check(ready->SetEventOnCompletion(1, complete), "absent fence completion");
         Require(WaitForSingleObject(complete, 30000) == WAIT_OBJECT_0, "absent queue completes work"); CloseHandle(complete);
-        Require(effects.Render(color.texture.Get(), depth.texture.Get(), {64, 32}, {32, 16}, false) == S_FALSE, "absent stage is inert");
+        Require(effects.Render(color.texture.Get(), depth.texture.Get(), {outputWidth, outputHeight}, {renderWidth, renderHeight}, false) == S_FALSE, "absent stage is inert");
         Require(effects.FinishUI(ui.texture.Get()) == S_FALSE, "absent GUI is inert");
         ReShadeIntegration::ScreenshotRequest shot;
         Require(!effects.TakeScreenshotRequest(shot), "absent ReShade queues no screenshot replacement");
@@ -106,7 +109,7 @@ int main(int argc, char** argv)
 
     // The production device factory keeps this D3D12 output chain free of
     // automatic effect/input runtimes. It presents four times per source frame.
-    DXGI_SWAP_CHAIN_DESC1 desc{}; desc.Width = 64; desc.Height = 32; desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    DXGI_SWAP_CHAIN_DESC1 desc{}; desc.Width = outputWidth; desc.Height = outputHeight; desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
     desc.SampleDesc.Count = 1; desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT; desc.BufferCount = 2; desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
     ComPtr<IDXGISwapChain1> output; Check(factory->CreateSwapChainForHwnd(queue.Get(), window, &desc, nullptr, nullptr, &output), "output swapchain");
 
@@ -119,7 +122,7 @@ int main(int argc, char** argv)
     foreignFence.Reset(); foreignNative.Reset(); foreign.Reset();
     for (unsigned frame = 0; frame < 300 && !draws; ++frame) {
         color.Paint(context.Get(), scene); ui.Paint(context.Get(), scene);
-        Check(effects.Render(color.texture.Get(), depth.texture.Get(), {64, 32}, {32, 16}, false), "warm-up effect stage");
+        Check(effects.Render(color.texture.Get(), depth.texture.Get(), {outputWidth, outputHeight}, {renderWidth, renderHeight}, false), "warm-up effect stage");
         Check(effects.FinishUI(ui.texture.Get()), "warm-up runtime update");
         effects.PresentCompleted(); Sleep(10);
     }
@@ -130,15 +133,15 @@ int main(int argc, char** argv)
     for (bool before : {false, true, false}) {
         effects.SetBeforeUpscaling(before);
         auto& target = before ? earlyColor : color;
-        const TheosRenderPipeline::FrameExtent extent = before ? TheosRenderPipeline::FrameExtent{32, 16} : TheosRenderPipeline::FrameExtent{64, 32};
+        const TheosRenderPipeline::FrameExtent extent = before ? TheosRenderPipeline::FrameExtent{renderWidth, renderHeight} : TheosRenderPipeline::FrameExtent{outputWidth, outputHeight};
         expectedDepthWidth = extent.width; expectedDepthHeight = extent.height;
         bool validated{}; unsigned stableFrames{};
         for (unsigned frame = 0; frame < 300 && !validated; ++frame) {
             target.Paint(context.Get(), scene); ui.Paint(context.Get(), scene);
             const auto initial = draws;
-            Require(effects.Render(target.texture.Get(), depth.texture.Get(), extent, {32, 16}, !before) == S_FALSE, "unselected placement is inert");
-            Check(effects.Render(target.texture.Get(), depth.texture.Get(), extent, {32, 16}, before), "selected placement");
-            Require(effects.Render(target.texture.Get(), depth.texture.Get(), extent, {32, 16}, before) == S_FALSE, "source-frame deduplication");
+            Require(effects.Render(target.texture.Get(), depth.texture.Get(), extent, {renderWidth, renderHeight}, !before) == S_FALSE, "unselected placement is inert");
+            Check(effects.Render(target.texture.Get(), depth.texture.Get(), extent, {renderWidth, renderHeight}, before), "selected placement");
+            Require(effects.Render(target.texture.Get(), depth.texture.Get(), extent, {renderWidth, renderHeight}, before) == S_FALSE, "source-frame deduplication");
             Check(effects.FinishUI(ui.texture.Get()), "GUI update");
             Require(effects.FinishUI(ui.texture.Get()) == S_FALSE, "GUI update deduplicated");
             if (draws != initial) {
@@ -233,14 +236,14 @@ int main(int argc, char** argv)
     color.Paint(context.Get(), scene);
     const auto beforeToggle = draws;
     owned->set_effects_state(false);
-    Check(effects.Render(color.texture.Get(), depth.texture.Get(), {64, 32}, {32, 16}, false), "disabled effects");
+    Check(effects.Render(color.texture.Get(), depth.texture.Get(), {outputWidth, outputHeight}, {renderWidth, renderHeight}, false), "disabled effects");
     Require(Pixel(device.Get(), context.Get(), color.texture.Get())[0] == 64 && draws == beforeToggle, "effects toggle preserves world pixels");
     Check(effects.FinishUI(ui.texture.Get()), "effects-off GUI update"); effects.PresentCompleted();
     owned->set_effects_state(true);
     color.Paint(context.Get(), scene);
     ID3D11RenderTargetView* sentinel = ui.rtv.Get(); context->OMSetRenderTargets(1, &sentinel, nullptr);
     const D3D11_VIEWPORT viewport{3, 4, 27, 19, 0.125f, 0.75f}; context->RSSetViewports(1, &viewport);
-    Check(effects.Render(color.texture.Get(), nullptr, {64, 32}, {}, false), "menu frame clears depth semantic");
+    Check(effects.Render(color.texture.Get(), nullptr, {outputWidth, outputHeight}, {}, false), "menu frame clears depth semantic");
     ComPtr<ID3D11RenderTargetView> restored; context->OMGetRenderTargets(1, &restored, nullptr);
     D3D11_VIEWPORT restoredViewport{}; UINT count = 1; context->RSGetViewports(&count, &restoredViewport);
     Require(restored.Get() == sentinel && restoredViewport.TopLeftX == 3 && restoredViewport.Width == 27 && restoredViewport.MaxDepth == 0.75f, "effect stage restores producer MRT/viewport state");
@@ -256,7 +259,7 @@ int main(int argc, char** argv)
     owned->get_command_queue()->wait_idle();
     effects.ResetAfterRetirement();
     Require(!effects.OverlayOpen(), "retirement releases capture");
-    effects.Configure(device.Get(), context.Get(), {64, 32});
+    effects.Configure(device.Get(), context.Get(), {outputWidth, outputHeight});
     Check(effects.FinishUI(ui.texture.Get()), "runtime recreated after retirement");
     owned->get_command_queue()->wait_idle(); effects.ResetAfterRetirement();
     std::puts("PASS: actual ReShade placement, depth, source/output ownership, overlay and runtime lifecycle");
