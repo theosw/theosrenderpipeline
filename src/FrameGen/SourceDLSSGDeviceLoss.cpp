@@ -106,13 +106,21 @@ namespace TheosRenderPipeline::SourceDLSSG
 		try {
 			Microsoft::WRL::ComPtr<ID3D12DeviceRemovedExtendedDataSettings> settings;
 			const auto result = D3D12GetDebugInterface(IID_PPV_ARGS(&settings));
+			bool contexts = false;
 			if (SUCCEEDED(result) && settings) {
 				settings->SetAutoBreadcrumbsEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
 				settings->SetPageFaultEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
 				configured_ = true;
+				// DRED 1.2: marker/event strings are a separate opt-in. Older
+				// runtimes lack this interface; breadcrumbs still apply.
+				Microsoft::WRL::ComPtr<ID3D12DeviceRemovedExtendedDataSettings1> settings1;
+				if (SUCCEEDED(settings.As(&settings1)) && settings1) {
+					settings1->SetBreadcrumbContextEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
+					contexts = true;
+				}
 			}
-			spdlog::info("[Diagnostics] DRED requested=true configured={} settingsResult=0x{:08X}; applies to subsequently created D3D12 devices",
-				configured_, static_cast<std::uint32_t>(result));
+			spdlog::info("[Diagnostics] DRED requested=true configured={} breadcrumbContexts={} settingsResult=0x{:08X}; applies to subsequently created D3D12 devices",
+				configured_, contexts, static_cast<std::uint32_t>(result));
 		} catch (...) {}  // Diagnostics cannot turn a supported startup into a failure.
 	}
 

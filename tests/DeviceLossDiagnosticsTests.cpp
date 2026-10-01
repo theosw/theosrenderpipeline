@@ -220,6 +220,8 @@ static void SoftwareDeviceLoss(std::ostringstream& log, bool dredEnabled)
     Require(Contains(log, "DRED breadcrumbsResult="), "actual DRED result or unavailability logged");
     if (dredEnabled) {
         Require(Contains(log, "DRED requested=true configured=true"), "DRED configured before device creation");
+        // DRED 1.2 ships with Windows 10 2004 and later, the supported test hosts.
+        Require(Contains(log, "breadcrumbContexts=true"), "marker/event context strings explicitly enabled");
         Require(Contains(log, "DRED breadcrumbsResult=0x00000000"), "enabled WARP breadcrumbs accessible");
         // Explicit RemoveDevice can return successful queries with empty data,
         // including with work pending. Do not fabricate a breadcrumb acceptance.
