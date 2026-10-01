@@ -20,6 +20,58 @@
         "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
         "VCPKG_TARGET_TRIPLET": "x64-windows-static-md"
       }
+    },
+    {
+      "name": "trp-dependency-root",
+      "hidden": true,
+      "inherits": "arp-nvidia",
+      "description": "Resolves the supplied dependencies from the TRP_DEPENDENCY_ROOT environment variable so any checkout or worktree configures without a local preset file.",
+      "condition": {
+        "type": "notEquals",
+        "lhs": "$env{TRP_DEPENDENCY_ROOT}",
+        "rhs": ""
+      },
+      "cacheVariables": {
+        "VCPKG_INSTALLED_DIR": "$env{TRP_DEPENDENCY_ROOT}/vcpkg_installed",
+        "VCPKG_MANIFEST_INSTALL": "OFF",
+        "TRP_COMMONLIBSSE_NG_DIR": "$env{TRP_DEPENDENCY_ROOT}/CommonLibSSE-NG",
+        "TRP_NGX_SDK_DIR": "$env{TRP_DEPENDENCY_ROOT}/Streamline/external/ngx-sdk",
+        "TRP_STREAMLINE_INCLUDE_DIR": "$env{TRP_DEPENDENCY_ROOT}/Streamline/include",
+        "ARP_DETOURS_DIR": "$env{TRP_DEPENDENCY_ROOT}/detours",
+        "FETCHCONTENT_SOURCE_DIR_HDE64": "$env{TRP_DEPENDENCY_ROOT}/hde64",
+        "TRP_ENABLE_NEURAL_RENDERING": "ON",
+        "TRP_BUILD_COMPATIBILITY_TESTS": "ON",
+        "CMAKE_CXX_FLAGS": "/DWIN32 /D_WINDOWS /EHsc /MP2",
+        "CMAKE_SUPPRESS_REGENERATION": "ON"
+      }
+    },
+    {
+      "name": "trp-standard",
+      "displayName": "Standard edition from TRP_DEPENDENCY_ROOT",
+      "inherits": "trp-dependency-root",
+      "condition": {
+        "type": "notEquals",
+        "lhs": "$env{TRP_DEPENDENCY_ROOT}",
+        "rhs": ""
+      },
+      "binaryDir": "${sourceDir}/out/build/base",
+      "cacheVariables": {
+        "TRP_ENABLE_OPTIONAL_FEATURES": "OFF"
+      }
+    },
+    {
+      "name": "trp-universal",
+      "displayName": "Universal edition from TRP_DEPENDENCY_ROOT",
+      "inherits": "trp-dependency-root",
+      "condition": {
+        "type": "notEquals",
+        "lhs": "$env{TRP_DEPENDENCY_ROOT}",
+        "rhs": ""
+      },
+      "binaryDir": "${sourceDir}/out/build/addon",
+      "cacheVariables": {
+        "TRP_ENABLE_OPTIONAL_FEATURES": "ON"
+      }
     }
   ],
   "buildPresets": [
@@ -30,6 +82,60 @@
       "targets": [
         "ARPBaseline"
       ]
+    },
+    {
+      "name": "trp-standard",
+      "configurePreset": "trp-standard",
+      "configuration": "Release",
+      "condition": {
+        "type": "notEquals",
+        "lhs": "$env{TRP_DEPENDENCY_ROOT}",
+        "rhs": ""
+      },
+      "targets": [
+        "ARPBaseline"
+      ]
+    },
+    {
+      "name": "trp-universal",
+      "configurePreset": "trp-universal",
+      "configuration": "Release",
+      "condition": {
+        "type": "notEquals",
+        "lhs": "$env{TRP_DEPENDENCY_ROOT}",
+        "rhs": ""
+      },
+      "targets": [
+        "ARPBaseline"
+      ]
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "trp-standard",
+      "configurePreset": "trp-standard",
+      "configuration": "Release",
+      "condition": {
+        "type": "notEquals",
+        "lhs": "$env{TRP_DEPENDENCY_ROOT}",
+        "rhs": ""
+      },
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "trp-universal",
+      "configurePreset": "trp-universal",
+      "configuration": "Release",
+      "condition": {
+        "type": "notEquals",
+        "lhs": "$env{TRP_DEPENDENCY_ROOT}",
+        "rhs": ""
+      },
+      "output": {
+        "outputOnFailure": true
+      }
     }
   ]
 }
