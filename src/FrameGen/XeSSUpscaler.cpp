@@ -70,20 +70,27 @@ namespace TheosRenderPipeline
         if (FAILED(hr = Result(xessD3D12Init_(context_, &init), "initialize")) ||
             FAILED(hr = Result(xessSetVelocityScale_(context_, static_cast<float>(input_.width),
                 static_cast<float>(input_.height)), "velocity scale"))) { return hr; }
-        auto make = [&](SourceDLSSG::SharedTexture& texture, FrameExtent size, DXGI_FORMAT textureFormat, UINT bindings) {
+        auto make = [&](const char* stage, SourceDLSSG::SharedTexture& texture, FrameExtent size, DXGI_FORMAT textureFormat, UINT bindings) {
+            status_ = stage;
             D3D11_TEXTURE2D_DESC desc{}; desc.Width = size.width; desc.Height = size.height;
             desc.MipLevels = desc.ArraySize = 1; desc.Format = textureFormat;
-            desc.SampleDesc.Count = 1; desc.Usage = D3D11_USAGE_DEFAULT; desc.BindFlags = bindings;
+            // D3D11 can open these D3D12 shared textures only with a supported
+            // render-target/UAV sharing layout, as used by the host's guides.
+            desc.SampleDesc.Count = 1; desc.Usage = D3D11_USAGE_DEFAULT;
+            desc.BindFlags = bindings | D3D11_BIND_RENDER_TARGET;
             return transport.CreateSharedTexture(desc, texture);
         };
-        if (FAILED(hr = make(color_, input_, format, D3D11_BIND_SHADER_RESOURCE)) ||
-            FAILED(hr = make(motion_, input_, DXGI_FORMAT_R16G16_FLOAT, D3D11_BIND_SHADER_RESOURCE)) ||
-            FAILED(hr = make(depth_, input_, DXGI_FORMAT_R32_FLOAT, D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS)) ||
-            FAILED(hr = make(output_, output, format, D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS))) { return hr; }
+        if (FAILED(hr = make("shared color", color_, input_, format, D3D11_BIND_SHADER_RESOURCE)) ||
+            FAILED(hr = make("shared motion", motion_, input_, DXGI_FORMAT_R16G16_FLOAT, D3D11_BIND_SHADER_RESOURCE)) ||
+            FAILED(hr = make("shared depth", depth_, input_, DXGI_FORMAT_R32_FLOAT, D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS)) ||
+            FAILED(hr = make("shared output", output_, output, format, D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS))) { return hr; }
         auto desc = output_.desc; desc.MiscFlags = 0;
-        if (FAILED(hr = device_->CreateTexture2D(&desc, nullptr, &sharpened_)) ||
-            FAILED(hr = device_->CreateShaderResourceView(output_.texture11.Get(), nullptr, &outputSRV_)) ||
-            FAILED(hr = device_->CreateUnorderedAccessView(sharpened_.Get(), nullptr, &sharpenUAV_))) { return hr; }
+        status_ = "sharpening texture";
+        if (FAILED(hr = device_->CreateTexture2D(&desc, nullptr, &sharpened_))) { return hr; }
+        status_ = "output shader view";
+        if (FAILED(hr = device_->CreateShaderResourceView(output_.texture11.Get(), nullptr, &outputSRV_))) { return hr; }
+        status_ = "sharpening unordered view";
+        if (FAILED(hr = device_->CreateUnorderedAccessView(sharpened_.Get(), nullptr, &sharpenUAV_))) { return hr; }
         initialized_ = true; status_ = "XeSS D3D12 ready"; return S_OK;
     }
     void XeSSUpscaler::Transition(ID3D12GraphicsCommandList* list, ID3D12Resource* resource,

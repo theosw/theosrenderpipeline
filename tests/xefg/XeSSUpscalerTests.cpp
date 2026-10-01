@@ -25,7 +25,22 @@ int wmain(int argc, wchar_t** argv)
     }
     Require(last.width == 640 && last.height == 360, "AA is native resolution");
     for (int round = 0; round < 2; ++round) {
-        Check(sr.Initialize(interop, d11.Get(), {640, 360}, round ? 0 : 2, DXGI_FORMAT_R8G8B8A8_UNORM, true), "XeSS initialize");
+        const auto initialization = sr.Initialize(interop, d11.Get(), {640, 360}, round ? 0 : 2, DXGI_FORMAT_R8G8B8A8_UNORM, true);
+        std::printf("initialize status=%s hr=0x%08X\n", sr.Status().c_str(), static_cast<unsigned>(initialization));
+        if (FAILED(initialization)) {
+            ComPtr<ID3D11InfoQueue> d11Messages; d11.As(&d11Messages);
+            if (d11Messages) { for (UINT64 n = 0; n < d11Messages->GetNumStoredMessages(); ++n) {
+                SIZE_T length{}; d11Messages->GetMessage(n, nullptr, &length); std::vector<unsigned char> storage(length);
+                auto* message = reinterpret_cast<D3D11_MESSAGE*>(storage.data()); d11Messages->GetMessage(n, message, &length);
+                std::fprintf(stderr, "%s\n", message->pDescription);
+            } }
+            for (UINT64 n = 0; n < messages->GetNumStoredMessages(); ++n) {
+                SIZE_T length{}; messages->GetMessage(n, nullptr, &length); std::vector<unsigned char> storage(length);
+                auto* message = reinterpret_cast<D3D12_MESSAGE*>(storage.data()); messages->GetMessage(n, message, &length);
+                std::fprintf(stderr, "%s\n", message->pDescription);
+            }
+        }
+        Check(initialization, "XeSS initialize");
         const auto size = sr.InputSize();
         auto make = [&](UINT w, UINT h, DXGI_FORMAT format) {
             D3D11_TEXTURE2D_DESC desc{}; desc.Width = w; desc.Height = h; desc.MipLevels = desc.ArraySize = 1;
