@@ -26,6 +26,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (FAILED(a_result) && SUCCEEDED(fault_)) {
 			fault_ = a_result;
 			failure_ = observation_;
+			failure_.waitPolicy = waitPolicy_;
 			failure_.result = a_result;
 			failure_.valid = true;
 		}
@@ -38,12 +39,12 @@ namespace TheosRenderPipeline::SourceDLSSG
 		return index < work_.size() ? &work_[index] : nullptr;
 	}
 
-	void Interop::Observe(const char* stage, Work work)
+	void Interop::Observe(const char* a_stage, Work a_work)
 	{
 		observation_ = {};
-		observation_.stage = stage;
-		observation_.work = work;
-		if (auto* context = Get(work)) {
+		observation_.stage = a_stage;
+		observation_.work = a_work;
+		if (auto* context = Get(a_work)) {
 			observation_.slot = context->slot;
 			observation_.fenceValue = context->value;
 			observation_.submitted = context->submitted[context->slot];
@@ -243,13 +244,12 @@ namespace TheosRenderPipeline::SourceDLSSG
 		inputWait_.stage = "prior frame queue Wait";
 		auto hr = WaitD3D12(Work::FrameGeneration);
 		if (FAILED(hr)) { return hr; }
-		inputWait_.stage = "input fence queue Wait";
-		observation_.stage = inputWait_.stage;
+		// Only these two calls are direct; WaitD3D12/WaitD3D11 observe their own.
+		inputWait_.stage = observation_.stage = "input fence queue Wait";
 		if (a_fence && a_value && FAILED(hr = queue_->Wait(a_fence, a_value))) { return Check(hr); }
 		// This queue signal also follows the most recent native Present. It
 		// covers the default DLSS-G presenting-queue block when no fence is given.
-		inputWait_.stage = "bridge queue Signal";
-		observation_.stage = inputWait_.stage;
+		inputWait_.stage = observation_.stage = "bridge queue Signal";
 		observation_.fenceValue = work->value + 1;
 		hr = queue_->Signal(work->fence12.Get(), ++work->value);
 		if (FAILED(hr)) { return Check(hr); }
@@ -261,14 +261,14 @@ namespace TheosRenderPipeline::SourceDLSSG
 
 	HRESULT Interop::WaitCPU(WorkContext& a_work, std::uint64_t a_value, AllocatorWaitTiming* a_timing)
 	{
-		observation_.timeoutMs = waitPolicy_.sliceMs;
-		observation_.stallLimitMs = waitPolicy_.stallLimitMs;
-		observation_.waitTarget = a_value;
-		observation_.stage = "fence GetCompletedValue before wait";
 		constexpr auto removed = (std::numeric_limits<std::uint64_t>::max)();
 		if (!a_value) { return S_OK; }
+		// The failure snapshot owns this record, so a fault retains exactly what
+		// the wait measured. Diagnostics add no timer or fence query.
+		auto& wait = observation_.wait;
+		observation_.stage = "fence GetCompletedValue before wait";
 		const auto completed = a_work.fence12->GetCompletedValue();
-		observation_.completed = completed;
+		wait = { static_cast<Work>(&a_work - work_.data()), a_value, completed, completed };
 		observation_.completedAvailable = true;
 		if (completed == removed) {
 			return Check(DXGI_ERROR_DEVICE_REMOVED);
@@ -281,7 +281,6 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// A slow GPU after a cell load can take seconds per frame; that is not a
 		// fault. Keep waiting while the shared fence (D3D11 producer and D3D12
 		// queue) advances. Nothing is reset until the target actually retires.
-		RetirementWaitDiagnostics wait{ static_cast<Work>(&a_work - work_.data()), a_value, completed, completed };
 		auto progress = completed;
 		DWORD stalledMs = 0;
 		for (;;) {
@@ -290,7 +289,6 @@ namespace TheosRenderPipeline::SourceDLSSG
 			observation_.waitPerformed = true;
 			observation_.waitResult = result;
 			wait.completedAtEnd = a_work.fence12->GetCompletedValue();
-			observation_.completed = wait.completedAtEnd;
 			if (result == WAIT_OBJECT_0) {
 				if (wait.completedAtEnd >= a_value) { break; }
 				// An earlier wait can return after its target retired but before
@@ -313,10 +311,6 @@ namespace TheosRenderPipeline::SourceDLSSG
 			}
 		}
 		const auto elapsed = std::chrono::steady_clock::now() - begin;
-		// Reuse the retirement wait's measurement; diagnostics add no timer.
-		observation_.elapsedMs = static_cast<std::uint64_t>(
-			std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count());
-		observation_.waitSlices = wait.slices;
 		if (a_timing) {
 			a_timing->waited = true;
 			a_timing->nanoseconds = static_cast<std::uint64_t>(
@@ -326,10 +320,10 @@ namespace TheosRenderPipeline::SourceDLSSG
 			if (wait.completedAtEnd == removed) { hr = DXGI_ERROR_DEVICE_REMOVED; }
 			else if (wait.completedAtEnd < a_value) { hr = E_FAIL; }
 		}
+		wait.elapsedMs = static_cast<std::uint64_t>(
+			std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count());
+		wait.result = hr;
 		if (wait.slices) {
-			wait.elapsedMs = static_cast<std::uint64_t>(
-				std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count());
-			wait.result = hr;
 			extendedWait_ = wait;
 			extendedWaitPending_ = true;
 		}

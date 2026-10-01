@@ -126,11 +126,12 @@ do not establish every GPU, modlist or checkbox. Recurring vendor RSYNC errors
 remain recorded in some runs; generated-FPS counters do not establish physical
 display cadence. DLAA/NR on RTX 30 and every CS build remain unverified.
 
-## Build
+## GPU failure reports
 
-GPU failures write a bounded `[GPUFailure]` report to `TheosRenderPipeline.log`,
-including the original operation, device-removal reasons and retained fence/slot
-state. This reports the failure; restarting the game remains necessary.
+Device removal and stalled GPU work write a bounded `[GPUFailure]` report to
+`TheosRenderPipeline.log`, including the original operation, device-removal
+reasons and retained fence/slot state. Startup and configuration failures keep
+their own error line. This reports the failure; restarting the game remains necessary.
 For a requested GPU-fault investigation, create
 `Data/SKSE/Plugins/TheosRenderPipeline.Diagnostics.ini` with:
 
@@ -144,6 +145,8 @@ tracking for subsequently created D3D12 devices in the process and can add
 overhead; leave the file absent during normal play. An absent or false setting
 leaves Windows and externally configured DRED settings unchanged. Empty DRED
 data does not exclude a GPU fault, and breadcrumbs do not identify a cause alone.
+
+## Build
 
 Requires Windows, Visual Studio 2022 C++ tools/Windows SDK, CMake and vcpkg.
 Use CommonLibSSE-NG 8.1.0 at `3c0f5a87c3b166c9a6712d5c3bd180e9ac5ad0fd`,

@@ -37,6 +37,7 @@ static void Contracts(std::ostringstream& log)
     SetLastError(1234);
     Require(!DeviceLossDiagnostics::ReadDREDSetting(path.c_str()), "missing diagnostics INI defaults off");
     Require(GetLastError() == 1234, "INI observation preserves Win32 error");
+    Require(log.str().empty(), "absent diagnostics INI logs nothing");
     for (const auto& [text, expected] : std::vector<std::pair<std::string, bool>>{
              {"[DeviceLoss]\n", false}, {"[DeviceLoss]\nEnableDRED=false\n", false},
              {"[DeviceLoss]\nEnableDRED=true\n", true}}) {
@@ -44,18 +45,38 @@ static void Contracts(std::ostringstream& log)
         Require(DeviceLossDiagnostics::ReadDREDSetting(path.c_str()) == expected, "INI setting parsed");
     }
     std::filesystem::remove(path);
+    Require(Contains(log, "[Diagnostics] TheosRenderPipeline.Diagnostics.ini EnableDRED=true"), "present INI is reported");
     DeviceLossDiagnostics diagnostic;
+    const auto beforeConfigure = log.str().size();
     diagnostic.Configure(false);
-    Require(Contains(log, "existing process settings unchanged"), "disabled configuration is explicit");
-    Require(!diagnostic.Report(S_OK, "successful operation", 0, nullptr, nullptr, {}), "success does not consume first failure");
+    Require(log.str().size() == beforeConfigure, "DRED off leaves settings and log untouched");
+    Require(!diagnostic.Report(S_OK, "successful operation", 0, nullptr, nullptr, {}), "success is not a failure");
     SetLastError(4321);
-    Require(diagnostic.Report(E_FAIL, "startup failure", 7, nullptr, nullptr, {}), "partial startup reports once");
+    Require(!diagnostic.Report(E_FAIL, "Streamline immediate presentation requires tearing support", 0, nullptr, nullptr, {}),
+        "startup/configuration failure is not a GPU failure");
+    Require(GetLastError() == 4321, "declined report preserves Win32 error");
+    Require(!Contains(log, "[GPUFailure]"), "no GPU report for a non-GPU failure");
+    Require(diagnostic.Report(DXGI_ERROR_DEVICE_REMOVED, "startup removal", 7, nullptr, nullptr, {}), "device-loss result reports");
     Require(GetLastError() == 4321, "failure diagnostics preserve Win32 error");
     Require(Contains(log, "reason11Available=false") && Contains(log, "reason12Available=false"), "missing devices are unavailable");
-    Require(Contains(log, "retainedInteropFailure=false"), "unobserved interop failure is explicit");
-    const auto size = log.str().size();
-    Require(!diagnostic.Report(DXGI_ERROR_DEVICE_REMOVED, "later failure", 8, nullptr, nullptr, {}), "first failure stays first");
-    Require(log.str().size() == size, "repeated faults do not spam the log");
+    Require(Contains(log, "retainedInteropFailure=false") && !Contains(log, "retirement wait"), "unobserved interop failure is explicit");
+    Require(Contains(log, "DRED not queried: device12Available=false removalObserved=true"), "DRED needs a device");
+
+    // A stalled retirement is not a removal, but the interop retained it.
+    InteropFailureDiagnostics stalled;
+    stalled.valid = true;
+    stalled.stage = "fence stalled retirement";
+    stalled.work = Work::FrameGeneration;
+    stalled.slot = 2;
+    stalled.result = HRESULT_FROM_WIN32(WAIT_TIMEOUT);
+    stalled.wait = { Work::FrameGeneration, 12, 5, 5, 140, 7, stalled.result };
+    stalled.waitPolicy = { 20, 100 };
+    stalled.waitPerformed = true;
+    stalled.waitResult = WAIT_TIMEOUT;
+    Require(diagnostic.Report(stalled.result, "begin NR before DLSS", 9, nullptr, nullptr, stalled), "retained interop fault reports");
+    Require(Contains(log, "stage=fence stalled retirement work=frame-generation slot=2"), "retained stage and slot");
+    Require(Contains(log, "retirement wait work=frame-generation target=12 completed=5->5 waitPerformed=true waitResult=0x00000102 "
+        "elapsedMs=140 slices=7 sliceMs=20 stallLimitMs=100 result=0x80070102"), "wait record logged once with its policy");
 
     D3D12_AUTO_BREADCRUMB_NODE1 node{};
     UINT completed = 2;
@@ -157,8 +178,9 @@ static void SoftwareDeviceLoss(std::ostringstream& log, bool dredEnabled)
     }
     Require(interop.Ready() && !interop.LastFailure().valid, "healthy transport unchanged");
     DeviceLossDiagnostics healthy;
-    Require(healthy.Report(E_INVALIDARG, "validation rejection", 2, device11.Get(), device12.Get(), {}), "non-removal failure report");
-    Require(Contains(log, "reason12=0x00000000 (S_OK)"), "healthy device reason explicit");
+    Require(!healthy.Report(E_INVALIDARG, "validation rejection", 2, device11.Get(), device12.Get(), {}),
+        "validation rejection on healthy devices is not a GPU failure");
+    Require(!Contains(log, "[GPUFailure]"), "healthy devices produce no GPU report");
 
     // Keep a named command list outstanding at removal. Completed/retired
     // work may legitimately have no retained DRED breadcrumb node.
@@ -186,6 +208,14 @@ static void SoftwareDeviceLoss(std::ostringstream& log, bool dredEnabled)
     Require(GetLastError() == 9876, "real device diagnostics preserve last error");
     Require(Contains(log, "operation=begin NR before DLSS sessionFrame=12580 result=0x887A0005"), "reporter boundary represented");
     Require(Contains(log, "retainedInteropFailure=true") && Contains(log, "work=upscaling slot=1"), "interop context written");
+    Require(Contains(log, "reason12=0x887A0005 (DEVICE_REMOVED)"), "actual D3D12 removal reason written");
+    std::printf("WARP removal retained stage=%s waitTarget=%llu waitPerformed=%u\n", retained.stage,
+        static_cast<unsigned long long>(retained.wait.target), retained.waitPerformed);
+    Require(Contains(log, "retirement wait work=upscaling target=") == (retained.wait.target != 0),
+        "wait line present exactly when the failing operation had a retirement target");
+    if (!retained.waitPerformed) {
+        Require(!Contains(log, "waitResult="), "no wait result reported for a wait that never ran");
+    }
     Require(Contains(log, "DRED interfaceResult=0x00000000"), "actual DRED interface queried");
     Require(Contains(log, "DRED breadcrumbsResult="), "actual DRED result or unavailability logged");
     if (dredEnabled) {
@@ -196,9 +226,7 @@ static void SoftwareDeviceLoss(std::ostringstream& log, bool dredEnabled)
         Require(Contains(log, "name=CopyBufferRegion") || Contains(log, "DRED breadcrumbLists=0 truncated=false"),
             "captured work or explicit empty breadcrumb result");
     }
-    const auto size = log.str().size();
-    Require(!diagnostic.Report(result, "outer Present", 12581, device11.Get(), device12.Get(), retained), "follow-on Present failure suppressed");
-    Require(log.str().size() == size && interop.Fault() == result, "diagnostics preserve terminal result");
+    Require(interop.Fault() == result, "diagnostics preserve terminal result");
     (void)interop.Drain();
     Require(interop.LastFailure().stage == retained.stage && interop.LastFailure().result == result,
         "later retirement failure cannot overwrite first evidence");

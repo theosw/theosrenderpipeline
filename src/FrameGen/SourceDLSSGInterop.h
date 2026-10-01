@@ -16,28 +16,15 @@ namespace TheosRenderPipeline::SourceDLSSG
 	inline constexpr std::size_t kCommandSlots = 3;
 	inline constexpr std::size_t kPresentationSlots = 2;
 	enum class Work : std::size_t { Upscaling, FrameGeneration, SwapChain, Count };
-	inline constexpr const char* WorkName(Work work)
+	inline constexpr const char* WorkName(Work a_work)
 	{
-		switch (work) {
+		switch (a_work) {
 		case Work::Upscaling: return "upscaling";
 		case Work::FrameGeneration: return "frame-generation";
 		case Work::SwapChain: return "swapchain";
 		default: return "unavailable";
 		}
 	}
-	struct InteropFailureDiagnostics
-	{
-		const char* stage{"unavailable"};
-		Work work{Work::Count};
-		std::size_t slot{};
-		std::uint64_t fenceValue{}, submitted{}, waitTarget{}, completed{};
-		DWORD timeoutMs{}, waitResult{WAIT_FAILED};
-		DWORD stallLimitMs{}, waitSlices{};
-		std::uint64_t elapsedMs{};
-		HRESULT result{S_OK};
-		bool completedAvailable{}, waitPerformed{}, valid{};
-	};
-
 	struct AllocatorWaitTiming
 	{
 		std::uint64_t nanoseconds{};
@@ -78,6 +65,24 @@ namespace TheosRenderPipeline::SourceDLSSG
 		const void* hostIdentity{};
 		const void* referenceFenceOwner{};
 		const void* inputFenceOwner{};
+	};
+
+	// Snapshot of the interop operation that produced the first fault. The wait
+	// is the retirement wait's own record, not a second measurement of it.
+	struct InteropFailureDiagnostics
+	{
+		const char* stage{ "unavailable" };
+		Work work{ Work::Count };
+		std::size_t slot{};
+		std::uint64_t fenceValue{};
+		std::uint64_t submitted{};
+		RetirementWaitDiagnostics wait;
+		RetirementWaitPolicy waitPolicy;
+		DWORD waitResult{ WAIT_FAILED };
+		HRESULT result{ S_OK };
+		bool completedAvailable{};
+		bool waitPerformed{};
+		bool valid{};
 	};
 
 	class Interop final
@@ -136,7 +141,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			bool recording{ false };
 		};
 		WorkContext* Get(Work a_work);
-		void Observe(const char* stage, Work work = Work::Count);
+		void Observe(const char* a_stage, Work a_work = Work::Count);
 		HRESULT Check(HRESULT a_result);
 		HRESULT WaitCPU(WorkContext& a_work, std::uint64_t a_value, AllocatorWaitTiming* a_timing = nullptr);
 		void AbandonInFlightObjects();

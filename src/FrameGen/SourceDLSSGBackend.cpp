@@ -31,20 +31,26 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// Interop Begin/Drain results are checked immediately, so a pending
 		// extended wait belongs to this operation. A crawling fence is a slow
 		// GPU; a frozen one that times out suggests a stalled dependency.
+		const bool firstFailure = FAILED(a_result) && SUCCEEDED(fault_);
+		const auto& failure = interop_.LastFailure();
 		if (RetirementWaitDiagnostics wait; interop_.TakeExtendedWait(wait)) {
-			constexpr const char* works[]{ "upscaling", "frame generation", "swapchain" };
-			logger::warn("[SourceDLSSG] {} waited {} ms ({} slices) for {} retirement target={} completed={}->{} result=0x{:08X}",
-				a_operation, wait.elapsedMs, wait.slices,
-				wait.work < Work::Count ? works[static_cast<std::size_t>(wait.work)] : "unknown",
-				wait.target, wait.completedAtStart, wait.completedAtEnd, static_cast<std::uint32_t>(wait.result));
+			// A retained interop fault is always reported with its own wait record.
+			const bool reportCarriesWait = firstFailure && failure.valid &&
+				failure.wait.work == wait.work && failure.wait.target == wait.target;
+			if (!reportCarriesWait) {
+				logger::warn("[SourceDLSSG] {} waited {} ms ({} slices) for {} retirement target={} completed={}->{} result=0x{:08X}",
+					a_operation, wait.elapsedMs, wait.slices, WorkName(wait.work),
+					wait.target, wait.completedAtStart, wait.completedAtEnd, static_cast<std::uint32_t>(wait.result));
+			}
 		}
 		if (SUCCEEDED(a_result)) { return true; }
-		if (SUCCEEDED(fault_)) {
+		if (firstFailure) {
 			fault_ = a_result;
 			status_ = std::format("{} failed HRESULT=0x{:08X}", a_operation, static_cast<std::uint32_t>(a_result));
 			logger::error("[SourceDLSSG] {}", status_);
+			// Called once: fault_ keeps only the first failure.
 			deviceLoss_.Report(a_result, a_operation, session_.Snapshot().frameIndex,
-				device11_.Get(), device12_.Get(), interop_.LastFailure());
+				device11_.Get(), device12_.Get(), failure);
 		}
 		return false;
 	}

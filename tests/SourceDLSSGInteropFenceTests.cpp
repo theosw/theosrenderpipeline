@@ -173,18 +173,22 @@ int main(int argc, char** argv)
             "frozen timeout keeps the in-flight slot");
         Require(frozen.TakeExtendedWait(wait) && wait.result == HRESULT_FROM_WIN32(WAIT_TIMEOUT) &&
             wait.completedAtEnd == wait.completedAtStart && wait.completedAtEnd < wait.target, "frozen wait records no progress");
+        const auto sameWait = [](const RetirementWaitDiagnostics& a, const RetirementWaitDiagnostics& b) {
+            return a.work == b.work && a.target == b.target && a.completedAtStart == b.completedAtStart &&
+                a.completedAtEnd == b.completedAtEnd && a.elapsedMs == b.elapsedMs && a.slices == b.slices && a.result == b.result;
+        };
         const auto firstFailure = frozen.LastFailure();
         Require(firstFailure.valid && firstFailure.result == frozenResult &&
             firstFailure.work == Work::FrameGeneration && firstFailure.slot == slot &&
-            firstFailure.waitTarget == wait.target && firstFailure.completed == wait.completedAtEnd &&
             firstFailure.completedAvailable && firstFailure.waitPerformed && firstFailure.waitResult == WAIT_TIMEOUT &&
-            firstFailure.timeoutMs == 20 && firstFailure.stallLimitMs == 100 && firstFailure.waitSlices == wait.slices &&
-            firstFailure.elapsedMs == wait.elapsedMs && std::string_view(firstFailure.stage) == "fence stalled retirement",
-            "first-failure report retains the progress-aware wait that actually timed out");
+            firstFailure.waitPolicy.sliceMs == 20 && firstFailure.waitPolicy.stallLimitMs == 100 &&
+            std::string_view(firstFailure.stage) == "fence stalled retirement",
+            "first-failure report retains the operation and policy of the wait that actually timed out");
+        Require(sameWait(firstFailure.wait, wait), "first-failure report holds the wait's own record, not a copy that can drift");
         Check(input->Signal(12), "release frozen queue");
         Check(frozen.Drain(), "frozen work retires after release");
         Require(frozen.LastFailure().stage == firstFailure.stage && frozen.LastFailure().result == firstFailure.result &&
-            frozen.LastFailure().completed == firstFailure.completed && frozen.LastFailure().waitTarget == firstFailure.waitTarget,
+            sameWait(frozen.LastFailure().wait, firstFailure.wait),
             "successful later retirement preserves the original frozen-fence evidence");
     }
     std::puts("PASS: same-device input fences, foreign-device rejection, pending GPU wait, retirement, extended waits and diagnostics");
