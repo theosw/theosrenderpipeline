@@ -1,6 +1,6 @@
 #pragma once
-#include "ptx_retarget.hpp"
-#include "../MFGTuring/ptx_retarget.hpp"
+#include "../extern/MFGAmpere/ptx_retarget.hpp"
+#include "../extern/MFGTuring/ptx_retarget.hpp"
 
 namespace trp::ampere {
 // Keep the previously tested Ampere planner byte-for-byte unchanged.

@@ -1,6 +1,6 @@
 // Manual offline check of the production startup planner against a supplied DLL.
 // Loads the DLLs but never initializes Streamline, NGX, CUDA or a graphics device.
-#include "../../extern/MFGAmpere/runtime.cpp"
+#include "../../src/runtime.cpp"
 #include <fstream>
 #include <iostream>
 

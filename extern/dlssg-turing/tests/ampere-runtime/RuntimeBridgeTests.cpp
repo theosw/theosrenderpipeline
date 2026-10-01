@@ -1,6 +1,5 @@
 // Exercise the production wrappers with vendor doubles; no GPU dispatch.
-#include "../../extern/MFGAmpere/runtime.cpp"
-#include "../../src/FrameGen/SourceDLSSGMFG.h"
+#include "../../src/runtime.cpp"
 #include <thread>
 #include <iostream>
 #include <map>
@@ -53,14 +52,6 @@ struct Params final : NVSDK_NGX_Parameter {
 };
 int __cdecl RealArch(void*,ArchInfo* info) {if(info)info->architecture=State().nativeArchitecture;return 0;}
 void Policies() {
-    using namespace TheosRenderPipeline::SourceDLSSG;
-    for(auto adapter:{midpoint_fix::AdapterKind::Ada,midpoint_fix::AdapterKind::Ampere,midpoint_fix::AdapterKind::Turing,midpoint_fix::AdapterKind::Other,midpoint_fix::AdapterKind::Unavailable}) {
-        MFGSnapshot state;Require(state.SelectRoute(adapter) && state.route==MFGRoute::Native,"disabled compatibility stays native");
-        state.requested=true;const bool ok=state.SelectRoute(adapter);
-        Require(ok==(adapter!=midpoint_fix::AdapterKind::Unavailable),"unavailable physical adapter fails");
-        if(ok) Require(state.route==(adapter==midpoint_fix::AdapterKind::Ada ? MFGRoute::AdaUnlock : adapter==midpoint_fix::AdapterKind::Ampere ? MFGRoute::AmpereUnlock : adapter==midpoint_fix::AdapterKind::Turing ? MFGRoute::TuringUnlock : MFGRoute::Native),"physical architecture selects route");
-        Require(!state.Ready(),"routing alone cannot establish readiness");
-    }
     auto& s=State();s.arch=RealArch;s.gpu=reinterpret_cast<void*>(1);
     ArchInfo a{0x20010,0,0,0};s.prepared=true;s.installed=true;
     Architecture(s.gpu,&a);Require(a.architecture==State().nativeArchitecture,"outside scope remains physical");

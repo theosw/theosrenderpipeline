@@ -3,9 +3,9 @@
 #include "module_patch.hpp"
 #include "provider_retarget.hpp"
 #include "turing_network.hpp"
-#include "../RTX40MFG/midpoint_fix.h"
-#include "../RTX40MFG/dlssg_provider_policy.h"
-#include "../../src/FrameGen/SourceDLSSGMFGPatch.h"
+#include "../extern/RTX40MFG/midpoint_fix.h"
+#include "../extern/RTX40MFG/dlssg_provider_policy.h"
+#include "SourceDLSSGMFGPatch.h"
 #include <nvsdk_ngx.h>
 #include <dxgi.h>
 #include <array>
@@ -19,7 +19,8 @@ namespace trp::ampere {
 namespace {
 // Minimal public NVAPI ABI from NVIDIA/nvapi 87dca625e83fd89a983e19b904e5f3a580da90d2.
 // NV_GPU_ARCH_INFO V1/V2 have the same four 32-bit fields. Query IDs and the
-// capability policy follow MFGAmpereUnlock-RenoDx; see LICENSE and THIRD-PARTY.
+// capability policy follow MFGAmpereUnlock-RenoDx (MIT); see
+// extern/MFGAmpere/LICENSE and THIRD-PARTY.md.
 struct ArchInfo { std::uint32_t version, architecture, implementation, revision; };
 static_assert(sizeof(ArchInfo) == 16);
 using Query = void* (__cdecl*)(std::uint32_t);

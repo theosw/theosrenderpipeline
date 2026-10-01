@@ -17,6 +17,8 @@ inline bool Equal(const void* address, std::span<const std::uint8_t> value) noex
     __try { return std::memcmp(address, value.data(), value.size()) == 0; }
     __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
 }
+// PE image bounds and executable-section checks follow MFGAmpereUnlock-RenoDx
+// provider.hpp (MIT); see extern/MFGAmpere/LICENSE and THIRD-PARTY.md.
 struct Image {
     std::uint8_t* base{};
     std::size_t size{};

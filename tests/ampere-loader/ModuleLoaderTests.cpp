@@ -1,4 +1,4 @@
-#include "extern/MFGAmpere/module_loader.hpp"
+#include "extern/dlssg-turing/src/module_loader.hpp"
 #include <detours/Detours.h>
 #include <algorithm>
 #include <iostream>
@@ -6,7 +6,7 @@
 
 namespace fs = std::filesystem;
 namespace Loader = trp::ampere;
-namespace Paths = TheosRenderPipeline::PluginPaths;
+namespace Paths = trp::ampere::paths;
 void Require(bool condition, const char* message) {
     if (!condition) throw std::runtime_error(message);
 }

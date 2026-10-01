@@ -1,5 +1,5 @@
 #pragma once
-#include "../../src/PluginPaths.h"
+#include "module_paths.hpp"
 #include <iomanip>
 #include <sstream>
 
@@ -36,7 +36,7 @@ inline ModuleLoadResult LoadConfiguredModule(const std::filesystem::path& reques
         result.windowsError = ERROR_BAD_PATHNAME;
         return result;
     }
-    if (TheosRenderPipeline::PluginPaths::HasConflictingLoadedModule(result.requested, allowSeparateModules)) {
+    if (paths::HasConflictingLoadedModule(result.requested, allowSeparateModules)) {
         result.failure = ModuleLoadFailure::AlreadyOwned;
         return result;
     }
@@ -55,11 +55,11 @@ inline ModuleLoadResult LoadConfiguredModule(const std::filesystem::path& reques
         return result;
     }
     result.reported = reported;
-    result.normalizedRequested = TheosRenderPipeline::PluginPaths::Normalize(result.requested);
-    result.normalizedReported = TheosRenderPipeline::PluginPaths::Normalize(result.reported);
+    result.normalizedRequested = paths::Normalize(result.requested);
+    result.normalizedReported = paths::Normalize(result.reported);
     // MO2 may report a virtual filename for a module loaded by physical path.
     // Use the same configured identity policy as post-slInit module retention.
-    if (!TheosRenderPipeline::PluginPaths::EqualPath(result.reported, result.requested)) {
+    if (!paths::EqualPath(result.reported, result.requested)) {
         result.failure = ModuleLoadFailure::PathMismatch;
     }
     return result;

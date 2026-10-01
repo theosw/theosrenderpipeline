@@ -1,6 +1,6 @@
 // Manual check of the real 310.9.1 NVAPI thunk and provider-local resolver.
 // Initializes NVAPI and issues its null presence probe; no device or dispatch.
-#include "../../extern/MFGAmpere/runtime.cpp"
+#include "../../src/runtime.cpp"
 #include <iostream>
 using namespace trp::ampere;
 static void Check(bool value,const char* why){if(!value)throw std::runtime_error(why);}
