@@ -1,10 +1,12 @@
-# Theo's Render Pipeline — Standard, 0.3.4
+# Theo's Render Pipeline — Standard, 0.3.5
 
-Version 0.3.4 adds experimental HDR output for ENB/non-CS setups, preserves late
-overlays in HDR frame generation, fixes Modex item-preview device loss and fades
-forced loading artwork in from black. TRP HDR output defaults off and needs a
-restart when enabled. Community Shaders HDR Display support from 0.3.3 is retained.
-Both editions retain NR; existing NVIDIA runtime files are unchanged.
+Version 0.3.5 enables DLSS-G UI recomposition by default to reduce HUD
+ghosting; toggle it live under Frame generation. GPU retirement waits now
+continue while the fence progresses, avoiding permanent black screens from
+recoverable multi-second stalls, and log extended waits. A fence with no
+progress still fails after 20 seconds. ReShade regression tests are expanded.
+Both editions retain NR, existing compatibility routes and unchanged NVIDIA
+runtimes. HDR remains experimental and defaults off.
 
 RTX 20 users need Universal's compatibility path installed after Standard.
 This edition supplies the retained runtime bundle and all 0.2.5 fixes.
@@ -117,16 +119,18 @@ Optional before-effects and overlay copies are unchanged. ENB's screenshot key
 sees the image before DLSS and NR; Steam or Windows capture can capture the
 displayed image without this replacement delay.
 
-The shared ReShade integration passed offline checks in both editions. Gameplay
-was tested in Universal with ReShade 6.3.3.1921, Skyrim 1.6.1170, Cabbage ENB and
-RTX 4080 SUPER. Standard ReShade gameplay, CS with ReShade, other ReShade versions
-and other effect/NR placements still need testing. Keep Native UI enabled for
-the tested world-only effects setup.
+The shared ReShade integration passed offline checks in both editions.
+ReShade 6.8 was tested with Universal on Skyrim 1.6.1170, Cabbage ENB and
+an RTX 4080 SUPER: ordinary 6.8.0.2158 and full add-on 6.8.0.2155, with
+early NR and x4. Sky Reflection Fix's ReShade registration was excluded;
+Rumble passed a separate initial test. ReGrade+, combined third-party add-ons,
+Standard gameplay and CS with ReShade remain unverified. These were earlier
+development builds; the exact 0.3.5 package still needs its final game test.
 
 ## With the Universal edition
 
 For the RTX 40 MFG unlock or experimental RTX 20/30 support, install the matching
-0.3.2 Universal ZIP after Standard in MO2's left pane. Let Universal win file conflicts. Universal uses
+0.3.5 Universal ZIP after Standard in MO2's left pane. Let Universal win file conflicts. Universal uses
 the NVIDIA runtimes included here, including NR.
 
 Both editions contain settings files; the later mod's files win. Switching
