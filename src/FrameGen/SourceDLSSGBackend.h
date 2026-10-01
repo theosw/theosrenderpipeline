@@ -141,6 +141,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		bool Check(sl::Result a_result, const char* a_operation);
 		bool Check(HRESULT a_result, const char* a_operation);
 		bool CheckSession(bool a_result);
+		bool CheckXeFG(HRESULT result);
 		bool EnsureGuide(ID3D11Texture2D* a_source, SharedTexture& a_pair,
 			DXGI_FORMAT a_format = DXGI_FORMAT_UNKNOWN, FrameExtent a_extent = {});
 		bool CopyDepth(ID3D11Texture2D* a_depth);

@@ -56,6 +56,12 @@ namespace TheosRenderPipeline::SourceDLSSG
 		const auto detail = std::format("{} Streamline result={}", a_operation, static_cast<std::uint32_t>(a_result));
 		return Check(E_FAIL, detail.c_str());
 	}
+	bool Backend::CheckXeFG(HRESULT result)
+	{
+		// Read the diagnostic only after the SDK operation has finished. Taking
+		// c_str() in another argument can precede a mutation of that string.
+		return Check(result, xefg_.Status().c_str());
+	}
 	bool Backend::CheckSession(bool a_result)
 	{
 		const auto& s = session_.Snapshot();
@@ -415,7 +421,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		guides.displayWidth = a_width; guides.displayHeight = a_height;
 		if (nvidiaNeedsPresent_) { return true; } // Establish the new native presenter before Reflex markers.
 		if (provider_ == FrameGenerationProvider::XeFG) {
-			if (!Check(xefg_.Prepare(frameConstants_), xefg_.Status().c_str())) { return false; }
+			if (!CheckXeFG(xefg_.Prepare(frameConstants_))) { return false; }
 			recreateXeFG_ = xefg_.Snapshot().invertedDepth != (frameConstants_.depthInverted == sl::eTrue);
 			return true; // Intel copies the final HUD-less image after late NR, at Present.
 		}
@@ -564,9 +570,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 				hdrOutputPass_->HudlessTarget() : hudless_.texture12.Get();
 			// No FP16/scRGB reinterpretation. XeFG copies matching native-format layers.
 			const bool compatible = intelHudless && intelHudless->GetDesc().Format == a_destination->GetDesc().Format;
-			if (!Check(xefg_.BeforePresent(list, motion_.texture12.Get(), depth_.texture12.Get(), intelHudless,
+			if (!CheckXeFG(xefg_.BeforePresent(list, motion_.texture12.Get(), depth_.texture12.Get(), intelHudless,
 				generationAllowed && prepared && compatible, UIRecompositionConfiguration(),
-				outputFPSLimit_.load()), xefg_.Status().c_str())) { return fault_; }
+				outputFPSLimit_.load()))) { return fault_; }
 		}
 		if (!Check(outputResult, "record native output copy/conversion") ||
 			!Check(interop_.Submit(Work::SwapChain), "submit native output copy")) { return fault_; }
@@ -582,7 +588,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		}
         if (provider_ == FrameGenerationProvider::NVIDIA && !nvidiaNeedsPresent_ && ((prepared && !CheckSession(session_.CompleteInputWrites())) ||
             !CheckSession(session_.BeforePresent(generationAllowed)))) { return fault_; }
-        if (provider_ == FrameGenerationProvider::XeFG && !Check(xefg_.FinalizePresent(), xefg_.Status().c_str())) { return fault_; }
+        if (provider_ == FrameGenerationProvider::XeFG && !CheckXeFG(xefg_.FinalizePresent())) { return fault_; }
 		if (oldReflexRequest != session_.Snapshot().reflexRequested ||
 			oldReflexSubmitted != session_.Snapshot().reflexSubmitted || oldFrameLimit != session_.Snapshot().frameLimitSubmittedUs) {
 			logger::info("[SourceDLSSG] Reflex frame={} requested={} submitted={} generation={} outputLimitUs={}",
@@ -633,7 +639,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (FAILED(a_result)) { return a_result; }
 		providerSwitchPending_ = PreflightProviderSwitch();
 		if (provider_ == FrameGenerationProvider::XeFG) {
-			if (!Check(xefg_.AfterPresent(a_result), xefg_.Status().c_str()) ||
+			if (!CheckXeFG(xefg_.AfterPresent(a_result)) ||
 				!Check(interop_.Drain(), "retire Intel ONLY_NOW input copies")) { return fault_; }
 			const auto& intel = xefg_.Snapshot();
 			if (intel.presents <= 3 || intel.presents % 600 == 0) {
@@ -749,7 +755,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (FAILED(fault_)) { return false; } // Never destroy a failed, unsubmitted NR recording.
 		if (!ready_) { return SUCCEEDED(interop_.Drain()); }
 		if (provider_ == FrameGenerationProvider::XeFG) {
-			if (!Check(xefg_.Disable(), xefg_.Status().c_str())) { return false; }
+			if (!CheckXeFG(xefg_.Disable())) { return false; }
 		} else if (session_.Snapshot().stage != SessionStage::Stopped && !CheckSession(session_.Stop())) { return false; }
 		if (!Check(interop_.SignalD3D11(Work::SwapChain), "last D3D11 work before resize") ||
 			!Check(interop_.Drain(), "retire before resize")) { return false; }
@@ -995,10 +1001,10 @@ namespace TheosRenderPipeline::SourceDLSSG
 	{
 		if (!Ready()) { return false; }
 		if (!providerSwitchPending_) {
-			return provider_ != FrameGenerationProvider::XeFG || Check(xefg_.BeginFrame(), xefg_.Status().c_str());
+			return provider_ != FrameGenerationProvider::XeFG || CheckXeFG(xefg_.BeginFrame());
 		}
 		const auto next = RequestedProvider();
-		if (provider_ == FrameGenerationProvider::XeFG && !Check(xefg_.Disable(), xefg_.Status().c_str())) { return false; }
+		if (provider_ == FrameGenerationProvider::XeFG && !CheckXeFG(xefg_.Disable())) { return false; }
 		if (!Check(interop_.SignalD3D11(Work::SwapChain), "last producer work before provider change") ||
 			!Check(interop_.WaitForInputReaders(nullptr, 0), "provider queue retirement bridge") ||
 			!Check(interop_.Drain(), "retire shared work before provider change")) { return false; }
@@ -1007,7 +1013,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// a failure is terminal; do not claim the discarded presenter is restored.
 		wrapper.ReleaseInnerAfterRetirement();
 		retainedNative_.Reset();
-		if (provider_ == FrameGenerationProvider::XeFG && !Check(xefg_.Destroy(), xefg_.Status().c_str())) { return false; }
+		if (provider_ == FrameGenerationProvider::XeFG && !CheckXeFG(xefg_.Destroy())) { return false; }
 		ComPtr<IDXGISwapChain> replacement;
 		if (!Check(CreatePresenter(next, &replacement), "create replacement presenter")) { return false; }
 		retainedNative_ = replacement;
