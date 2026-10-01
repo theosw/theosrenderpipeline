@@ -16,3 +16,6 @@ __pycache__/
 
 # Private workstation tooling, knowledge and configuration
 /local/
+
+# Claude Code worktrees created for isolated threads
+/.claude/worktrees/

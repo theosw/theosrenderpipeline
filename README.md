@@ -175,6 +175,14 @@ stay in the build directory. Configure separate directories for Standard
 `TRP_ENABLE_NEURAL_RENDERING=ON` for both. Store workstation paths in ignored
 `CMakeUserPresets.json`. Set `TRP_NGX_LIB` if the NGX import library is elsewhere.
 
+Alternatively, set two environment variables: `VCPKG_ROOT` to your vcpkg
+installation, and `TRP_DEPENDENCY_ROOT` to a directory containing `CommonLibSSE-NG/`,
+`Streamline/`, `detours/`, `hde64/` and a prepared `vcpkg_installed/` tree. The
+`trp-standard` and `trp-universal` presets then configure each edition with the
+standalone checks enabled from any checkout or worktree, without a local preset
+file. They stay hidden until both variables are set, and the generated build
+re-runs CMake automatically after a CMake input changes.
+
 Enable `TRP_BUILD_COMPATIBILITY_TESTS=ON` for the standalone checks, build all
 targets with `cmake --build <build-directory> --config Release`, then run
 `ctest --test-dir <build-directory> -C Release --output-on-failure`. These checks
