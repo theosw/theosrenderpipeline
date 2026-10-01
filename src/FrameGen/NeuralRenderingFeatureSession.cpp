@@ -191,12 +191,6 @@ namespace TheosRenderPipeline::NeuralRendering
 		}
 		logger::info("[DLSSNR Source] pinned runtime build={} sha256={} path={}",
 			RuntimeName(state.contract.build), identity.sha256, identity.path.string());
-		const auto normalLoader = FindNormalLoader();
-		const auto normalLoaderPath = ModulePath(normalLoader);
-		if (!normalLoader || normalLoaderPath.empty()) {
-			state.status = "normal NGX loader is not resident";
-			return false;
-		}
 		if (const auto existing = ::GetModuleHandleW(L"nvngx_dlssnr.dll")) {
 			if (!EqualPath(ModulePath(existing), identity.path)) {
 				state.status = "a different nvngx_dlssnr.dll is already resident";
@@ -224,6 +218,17 @@ namespace TheosRenderPipeline::NeuralRendering
 				"public NGX initialization failed (0x{:08X})", state.lastInitResult);
 			return false;
 		}
+		// XeSS startup has no Streamline/DLSS bootstrap. The public NGX init
+		// above must establish NR's loader independently before we resolve the
+		// path used by the feature's scoped module-path hook.
+		const auto normalLoader = FindNormalLoader();
+		const auto normalLoaderPath = ModulePath(normalLoader);
+		if (!normalLoader || normalLoaderPath.empty()) {
+			state.status = "normal NGX loader is not resident after public initialization";
+			return false;
+		}
+		logger::info("[DLSSNR Source] public NGX initialized result=0x{:08X} loader={}",
+			static_cast<std::uint32_t>(publicInitResult), normalLoaderPath.string());
 
 		// Each session needs its own reference, including a second NR pass that
 		// may outlive the first session after an unfinished creation submission.
