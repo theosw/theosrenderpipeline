@@ -1,9 +1,16 @@
 #include "XeFGTestSupport.h"
+#include "experimental/XeFGUnlock.h"
+#include "experimental/XeFGPixelCapture.h"
 int wmain(int argc, wchar_t** argv) {
     std::setvbuf(stdout,nullptr,_IONBF,0);
     std::filesystem::path runtime;
     unsigned frames=120, adapterIndex=0;
-    bool probeOnly=false, visible=false, debug=false;
+    bool probeOnly=false, visible=false, debug=false, unlock=false, cycle=false;
+    bool forceRefusal=false;
+    unsigned multiplier=2;
+    std::string eventsPath;
+    unsigned minimumIntervalUs=16667;
+    XeFGPixelCapture pixelCapture;
     for(int n=1;n<argc;++n) {
         const std::wstring_view arg=argv[n];
         if(arg==L"--runtime-dir" && n+1<argc) runtime=std::filesystem::absolute(argv[++n]);
@@ -12,15 +19,31 @@ int wmain(int argc, wchar_t** argv) {
         else if(arg==L"--probe-only") probeOnly=true;
         else if(arg==L"--visible") visible=true;
         else if(arg==L"--debug-layer") debug=true;
+        else if(arg==L"--unlock") unlock=true;
+        else if(arg==L"--cycle-multipliers") cycle=true;
+        else if(arg==L"--force-scheduler-refusal") forceRefusal=true;
+        else if(arg==L"--multiplier" && n+1<argc) multiplier=static_cast<unsigned>(std::wcstoul(argv[++n],nullptr,10));
+        else if(arg==L"--events" && n+1<argc) eventsPath=std::filesystem::path(argv[++n]).string();
+        else if(arg==L"--capture-dir" && n+1<argc) pixelCapture.directory=std::filesystem::absolute(argv[++n]);
+        else if(arg==L"--minimum-interval-us" && n+1<argc) minimumIntervalUs=static_cast<unsigned>(std::wcstoul(argv[++n],nullptr,10));
         else { std::fprintf(stderr,"Unknown/incomplete argument\n"); return 2; }
     }
     Require(!runtime.empty() && frames>=48 && frames<=3600,"runtime directory and frames 48..3600");
-    std::printf("TRP XeFG public-API prototype; no NVIDIA unlock; no Skyrim hooks\n");
+    Require(multiplier>=2 && multiplier<=4 && (unlock || (multiplier==2 && !cycle)),"experimental count requires explicit unlock");
+    Require(!forceRefusal || (unlock && multiplier>2),"scheduler injection requires experimental MFG");
+    Require(minimumIntervalUs<=100000 && (pixelCapture.directory.empty() || (unlock && multiplier==4 && !cycle)),"bounded capture and interval");
+    if(!pixelCapture.directory.empty()) {std::filesystem::create_directories(pixelCapture.directory);XeFGPixelCapture::active=&pixelCapture;}
+    std::printf("TRP XeFG isolated prototype; unlock=%u multiplier=%u cycle=%u; no Skyrim hooks\n",unlock,multiplier,cycle);
     Api api(runtime);
     xefg_swapchain_version_t fv{}; xell_version_t lv{};
     FG(api.xefgSwapChainGetVersion(&fv),"FG version"); LL(api.xellGetVersion(&lv),"LL version");
     std::printf("API XeFG=%u.%u.%u XeLL=%u.%u.%u\n",fv.major,fv.minor,fv.patch,lv.major,lv.minor,lv.patch);
     Require(fv.major==1 && fv.minor==3 && lv.major==1 && lv.minor>=3,"supported component API");
+    if(unlock) {
+        std::string reason;const auto result=XeFGExperiment::Install(api.fgDll,XeFGPixelCapture::active?&XeFGPixelCapture::Observe:nullptr,reason,forceRefusal);
+        std::printf("unlock install=%u reason=%s\n",static_cast<unsigned>(result),reason.c_str());
+        Require(result==XeFGExperiment::PatchResult::Applied,"complete unlock and pacing transaction");
+    }
     if(debug) {
         ComPtr<ID3D12Debug> layer;
         Check(D3D12GetDebugInterface(IID_PPV_ARGS(&layer)),"D3D12 debug layer");
@@ -48,7 +71,7 @@ int wmain(int argc, wchar_t** argv) {
     Interop interop; Check(interop.Initialize(d11.Get(),d12.Get(),queue.Get()),"production interop");
     WNDCLASSW wc{}; wc.lpfnWndProc=WindowProc; wc.hInstance=GetModuleHandleW(nullptr); wc.lpszClassName=L"TRPXeFGPrototype";
     Require(RegisterClassW(&wc)!=0,"register test window");
-    HWND window=CreateWindowW(wc.lpszClassName,L"TRP XeFG prototype: official x2",WS_OVERLAPPEDWINDOW,
+    HWND window=CreateWindowW(wc.lpszClassName,L"TRP XeFG isolated prototype",WS_OVERLAPPEDWINDOW,
         CW_USEDEFAULT,CW_USEDEFAULT,840,520,nullptr,nullptr,wc.hInstance,nullptr);
     Require(window!=nullptr,"create test window");
     // An occluded/minimized swapchain cannot establish interpolation acceptance.
@@ -57,22 +80,25 @@ int wmain(int argc, wchar_t** argv) {
     for(unsigned round=0;round<(probeOnly?1u:2u);++round) {
         xell_context_handle_t ll{}; xefg_swapchain_handle_t fg{};
         LL(api.xellD3D12CreateContext(d12.Get(),&ll),"create XeLL");
-        xell_sleep_params_t sleep{}; sleep.bLowLatencyMode=1; sleep.minimumIntervalUs=16667;
+        xell_sleep_params_t sleep{}; sleep.bLowLatencyMode=1; sleep.minimumIntervalUs=minimumIntervalUs;
         LL(api.xellSetSleepMode(ll,&sleep),"enable XeLL before XeFG");
         FG(api.xefgSwapChainD3D12CreateContext(d12.Get(),&fg),"create XeFG");
         FG(api.xefgSwapChainSetLoggingCallback(fg,XEFG_SWAPCHAIN_LOGGING_LEVEL_WARNING,Log,nullptr),"logging callback");
         FG(api.xefgSwapChainSetLatencyReduction(fg,ll),"connect XeLL");
         xefg_swapchain_properties_t props{};
         FG(api.xefgSwapChainGetProperties(fg,&props),"capability properties");
-        std::printf("round=%u maxSupportedInterpolations=%u requested=1\n",round,props.maxSupportedInterpolations);
-        Require(props.maxSupportedInterpolations>=1,"official x2 admission");
+        const unsigned capacity=unlock?3:1;
+        std::printf("round=%u maxSupportedInterpolations=%u requestedCapacity=%u\n",round,props.maxSupportedInterpolations,capacity);
+        Require(props.maxSupportedInterpolations>=capacity,"requested interpolation capacity admission");
         if(probeOnly) {
             FG(api.xefgSwapChainDestroy(fg),"destroy probe XeFG");
             LL(api.xellDestroyContext(ll),"destroy probe XeLL"); break;
         }
         const UINT width=round?800:640, height=round?448:360;
         xefg_swapchain_d3d12_init_params_t init{};
-        init.maxInterpolatedFrames=1; init.uiMode=XEFG_SWAPCHAIN_UI_MODE_BACKBUFFER_HUDLESS;
+        init.maxInterpolatedFrames=capacity; init.uiMode=XEFG_SWAPCHAIN_UI_MODE_BACKBUFFER_HUDLESS;
+        if(round) init.initFlags=XEFG_SWAPCHAIN_INIT_FLAG_INVERTED_DEPTH;
+        XeFGExperiment::NewContextEpoch();
         FG(api.xefgSwapChainD3D12GetProperties(fg,&init,width,height,DXGI_FORMAT_R8G8B8A8_UNORM,&props),"allocation properties");
         std::printf("heapBytes buffers=%llu textures=%llu descriptors=%u\n",
             props.tempBufferHeapSize,props.tempTextureHeapSize,props.requiredDescriptorCount);
@@ -84,7 +110,8 @@ int wmain(int argc, wchar_t** argv) {
         ComPtr<IDXGISwapChain4> proxy;
         FG(api.xefgSwapChainD3D12GetSwapChainPtr(fg,IID_PPV_ARGS(&proxy)),"get exclusive XeFG proxy");
         Inputs input; input.Create(interop,d11.Get(),width,height);
-        FG(api.xefgSwapChainSetNumInterpolatedFrames(fg,1),"select official x2 once");
+        unsigned activeCount=multiplier-1;
+        FG(api.xefgSwapChainSetNumInterpolatedFrames(fg,activeCount),"select requested count");
         FG(api.xefgSwapChainSetUiCompositionState(fg,XEFG_SWAPCHAIN_UI_COMPOSITION_STATE_ENABLED),"enable HUD extraction composition");
         FG(api.xefgSwapChainEnableDebugFeature(fg,XEFG_SWAPCHAIN_DEBUG_FEATURE_TAG_INTERPOLATED_FRAMES,1,nullptr),"debug generated-frame markers");
         unsigned generated=0, off=0, cuts=0;
@@ -96,6 +123,11 @@ int wmain(int argc, wchar_t** argv) {
             if(desired!=enabled) {
                 FG(api.xefgSwapChainSetEnabled(fg,desired),"frame-boundary enable change"); enabled=desired;
                 std::printf("phase round=%u frame=%u enabled=%u\n",round,frame,enabled);
+            }
+            const unsigned requested=cycle?1+((frame*3/frames)%3):multiplier-1;
+            if(requested!=activeCount) {
+                FG(api.xefgSwapChainSetNumInterpolatedFrames(fg,requested),"live multiplier change");activeCount=requested;
+                std::printf("multiplier round=%u frame=%u x=%u\n",round,frame,activeCount+1);
             }
             ++id; LL(api.xellSleep(ll,id),"sleep before first frame marker");
             LL(api.xellAddMarkerData(ll,id,XELL_SIMULATION_START),"simulation start");
@@ -147,12 +179,12 @@ int wmain(int argc, wchar_t** argv) {
             std::printf("present round=%u id=%u enabled=%u reset=%u frames=%u interpolation=%d\n",
                 round,id,status.isFrameGenEnabled,constants.resetHistory,status.framesPresented,static_cast<int>(status.frameGenResult));
             Require(status.isFrameGenEnabled==static_cast<unsigned>(enabled),"effective enabled state");
-            Require(status.framesPresented>=1 && status.framesPresented<=2,"official x2 frame count bound");
+            Require(status.framesPresented>=1 && status.framesPresented<=activeCount+1,"selected frame count bound");
             if(!enabled) { Require(status.framesPresented==1,"passthrough presents one frame"); ++off; }
             else if(constants.resetHistory) { Require(status.framesPresented==1,"reset suppresses interpolation"); ++cuts; }
-            else if(status.framesPresented==2 && status.frameGenResult==XEFG_SWAPCHAIN_RESULT_SUCCESS) ++generated;
+            else if(status.framesPresented==activeCount+1 && status.frameGenResult==XEFG_SWAPCHAIN_RESULT_SUCCESS) ++generated;
         }
-        Require(generated>frames/3 && off==16 && cuts==2,"passthrough, reset and sustained SDK x2");
+        Require(generated>frames/3 && off==16 && cuts==2,"passthrough, reset and sustained SDK generation");
         FG(api.xefgSwapChainSetEnabled(fg,0),"disable before destruction");
         Check(interop.Drain(),"client queue retirement before release");
         c11->ClearState(); c11->Flush();
@@ -180,6 +212,13 @@ int wmain(int argc, wchar_t** argv) {
         Require(errors==0,"D3D12 debug layer contains no errors/corruption");
     }
     DestroyWindow(window); UnregisterClassW(wc.lpszClassName,wc.hInstance);
-    std::printf("PASS mode=%s sdkGeneratedPresents=%u physicalCadenceVerified=false AMDValidated=%s\n",
-        probeOnly?"capability-only":"D3D11-shared-inputs-off-x2-off-recreate",totalGenerated,ad.VendorId==0x1002?"SDK-only":"false");
+    if(!eventsPath.empty()) XeFGExperiment::SaveEvents(eventsPath.c_str());
+    const auto pacing=XeFGExperiment::Snapshot();
+    std::printf("pacing presents=%llu scheduled=%llu refused=%llu wallWaits=%llu deadlines=%llu contexts=%llu\n",
+        pacing.presents,pacing.scheduled,pacing.refused,pacing.wallWaits,pacing.deadlines,pacing.contextChanges);
+    if(unlock && multiplier>2 && !probeOnly) Require(pacing.presents>0,"actual generated-frame hooks exercised");
+    if(forceRefusal && !probeOnly) Require(pacing.refused>0 && pacing.wallWaits>0 && pacing.scheduled==0,"actual scheduler refusal and wall-wait fallback");
+    if(XeFGPixelCapture::active) Require(pixelCapture.saved==9,"three complete generated-image capture bursts");
+    std::printf("PASS mode=%s multiplier=%u cycle=%u minimumIntervalUs=%u sdkGeneratedPresents=%u physicalCadenceVerified=false AMDValidated=%s\n",
+        probeOnly?"capability-only":"D3D11-shared-inputs-off-generation-off-recreate",multiplier,cycle,minimumIntervalUs,totalGenerated,ad.VendorId==0x1002?"SDK-only":"false");
 }
