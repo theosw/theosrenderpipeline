@@ -4,6 +4,18 @@
 
 namespace TheosRenderPipeline::SourceDLSSG
 {
+	// How Backend::Check handles one checked result, kept apart from Backend so
+	// the first-fault latch and single report are testable without Streamline.
+	struct CheckRouting
+	{
+		bool latch{};            // First failure: record it, log it and Report it once.
+		bool logExtendedWait{};  // The pending extended wait is not in that report.
+	};
+	// a_latched is the backend's current fault. a_extendedWait is the wait taken
+	// for this check, or null when none was pending.
+	CheckRouting RouteCheck(HRESULT a_result, HRESULT a_latched, const InteropFailureDiagnostics& a_interop,
+		const RetirementWaitDiagnostics* a_extendedWait) noexcept;
+
 	// Observation only. Never retries work, waits for completion, or releases
 	// device/resource owners. The backend retains its original first error and
 	// calls Report only for that first fault.

@@ -78,6 +78,20 @@ namespace TheosRenderPipeline::SourceDLSSG
 		}
 	}
 
+	CheckRouting RouteCheck(HRESULT a_result, HRESULT a_latched, const InteropFailureDiagnostics& a_interop,
+		const RetirementWaitDiagnostics* a_extendedWait) noexcept
+	{
+		CheckRouting routing;
+		routing.latch = FAILED(a_result) && SUCCEEDED(a_latched);
+		if (a_extendedWait) {
+			// A retained interop fault is always reported with its own wait record.
+			const bool reportCarriesWait = routing.latch && a_interop.valid &&
+				a_interop.wait.work == a_extendedWait->work && a_interop.wait.target == a_extendedWait->target;
+			routing.logExtendedWait = !reportCarriesWait;
+		}
+		return routing;
+	}
+
 	bool DeviceLossDiagnostics::ReadDREDSetting(const wchar_t* a_path) noexcept
 	{
 		LastErrorScope preserve;

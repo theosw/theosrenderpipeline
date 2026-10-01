@@ -123,6 +123,73 @@ static void Contracts(std::ostringstream& log)
     std::puts("PASS: settings, first failure, absent devices, preserved errors, bounded DRED serialization");
 }
 
+static std::size_t Count(const std::ostringstream& log, std::string_view text)
+{
+    std::size_t count = 0;
+    const auto all = log.str();
+    for (auto at = all.find(text); at != std::string::npos; at = all.find(text, at + text.size())) { ++count; }
+    return count;
+}
+
+static void Routing(std::ostringstream& log)
+{
+    const auto removed = DXGI_ERROR_DEVICE_REMOVED;
+    const auto stalledResult = HRESULT_FROM_WIN32(WAIT_TIMEOUT);
+    InteropFailureDiagnostics stalled;
+    stalled.valid = true;
+    stalled.stage = "fence stalled retirement";
+    stalled.work = Work::FrameGeneration;
+    stalled.result = stalledResult;
+    stalled.wait = { Work::FrameGeneration, 12, 5, 5, 140, 7, stalledResult };
+    stalled.waitPolicy = { 20, 100 };
+    stalled.waitPerformed = true;
+    stalled.waitResult = WAIT_TIMEOUT;
+    const auto sameWait = stalled.wait;
+    const RetirementWaitDiagnostics otherWork{ Work::Upscaling, 30, 28, 30, 2100, 1, S_OK };
+
+    auto r = RouteCheck(S_OK, S_OK, {}, nullptr);
+    Require(!r.latch && !r.logExtendedWait, "success with nothing pending is silent");
+    r = RouteCheck(S_OK, S_OK, {}, &otherWork);
+    Require(!r.latch && r.logExtendedWait, "slow successful wait keeps its warning");
+    r = RouteCheck(removed, S_OK, {}, nullptr);
+    Require(r.latch && !r.logExtendedWait, "first failure latches");
+    r = RouteCheck(stalledResult, S_OK, stalled, &sameWait);
+    Require(r.latch && !r.logExtendedWait, "report carrying the failing wait replaces its warning");
+    r = RouteCheck(stalledResult, S_OK, stalled, &otherWork);
+    Require(r.latch && r.logExtendedWait, "a different work's wait is not in the report");
+    r = RouteCheck(removed, S_OK, {}, &sameWait);
+    Require(r.latch && r.logExtendedWait, "no retained interop fault: the report carries no wait");
+    r = RouteCheck(removed, stalledResult, stalled, &sameWait);
+    Require(!r.latch && r.logExtendedWait, "later failure is not reported, so its wait is still logged");
+    r = RouteCheck(removed, stalledResult, stalled, nullptr);
+    Require(!r.latch && !r.logExtendedWait, "later failure stays unlatched");
+    r = RouteCheck(S_OK, stalledResult, stalled, nullptr);
+    Require(!r.latch, "success after a fault does not clear or relatch it");
+
+    // The backend applies only routing.latch to its fault and the reporter, so
+    // a sequence of checks writes one report for the first failure.
+    DeviceLossDiagnostics reporter;
+    HRESULT fault = S_OK;
+    const auto check = [&](HRESULT result, const char* operation, const InteropFailureDiagnostics& interop,
+                           const RetirementWaitDiagnostics* wait) {
+        const auto routing = RouteCheck(result, fault, interop, wait);
+        if (routing.latch) {
+            fault = result;
+            (void)reporter.Report(result, operation, 1, nullptr, nullptr, interop);
+        }
+        return routing;
+    };
+    check(S_OK, "begin upscaling", {}, &otherWork);
+    check(stalledResult, "begin NR before DLSS", stalled, &sameWait);
+    check(removed, "outer Present", stalled, nullptr);
+    check(removed, "Drain", stalled, &otherWork);
+    Require(fault == stalledResult, "first failure stays the backend fault");
+    Require(Count(log, "[GPUFailure] first failure") == 1, "exactly one GPU failure report");
+    Require(Contains(log, "operation=begin NR before DLSS") && !Contains(log, "operation=outer Present") &&
+        !Contains(log, "operation=Drain"), "report names the first failing operation only");
+    std::puts("PASS: check routing, first-fault latch, extended-wait ownership and single report");
+}
+
 static void SoftwareDeviceLoss(std::ostringstream& log, bool dredEnabled)
 {
     DeviceLossDiagnostics diagnostic;
@@ -246,6 +313,7 @@ int main(int argc, char** argv)
     auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(log);
     spdlog::set_default_logger(std::make_shared<spdlog::logger>("device-loss-test", sink));
     if (argc > 1 && std::string_view(argv[1]) == "contracts") { Contracts(log); }
+    else if (argc > 1 && std::string_view(argv[1]) == "routing") { Routing(log); }
     else { SoftwareDeviceLoss(log, argc > 1 && std::string_view(argv[1]) == "dred"); }
     std::fputs(log.str().c_str(), stdout);
     return 0;
