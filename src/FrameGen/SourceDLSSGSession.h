@@ -5,7 +5,7 @@
 #include <sl_dlss_g.h>
 #include <sl_reflex.h>
 #include "SourceDLSSGGeneration.h"
-#include "SourceDLSSGMFGContract.h"
+#include "../../extern/dlssg-turing/src/SourceDLSSGMFGContract.h"
 #include "SourceDLSSGReflexTelemetry.h"
 #include "SourceDLSSGOutputBatches.h"
 

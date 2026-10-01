@@ -36,15 +36,20 @@ runtimes retain the license files accompanying their downloads.
 - **FidelityFX RCAS / RCAS for ReShade** — AMD and RdenBlaauwen, MIT; sharpening
   shader adapted through the ReShade implementation.
   https://github.com/RdenBlaauwen/RCAS-for-ReShade
+- **dlssg-turing** — Theo, this project's GPL licence and exceptions; the
+  Ada/Ampere/Turing MFG compatibility runtime, vendored under
+  extern/dlssg-turing with git subtree. It contains the adapted RTX40MFG-Unlock
+  and MFGAmpereUnlock-RenoDx code below under extern/dlssg-turing/extern.
+  https://github.com/theosw/dlssg-turing
 - **RTX40MFG-Unlock** — Michael Robles, MIT; Ada temporal patch and provider
   helpers, revision 4ab7b5e16941e065f81c665b6d7fe2c2e2ec843f.
   https://github.com/dashdogy/RTX40MFG-Unlock
 - **MFGAmpereUnlock-RenoDx** — ImDreamt, mavismmg and nefh, MIT; SM86 PTX
   preparation, provider architecture policy and scoped NGX/NVAPI compatibility
   techniques, adapted from revision dd349cdbbae6525188e71fbf2e6d3c648be40db9.
-  The experimental SM75 subset in extern/MFGTuring is from revision
-  93c5725a534840dc0fa7b1986b216e6b9da3877d, with strict instruction lowering
-  and compressed-container rebuilding. The same MIT notice below applies.
+  The experimental SM75 subset in extern/dlssg-turing/extern/MFGTuring is from
+  revision 93c5725a534840dc0fa7b1986b216e6b9da3877d, with strict instruction
+  lowering and compressed-container rebuilding. The same MIT notice below applies.
   https://github.com/nefh/MFGAmpereUnlock-RenoDx
 - **NVAPI** — NVIDIA, MIT; minimal public architecture-query ABI declarations,
   revision 87dca625e83fd89a983e19b904e5f3a580da90d2.

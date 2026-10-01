@@ -110,7 +110,6 @@ set(ARP_BASELINE_SOURCES
     src/FrameGen/NeuralRenderingPassSettings.h
     src/FrameGen/SourceDLSSGNeuralSecondPass.inl
     src/FrameGen/NeuralRenderingTuning.h
-    src/FrameGen/SourceDLSSGMFGPatch.h
     src/FrameGen/SourceDLSSGBackend.cpp
     src/FrameGen/SourceDLSSGBackend.h
     src/FrameGen/SourceDLSSGCamera.cpp
@@ -128,7 +127,6 @@ set(ARP_BASELINE_SOURCES
     src/FrameGen/SourceDLSSGDeviceLoss.h
     src/FrameGen/SourceDLSSGInterop.h
     src/FrameGen/SourceDLSSGMFG.h
-    src/FrameGen/SourceDLSSGMFGContract.h
     src/FrameGen/SourceDLSSGNeuralRendering.h
     src/FrameGen/SourceDLSSGNeuralState.h
     src/FrameGen/SourceDLSSGNeuralResolve.h

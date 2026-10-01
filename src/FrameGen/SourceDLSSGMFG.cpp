@@ -2,10 +2,10 @@
 #include "SourceDLSSGMFG.h"
 #include "../PluginPaths.h"
 #include "CommunityShaderIntegration.h"
-#include "SourceDLSSGMFGPatch.h"
-#include "../../extern/RTX40MFG/midpoint_fix.h"
-#include "../../extern/RTX40MFG/dlssg_provider_policy.h"
-#include "../../extern/MFGAmpere/runtime.hpp"
+#include "../../extern/dlssg-turing/src/SourceDLSSGMFGPatch.h"
+#include "../../extern/dlssg-turing/extern/RTX40MFG/midpoint_fix.h"
+#include "../../extern/dlssg-turing/extern/RTX40MFG/dlssg_provider_policy.h"
+#include "../../extern/dlssg-turing/src/runtime.hpp"
 #include <d3d12.h>
 #include <cstring>
 #include <spdlog/spdlog.h>

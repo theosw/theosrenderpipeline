@@ -1,6 +1,6 @@
 #pragma once
-#include "SourceDLSSGMFGContract.h"
-#include "../../extern/RTX40MFG/midpoint_fix.h"
+#include "../../extern/dlssg-turing/src/SourceDLSSGMFGContract.h"
+#include "../../extern/dlssg-turing/extern/RTX40MFG/midpoint_fix.h"
 #include <Windows.h>
 #include <filesystem>
 
