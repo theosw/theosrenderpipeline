@@ -123,6 +123,9 @@ inline const char* ValidateRendererSettings(const RendererSettingsDraft& draft,
     {
         return "Dynamic target output FPS must be 0 or between 61 and 1000.";
     }
+    if (!TheosRenderPipeline::ValidProvider(static_cast<int>(draft.sourceDLSSG.provider))) {
+        return "Choose NVIDIA DLSS-G or Intel XeFG.";
+    }
 #if !defined(TRP_NO_NEURAL_RENDERING)
     if (draft.sourceDLSSG.neuralEnabled)
     {

@@ -778,6 +778,15 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
+## Intel XeFG and XeLL test integration
+
+The public API headers are from Intel XeSS SDK commit
+`de0fb9c1c510661c571164e1418ceca8101dab69` (XeFG 1.3 / XeLL 1.3).
+Header license: MIT; Copyright (c) 2026 Intel Corporation.
+The independently supplied runtime binaries have their own Intel Simplified
+Software License. Candidate packages reproduce it in `licenses/Intel-XeSS-LICENSE.txt`.
+No Intel runtime binaries are stored in this repository.
+
 ## ReShade public API license
 
 Copyright 2014 Patrick Mours. All rights reserved.

@@ -90,6 +90,9 @@ public:
 	HRESULT RebuildBuffers(bool a_gameFacing = true);
 
 private:
+	friend class Backend;
+	void ReleaseInnerAfterRetirement();
+	HRESULT AttachInner(IDXGISwapChain* inner);
 	~SwapChain();
 
 	std::atomic<ULONG> references_{ 1 };
@@ -104,6 +107,7 @@ private:
 	std::array<SharedTexture, 2> buffers_;
 	std::array<Microsoft::WRL::ComPtr<ID3D12Resource>, 2> nativeBuffers_;
 	HRESULT BeginPresent();
+	HRESULT FinishPresent(HRESULT a_presented);
 	HRESULT StartHDROutput(HRESULT a_presented);
 	void ObservePresentationFeedback(HRESULT a_presentResult);
 };

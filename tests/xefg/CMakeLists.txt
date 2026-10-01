@@ -27,3 +27,10 @@ enable_testing()
 add_test(NAME XeFGProductionInterop COMMAND TRPXeFGInteropTests)
 set_tests_properties(XeFGProductionInterop PROPERTIES TIMEOUT 60)
 # SDK execution is explicit: no automatic DLL acquisition or game deployment.
+set(STREAMLINE_INCLUDE "${TRP_ROOT}/.dependencies/Streamline/include" CACHE PATH "Streamline public headers")
+add_executable(TRPXeFGPresenterTests XeFGPresenterTests.cpp "${TRP_ROOT}/src/FrameGen/XeFGPresenter.cpp"
+    "${TRP_ROOT}/src/FrameGen/SourceDLSSGInterop.cpp" "${TRP_ROOT}/src/FrameGen/SourceDLSSGSession.cpp")
+target_compile_features(TRPXeFGPresenterTests PRIVATE cxx_std_23)
+target_compile_definitions(TRPXeFGPresenterTests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
+target_include_directories(TRPXeFGPresenterTests PRIVATE "${TRP_ROOT}/src" "${XESS_SDK}/inc" "${STREAMLINE_INCLUDE}")
+target_link_libraries(TRPXeFGPresenterTests PRIVATE d3d11 d3d12 dxgi user32 dbghelp)

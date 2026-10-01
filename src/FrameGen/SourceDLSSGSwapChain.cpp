@@ -23,6 +23,7 @@ SwapChain::~SwapChain()
 		// A timed-out reader may still own these resources. Retain until exit.
 		for (auto& pair : buffers_) { pair.texture11.Detach(); pair.texture12.Detach(); }
 		for (auto& resource : nativeBuffers_) { resource.Detach(); }
+		inner4_.Detach(); inner3_.Detach(); inner2_.Detach(); inner1_.Detach(); inner_.Detach();
 	}
 }
 
@@ -66,22 +67,22 @@ ULONG STDMETHODCALLTYPE SwapChain::Release()
 
 HRESULT STDMETHODCALLTYPE SwapChain::SetPrivateData(REFGUID a_name, UINT a_size, const void* a_data)
 {
-	return inner_->SetPrivateData(a_name, a_size, a_data);
+	return inner_ ? inner_->SetPrivateData(a_name, a_size, a_data) : E_UNEXPECTED;
 }
 
 HRESULT STDMETHODCALLTYPE SwapChain::SetPrivateDataInterface(REFGUID a_name, const IUnknown* a_unknown)
 {
-	return inner_->SetPrivateDataInterface(a_name, a_unknown);
+	return inner_ ? inner_->SetPrivateDataInterface(a_name, a_unknown) : E_UNEXPECTED;
 }
 
 HRESULT STDMETHODCALLTYPE SwapChain::GetPrivateData(REFGUID a_name, UINT* a_size, void* a_data)
 {
-	return inner_->GetPrivateData(a_name, a_size, a_data);
+	return inner_ ? inner_->GetPrivateData(a_name, a_size, a_data) : E_UNEXPECTED;
 }
 
 HRESULT STDMETHODCALLTYPE SwapChain::GetParent(REFIID a_iid, void** a_parent)
 {
-	return inner_->GetParent(a_iid, a_parent);
+	return inner_ ? inner_->GetParent(a_iid, a_parent) : E_UNEXPECTED;
 }
 
 HRESULT STDMETHODCALLTYPE SwapChain::GetDevice(REFIID a_iid, void** a_device)
@@ -91,12 +92,12 @@ HRESULT STDMETHODCALLTYPE SwapChain::GetDevice(REFIID a_iid, void** a_device)
 
 HRESULT STDMETHODCALLTYPE SwapChain::Present(UINT a_syncInterval, UINT a_flags)
 {
-	if (a_flags & DXGI_PRESENT_TEST) { return inner_->Present(a_syncInterval, a_flags); }
+	if (a_flags & DXGI_PRESENT_TEST) { return inner_ ? inner_->Present(a_syncInterval, a_flags) : E_UNEXPECTED; }
 	const auto prepared = BeginPresent();
 	if (FAILED(prepared)) { return prepared; }
 	const auto presented = inner_->Present(a_syncInterval, a_flags);
 	ObservePresentationFeedback(presented);
-	return StartHDROutput(backend_.AfterPresent(presented));
+	return FinishPresent(presented);
 }
 
 HRESULT STDMETHODCALLTYPE SwapChain::GetBuffer(UINT a_buffer, REFIID a_iid, void** a_surface)
@@ -109,17 +110,17 @@ HRESULT STDMETHODCALLTYPE SwapChain::GetBuffer(UINT a_buffer, REFIID a_iid, void
 
 HRESULT STDMETHODCALLTYPE SwapChain::SetFullscreenState(BOOL a_fullscreen, IDXGIOutput* a_target)
 {
-	return inner_->SetFullscreenState(a_fullscreen, a_target);
+	return inner_ ? inner_->SetFullscreenState(a_fullscreen, a_target) : E_UNEXPECTED;
 }
 
 HRESULT STDMETHODCALLTYPE SwapChain::GetFullscreenState(BOOL* a_fullscreen, IDXGIOutput** a_target)
 {
-	return inner_->GetFullscreenState(a_fullscreen, a_target);
+	return inner_ ? inner_->GetFullscreenState(a_fullscreen, a_target) : E_UNEXPECTED;
 }
 
 HRESULT STDMETHODCALLTYPE SwapChain::GetDesc(DXGI_SWAP_CHAIN_DESC* a_desc)
 {
-	const auto result = inner_->GetDesc(a_desc);
+	const auto result = inner_ ? inner_->GetDesc(a_desc) : E_UNEXPECTED;
 	if (SUCCEEDED(result)) { a_desc->BufferDesc.Format = gameFormat_; }
 	return result;
 }
@@ -150,22 +151,22 @@ HRESULT STDMETHODCALLTYPE SwapChain::ResizeTarget(const DXGI_MODE_DESC* a_desc)
 {
 	if (!a_desc) { return E_INVALIDARG; }
 	auto desc = *a_desc; desc.Format = backend_.NativeFormat(desc.Format);
-	return inner_->ResizeTarget(&desc);
+	return inner_ ? inner_->ResizeTarget(&desc) : E_UNEXPECTED;
 }
 
 HRESULT STDMETHODCALLTYPE SwapChain::GetContainingOutput(IDXGIOutput** a_output)
 {
-	return inner_->GetContainingOutput(a_output);
+	return inner_ ? inner_->GetContainingOutput(a_output) : E_UNEXPECTED;
 }
 
 HRESULT STDMETHODCALLTYPE SwapChain::GetFrameStatistics(DXGI_FRAME_STATISTICS* a_stats)
 {
-	return inner_->GetFrameStatistics(a_stats);
+	return inner_ ? inner_->GetFrameStatistics(a_stats) : E_UNEXPECTED;
 }
 
 HRESULT STDMETHODCALLTYPE SwapChain::GetLastPresentCount(UINT* a_count)
 {
-	return inner_->GetLastPresentCount(a_count);
+	return inner_ ? inner_->GetLastPresentCount(a_count) : E_UNEXPECTED;
 }
 
 HRESULT STDMETHODCALLTYPE SwapChain::GetDesc1(DXGI_SWAP_CHAIN_DESC1* a_desc)
@@ -201,7 +202,7 @@ HRESULT STDMETHODCALLTYPE SwapChain::Present1(
 	if (FAILED(prepared)) { return prepared; }
 	const auto presented = inner1_->Present1(a_syncInterval, a_flags, a_parameters);
 	ObservePresentationFeedback(presented);
-	return StartHDROutput(backend_.AfterPresent(presented));
+	return FinishPresent(presented);
 }
 
 BOOL STDMETHODCALLTYPE SwapChain::IsTemporaryMonoSupported()
@@ -336,6 +337,7 @@ HRESULT SwapChain::RebuildBuffers(bool a_gameFacing)
 	auto result = inner_->GetDesc(&desc);
 	if (FAILED(result)) { return result; }
 	if (desc.BufferCount != buffers_.size()) { return DXGI_ERROR_INVALID_CALL; }
+	backend_.presenterDesc_ = desc;
 	for (UINT i = 0; i < buffers_.size(); ++i) {
 		result = inner_->GetBuffer(i, IID_PPV_ARGS(nativeBuffers_[i].ReleaseAndGetAddressOf()));
 		if (FAILED(result)) { return result; }
@@ -349,6 +351,18 @@ HRESULT SwapChain::RebuildBuffers(bool a_gameFacing)
 		if (FAILED(result)) { return result; }
 	}
 	return S_OK;
+}
+
+// One post-Present boundary: retire the frame, then either replace the
+// presenter or start live HDR output. A provider switch replaces the presenter
+// this frame, so a pending HDR start waits for the next Present.
+HRESULT SwapChain::FinishPresent(HRESULT a_presented)
+{
+	const auto completed = backend_.AfterPresent(a_presented);
+	if (FAILED(completed)) { return completed; }
+	const bool switching = backend_.ProviderSwitchPending();
+	if (!backend_.ApplyProviderSwitch(*this)) { return E_FAIL; }
+	return switching ? completed : StartHDROutput(completed);
 }
 
 // Starts renderer-owned HDR between frames without a restart. Only the native
@@ -389,6 +403,30 @@ HRESULT SwapChain::BeginPresent()
 	}
 	return backend_.BeforePresent(buffers_[index].texture12.Get(), nativeBuffers_[index].Get(),
 		colorSpace_.load(std::memory_order_relaxed));
+}
+
+void SwapChain::ReleaseInnerAfterRetirement()
+{
+	nativeBuffers_ = {};
+	inner4_.Reset(); inner3_.Reset(); inner2_.Reset(); inner1_.Reset(); inner_.Reset();
+}
+HRESULT SwapChain::AttachInner(IDXGISwapChain* inner)
+{
+	if (!inner || inner_) { return E_INVALIDARG; }
+	inner_ = inner;
+	inner_.As(&inner1_); inner_.As(&inner2_); inner_.As(&inner3_); inner_.As(&inner4_);
+	if (!inner3_) { return E_NOINTERFACE; }
+	DXGI_SWAP_CHAIN_DESC desc{};
+	auto result = inner_->GetDesc(&desc);
+	if (FAILED(result)) { return result; }
+	if (desc.BufferCount != buffers_.size()) { return DXGI_ERROR_INVALID_CALL; }
+	for (UINT i = 0; i < nativeBuffers_.size(); ++i) {
+		if (!buffers_[i].texture11 || buffers_[i].desc.Width != desc.BufferDesc.Width ||
+			buffers_[i].desc.Height != desc.BufferDesc.Height) { return DXGI_ERROR_INVALID_CALL; }
+		result = inner_->GetBuffer(i, IID_PPV_ARGS(&nativeBuffers_[i]));
+		if (FAILED(result)) { return result; }
+	}
+	return inner3_->SetColorSpace1(colorSpace_.load(std::memory_order_relaxed));
 }
 
 void SwapChain::ObservePresentationFeedback(HRESULT a_presentResult)

@@ -149,12 +149,12 @@ namespace TheosRenderPipeline::SourceDLSSG
 			return true;
 		}
 		bool BeforePresent(bool a_enableGeneration, bool a_testOnly = false);
-		bool AfterPresent(bool a_presentSucceeded, bool a_testOnly = false);
+		bool AfterPresent(bool a_presentSucceeded, bool a_testOnly = false, bool a_suspend = false);
 		// Stop generation before resize. The owner must then retire all GPU work
 		// before destroying tagged textures. Resume the SAME session after rebuild
 		// so frame tokens remain monotonic across resizes.
 		bool Stop();
-		bool ResumeAfterResize();
+        bool ResumeAfterResize(std::uint32_t lastApplicationFrame = 0);
 		const SessionSnapshot& Snapshot() const { return snapshot_; }
 		ReflexTelemetrySnapshot ReflexTelemetry() const { return reflexTelemetry_.Snapshot(); }
 		OutputBatchSnapshot OutputBatches() const { return outputBatches_.Snapshot(); }
@@ -162,7 +162,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		static bool ValidGuides(const FrameGuides& a_guides);
 
 	private:
-		bool BeginFrame(bool a_afterPresent = false);
+		bool BeginFrame(bool a_afterPresent = false, bool a_suspend = false);
 		bool ClearTags();
 		bool SubmitOptions(const char* a_operation);
 		bool Mark(sl::PCLMarker a_marker, const char* a_operation);

@@ -78,7 +78,7 @@ namespace
     }
     sl::Result Tags(const sl::ViewportHandle&, const sl::ResourceTag*, std::uint32_t, sl::CommandBuffer*)
     { return runtime->Call("tags"); }
-    sl::Result Reflex(const sl::ReflexOptions&) { return runtime->Call("reflex"); }
+    sl::Result Reflex(const sl::ReflexOptions& value) { return runtime->Call(value.mode == sl::ReflexMode::eOff ? "reflex-off" : "reflex"); }
     sl::Result Sleep(const sl::FrameToken&) { return runtime->Call("sleep"); }
     sl::Result Marker(sl::PCLMarker marker, const sl::FrameToken&)
     { return runtime->Call(marker == sl::PCLMarker::ePresentStart ? "present-start" : "marker"); }
@@ -136,6 +136,25 @@ namespace
 
 int main()
 {
+    {
+        Runtime r; Session s; Require(s.Start(API(r), 7), "provider suspend starts");
+        Prepare(s, true); Require(s.BeforePresent(true), "provider suspend frame");
+        const auto sleeps = std::count(r.calls.begin(), r.calls.end(), "sleep");
+        const auto tokens = std::count(r.calls.begin(), r.calls.end(), "token");
+        const auto waits = r.waits;
+        Require(s.AfterPresent(true, false, true), "complete and suspend at Present boundary");
+        Require(s.Snapshot().stage == SessionStage::Stopped && r.waits == waits + 1,
+            "input readers retire before presenter replacement");
+        Require(r.submitted.mode == sl::DLSSGMode::eOff && s.Snapshot().reflexSubmitted == sl::ReflexMode::eOff &&
+            std::find(r.calls.begin(),r.calls.end(),"reflex-off") != r.calls.end(), "NVIDIA generation and latency disabled");
+        Require(std::count(r.calls.begin(),r.calls.end(),"sleep") == sleeps &&
+            std::count(r.calls.begin(),r.calls.end(),"token") == tokens, "no next-frame NVIDIA sleep when suspending");
+        const auto frame = s.Snapshot().frameIndex;
+        const auto resumeCall = r.calls.size();
+        Require(s.ResumeAfterResize(frame + 100) && s.Snapshot().frameIndex == frame + 101, "resume after the other provider's application frames");
+        Require(r.calls[resumeCall] == "reflex", "restore latency options before any resumed sleep/marker");
+        Prepare(s); Require(r.lastReset, "provider return resets frame-generation history");
+    }
     {
         Runtime r; Session s;
         Require(s.Start(API(r), 7), "depth convention scenario starts");

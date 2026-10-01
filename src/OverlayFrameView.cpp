@@ -43,10 +43,11 @@ OverlayUI::FrameView OverlayUI::CaptureFrameView()
     auto* nvidiaHost = NvidiaHost::GetSingleton();
     view.nvidiaHostActive = nvidiaHost->ProxyActive();
     view.sourceDLSSGActive = view.nvidiaHostActive && nvidiaHost->StartupConfigured();
-    const bool dlssgEnabled = view.sourceDLSSGActive && TheosRenderPipeline::SourceDLSSG::Backend::Get().Snapshot().GenerationActive();
+    const auto& presentation = TheosRenderPipeline::SourceDLSSG::Backend::Get();
+    const bool dlssgEnabled = view.sourceDLSSGActive && presentation.GenerationActive();
     view.frameGenerationRuntimeActive = dlssgEnabled;
     view.activeDisplayMultiplier = view.frameGenerationRuntimeActive && view.sourceDLSSGActive
-                                       ? TheosRenderPipeline::SourceDLSSG::Backend::Get().Snapshot().options.numFramesToGenerate + 1u
+                                       ? presentation.EffectiveMultiplier()
                                        : 1u;
     view.sourceNeural = view.sourceDLSSGActive ? TheosRenderPipeline::SourceDLSSG::Backend::Get().NeuralState()
                                                : TheosRenderPipeline::SourceDLSSG::NeuralSnapshot{};
@@ -134,12 +135,12 @@ OverlayUI::FrameView OverlayUI::CaptureFrameView()
     }
     if (view.frameGenerationRuntimeActive)
     {
-        std::snprintf(view.generationTitle, sizeof(view.generationTitle), "DLSS-G x%u", view.activeDisplayMultiplier);
+        std::snprintf(view.generationTitle, sizeof(view.generationTitle), "%s x%u", TheosRenderPipeline::ProviderName(presentation.Provider()), view.activeDisplayMultiplier);
     }
     else
     {
         std::snprintf(view.generationTitle, sizeof(view.generationTitle), "%s",
-                      view.nvidiaHostActive ? "DLSS-G off" : "Generation unavailable");
+                      view.nvidiaHostActive ? (presentation.Provider() == TheosRenderPipeline::FrameGenerationProvider::XeFG ? "XeFG off" : "DLSS-G off") : "Generation unavailable");
     }
     const auto& output = outputRate.Rate();
     view.outputText = output.available ? std::format("{:.1f} FPS", output.fps) : std::string("unavailable");

@@ -15,6 +15,8 @@
 #include "SourceDLSSGMFG.h"
 #include "SourceDLSSGPresentationFeedback.h"
 #include "SourceDLSSGRuntimeDiagnostics.h"
+#include "FrameGenerationProvider.h"
+#include "XeFGPresenter.h"
 #if defined(ARP_DEVELOPER_DIAGNOSTICS)
 #include "FrameGen/SourceOutputCapture.h"
 #endif
@@ -34,6 +36,17 @@ namespace TheosRenderPipeline::SourceDLSSG
 	{
 	public:
 		static Backend& Get();
+		void RequestProvider(FrameGenerationProvider provider) { if (ValidProvider(static_cast<int>(provider))) { requestedProvider_.store(provider); } }
+		FrameGenerationProvider Provider() const { return provider_; }
+		FrameGenerationProvider RequestedProvider() const { return requestedProvider_.load(); }
+		const XeFGSnapshot& XeFGState() const { return xefg_.Snapshot(); }
+		const std::string& ProviderStatus() const { return providerStatus_; }
+		bool GenerationActive() const { return Ready() && (provider_ == FrameGenerationProvider::XeFG ? xefg_.Snapshot().enabled : session_.Snapshot().GenerationActive()); }
+		unsigned EffectiveMultiplier() const { return provider_ == FrameGenerationProvider::XeFG ? 2 : session_.Snapshot().options.numFramesToGenerate + 1; }
+		std::uint32_t FrameIndex() const { return provider_ == FrameGenerationProvider::XeFG ? xefg_.Snapshot().frameId : nvidiaNeedsPresent_ ? xefg_.Snapshot().frameId + 1 : session_.Snapshot().frameIndex; }
+		bool ApplyProviderSwitch(SwapChain& wrapper);
+		// After AfterPresent: a switch will replace the presenter at this boundary.
+		bool ProviderSwitchPending() const { return providerSwitchPending_; }
 		void ConfigureMFGUnlock(bool requested) { if (!attempted_) { mfgUnlock_.Configure(requested); } }
 		const MFGSnapshot& MFGState() const { return mfgUnlock_.Snapshot(); }
 		HRESULT CreateSwapChain(IDXGIFactory* a_factory, ID3D11Device* a_device,
@@ -123,6 +136,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 		friend class SwapChain; // Transport failures use the same first-error latch.
 		Backend() = default;
 		bool Load(const std::filesystem::path& a_directory);
+		bool PreflightProviderSwitch();
+		HRESULT CreatePresenter(FrameGenerationProvider provider, IDXGISwapChain** result);
 		bool Check(sl::Result a_result, const char* a_operation);
 		bool Check(HRESULT a_result, const char* a_operation);
 		bool CheckSession(bool a_result);
@@ -157,6 +172,13 @@ namespace TheosRenderPipeline::SourceDLSSG
 		PFun_slUpgradeInterface* upgrade_{};
 		SessionAPI api_{};
 		Session session_;
+		XeFGPresenter xefg_;
+		FrameGenerationProvider provider_{FrameGenerationProvider::NVIDIA};
+		std::atomic<FrameGenerationProvider> requestedProvider_{FrameGenerationProvider::NVIDIA};
+		Microsoft::WRL::ComPtr<IDXGIFactory> nativeFactory_, streamlineFactory_;
+		DXGI_SWAP_CHAIN_DESC presenterDesc_{};
+		std::string providerStatus_{"NVIDIA presenter"};
+		bool providerSwitchPending_{}, cameraAvailable_{}, recreateXeFG_{}, nvidiaNeedsPresent_{};
 		sl::Result reportedStateQueryResult_{ sl::Result::eOk };
 		sl::Result reportedOptionsResult_{ sl::Result::eOk };
 		MFGUnlock mfgUnlock_;

@@ -6,6 +6,23 @@ Neural Rendering (NR), and native-resolution menus and HUD. Current version:
 
 ## Features
 
+This development branch adds an experimental **Frame generation > Provider**
+choice between NVIDIA DLSS-G and Intel XeFG x2. **Apply** switches the presenter
+after a completed world frame; DLSS/DLAA and NR settings are retained. XeLL owns
+latency while XeFG is active; Reflex resumes after the replacement NVIDIA
+swapchain's first normal Present. NVIDIA remains the packaged default.
+This first candidate still requires NVIDIA hardware for the shared host and
+does not establish AMD support, higher XeFG multipliers, or game acceptance.
+XeFG requires compatible SDR/HDR10 layers; FP16/scRGB inputs are rejected
+before the current presenter is retired.
+
+Builds require Intel XeSS SDK commit `de0fb9c1c510661c571164e1418ceca8101dab69`,
+with XeFG 1.3 / XeLL 1.3 headers, at `.dependencies/xess` or `TRP_XEFG_SDK_DIR`.
+Runtime DLLs belong in `Data/SKSE/Plugins/TheosRenderPipeline/Intel`.
+The standalone owner fixture is in `tests/xefg`; it must be run explicitly
+against the identified Intel and NVIDIA runtime directories. Its SDK output
+counts do not prove physical display cadence.
+
 - DLSS Super Resolution, DLAA, model presets and sharpening.
 - Frame generation and multi-frame generation (MFG).
 - NR before or after DLSS/DLAA, one or two independently configured passes,

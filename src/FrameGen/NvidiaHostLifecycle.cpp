@@ -183,9 +183,12 @@ void NvidiaHost::OnPresentCompleted(HRESULT a_result)
 
     // Consume the session snapshot after Present; querying Streamline again
     // here would consume its output-count delta a second time.
-    const auto& state = TheosRenderPipeline::SourceDLSSG::Backend::Get().Snapshot().state;
+    const auto& backend = TheosRenderPipeline::SourceDLSSG::Backend::Get();
+    const auto& state = backend.Snapshot().state;
+    if (backend.Provider() == TheosRenderPipeline::FrameGenerationProvider::NVIDIA) {
     UpdateRuntimeDLSSGState(static_cast<std::uint32_t>(state.status), state.numFramesActuallyPresented, state.minWidthOrHeight,
                             state.numFramesToGenerateMax);
+    }
 
     if (StartupConfigured() && SUCCEEDED(a_result) && !TheosRenderPipeline::CommunityShaders::Active())
     {
