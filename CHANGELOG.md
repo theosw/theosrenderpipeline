@@ -3,6 +3,9 @@
 - Reduce HUD ghosting in generated frames: DLSS-G now interpolates the HUD-less
   scene and the UI separately (UI recomposition). On by default, including for
   existing INIs; toggle it live under Frame generation. Small GPU/VRAM cost.
+- Fixed a black screen that could persist after a cell load while the game kept
+  running: a multi-second GPU stall no longer counts as a fatal fault. TRP keeps
+  waiting while the GPU makes progress and logs long waits.
 
 # 0.3.4
 

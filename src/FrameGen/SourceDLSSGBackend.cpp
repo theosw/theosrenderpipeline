@@ -28,6 +28,16 @@ namespace TheosRenderPipeline::SourceDLSSG
 	}
 	bool Backend::Check(HRESULT a_result, const char* a_operation)
 	{
+		// Interop Begin/Drain results are checked immediately, so a pending
+		// extended wait belongs to this operation. A crawling fence is a slow
+		// GPU; a frozen one that times out suggests a stalled dependency.
+		if (RetirementWaitDiagnostics wait; interop_.TakeExtendedWait(wait)) {
+			constexpr const char* works[]{ "upscaling", "frame generation", "swapchain" };
+			logger::warn("[SourceDLSSG] {} waited {} ms ({} slices) for {} retirement target={} completed={}->{} result=0x{:08X}",
+				a_operation, wait.elapsedMs, wait.slices,
+				wait.work < Work::Count ? works[static_cast<std::size_t>(wait.work)] : "unknown",
+				wait.target, wait.completedAtStart, wait.completedAtEnd, static_cast<std::uint32_t>(wait.result));
+		}
 		if (SUCCEEDED(a_result)) { return true; }
 		if (SUCCEEDED(fault_)) {
 			fault_ = a_result;
