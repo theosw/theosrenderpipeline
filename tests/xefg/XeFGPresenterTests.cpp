@@ -51,6 +51,8 @@ int wmain(int argc, wchar_t** argv) {
     Check(presenter.Probe(d12.Get(),std::filesystem::absolute(argv[1])),"production admission");
     Inputs input; input.Create(interop,d11.Get(),640,360,colorFormat); auto* stable=input.color.texture11.Get(); unsigned generated=0, uiTagged=0, generatedWithUI=0, generatedWithoutUI=0, frameTimeSent=0, frameTimeSkipped=0;
     const bool experimental=GetEnvironmentVariableW(L"TRP_XEFG_MFG_TEST",nullptr,0)!=0;
+    const bool expectRefusal=GetEnvironmentVariableW(L"TRP_XEFG_EXPECT_REFUSAL",nullptr,0)!=0;
+    Require(!expectRefusal||experimental,"refusal mode requires experimental request");
     std::array<unsigned,4> generatedCounts{};
     const bool nativeOnly=GetEnvironmentVariableW(L"TRP_XEFG_NATIVE_ONLY",nullptr,0)!=0;
     const bool releaseNvidia=GetEnvironmentVariableW(L"TRP_XEFG_RELEASE_NV",nullptr,0)!=0;
@@ -126,7 +128,8 @@ int wmain(int argc, wchar_t** argv) {
             const auto& state=presenter.Snapshot(); Require(state.framesPresented>=1&&state.framesPresented<=state.generatedFrames+1,"selected count bounds");
             if(!enable) Require(state.framesPresented==1,"off passthrough");
             Require(state.frameLimitUs==16667,"60-output cap remains independent of ratio");
-            Require(state.maxGeneratedFrames==(experimental && round<2?3u:1u),"opt-in capacity, including disable after resident unlock");
+            Require(state.maxGeneratedFrames==(experimental && !expectRefusal && round<2?3u:1u),"opt-in capacity, including disable after resident unlock");
+            if(expectRefusal) Require(!state.unlockReady && state.generatedFrames==1,"refused unlock retains official x2");
             if(enable && state.framesPresented==state.generatedFrames+1) {++generated;++generatedCounts[state.generatedFrames];++(state.uiTexture?generatedWithUI:generatedWithoutUI);}
             if(frame%30==0) std::printf("production round=%u requested=%u actual=%u outputs=%u capacity=%u optIn=%u\n",round,count+1,state.generatedFrames+1,state.framesPresented,state.maxGeneratedFrames+1,state.experimentalMFG);
             if(frame!=89) Check(presenter.BeginFrame(),"next frame");
@@ -150,7 +153,8 @@ int wmain(int argc, wchar_t** argv) {
     // AUTO must keep generating on frames without a UI layer, in SDR and HDR10.
     std::printf("generated withUI=%u withoutUI=%u hdr10=%u\n",generatedWithUI,generatedWithoutUI,hdr10);
     Require(nativeOnly||(generatedWithUI>20&&generatedWithoutUI>20),"generation with and without a UI layer");
-    if(experimental && !nativeOnly) Require(generatedCounts[1]>20 && generatedCounts[2]>20 && generatedCounts[3]>20,"production live x2/x3/x4 and disable-to-x2");
+    if(experimental && !nativeOnly && !expectRefusal) Require(generatedCounts[1]>20 && generatedCounts[2]>20 && generatedCounts[3]>20,"production live x2/x3/x4 and disable-to-x2");
+    if(expectRefusal && !nativeOnly) Require(generatedCounts[1]>100 && generatedCounts[2]==0 && generatedCounts[3]==0,"sustained official x2 after unlock refusal");
     for(UINT64 n=0;n<messages->GetNumStoredMessagesAllowedByRetrievalFilter();++n) {
         SIZE_T size{}; messages->GetMessage(n,nullptr,&size); std::vector<unsigned char> storage(size);
         auto* message=reinterpret_cast<D3D12_MESSAGE*>(storage.data()); messages->GetMessage(n,message,&size);

@@ -313,7 +313,7 @@ namespace TheosRenderPipeline
             const auto pacing=XeFGUnlock::Snapshot();
             const auto text="present frame="+std::to_string(snapshot_.frameId)+" outputs="+std::to_string(snapshot_.framesPresented)+
                 " requestedMultiplier="+std::to_string(snapshot_.generatedFrames+1)+" capacity="+std::to_string(snapshot_.maxGeneratedFrames+1)+
-                " intervalUs="+std::to_string(snapshot_.frameLimitUs)+" paced="+std::to_string(pacing.presents)+
+                " intervalUs="+std::to_string(snapshot_.frameLimitUs)+" processPacingCounters: presents="+std::to_string(pacing.presents)+
                 " refused="+std::to_string(pacing.refused)+" wallWaits="+std::to_string(pacing.wallWaits);
             log_(text.c_str());
         }

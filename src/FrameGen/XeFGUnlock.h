@@ -30,7 +30,7 @@ struct Event {
 using Observer = void (*)(const Event&) noexcept;
 struct Stats { std::uint64_t presents{}, scheduled{}, refused{}, wallWaits{}, deadlines{}, contextChanges{}; };
 // Hooks remain resident until all SDK contexts have been destroyed. Never unload
-// the module/code while patched. This fixture has exactly one active SDK owner.
+// the module/code while patched. The host permits exactly one active SDK owner.
 PatchResult Install(HMODULE runtime, Observer observer, std::string& reason, bool forceSchedulerRefusal=false);
 PatchResult EnsureInstalled(HMODULE runtime, std::string& reason);
 void NewContextEpoch();

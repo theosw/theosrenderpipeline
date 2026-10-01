@@ -7,7 +7,7 @@ Neural Rendering (NR), and native-resolution menus and HUD. Current version:
 ## Features
 
 This development branch adds an experimental **Frame generation > Provider**
-choice between NVIDIA DLSS-G and Intel XeFG x2. **Apply** switches the presenter
+choice between NVIDIA DLSS-G and Intel XeFG. **Apply** switches the presenter
 after a completed world frame; DLSS/DLAA and NR settings are retained. XeLL owns
 latency while XeFG is active; Reflex resumes after the replacement NVIDIA
 swapchain's first normal Present. NVIDIA remains the packaged default.
@@ -16,10 +16,22 @@ behind Skyrim's D3D11 renderer. Selecting it requires saving and restarting;
 Intel's runtime supplies the input resolution for each quality setting.
 XeSS startup creates XeFG/XeLL directly without loading NVIDIA Streamline or
 DLSS. It is the experimental cross-vendor configuration; AMD/Intel game
-acceptance and higher XeFG multipliers remain unverified. DLSS/DLAA and NR
+acceptance remains unverified. DLSS/DLAA and NR
 require NVIDIA RTX hardware. NR remains available with XeSS on NVIDIA hardware.
 XeFG requires compatible SDR/HDR10 layers; FP16/scRGB inputs are rejected
 before the current presenter is retired.
+
+XeFG defaults to official x2. **Experimental XeFG x3/x4** opts into a checked
+in-memory unlock for exactly `libxess_fg.dll` 1.3.1.78, SHA256
+`ec5e0c65e075570c6ede72618bb666d0be0c2e10b2ea9762c0fe8cb8e375ab27`.
+Apply recreates the Intel presenter after retirement, without a game restart;
+then x2/x3/x4 can change during the session. Turning the option off restores x2
+operation, retaining its saved multiplier and the separate NVIDIA preferences.
+Published patches remain resident for the process lifetime. An unsupported
+runtime or verified patch refusal retains x2; an uncertain patch state stops
+the provider and requires a restart. The menu shows admission and capacity.
+Standalone RTX testing does not establish Skyrim or AMD MFG acceptance,
+physical cadence or interpolation quality. No runtime file is patched on disk.
 
 Builds require Intel XeSS SDK commit `de0fb9c1c510661c571164e1418ceca8101dab69`,
 with XeSS SR / XeFG 1.3 / XeLL 1.3 headers, at `.dependencies/xess` or `TRP_XEFG_SDK_DIR`.

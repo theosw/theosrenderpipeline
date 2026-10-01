@@ -113,7 +113,7 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& v
                 const auto& state = sourceBackend.XeFGState();
                 ImGui::Text("XeFG frame: %u | result: %d | warnings: %llu", state.frameId, state.interpolationResult,
                     static_cast<unsigned long long>(state.warnings));
-                ImGui::Text("XeLL application interval: %u us", state.frameLimitUs);
+                ImGui::Text("XeLL output interval: %u us", state.frameLimitUs);
             }
             ImGui::TextWrapped("%s", nvidiaHost->Status().c_str());
             if (view.sourceDLSSGActive && !intel)
@@ -167,8 +167,10 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& v
             auto& request = settingsDraft.sourceDLSSG.generation;
             auto& requestedCount=editIntel?settingsDraft.sourceDLSSG.xefg.generatedFrames:request.generatedFrames;
             const char* multipliers[]{"x2", "x3", "x4", "x5", "x6"};
+            const auto shownCount=editIntel&&!settingsDraft.sourceDLSSG.xefg.experimentalMFG?1u:requestedCount;
             ImGui::SetNextItemWidth(-1.0f);
-            if (ImGui::BeginCombo("##sourceMultiplier", multipliers[std::clamp(requestedCount, 1u, editIntel?3u:5u) - 1]))
+            ImGui::BeginDisabled(editIntel&&!settingsDraft.sourceDLSSG.xefg.experimentalMFG);
+            if (ImGui::BeginCombo("##sourceMultiplier", multipliers[std::clamp(shownCount, 1u, editIntel?3u:5u) - 1]))
             {
                 for (unsigned count = 1; count <= (editIntel?3u:5u); ++count)
                 {
@@ -181,6 +183,7 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& v
                 }
                 ImGui::EndCombo();
             }
+            ImGui::EndDisabled();
             if(!editIntel) {
             if (supportsDynamic)
             {

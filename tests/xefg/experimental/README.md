@@ -1,8 +1,10 @@
 # Isolated XeFG x2–x4 experiment
 
-This code is only linked into the standalone XeFG fixture. It does not enable
-MFG in the Skyrim renderer, change a runtime file, or deploy anything.
-The production XeSS/XeFG x2 checkpoint remains separate.
+The fixture and the opt-in renderer now share `src/FrameGen/XeFGUnlock.cpp`.
+The renderer defaults to official x2; its experimental checkbox enables x3/x4
+after checked admission and presenter recreation. Fixture-only pixel capture,
+event storage and fault injection are compiled out of the renderer. Building
+or running these fixtures does not deploy anything or change a runtime file.
 
 The experiment accepts exactly Intel `libxess_fg.dll` 1.3.1.78, SHA256
 `ec5e0c65e075570c6ede72618bb666d0be0c2e10b2ea9762c0fe8cb8e375ab27`.
@@ -47,7 +49,11 @@ The synthetic checkerboard shows substantial artifacts.
 
 Hook QPC gaps describe software delivery, not scanout. This does not establish
 AMD acceptance, Skyrim integration, latency, display cadence, sustained real
-workload stability, NVIDIA-provider handoff, or interpolation quality. The
+workload stability or interpolation quality. `TRPXeFGPresenterTests` separately
+checks production-owner and optional NVIDIA-provider handoff. Set
+`TRP_XEFG_MFG_TEST=1` for live x2/x3/x4, recreation and disable-to-x2 coverage;
+with `TRP_XEFG_EXPECT_REFUSAL=1`, it instead requires x2 fallback using a
+separately identified unsupported runtime copy. The
 refusal fixture passes index zero to intermediate scheduler calls, exercising
 the actual SDK's early false return before any wait/history update. A zero
 gate did not refuse scheduling. This injection exposed a compressed last-frame
