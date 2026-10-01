@@ -43,13 +43,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 			fault_ = a_result;
 			status_ = std::format("{} failed HRESULT=0x{:08X}", a_operation, static_cast<std::uint32_t>(a_result));
 			logger::error("[SourceDLSSG] {}", status_);
-			// Device loss is reported by whichever call observes it first; the
-			// removal reason identifies the fault (hung, page fault, reset).
-			if ((a_result == DXGI_ERROR_DEVICE_REMOVED || a_result == DXGI_ERROR_DEVICE_RESET ||
-					a_result == DXGI_ERROR_DEVICE_HUNG) && device12_) {
-				logger::error("[SourceDLSSG] D3D12 device removed reason=0x{:08X}",
-					static_cast<std::uint32_t>(device12_->GetDeviceRemovedReason()));
-			}
+			deviceLoss_.Report(a_result, a_operation, session_.Snapshot().frameIndex,
+				device11_.Get(), device12_.Get(), interop_.LastFailure());
 		}
 		return false;
 	}
@@ -171,6 +166,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 		}
 		device11_ = a_device;
 		device11_->GetImmediateContext(&context11_);
+		const auto diagnosticsPath = PluginPaths::Directory() / L"TheosRenderPipeline.Diagnostics.ini";
+		deviceLoss_.Configure(DeviceLossDiagnostics::ReadDREDSetting(diagnosticsPath.c_str()));
 		ComPtr<IDXGIDevice> dxgiDevice;
 		ComPtr<IDXGIAdapter> adapter;
 		if (!Check(device11_.As(&dxgiDevice), "D3D11 DXGI device") ||
