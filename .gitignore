@@ -1,0 +1,14 @@
+out/
+build/
+.dependencies/
+CMakeUserPresets.json
+__pycache__/
+*.pyc
+*.dll
+*.exe
+*.lib
+*.pdb
+*.ptx
+*.fatbin
+*.cubin
+*.log
