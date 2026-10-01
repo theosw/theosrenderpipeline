@@ -51,6 +51,7 @@ HRESULT NvidiaHost::CreateSwapChain(IDXGIFactory* a_factory, ID3D11Device* a_dev
     backend.ConfigureXeFGFrameTime(settings.sourceDLSSG.xefgFrameTime);
     backend.ConfigureOutputFPSLimit(settings.sourceDLSSG.outputFPSLimit);
     backend.ConfigureGeneration(settings.sourceDLSSG.generation);
+    backend.ConfigureXeFG(settings.sourceDLSSG.xefg);
     backend.ConfigureMFGUnlock(settings.sourceDLSSGMFGUnlock);
     backend.ConfigureHDROutput(settings.sourceDLSSG.hdrOutput);
     TheosRenderPipeline::SourceDLSSG::NeuralOptions options;

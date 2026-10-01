@@ -1,4 +1,5 @@
 #include "XeFGPresenter.h"
+#include "XeFGUnlock.h"
 #include "../PluginPaths.h"
 #include <algorithm>
 #include <cstring>
@@ -103,11 +104,25 @@ namespace TheosRenderPipeline
         return hr;
     }
     HRESULT XeFGPresenter::Create(ID3D12Device* device, ID3D12CommandQueue* queue, IDXGIFactory* factory,
-        const DXGI_SWAP_CHAIN_DESC& desc, bool inverted, IDXGISwapChain** swapchain, std::uint32_t lastApplicationFrame)
+        const DXGI_SWAP_CHAIN_DESC& desc, bool inverted, IDXGISwapChain** swapchain, std::uint32_t lastApplicationFrame, XeFGOptions options)
     {
         if (!swapchain) { return E_POINTER; }
         *swapchain = nullptr;
         if (!apiReady_ || initialized_ || fg_ || ll_ || !device || !queue || !factory || !SupportsFormat(desc.BufferDesc.Format)) { return E_INVALIDARG; }
+        options = SanitizeXeFG(options);
+        snapshot_.experimentalMFG=options.experimentalMFG; snapshot_.unlockReady=false;
+        snapshot_.maxGeneratedFrames=1; snapshot_.generatedFrames=1;
+        unlockStatus_="Experimental MFG off; official x2";
+        if(options.experimentalMFG) {
+            std::string reason;
+            const auto patched=XeFGUnlock::EnsureInstalled(fgModule_,reason);
+            unlockStatus_=std::string(patched==XeFGUnlock::PatchResult::Applied?"Experimental MFG ready: ":"Experimental MFG refused: ")+reason;
+            if(log_) log_(unlockStatus_.c_str());
+            if(patched==XeFGUnlock::PatchResult::Unsafe) { status_="Unsafe XeFG patch state; provider stopped; restart required: "+reason; return E_UNEXPECTED; }
+            snapshot_.unlockReady=patched==XeFGUnlock::PatchResult::Applied;
+            if(!snapshot_.unlockReady) unlockStatus_+="; official x2 retained";
+        }
+        XeFGUnlock::NewContextEpoch(); // Previous SDK context must already have retired.
         Trace("create latency context");
         auto hr = LL(xellD3D12CreateContext_(device, &ll_), "create latency context");
         if (FAILED(hr)) { return hr; }
@@ -115,6 +130,11 @@ namespace TheosRenderPipeline
         if (FAILED(hr = LL(xellSetSleepMode_(ll_, &sleep), "enable latency before initialization")) ||
             FAILED(hr = FG(xefgSwapChainD3D12CreateContext_(device, &fg_), "create presenter")) ||
             FAILED(hr = FG(xefgSwapChainSetLatencyReduction_(fg_, ll_), "connect latency"))) { return hr; }
+        xefg_swapchain_properties_t capabilities{};
+        if(FAILED(hr=FG(xefgSwapChainGetProperties_(fg_,&capabilities),"initialized capabilities"))) return hr;
+        if(capabilities.maxSupportedInterpolations<1) {status_="XeFG x2 unavailable";return DXGI_ERROR_UNSUPPORTED;}
+        snapshot_.maxGeneratedFrames=snapshot_.unlockReady?std::min(3u,capabilities.maxSupportedInterpolations):1u;
+        snapshot_.generatedFrames=XeFGCount(options,snapshot_.maxGeneratedFrames);
         Trace("connect logging");
         if (FAILED(hr = FG(xefgSwapChainSetLoggingCallback_(fg_, XEFG_SWAPCHAIN_LOGGING_LEVEL_WARNING,
             [](const char* message, xefg_swapchain_logging_level_t, void* context) {
@@ -127,7 +147,7 @@ namespace TheosRenderPipeline
         native.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
         native.Flags = desc.Flags & ~DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
         xefg_swapchain_d3d12_init_params_t init{};
-        init.maxInterpolatedFrames = 1;
+        init.maxInterpolatedFrames = snapshot_.maxGeneratedFrames;
         // AUTO selects per frame from the tagged layers: HUD-less plus the UI
         // texture when the host has one, otherwise back-buffer extraction. Keep
         // AUTO for HDR10 too: the refinement mode Intel suggests for 2-bit UI alpha
@@ -152,9 +172,9 @@ namespace TheosRenderPipeline
         snapshot_.onlyGenerated = snapshot_.tagGenerated = false;
         lastFrameBegin_ = {}; frameIntervalMs_ = 0; snapshot_.frameTimeMs = 0;
         snapshot_.frameId = (std::max)(snapshot_.frameId, lastApplicationFrame);
-        if (FAILED(hr = FG(xefgSwapChainSetNumInterpolatedFrames_(fg_, 1), "select x2")) ||
+        if (FAILED(hr = FG(xefgSwapChainSetNumInterpolatedFrames_(fg_, snapshot_.generatedFrames), "select multiplier")) ||
             FAILED(hr = FG(xefgSwapChainSetEnabled_(fg_, 0), "initial passthrough"))) { return hr; }
-        status_ = "XeFG x2 ready; waiting for world inputs";
+        status_ = "XeFG x"+std::to_string(snapshot_.generatedFrames+1)+" ready; waiting for world inputs";
         return BeginFrame();
     }
     HRESULT XeFGPresenter::BeginFrame()
@@ -216,7 +236,7 @@ namespace TheosRenderPipeline
         return S_OK;
     }
     HRESULT XeFGPresenter::BeforePresent(ID3D12GraphicsCommandList* list, ID3D12Resource* motion,
-        ID3D12Resource* depth, ID3D12Resource* hudless, ID3D12Resource* ui, bool enabled, bool uiComposition, int outputFPSLimit)
+        ID3D12Resource* depth, ID3D12Resource* hudless, ID3D12Resource* ui, bool enabled, bool uiComposition, int outputFPSLimit, std::uint32_t generatedFrames)
     {
         if (!frameBegun_ || presentPending_) { return E_UNEXPECTED; }
         const bool generate = enabled && snapshot_.prepared && motion && depth && hudless;
@@ -225,13 +245,18 @@ namespace TheosRenderPipeline
             if (u.Format != h.Format || u.Width != h.Width || u.Height != h.Height) { ui = nullptr; }
         }
         const bool tagUI = generate && uiComposition && ui;
+        const auto count=XeFGCount({snapshot_.experimentalMFG,generatedFrames},snapshot_.maxGeneratedFrames);
+        if(count!=snapshot_.generatedFrames) {
+            const auto result=FG(xefgSwapChainSetNumInterpolatedFrames_(fg_,count),"live multiplier");
+            if(FAILED(result)) return result;
+            snapshot_.generatedFrames=count;
+        }
         auto hr = LL(xellAddMarkerData_(ll_, snapshot_.frameId, XELL_SIMULATION_END), "simulation end");
         if (FAILED(hr) || FAILED(hr = LL(xellAddMarkerData_(ll_, snapshot_.frameId, XELL_RENDERSUBMIT_START), "render start"))) { return hr; }
         xell_sleep_params_t sleep{}; sleep.bLowLatencyMode = 1;
-        // XeLL limits application frames. Convert an output cap to the fixed
-        // x2 application interval only while generation is actually enabled.
-        sleep.minimumIntervalUs = outputFPSLimit > 0 ?
-            static_cast<std::uint32_t>((1000000u * (generate ? 2u : 1u) + outputFPSLimit / 2) / outputFPSLimit) : 0;
+        // The pinned XeLL runtime caps output deliveries. Multiplying by the
+        // generation ratio would reduce a requested 60-output cap to 30/20/15.
+        sleep.minimumIntervalUs = XeFGOutputInterval(outputFPSLimit);
         if (sleep.minimumIntervalUs != snapshot_.frameLimitUs &&
             FAILED(hr = LL(xellSetSleepMode_(ll_, &sleep), "output cap"))) { return hr; }
         if (FAILED(hr = FG(xefgSwapChainSetEnabled_(fg_, generate), "generation options"))) { return hr; }
@@ -283,7 +308,15 @@ namespace TheosRenderPipeline
         snapshot_.interpolationResult = status.frameGenResult;
         ++snapshot_.presents; snapshot_.totalOutputs += status.framesPresented;
         if (status.framesPresented > 1) { ++snapshot_.generatedPresents; }
-        status_ = snapshot_.enabled ? "XeFG x2 active" : "XeFG passthrough";
+        status_ = snapshot_.enabled ? "XeFG x"+std::to_string(snapshot_.generatedFrames+1)+" active" : "XeFG passthrough";
+        if(log_ && (snapshot_.presents<=3 || snapshot_.presents%600==0)) {
+            const auto pacing=XeFGUnlock::Snapshot();
+            const auto text="present frame="+std::to_string(snapshot_.frameId)+" outputs="+std::to_string(snapshot_.framesPresented)+
+                " requestedMultiplier="+std::to_string(snapshot_.generatedFrames+1)+" capacity="+std::to_string(snapshot_.maxGeneratedFrames+1)+
+                " intervalUs="+std::to_string(snapshot_.frameLimitUs)+" paced="+std::to_string(pacing.presents)+
+                " refused="+std::to_string(pacing.refused)+" wallWaits="+std::to_string(pacing.wallWaits);
+            log_(text.c_str());
+        }
         return S_OK;
     }
     HRESULT XeFGPresenter::Disable()

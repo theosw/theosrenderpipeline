@@ -14,6 +14,15 @@ int main()
 	using namespace TheosRenderPipeline;
 	using namespace SourceDLSSG;
 	CSimpleIniA ini;
+    auto empty=LoadPreferences(ini);
+    Require(!empty.xefg.experimentalMFG && empty.xefg.generatedFrames==1,"old INIs retain official XeFG x2");
+    empty.xefg={true,3};empty.generation.generatedFrames=5;
+    StorePreferences(ini,empty);
+    Require(LoadPreferences(ini)==empty,"XeFG x4 opt-in round trips without replacing NVIDIA x6");
+    Require(XeFGCount({false,3},3)==1 && XeFGCount({true,3},1)==1,"disabled or refused MFG retains x2");
+    Require(XeFGCount({true,3},3)==3 && XeFGCount({true,2},3)==2,"separate XeFG x3/x4 counts");
+    Require(XeFGOutputInterval(60)==16667 && XeFGOutputInterval(0)==0,"output cap does not scale with multiplier");
+    ini.Reset();
 	Require(ini.LoadData("[SourceDLSSG]\nNRPasses=2\nNRInputScale=0.75\nNRPreset=1\nNRIntensity=0.4\n") >= 0, "old INI");
 	auto old = LoadPreferences(ini);
     Require(old.provider == FrameGenerationProvider::NVIDIA, "missing provider preserves NVIDIA startup");

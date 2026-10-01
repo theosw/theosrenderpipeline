@@ -16,8 +16,9 @@
 #include <fstream>
 #include <map>
 #include <mutex>
+#include <atomic>
 
-namespace XeFGExperiment {
+namespace TheosRenderPipeline::XeFGUnlock {
 namespace {
 constexpr std::uint32_t ImageSize=0x15ed000, PageSize=4096;
 bool Matches(Memory& memory, const Patch& patch, bool replacement) {
@@ -152,7 +153,11 @@ std::uint8_t* moduleBase{}; Observer observer{};
 bool forceSchedulerRefusal{}; // Explicit fixture injection; never compiled into the renderer.
 LARGE_INTEGER frequency{};
 std::uint64_t epoch{};
-Stats stats{}; std::mutex diagnosticsMutex; std::vector<Event> events;
+struct AtomicStats { std::atomic<std::uint64_t> presents{}, scheduled{}, refused{}, wallWaits{}, deadlines{}, contextChanges{}; };
+AtomicStats stats{};
+#if defined(TRP_XEFG_TESTING)
+std::mutex diagnosticsMutex; std::vector<Event> events;
+#endif
 struct Timing {
     void* context{}; std::uint64_t epoch{}; std::int64_t lastBurst{},period{},nextDeadline{},step{};
     bool fallbackBurst{};
@@ -164,7 +169,7 @@ std::int64_t Qpc() {LARGE_INTEGER q{}; QueryPerformanceCounter(&q);return q.Quad
 std::int64_t Ns(std::int64_t ticks) {return ticks*1000000000LL/frequency.QuadPart;}
 std::int64_t Ticks(std::int64_t ns) {return ns*frequency.QuadPart/1000000000LL;}
 void Context(void* ctx) {
-    if(timing.context!=ctx || timing.epoch!=epoch) {timing={};timing.context=ctx;timing.epoch=epoch;std::lock_guard lock(diagnosticsMutex);++stats.contextChanges;}
+    if(timing.context!=ctx || timing.epoch!=epoch) {timing={};timing.context=ctx;timing.epoch=epoch;stats.contextChanges.fetch_add(1,std::memory_order_relaxed);}
 }
 void Period(std::uint64_t index,std::int64_t now) {
     if(index!=1) return;
@@ -190,7 +195,7 @@ void WallWait(Event& e) {
         if(target-now>Ticks(200000)) Sleep(0); else YieldProcessor();
         now=Qpc();
     }
-    std::lock_guard lock(diagnosticsMutex);++stats.wallWaits;
+    stats.wallWaits.fetch_add(1,std::memory_order_relaxed);
 }
 bool Burst(void* arg5,void* arg6,std::uint64_t flag,bool last,Event& e) {
     if(!arg5 || ((static_cast<std::uint8_t>(flag)==1)==last)) return false;
@@ -225,10 +230,15 @@ std::int64_t Present(void* ctx,std::uint32_t a2,std::uint32_t a3,std::uint64_t a
             // Fixture-only injection: the pinned scheduler rejects index zero
             // before waiting or updating history (0x21ee74 -> 0x21efa7).
             // A zero gate only skips its optional fence wait, not scheduling.
-            event.scheduled=nativeScheduler(ctx,burst,gate&1,snapshot.data(),forceSchedulerRefusal?0:static_cast<std::uint32_t>(event.index));
+            #if defined(TRP_XEFG_TESTING)
+            const auto schedulerIndex=forceSchedulerRefusal?0:static_cast<std::uint32_t>(event.index);
+#else
+            const auto schedulerIndex=static_cast<std::uint32_t>(event.index);
+#endif
+            event.scheduled=nativeScheduler(ctx,burst,gate&1,snapshot.data(),schedulerIndex);
             // The gate may say yes while history/fence lookup still refuses.
             if(!event.scheduled) {timing.fallbackBurst=true;WallWait(event);}
-            std::lock_guard lock(diagnosticsMutex); if(event.scheduled) ++stats.scheduled;else ++stats.refused;
+            if(event.scheduled) stats.scheduled.fetch_add(1,std::memory_order_relaxed);else stats.refused.fetch_add(1,std::memory_order_relaxed);
         } else if(last && event.scheduler && timing.fallbackBurst) {
             // Without intermediate deadline calls, the SDK's final scheduler
             // may lack a usable anchor. A past target adds no duplicate wait.
@@ -241,11 +251,16 @@ std::int64_t Present(void* ctx,std::uint32_t a2,std::uint32_t a3,std::uint64_t a
     }
     // Optional diagnostic readback runs before Present: FLIP_DISCARD content
     // after presentation is not evidence of the image that was submitted.
+    #if defined(TRP_XEFG_TESTING)
     if(capture && observer) observer(event);
+#endif
     const auto result=nativePresent(ctx,a2,a3,a4,a5,a6,a7);
     if(capture) {
+        stats.presents.fetch_add(1,std::memory_order_relaxed);
+#if defined(TRP_XEFG_TESTING)
         event.result=result;event.exitQpc=Qpc();
-        {std::lock_guard lock(diagnosticsMutex);++stats.presents;if(events.size()<20000) events.push_back(event);}
+        {std::lock_guard lock(diagnosticsMutex);if(events.size()<20000) events.push_back(event);}
+#endif
     }
     return result;
 }
@@ -266,11 +281,12 @@ void* Deadline(void* ring,std::int64_t* out,void* lookup,void* snapshot,std::uin
         timing.nextDeadline=*out+static_cast<std::int64_t>(index)*(unit-(std::min)(unit,clamped));timing.step=unit;
     } else timing.nextDeadline+=timing.step;
     timing.lastIndex=index;timing.lastCount=countPlus1;*out=timing.nextDeadline;
-    std::lock_guard lock(diagnosticsMutex);++stats.deadlines;return result;
+    stats.deadlines.fetch_add(1,std::memory_order_relaxed);return result;
 }
-HMODULE installed{};
+HMODULE installed{}; bool unsafePublication{};
 }
 PatchResult Install(HMODULE runtime,Observer callback,std::string& reason,bool forceRefusal) {
+    if(unsafePublication) {reason="prior unsafe publication; restart required";return PatchResult::Unsafe;}
     if(installed) {reason="repeated installation refused";return PatchResult::Refused;}
     if(!runtime) {reason="null runtime";return PatchResult::Refused;}
     wchar_t path[32768]{};const auto len=GetModuleFileNameW(runtime,path,32768);
@@ -328,14 +344,27 @@ PatchResult Install(HMODULE runtime,Observer callback,std::string& reason,bool f
     const auto plan=MakePlan(reinterpret_cast<std::uintptr_t>(&Present),reinterpret_cast<std::uintptr_t>(&Scheduler),reinterpret_cast<std::uintptr_t>(&Deadline));
     WinMemory memory(runtime);const auto result=Publish(memory,plan,ImageSize,reason);
     if(result==PatchResult::Applied) {installed=runtime;NewContextEpoch();}
+    else if(result==PatchResult::Unsafe) {unsafePublication=true;}
     else if(result==PatchResult::Refused) {moduleBase=nullptr;nativePresent=nullptr;nativeScheduler=nullptr;nativeDeadline=nullptr;}
     return result;
 }
+PatchResult EnsureInstalled(HMODULE runtime,std::string& reason) {
+    if(!installed) return Install(runtime,nullptr,reason);
+    if(installed!=runtime) {reason="runtime owner changed after publication";return PatchResult::Unsafe;}
+    WinMemory memory(runtime);
+    const auto plan=MakePlan(reinterpret_cast<std::uintptr_t>(&Present),reinterpret_cast<std::uintptr_t>(&Scheduler),reinterpret_cast<std::uintptr_t>(&Deadline));
+    for(const auto& patch:plan) if(!Matches(memory,patch,true)) {reason="published code changed";return PatchResult::Unsafe;}
+    reason="checked patches already resident";return PatchResult::Applied;
+}
 void NewContextEpoch() {++epoch;}
-Stats Snapshot() {std::lock_guard lock(diagnosticsMutex);return stats;}
+Stats Snapshot() {return {stats.presents.load(),stats.scheduled.load(),stats.refused.load(),stats.wallWaits.load(),stats.deadlines.load(),stats.contextChanges.load()};}
 void SaveEvents(const char* path) {
+#if defined(TRP_XEFG_TESTING)
     std::lock_guard lock(diagnosticsMutex);std::ofstream out(path);
     out<<"context,resource,burst,index,count,entryQpc,pacedQpc,exitQpc,result,deadlineNs,scheduler,scheduled,finalFrame,frequency\n";
     for(const auto& e:events) out<<e.context<<','<<e.resource<<','<<e.burst<<','<<e.index<<','<<e.count<<','<<e.entryQpc<<','<<e.pacedQpc<<','<<e.exitQpc<<','<<e.result<<','<<e.deadlineNs<<','<<e.scheduler<<','<<e.scheduled<<','<<e.finalFrame<<','<<frequency.QuadPart<<'\n';
+#else
+    (void)path;
+#endif
 }
 }

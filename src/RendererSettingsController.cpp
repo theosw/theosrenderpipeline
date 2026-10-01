@@ -142,6 +142,7 @@ RendererSettingsResult RendererSettingsController::Apply(const RendererSettingsD
         source.ConfigureXeFGFrameTime(frameGen_.settings.sourceDLSSG.xefgFrameTime);
         source.ConfigureOutputFPSLimit(frameGen_.settings.sourceDLSSG.outputFPSLimit);
         source.ConfigureGeneration(frameGen_.settings.sourceDLSSG.generation);
+        source.ConfigureXeFG(frameGen_.settings.sourceDLSSG.xefg);
         // The backend applies Enabled at the next present boundary.
         source.ConfigureHDROutput(frameGen_.settings.sourceDLSSG.hdrOutput);
         TheosRenderPipeline::SourceDLSSG::NeuralOptions options;

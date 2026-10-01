@@ -42,9 +42,12 @@ namespace TheosRenderPipeline::SourceDLSSG
 		FrameGenerationProvider Provider() const { return provider_; }
 		FrameGenerationProvider RequestedProvider() const { return requestedProvider_.load(); }
 		const XeFGSnapshot& XeFGState() const { return xefg_.Snapshot(); }
+        const std::string& XeFGUnlockStatus() const { return xefg_.UnlockStatus(); }
+        void ConfigureXeFG(XeFGOptions options) {options=SanitizeXeFG(options);xefgOptions_.store(options.generatedFrames|(options.experimentalMFG?0x100u:0u));}
+        XeFGOptions XeFGConfiguration() const {const auto value=xefgOptions_.load();return {(value&0x100u)!=0,value&0xffu};}
 		const std::string& ProviderStatus() const { return providerStatus_; }
 		bool GenerationActive() const { return Ready() && (provider_ == FrameGenerationProvider::XeFG ? xefg_.Snapshot().enabled : session_.Snapshot().GenerationActive()); }
-		unsigned EffectiveMultiplier() const { return provider_ == FrameGenerationProvider::XeFG ? 2 : session_.Snapshot().options.numFramesToGenerate + 1; }
+		unsigned EffectiveMultiplier() const { return provider_ == FrameGenerationProvider::XeFG ? xefg_.Snapshot().generatedFrames+1 : session_.Snapshot().options.numFramesToGenerate + 1; }
 		std::uint32_t FrameIndex() const { return provider_ == FrameGenerationProvider::XeFG ? xefg_.Snapshot().frameId : nvidiaNeedsPresent_ ? xefg_.Snapshot().frameId + 1 : session_.Snapshot().frameIndex; }
 		bool ApplyProviderSwitch(SwapChain& wrapper);
 		// After AfterPresent: a switch will replace the presenter at this boundary.
@@ -196,6 +199,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		SessionAPI api_{};
 		Session session_;
 		XeFGPresenter xefg_;
+        std::atomic<std::uint32_t> xefgOptions_{1};
 		XeSSUpscaler xess_;
 		UINT adapterVendor_{};
 		bool nvidiaInitialized_{}, nvidiaSessionStarted_{};

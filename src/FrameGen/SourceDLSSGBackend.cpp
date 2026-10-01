@@ -320,7 +320,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (intelStartup) {
             const auto intelDirectory = PluginPaths::Directory() / L"TheosRenderPipeline" / L"Intel";
             if (!CheckXeFG(xefg_.Probe(device12_.Get(), intelDirectory)) ||
-                !CheckXeFG(xefg_.Create(device12_.Get(), queue_.Get(), nativeFactory_.Get(), desc, true, &native))) { return fault_; }
+                !CheckXeFG(xefg_.Create(device12_.Get(), queue_.Get(), nativeFactory_.Get(), desc, true, &native,0,XeFGConfiguration()))) { return fault_; }
             providerStatus_ = "Intel XeFG presenter; latency owner=XeLL";
         } else if (!Check(streamlineFactory_->CreateSwapChain(queue_.Get(), &desc, &native), "Streamline swapchain")) { return fault_; }
 		retainedNative_ = native;
@@ -467,7 +467,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (nvidiaNeedsPresent_) { return true; } // Establish the new native presenter before Reflex markers.
 		if (provider_ == FrameGenerationProvider::XeFG) {
 			if (!CheckXeFG(xefg_.Prepare(frameConstants_, XeFGFrameTimeConfiguration()))) { return false; }
-			recreateXeFG_ = xefg_.Snapshot().invertedDepth != (frameConstants_.depthInverted == sl::eTrue);
+			recreateXeFG_ = xefg_.Snapshot().invertedDepth != (frameConstants_.depthInverted == sl::eTrue) ||
+                xefg_.Snapshot().experimentalMFG != XeFGConfiguration().experimentalMFG;
 			return true; // Intel copies the final HUD-less image after late NR, at Present.
 		}
 		if (!Check(interop_.SignalD3D11(Work::FrameGeneration), "D3D11 guides ready")) { return false; }
@@ -628,7 +629,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			if (!CheckXeFG(xefg_.SetDebugView(XeFGOnlyGenerated(), XeFGTagGenerated()))) { return fault_; }
 			if (!CheckXeFG(xefg_.BeforePresent(list, motion_.texture12.Get(), depth_.texture12.Get(), intelHudless, intelUI,
 				generationAllowed && prepared && compatible, UIRecompositionConfiguration(),
-				outputFPSLimit_.load()))) { return fault_; }
+				outputFPSLimit_.load(),XeFGConfiguration().generatedFrames))) { return fault_; }
 		}
 		if (!Check(outputResult, "record native output copy/conversion") ||
 			!Check(interop_.Submit(Work::SwapChain), "submit native output copy")) { return fault_; }
@@ -1099,7 +1100,7 @@ namespace TheosRenderPipeline::SourceDLSSG
         }
         return provider == FrameGenerationProvider::XeFG ?
 			xefg_.Create(device12_.Get(), queue_.Get(), nativeFactory_.Get(), presenterDesc_,
-				frameConstants_.depthInverted == sl::eTrue, result, session_.Snapshot().frameIndex) :
+				frameConstants_.depthInverted == sl::eTrue, result, session_.Snapshot().frameIndex,XeFGConfiguration()) :
 			streamlineFactory_->CreateSwapChain(queue_.Get(), &presenterDesc_, result);
 	}
 	bool Backend::ApplyProviderSwitch(SwapChain& wrapper)

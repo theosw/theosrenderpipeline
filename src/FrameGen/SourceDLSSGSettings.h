@@ -6,6 +6,7 @@
 #include "SourceDLSSGGeneration.h"
 #include "HDROutput.h"
 #include "FrameGenerationProvider.h"
+#include "XeFGOptions.h"
 
 namespace TheosRenderPipeline::SourceDLSSG
 {
@@ -14,6 +15,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 	struct Preferences
 	{
 		FrameGenerationProvider provider{FrameGenerationProvider::NVIDIA};
+		XeFGOptions xefg{};
 		int reflexMode{ 1 };
 		int outputFPSLimit{ 0 };
 		// Interpolate the HUD-less scene and UI layer separately. Live toggle.
@@ -36,6 +38,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 	inline Preferences SanitizePreferences(Preferences value)
 	{
 		if (!ValidProvider(static_cast<int>(value.provider))) { value.provider = FrameGenerationProvider::NVIDIA; }
+		value.xefg = SanitizeXeFG(value.xefg);
 		if (value.reflexMode < 0 || value.reflexMode > 2) { value.reflexMode = 1; }
 		value.outputFPSLimit = std::clamp(value.outputFPSLimit, 0, 1000);
 		value.generation = SanitizeGenerationRequest(value.generation);
@@ -54,6 +57,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 		Preferences value;
 		value.provider = static_cast<FrameGenerationProvider>(ini.GetLongValue("FrameGeneration", "Provider", 0));
 		value.xefgFrameTime = ini.GetBoolValue("FrameGeneration", "XeFGFrameTime", true);
+		value.xefg.experimentalMFG = ini.GetBoolValue("FrameGeneration", "XeFGExperimentalMFG", false);
+		value.xefg.generatedFrames = static_cast<std::uint32_t>(std::clamp(ini.GetLongValue("FrameGeneration", "XeFGMultiplier", 2), 2L, 4L)-1);
 		value.reflexMode = static_cast<int>(ini.GetLongValue(section, "ReflexMode", 1));
 		// The original label said raster FPS, but the pinned runtime caps total
 		// output. Preserve the old numeric value; never silently multiply it.
@@ -89,6 +94,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 		constexpr auto section = "SourceDLSSG";
 		ini.SetLongValue("FrameGeneration", "Provider", static_cast<int>(value.provider));
 		ini.SetBoolValue("FrameGeneration", "XeFGFrameTime", value.xefgFrameTime);
+		ini.SetBoolValue("FrameGeneration", "XeFGExperimentalMFG", value.xefg.experimentalMFG);
+		ini.SetLongValue("FrameGeneration", "XeFGMultiplier", value.xefg.generatedFrames+1);
 		ini.SetLongValue(section, "ReflexMode", value.reflexMode);
 		ini.SetLongValue(section, "OutputFPSLimit", value.outputFPSLimit);
 		ini.Delete(section, "RasterFPSLimit");

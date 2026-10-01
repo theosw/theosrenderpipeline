@@ -26,7 +26,7 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& v
         const bool intel = sourceBackend.Provider() == TheosRenderPipeline::FrameGenerationProvider::XeFG;
         const bool editIntel = settingsDraft.sourceDLSSG.provider == TheosRenderPipeline::FrameGenerationProvider::XeFG;
         const auto& unlock = sourceBackend.MFGState();
-        const auto usableMaximum = editIntel ? 1u : TheosRenderPipeline::SourceDLSSG::MFGContract::Maximum(
+        const auto usableMaximum = editIntel ? (settingsDraft.sourceDLSSG.xefg.experimentalMFG ? 3u : 1u) : TheosRenderPipeline::SourceDLSSG::MFGContract::Maximum(
             unlock.UsesCompatibilityUnlock(), unlock.Ready(), sourceState.state.numFramesToGenerateMax);
         const bool supportsDynamic = !editIntel && TheosRenderPipeline::SourceDLSSG::MFGContract::Dynamic(
                                          unlock.UsesCompatibilityUnlock(), unlock.Ready(),
@@ -43,18 +43,19 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& v
         DrawSettingsValue("Display", std::format("{:.0f} Hz", frameGen->refreshRate).c_str());
         DrawSettingsValue("Latency", intel ? "XeLL" : TheosRenderPipeline::SourceDLSSG::ReflexModeName(sourceState.reflexSubmitted));
         DrawSettingsValue("Output cap", intel ? (sourceBackend.XeFGState().frameLimitUs ?
-            std::format("{:.1f} FPS", 1000000.0 * (sourceBackend.XeFGState().enabled ? 2.0 : 1.0) / sourceBackend.XeFGState().frameLimitUs).c_str() : "Off") :
+            std::format("{:.1f} FPS", 1000000.0 / sourceBackend.XeFGState().frameLimitUs).c_str() : "Off") :
                           sourceState.frameLimitSubmittedUs
                               ? std::format("{:.1f} FPS", 1000000.0 / sourceState.frameLimitSubmittedUs).c_str()
                               : "Off");
-        DrawSettingsValue("Path", intel ? "Intel XeFG x2 (experimental)" : unlock.UsesTuringUnlock() ? "Turing MFG (experimental)"
+        DrawSettingsValue("Path", intel ? (sourceBackend.XeFGState().unlockReady ? "Experimental XeFG MFG" : "Intel XeFG x2") : unlock.UsesTuringUnlock() ? "Turing MFG (experimental)"
                                   : unlock.UsesAmpereUnlock() ? "Ampere MFG (experimental)"
                                   : unlock.UsesAdaUnlock()  ? "Ada MFG"
                                                             : "Native NVIDIA");
-        if (usableMaximum > 1)
-            ImGui::Text("Available: x2 to x%u", usableMaximum + 1);
+        const auto availableMaximum=intel?sourceBackend.XeFGState().maxGeneratedFrames:usableMaximum;
+        if (availableMaximum > 1)
+            ImGui::Text("Available: x2 to x%u", availableMaximum + 1);
         else
-            ImGui::TextUnformatted(usableMaximum == 1 ? "Available: x2" : "Availability: waiting");
+            ImGui::TextUnformatted(availableMaximum == 1 ? "Available: x2" : "Availability: waiting");
         ImGui::TextWrapped("%s", sourceBackend.ProviderStatus().c_str());
         if (intel) {
             const auto& state = sourceBackend.XeFGState();
@@ -81,6 +82,7 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& v
                 DrawSettingsHelp("A/B for the post-Present wait, not saved. Off drains every host lane on the CPU; "
                                  "on queues a GPU wait for Intel's input copies. The log reports both waits every 600 frames.");
             }
+            ImGui::TextWrapped("%s",sourceBackend.XeFGUnlockStatus().c_str());
         }
         if (!intel && unlock.UsesCompatibilityUnlock() && !unlock.Ready())
             ImGui::TextWrapped("%s", unlock.status);
@@ -126,7 +128,7 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& v
         DrawStageMeasurements(SettingsPage::FrameGeneration);
         NextSettingsColumn(tabCardHeight);
         int provider = static_cast<int>(settingsDraft.sourceDLSSG.provider);
-        const char* providers[]{"NVIDIA DLSS-G", "Intel XeFG x2 (experimental)"};
+        const char* providers[]{"NVIDIA DLSS-G", "Intel XeFG (experimental)"};
         ImGui::SetNextItemWidth(-1.0f);
         if (ImGui::BeginCombo("Provider", providers[std::clamp(provider, 0, 1)])) {
             for (int i = 0; i < 2; ++i) {
@@ -157,24 +159,29 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& v
         }
         if (sourceDLSSGActive)
         {
-            ImGui::BeginDisabled(editIntel);
+            if(editIntel) {
+                ImGui::Checkbox("Experimental XeFG x3/x4", &settingsDraft.sourceDLSSG.xefg.experimentalMFG);
+                DrawSettingsHelp("Apply recreates the Intel presenter safely. Off restores x2. AMD and game validation are pending.");
+            }
             ImGui::TextUnformatted("Multiplier");
             auto& request = settingsDraft.sourceDLSSG.generation;
+            auto& requestedCount=editIntel?settingsDraft.sourceDLSSG.xefg.generatedFrames:request.generatedFrames;
             const char* multipliers[]{"x2", "x3", "x4", "x5", "x6"};
             ImGui::SetNextItemWidth(-1.0f);
-            if (ImGui::BeginCombo("##sourceMultiplier", multipliers[std::clamp(request.generatedFrames, 1u, 5u) - 1]))
+            if (ImGui::BeginCombo("##sourceMultiplier", multipliers[std::clamp(requestedCount, 1u, editIntel?3u:5u) - 1]))
             {
-                for (unsigned count = 1; count <= 5; ++count)
+                for (unsigned count = 1; count <= (editIntel?3u:5u); ++count)
                 {
                     ImGui::BeginDisabled(count > usableMaximum);
-                    if (ImGui::Selectable(multipliers[count - 1], request.generatedFrames == count))
+                    if (ImGui::Selectable(multipliers[count - 1], requestedCount == count))
                     {
-                        request.generatedFrames = count;
+                        requestedCount = count;
                     }
                     ImGui::EndDisabled();
                 }
                 ImGui::EndCombo();
             }
+            if(!editIntel) {
             if (supportsDynamic)
             {
                 ImGui::Checkbox("Dynamic multiplier##sourceMFG", &request.dynamic);
@@ -208,7 +215,7 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& v
                 ImGui::TextWrapped("Saved/requested MFG is unsupported here. The runtime uses the supported count; "
                                    "your requested preference is retained.");
             }
-            ImGui::EndDisabled();
+            }
             ImGui::Checkbox("UI recomposition##sourceDLSSG", &settingsDraft.sourceDLSSG.uiRecomposition);
             DrawSettingsHelp("Generates the scene and HUD separately to reduce HUD ghosting in motion. "
                              "Small GPU and VRAM cost. Apply to compare live.");
@@ -249,7 +256,7 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& v
             settingsDraft.sourceDLSSG.outputFPSLimit = std::clamp(settingsDraft.sourceDLSSG.outputFPSLimit, 0, 1000);
             ImGui::TextDisabled("0 = no explicit cap");
             DrawSettingsHelp("The cap includes generated frames. Avoid stacking it with another limiter.");
-            if (editIntel) { ImGui::TextDisabled("XeFG uses fixed x2 and XeLL. NVIDIA preferences are retained."); }
+            if (editIntel) { ImGui::TextDisabled("XeFG uses XeLL. NVIDIA multiplier and Reflex preferences are retained."); }
         }
 
         EndSettingsColumns();
