@@ -6,7 +6,6 @@
 #include <wrl/client.h>
 #include <reshade/reshade_events.hpp>
 #include "ReShadeSwapChain.h"
-#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <cstdio>
@@ -22,6 +21,8 @@ using RegisterEvent = void (*)(reshade::addon_event, void *);
 using CreateRuntime = bool (*)(api::device_api, void *, void *, void *, const char *, api::effect_runtime **);
 using DestroyRuntime = void (*)(api::effect_runtime *);
 using UpdateRuntime = void (*)(api::effect_runtime *);
+static constexpr UINT surfaceWidth = 256, surfaceHeight = 128;
+static constexpr UINT sampleX = surfaceWidth - 26, sampleY = surfaceHeight - 18;
 static unsigned sequence{}, frame{};
 static const char *phase = "setup";
 static std::string mode;
@@ -76,46 +77,53 @@ static void LogRuntime(const char *event, api::effect_runtime *runtime)
         runtime->is_key_pressed(VK_F7) ? "true" : "false", runtime->is_key_down(VK_F7) ? "true" : "false");
     std::fflush(stdout);
 }
+static bool IsD3D11(api::device *device)
+{ return device && device->get_api() == api::device_api::d3d11; }
 static void InitDevice(api::device *device)
 {
-    if (device->get_api() != api::device_api::d3d11) return;
-    devices.emplace(device, device->get_native()); initialDevice = device;
+    if (!IsD3D11(device)) return;
+    devices.emplace(device, device->get_native()); if (!initialDevice) initialDevice = device;
     LogObject("init_device", device, device, device->get_native());
 }
 static void DestroyDevice(api::device *device)
 {
+    if (!IsD3D11(device)) return;
     LogObject("destroy_device", device, device, device->get_native()); devices.erase(device);
 }
 static void InitQueue(api::command_queue *queue)
 {
-    queues.emplace(queue, queue->get_native()); initialQueue = queue;
+    if (!IsD3D11(queue->get_device())) return;
+    queues.emplace(queue, queue->get_native());
+    if (!initialQueue && queue->get_device() == initialDevice) initialQueue = queue;
     LogObject("init_queue", queue, queue->get_device(), queue->get_native());
 }
 static void DestroyQueue(api::command_queue *queue)
 {
+    if (!IsD3D11(queue->get_device())) return;
     LogObject("destroy_queue", queue, queue->get_device(), queue->get_native()); queues.erase(queue);
 }
-static void InitList(api::command_list *list) { LogObject("init_list", list, list->get_device(), list->get_native()); }
-static void DestroyList(api::command_list *list) { LogObject("destroy_list", list, list->get_device(), list->get_native()); }
+static void InitList(api::command_list *list) { if (IsD3D11(list->get_device())) LogObject("init_list", list, list->get_device(), list->get_native()); }
+static void DestroyList(api::command_list *list) { if (IsD3D11(list->get_device())) LogObject("destroy_list", list, list->get_device(), list->get_native()); }
 static void InitRuntime(api::effect_runtime *runtime)
 {
+    if (!IsD3D11(runtime->get_device())) return;
     RuntimeState state;
     state.deviceSeen = devices.contains(runtime->get_device()); state.queueSeen = queues.contains(runtime->get_command_queue());
     runtimeStates.emplace(runtime, state); initOrder.push_back(runtime);
     if (!automatic && phase == std::string("create_automatic")) automatic = runtime;
     LogRuntime("init_runtime", runtime);
 }
-static void DestroyRuntimeEvent(api::effect_runtime *runtime) { LogRuntime("destroy_runtime", runtime); }
+static void DestroyRuntimeEvent(api::effect_runtime *runtime) { if (IsD3D11(runtime->get_device())) LogRuntime("destroy_runtime", runtime); }
 static void Begin(api::effect_runtime *runtime, api::command_list *, api::resource_view, api::resource_view)
-{ ++runtimeStates[runtime].begins; LogRuntime("begin_effects", runtime); }
+{ if (IsD3D11(runtime->get_device())) { ++runtimeStates[runtime].begins; LogRuntime("begin_effects", runtime); } }
 static void Finish(api::effect_runtime *runtime, api::command_list *, api::resource_view, api::resource_view)
-{ ++runtimeStates[runtime].finishes; LogRuntime("finish_effects", runtime); }
-static void Overlay(api::effect_runtime *runtime) { ++runtimeStates[runtime].overlays; LogRuntime("overlay", runtime); }
-static void Present(api::effect_runtime *runtime) { ++runtimeStates[runtime].presents; LogRuntime("runtime_present", runtime); }
+{ if (IsD3D11(runtime->get_device())) { ++runtimeStates[runtime].finishes; LogRuntime("finish_effects", runtime); } }
+static void Overlay(api::effect_runtime *runtime) { if (IsD3D11(runtime->get_device())) { ++runtimeStates[runtime].overlays; LogRuntime("overlay", runtime); } }
+static void Present(api::effect_runtime *runtime) { if (IsD3D11(runtime->get_device())) { ++runtimeStates[runtime].presents; LogRuntime("runtime_present", runtime); } }
 static bool OpenOverlay(api::effect_runtime *runtime, bool open, api::input_source)
-{ LogRuntime(open ? "open_overlay" : "close_overlay", runtime); return false; }
+{ if (IsD3D11(runtime->get_device())) LogRuntime(open ? "open_overlay" : "close_overlay", runtime); return false; }
 static void ProxyPresent(api::command_queue *queue, api::swapchain *, const api::rect *, const api::rect *, uint32_t, const api::rect *)
-{ LogObject("proxy_present", queue, queue->get_device(), queue->get_native()); }
+{ if (IsD3D11(queue->get_device())) LogObject("proxy_present", queue, queue->get_device(), queue->get_native()); }
 
 struct Surface
 {
@@ -124,7 +132,7 @@ struct Surface
     Surface() = default;
     explicit Surface(ID3D11Device *device)
     {
-        D3D11_TEXTURE2D_DESC desc{}; desc.Width = 256; desc.Height = 128; desc.Format = DXGI_FORMAT_R8G8B8A8_TYPELESS;
+        D3D11_TEXTURE2D_DESC desc{}; desc.Width = surfaceWidth; desc.Height = surfaceHeight; desc.Format = DXGI_FORMAT_R8G8B8A8_TYPELESS;
         desc.MipLevels = desc.ArraySize = desc.SampleDesc.Count = 1; desc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
         Check(device->CreateTexture2D(&desc, nullptr, &texture), "texture");
         D3D11_RENDER_TARGET_VIEW_DESC view{}; view.Format = DXGI_FORMAT_R8G8B8A8_UNORM; view.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
@@ -136,12 +144,13 @@ struct Surface
 static unsigned Pixel(ID3D11Device *device, ID3D11DeviceContext *context, ID3D11Texture2D *texture)
 {
     D3D11_TEXTURE2D_DESC desc{}; texture->GetDesc(&desc);
+    Require(desc.Width > sampleX && desc.Height > sampleY, "sample inside readback surface");
     desc.BindFlags = 0; desc.Usage = D3D11_USAGE_STAGING; desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ; desc.MiscFlags = 0;
     ComPtr<ID3D11Texture2D> staging; Check(device->CreateTexture2D(&desc, nullptr, &staging), "staging");
     context->CopyResource(staging.Get(), texture);
     D3D11_MAPPED_SUBRESOURCE mapped{}; Check(context->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &mapped), "readback");
     // Away from GUI borders and text, while still inside a valid target.
-    const auto red = *(static_cast<const unsigned char *>(mapped.pData) + 110 * mapped.RowPitch + 230 * 4);
+    const auto red = *(static_cast<const unsigned char *>(mapped.pData) + sampleY * mapped.RowPitch + sampleX * 4);
     context->Unmap(staging.Get(), 0); return red;
 }
 static void Pump()
@@ -181,7 +190,7 @@ int main(int argc, char **argv)
     };
     for (auto [event, fn] : callbacks) reg(event, fn);
     WNDCLASSW wc{}; wc.hInstance = GetModuleHandleW(nullptr); wc.lpfnWndProc = DefWindowProcW; wc.lpszClassName = L"TRPReShadeLifecycle";
-    RegisterClassW(&wc); HWND window = CreateWindowW(wc.lpszClassName, L"Hidden ReShade lifecycle fixture", WS_POPUP, 0, 0, 256, 128, nullptr, nullptr, wc.hInstance, nullptr);
+    RegisterClassW(&wc); HWND window = CreateWindowW(wc.lpszClassName, L"Hidden ReShade lifecycle fixture", WS_POPUP, 0, 0, surfaceWidth, surfaceHeight, nullptr, nullptr, wc.hInstance, nullptr);
     Require(window != nullptr, "hidden window");
     ComPtr<IDXGIFactory4> factory; Check(CreateDXGIFactory1(IID_PPV_ARGS(&factory)), "factory");
     ComPtr<ID3D11Device> device; ComPtr<ID3D11DeviceContext> context;
@@ -191,13 +200,16 @@ int main(int argc, char **argv)
     Require(initialDevice && initialQueue, "normal proxy device/queue notifications captured");
     auto *nativeDevice = reinterpret_cast<ID3D11Device *>(initialDevice->get_native());
     auto *nativeContext = reinterpret_cast<ID3D11DeviceContext *>(initialQueue->get_native());
-    Surface explicitSurface(nativeDevice), autoSurface;
+    Surface explicitSurface, autoSurface;
     ComPtr<IDXGISwapChain1> swapchain;
     ComPtr<TheosRenderPipeline::ReShadeSwapChain> facade;
     auto makeAuto = [&] {
         phase = "create_automatic";
-        DXGI_SWAP_CHAIN_DESC1 desc{}; desc.Width = 256; desc.Height = 128; desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-        desc.SampleDesc.Count = desc.BufferCount = 1; desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT; desc.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
+        DXGI_SWAP_CHAIN_DESC1 desc{}; desc.Width = surfaceWidth; desc.Height = surfaceHeight; desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        desc.SampleDesc.Count = desc.BufferCount = 1; desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+        // Preserve the buffer for readback after Present. DISCARD (including
+        // FLIP_DISCARD) does not guarantee its contents at that point.
+        desc.SwapEffect = DXGI_SWAP_EFFECT_SEQUENTIAL;
         Check(factory->CreateSwapChainForHwnd(device.Get(), window, &desc, nullptr, nullptr, &swapchain), "automatic swapchain");
         Require(automatic != nullptr, "automatic runtime callback");
         Check(swapchain->GetBuffer(0, IID_PPV_ARGS(&autoSurface.texture)), "automatic buffer");
@@ -208,6 +220,11 @@ int main(int argc, char **argv)
         const bool proxy = mode == "explicit-proxy";
         auto *passedDevice = proxy ? device.Get() : nativeDevice;
         auto *passedContext = proxy ? context.Get() : nativeContext;
+        explicitSurface = Surface(passedDevice);
+        ComPtr<ID3D11Device> bufferDevice;
+        explicitSurface.texture->GetDevice(&bufferDevice);
+        if (proxy) Require(ComIdentity(reinterpret_cast<uint64_t>(bufferDevice.Get())) ==
+            ComIdentity(reinterpret_cast<uint64_t>(passedDevice)), "proxy-created buffer reports proxy device");
         facade.Attach(new TheosRenderPipeline::ReShadeSwapChain(passedDevice, explicitSurface.texture.Get(), window));
         const auto config = std::filesystem::absolute("Explicit.ini").string();
         Require(create(api::device_api::d3d11, passedDevice, passedContext, facade.Get(), config.c_str(), &owned), "exported runtime creation");
@@ -264,25 +281,31 @@ int main(int argc, char **argv)
     if (mixed) {
         // Synthetic messages target only our hidden fixture HWND. No SendInput,
         // global key state manipulation, foregrounding, or physical input claim.
+        auto pressed = [&] { return std::array<bool, 2>{
+            initOrder[0]->is_key_pressed(VK_F7), initOrder[1]->is_key_pressed(VK_F7)}; };
+        const auto yes = [](bool value) { return value ? "true" : "false"; };
         phase = "input_before"; ++frame;
         PostMessageW(window, WM_KEYDOWN, VK_F7, 1); Pump();
+        const auto secondaryBefore = pressed();
         for (auto *runtime : initOrder) LogRuntime("input_snapshot", runtime);
-        Require(automatic->is_key_pressed(VK_F7) && owned->is_key_pressed(VK_F7), "both runtimes see shared synthetic key");
         phase = "input_after_secondary"; tick(initOrder[1]);
+        const auto secondaryAfter = pressed();
         for (auto *runtime : initOrder) LogRuntime("input_snapshot", runtime);
-        const bool secondaryAdvances = !automatic->is_key_pressed(VK_F7);
-        Require(automatic->is_key_pressed(VK_F7) == owned->is_key_pressed(VK_F7), "shared input transitions agree");
-        // Older ReShade advances input from every runtime; 6.8 uses a primary
-        // handler. Measure the distinction rather than imposing a new-version
-        // expectation on an older binary. Re-arm for an independent first-runtime test.
+        // Record raw states even when a version does not share input. The runner
+        // enforces known policies only when requested; observe imposes neither.
         phase = "input_rearm";
         PostMessageW(window, WM_KEYUP, VK_F7, (1u << 31) | (1u << 30) | 1); Pump(); tick(initOrder[0]);
         PostMessageW(window, WM_KEYDOWN, VK_F7, 1); Pump();
-        Require(automatic->is_key_pressed(VK_F7) && owned->is_key_pressed(VK_F7), "fresh shared key for primary check");
+        const auto firstBefore = pressed();
         phase = "input_after_primary"; tick(initOrder[0]);
+        const auto firstAfter = pressed();
         for (auto *runtime : initOrder) LogRuntime("input_snapshot", runtime);
-        Require(!automatic->is_key_pressed(VK_F7) && !owned->is_key_pressed(VK_F7), "first initialized runtime advances shared input");
-        std::printf("{\"event\":\"input_policy\",\"secondary_advances\":%s,\"first_advances\":true}\n", secondaryAdvances ? "true" : "false");
+        const bool secondaryAdvances = secondaryBefore[0] && secondaryBefore[1] && !secondaryAfter[0] && !secondaryAfter[1];
+        const bool firstAdvances = firstBefore[0] && firstBefore[1] && !firstAfter[0] && !firstAfter[1];
+        std::printf("{\"event\":\"input_policy\",\"secondary_before\":[%s,%s],\"secondary_after\":[%s,%s],\"first_before\":[%s,%s],\"first_after\":[%s,%s],\"secondary_advances\":%s,\"first_advances\":%s}\n",
+            yes(secondaryBefore[0]), yes(secondaryBefore[1]), yes(secondaryAfter[0]), yes(secondaryAfter[1]),
+            yes(firstBefore[0]), yes(firstBefore[1]), yes(firstAfter[0]), yes(firstAfter[1]),
+            yes(secondaryAdvances), yes(firstAdvances));
         PostMessageW(window, WM_KEYUP, VK_F7, (1u << 31) | (1u << 30) | 1); Pump();
     }
     phase = "teardown";

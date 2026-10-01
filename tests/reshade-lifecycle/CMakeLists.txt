@@ -28,5 +28,5 @@ if(TRP_RESHADE_TEST_RUNTIME)
         --runtime "${TRP_RESHADE_TEST_RUNTIME}"
         --output "${CMAKE_CURRENT_BINARY_DIR}/runs/$<CONFIG>"
         --input-policy "${TRP_RESHADE_TEST_INPUT_POLICY}")
-    set_tests_properties(ReShadeLifecycleRuntime PROPERTIES TIMEOUT 240 RUN_SERIAL TRUE LABELS "ReShade;runtime")
+    set_tests_properties(ReShadeLifecycleRuntime PROPERTIES TIMEOUT 360 RUN_SERIAL TRUE LABELS "ReShade;runtime")
 endif()

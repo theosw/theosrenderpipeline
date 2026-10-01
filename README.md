@@ -160,8 +160,12 @@ adapter; no DLL is downloaded, bundled or installed. Configure with
 `TRPReShadeLifecycleTests`, then run `ctest -R ReShadeLifecycleRuntime` in that
 build directory with `-C Release --output-on-failure`. Each run copies the DLL
 and fixture into fresh folders under the build directory and records its hash.
+Logs and configurations are retained; disposable executable/DLL copies are removed
+after successful cases. The runner's `--keep-binaries` option retains them too.
+Children run in a kill-on-close Windows job so terminating the runner retires them.
 `TRP_RESHADE_TEST_INPUT_POLICY` defaults to `observe`; use `every-runtime` for
 6.3.3 or `first-runtime` for 6.8.0 to enforce the version-specific input check.
+Observation records both runtimes' raw key states without imposing either policy.
 These are upstream runtime contracts, not a ReGrade+ reproduction, race test,
 performance benchmark or Skyrim compatibility guarantee. The fixture can also
 be built independently with `cmake -S tests/reshade-lifecycle -B out/reshade`.

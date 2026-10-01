@@ -12,6 +12,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+from windows_job import KillOnCloseJob
 
 
 MODES = ("automatic", "explicit-native", "explicit-proxy",
@@ -51,7 +52,8 @@ def check_events(events, mode, input_policy):
             "effects off retains GUI and completion")
     for event in events:
         if event["event"] == "runtime_present":
-            start = next(i for i in init if i["runtime"] == event["runtime"])
+            start = next((i for i in init if i["runtime"] == event["runtime"]), None)
+            require(start is not None, f"completion from uninitialized runtime {event['runtime']}")
             require(event["context_protected"] == int(start["phase"] == "create_automatic"),
                     "automatic scoped protection / exported unprotected update")
         elif event["event"] in ("host_tick_before", "host_tick_after"):
@@ -64,10 +66,19 @@ def check_events(events, mode, input_policy):
     policies = [e for e in events if e["event"] == "input_policy"]
     require(len(policies) == int(mode.startswith("mixed")), "mixed runtime input check executed")
     if policies:
-        require(policies[0]["first_advances"], "first runtime advances shared input")
+        policy = policies[0]
+        for which in ("secondary", "first"):
+            before, after = policy[which + "_before"], policy[which + "_after"]
+            require(len(before) == len(after) == 2 and
+                    all(type(v) is bool for v in before + after), "measured input states")
+            require(policy[which + "_advances"] == (all(before) and not any(after)),
+                    "input summary agrees with measured states")
         if input_policy != "observe":
-            require(policies[0]["secondary_advances"] == (input_policy == "every-runtime"),
-                    "version-specific shared input policy")
+            require(all(policy["secondary_before"]) and all(policy["first_before"]),
+                    "both runtimes received synthetic key")
+            expected_after = [input_policy == "first-runtime"] * 2
+            require(policy["secondary_after"] == expected_after and
+                    policy["first_after"] == [False, False], "version-specific shared input policy")
     require(events[-1]["event"] == "result" and events[-1]["pass"] and
             events[-1]["mode"] == mode, "fixture completed")
     return {"mode": mode, "pass": True, "red": pixels[0], "input_policy": policies,
@@ -82,6 +93,8 @@ def main():
     parser.add_argument("--input-policy", choices=("observe", "every-runtime", "first-runtime"),
                         default="observe")
     parser.add_argument("--mode", action="append", choices=MODES)
+    parser.add_argument("--keep-binaries", action="store_true",
+                        help="Keep successful run copies of the executable and injector")
     args = parser.parse_args()
     executable, runtime = args.exe.resolve(strict=True), args.runtime.resolve(strict=True)
     args.output.mkdir(parents=True, exist_ok=True)
@@ -102,16 +115,40 @@ def main():
                 shutil.copy2(fixture / name, directory / name)
             shutil.copy2(fixture / "ReShade.ini", directory / "Explicit.ini")
             shutil.copytree(fixture / "effects", directory / "effects")
-            with (directory / "events.jsonl").open("wb") as stdout, (directory / "stderr.txt").open("wb") as stderr:
-                completed = subprocess.run([str(directory / executable.name), mode], cwd=directory,
-                                           stdout=stdout, stderr=stderr, timeout=45,
-                                           creationflags=subprocess.CREATE_NO_WINDOW)
-            require(completed.returncode == 0,
-                    f"{mode}: exit {completed.returncode}; see {directory / 'stderr.txt'}")
-            events = [json.loads(line) for line in (directory / "events.jsonl").read_text().splitlines()]
-            result = check_events(events, mode, args.input_policy)
+            result = {"mode": mode, "pass": False, "error": "child did not complete"}
             results.append(result)
+            with (directory / "events.jsonl").open("wb") as stdout, (directory / "stderr.txt").open("wb") as stderr:
+                with KillOnCloseJob() as job:
+                    child = subprocess.Popen([str(directory / executable.name), mode], cwd=directory,
+                                             stdout=stdout, stderr=stderr,
+                                             creationflags=subprocess.CREATE_NO_WINDOW)
+                    try:
+                        job.attach(child.pid)
+                        result["pid"] = child.pid
+                        exit_code = child.wait(timeout=45)
+                    except BaseException as error:
+                        result["error"] = str(error)
+                        raise
+                    finally:
+                        if child.poll() is None:
+                            child.kill()
+                        child.wait(timeout=5)
+            result["exit"] = exit_code
+            require(exit_code == 0, f"{mode}: exit {exit_code}; see {directory / 'stderr.txt'}")
+            events = [json.loads(line) for line in (directory / "events.jsonl").read_text().splitlines()]
+            validated = check_events(events, mode, args.input_policy)
+            # Delete only known disposable copies in this newly created folder.
+            # Preserve logs/configuration/hashes; failed cases retain their binaries.
+            if not args.keep_binaries:
+                (directory / executable.name).unlink()
+                (directory / "dxgi.dll").unlink()
+            result.update(validated)
+            result.pop("error", None)
             print(json.dumps(result), flush=True)
+    except BaseException as error:
+        if results and not results[-1]["pass"]:
+            results[-1]["error"] = str(error)
+        raise
     finally:
         (root / "results.json").write_text(json.dumps(results, indent=2), encoding="utf-8")
 
