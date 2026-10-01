@@ -152,5 +152,19 @@ targets with `cmake --build <build-directory> --config Release`, then run
 do not establish game acceptance. Build output alone is not a complete install;
 use the installation guides for configuration, shaders and required runtimes.
 
+The optional ReShade lifecycle fixture compares automatic and exported D3D11
+runtimes, single effect execution, effects-off GUI completion, shared input and
+paired teardown. It needs a supplied x64 ReShade DLL and an accepted hardware
+adapter; no DLL is downloaded, bundled or installed. Configure with
+`-DTRP_RESHADE_TEST_RUNTIME=C:/path/to/dxgi.dll`, build
+`TRPReShadeLifecycleTests`, then run `ctest -R ReShadeLifecycleRuntime` in that
+build directory with `-C Release --output-on-failure`. Each run copies the DLL
+and fixture into fresh folders under the build directory and records its hash.
+`TRP_RESHADE_TEST_INPUT_POLICY` defaults to `observe`; use `every-runtime` for
+6.3.3 or `first-runtime` for 6.8.0 to enforce the version-specific input check.
+These are upstream runtime contracts, not a ReGrade+ reproduction, race test,
+performance benchmark or Skyrim compatibility guarantee. The fixture can also
+be built independently with `cmake -S tests/reshade-lifecycle -B out/reshade`.
+
 See [LICENSE](LICENSE) and [third-party notices](THIRD-PARTY.md) for project,
 dependency and contribution terms. Vendor runtimes retain their own licenses.
