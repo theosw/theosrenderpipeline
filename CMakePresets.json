@@ -25,11 +25,21 @@
       "name": "trp-dependency-root",
       "hidden": true,
       "inherits": "arp-nvidia",
-      "description": "Resolves the supplied dependencies from the TRP_DEPENDENCY_ROOT environment variable so any checkout or worktree configures without a local preset file.",
+      "description": "Resolves the supplied dependencies from the TRP_DEPENDENCY_ROOT environment variable and the vcpkg toolchain from VCPKG_ROOT, so any checkout or worktree configures without a local preset file. Both variables must be set; CMake regenerates automatically when CMake inputs change.",
       "condition": {
-        "type": "notEquals",
-        "lhs": "$env{TRP_DEPENDENCY_ROOT}",
-        "rhs": ""
+        "type": "allOf",
+        "conditions": [
+          {
+            "type": "notEquals",
+            "lhs": "$env{TRP_DEPENDENCY_ROOT}",
+            "rhs": ""
+          },
+          {
+            "type": "notEquals",
+            "lhs": "$env{VCPKG_ROOT}",
+            "rhs": ""
+          }
+        ]
       },
       "cacheVariables": {
         "VCPKG_INSTALLED_DIR": "$env{TRP_DEPENDENCY_ROOT}/vcpkg_installed",
@@ -41,8 +51,7 @@
         "FETCHCONTENT_SOURCE_DIR_HDE64": "$env{TRP_DEPENDENCY_ROOT}/hde64",
         "TRP_ENABLE_NEURAL_RENDERING": "ON",
         "TRP_BUILD_COMPATIBILITY_TESTS": "ON",
-        "CMAKE_CXX_FLAGS": "/DWIN32 /D_WINDOWS /EHsc /MP2",
-        "CMAKE_SUPPRESS_REGENERATION": "ON"
+        "CMAKE_CXX_FLAGS": "/DWIN32 /D_WINDOWS /EHsc /MP2"
       }
     },
     {
@@ -50,9 +59,19 @@
       "displayName": "Standard edition from TRP_DEPENDENCY_ROOT",
       "inherits": "trp-dependency-root",
       "condition": {
-        "type": "notEquals",
-        "lhs": "$env{TRP_DEPENDENCY_ROOT}",
-        "rhs": ""
+        "type": "allOf",
+        "conditions": [
+          {
+            "type": "notEquals",
+            "lhs": "$env{TRP_DEPENDENCY_ROOT}",
+            "rhs": ""
+          },
+          {
+            "type": "notEquals",
+            "lhs": "$env{VCPKG_ROOT}",
+            "rhs": ""
+          }
+        ]
       },
       "binaryDir": "${sourceDir}/out/build/base",
       "cacheVariables": {
@@ -64,9 +83,19 @@
       "displayName": "Universal edition from TRP_DEPENDENCY_ROOT",
       "inherits": "trp-dependency-root",
       "condition": {
-        "type": "notEquals",
-        "lhs": "$env{TRP_DEPENDENCY_ROOT}",
-        "rhs": ""
+        "type": "allOf",
+        "conditions": [
+          {
+            "type": "notEquals",
+            "lhs": "$env{TRP_DEPENDENCY_ROOT}",
+            "rhs": ""
+          },
+          {
+            "type": "notEquals",
+            "lhs": "$env{VCPKG_ROOT}",
+            "rhs": ""
+          }
+        ]
       },
       "binaryDir": "${sourceDir}/out/build/addon",
       "cacheVariables": {
@@ -88,9 +117,19 @@
       "configurePreset": "trp-standard",
       "configuration": "Release",
       "condition": {
-        "type": "notEquals",
-        "lhs": "$env{TRP_DEPENDENCY_ROOT}",
-        "rhs": ""
+        "type": "allOf",
+        "conditions": [
+          {
+            "type": "notEquals",
+            "lhs": "$env{TRP_DEPENDENCY_ROOT}",
+            "rhs": ""
+          },
+          {
+            "type": "notEquals",
+            "lhs": "$env{VCPKG_ROOT}",
+            "rhs": ""
+          }
+        ]
       },
       "targets": [
         "ARPBaseline"
@@ -101,9 +140,19 @@
       "configurePreset": "trp-universal",
       "configuration": "Release",
       "condition": {
-        "type": "notEquals",
-        "lhs": "$env{TRP_DEPENDENCY_ROOT}",
-        "rhs": ""
+        "type": "allOf",
+        "conditions": [
+          {
+            "type": "notEquals",
+            "lhs": "$env{TRP_DEPENDENCY_ROOT}",
+            "rhs": ""
+          },
+          {
+            "type": "notEquals",
+            "lhs": "$env{VCPKG_ROOT}",
+            "rhs": ""
+          }
+        ]
       },
       "targets": [
         "ARPBaseline"
@@ -116,9 +165,19 @@
       "configurePreset": "trp-standard",
       "configuration": "Release",
       "condition": {
-        "type": "notEquals",
-        "lhs": "$env{TRP_DEPENDENCY_ROOT}",
-        "rhs": ""
+        "type": "allOf",
+        "conditions": [
+          {
+            "type": "notEquals",
+            "lhs": "$env{TRP_DEPENDENCY_ROOT}",
+            "rhs": ""
+          },
+          {
+            "type": "notEquals",
+            "lhs": "$env{VCPKG_ROOT}",
+            "rhs": ""
+          }
+        ]
       },
       "output": {
         "outputOnFailure": true
@@ -129,9 +188,19 @@
       "configurePreset": "trp-universal",
       "configuration": "Release",
       "condition": {
-        "type": "notEquals",
-        "lhs": "$env{TRP_DEPENDENCY_ROOT}",
-        "rhs": ""
+        "type": "allOf",
+        "conditions": [
+          {
+            "type": "notEquals",
+            "lhs": "$env{TRP_DEPENDENCY_ROOT}",
+            "rhs": ""
+          },
+          {
+            "type": "notEquals",
+            "lhs": "$env{VCPKG_ROOT}",
+            "rhs": ""
+          }
+        ]
       },
       "output": {
         "outputOnFailure": true
