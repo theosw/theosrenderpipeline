@@ -58,7 +58,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		value.provider = static_cast<FrameGenerationProvider>(ini.GetLongValue("FrameGeneration", "Provider", 0));
 		value.xefgFrameTime = ini.GetBoolValue("FrameGeneration", "XeFGFrameTime", true);
 		value.xefg.experimentalMFG = ini.GetBoolValue("FrameGeneration", "XeFGExperimentalMFG", false);
-		value.xefg.generatedFrames = static_cast<std::uint32_t>(std::clamp(ini.GetLongValue("FrameGeneration", "XeFGMultiplier", 2), 2L, 4L)-1);
+		value.xefg.generatedFrames = static_cast<std::uint32_t>(std::clamp(ini.GetLongValue("FrameGeneration", "XeFGMultiplier", 2), 2L, static_cast<long>(XeFGMaxGeneratedFrames+1))-1);
 		value.reflexMode = static_cast<int>(ini.GetLongValue(section, "ReflexMode", 1));
 		// The original label said raster FPS, but the pinned runtime caps total
 		// output. Preserve the old numeric value; never silently multiply it.

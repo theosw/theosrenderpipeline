@@ -133,7 +133,7 @@ namespace TheosRenderPipeline
         xefg_swapchain_properties_t capabilities{};
         if(FAILED(hr=FG(xefgSwapChainGetProperties_(fg_,&capabilities),"initialized capabilities"))) return hr;
         if(capabilities.maxSupportedInterpolations<1) {status_="XeFG x2 unavailable";return DXGI_ERROR_UNSUPPORTED;}
-        snapshot_.maxGeneratedFrames=snapshot_.unlockReady?std::min(3u,capabilities.maxSupportedInterpolations):1u;
+        snapshot_.maxGeneratedFrames=snapshot_.unlockReady?std::min(XeFGMaxGeneratedFrames,capabilities.maxSupportedInterpolations):1u;
         snapshot_.generatedFrames=XeFGCount(options,snapshot_.maxGeneratedFrames);
         Trace("connect logging");
         if (FAILED(hr = FG(xefgSwapChainSetLoggingCallback_(fg_, XEFG_SWAPCHAIN_LOGGING_LEVEL_WARNING,

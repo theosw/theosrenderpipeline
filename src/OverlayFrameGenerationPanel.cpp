@@ -26,7 +26,7 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& v
         const bool intel = sourceBackend.Provider() == TheosRenderPipeline::FrameGenerationProvider::XeFG;
         const bool editIntel = settingsDraft.sourceDLSSG.provider == TheosRenderPipeline::FrameGenerationProvider::XeFG;
         const auto& unlock = sourceBackend.MFGState();
-        const auto usableMaximum = editIntel ? (settingsDraft.sourceDLSSG.xefg.experimentalMFG ? 3u : 1u) : TheosRenderPipeline::SourceDLSSG::MFGContract::Maximum(
+        const auto usableMaximum = editIntel ? (settingsDraft.sourceDLSSG.xefg.experimentalMFG ? TheosRenderPipeline::XeFGMaxGeneratedFrames : 1u) : TheosRenderPipeline::SourceDLSSG::MFGContract::Maximum(
             unlock.UsesCompatibilityUnlock(), unlock.Ready(), sourceState.state.numFramesToGenerateMax);
         const bool supportsDynamic = !editIntel && TheosRenderPipeline::SourceDLSSG::MFGContract::Dynamic(
                                          unlock.UsesCompatibilityUnlock(), unlock.Ready(),
@@ -160,19 +160,21 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& v
         if (sourceDLSSGActive)
         {
             if(editIntel) {
-                ImGui::Checkbox("Experimental XeFG x3/x4", &settingsDraft.sourceDLSSG.xefg.experimentalMFG);
+                ImGui::Checkbox("Experimental XeFG x3-x6", &settingsDraft.sourceDLSSG.xefg.experimentalMFG);
                 DrawSettingsHelp("Apply recreates the Intel presenter safely. Off restores x2. AMD and game validation are pending.");
             }
             ImGui::TextUnformatted("Multiplier");
             auto& request = settingsDraft.sourceDLSSG.generation;
             auto& requestedCount=editIntel?settingsDraft.sourceDLSSG.xefg.generatedFrames:request.generatedFrames;
             const char* multipliers[]{"x2", "x3", "x4", "x5", "x6"};
+            static_assert(TheosRenderPipeline::XeFGMaxGeneratedFrames <= sizeof(multipliers)/sizeof(*multipliers));
+            const auto listedMaximum=editIntel?TheosRenderPipeline::XeFGMaxGeneratedFrames:5u;
             const auto shownCount=editIntel&&!settingsDraft.sourceDLSSG.xefg.experimentalMFG?1u:requestedCount;
             ImGui::SetNextItemWidth(-1.0f);
             ImGui::BeginDisabled(editIntel&&!settingsDraft.sourceDLSSG.xefg.experimentalMFG);
-            if (ImGui::BeginCombo("##sourceMultiplier", multipliers[std::clamp(shownCount, 1u, editIntel?3u:5u) - 1]))
+            if (ImGui::BeginCombo("##sourceMultiplier", multipliers[std::clamp(shownCount, 1u, listedMaximum) - 1]))
             {
-                for (unsigned count = 1; count <= (editIntel?3u:5u); ++count)
+                for (unsigned count = 1; count <= (listedMaximum); ++count)
                 {
                     ImGui::BeginDisabled(count > usableMaximum);
                     if (ImGui::Selectable(multipliers[count - 1], requestedCount == count))

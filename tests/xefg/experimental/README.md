@@ -1,7 +1,7 @@
-# Isolated XeFG x2–x4 experiment
+# Isolated XeFG x2–x6 experiment
 
 The fixture and the opt-in renderer now share `src/FrameGen/XeFGUnlock.cpp`.
-The renderer defaults to official x2; its experimental checkbox enables x3/x4
+The renderer defaults to official x2; its experimental checkbox enables x3-x6
 after checked admission and presenter recreation. Fixture-only pixel capture,
 event storage and fault injection are compiled out of the renderer. Building
 or running these fixtures does not deploy anything or change a runtime file.
@@ -10,8 +10,8 @@ The experiment accepts exactly Intel `libxess_fg.dll` 1.3.1.78, SHA256
 `ec5e0c65e075570c6ede72618bb666d0be0c2e10b2ea9762c0fe8cb8e375ab27`.
 It checks PE identity and the whole mapped `.text` against the pinned file,
 including ASLR relocation, then installs five gate contracts and three pacing
-detours as one checked transaction before context entry. The ceiling remains
-three generated images (x4 total). Native forwarding is established before
+detours as one checked transaction before context entry. The ceiling is
+five generated images (x6 total). Native forwarding is established before
 publication. A verified rollback returns `Refused`; uncertain rollback returns
 `Unsafe` and cannot be treated as a healthy official-x2 fallback.
 
@@ -29,7 +29,9 @@ TRPXeFGPrototype.exe --runtime-dir <sdk/bin> --debug-layer --frames 96 --unlock 
 TRPXeFGPrototype.exe --runtime-dir <sdk/bin> --debug-layer --frames 96 --unlock --multiplier 4 --events x4.csv
 TRPXeFGPrototype.exe --runtime-dir <sdk/bin> --debug-layer --frames 120 --unlock --cycle-multipliers --events cycle.csv
 TRPXeFGPrototype.exe --runtime-dir <sdk/bin> --debug-layer --frames 96 --unlock --multiplier 4 --capture-dir pixels
-python experimental/analyze.py --events x4.csv --pixels pixels --output evidence.json
+python experimental/analyze.py --pixels pixels --multiplier 4 --output evidence.json
+TRPXeFGPrototype.exe --runtime-dir <sdk/bin> --debug-layer --frames 120 --unlock --multiplier 6 --capture-dir pixels-x6
+python experimental/analyze.py --pixels pixels-x6 --multiplier 6 --output evidence-x6.json
 TRPXeFGPrototype.exe --runtime-dir <sdk/bin> --debug-layer --frames 96 --unlock --multiplier 4 --force-scheduler-refusal --events refusal.csv
 python experimental/analyze.py --events refusal.csv --require-even-pacing --output refusal.json
 ```
@@ -39,7 +41,7 @@ and resets history. `--minimum-interval-us 0` removes the XeLL cap; the default
 16667-us cap produces approximately 60 output deliveries/s. Input GPU-copy
 retirement and SDK-owned presentation retirement remain separate boundaries.
 
-Pixel readback is bounded to three x4 bursts, before native Present, on the
+Pixel readback is bounded to three selected-multiplier bursts, before native Present, on the
 provider's queue after its output copy. It restores the backbuffer to PRESENT
 and waits on a completion fence before releasing capture resources. Capture
 perturbs pacing: analyze timings from an independent run without capture.
@@ -51,7 +53,7 @@ Hook QPC gaps describe software delivery, not scanout. This does not establish
 AMD acceptance, Skyrim integration, latency, display cadence, sustained real
 workload stability or interpolation quality. `TRPXeFGPresenterTests` separately
 checks production-owner and optional NVIDIA-provider handoff. Set
-`TRP_XEFG_MFG_TEST=1` for live x2/x3/x4, recreation and disable-to-x2 coverage;
+`TRP_XEFG_MFG_TEST=1` for live x2 through x6, recreation and disable-to-x2 coverage;
 with `TRP_XEFG_EXPECT_REFUSAL=1`, it instead requires x2 fallback using a
 separately identified unsupported runtime copy. The
 refusal fixture passes index zero to intermediate scheduler calls, exercising

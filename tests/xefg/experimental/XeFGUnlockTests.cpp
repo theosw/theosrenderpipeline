@@ -47,6 +47,8 @@ struct Fake final:Memory {
 int main() {
     const auto plan=MakePlan(0x1234567812345678,0x2234567812345678,0x3234567812345678);
     Require(plan.size()==8,"five gates and three required pacing hooks");
+    Require(plan[2].replacement==std::vector<std::uint8_t>{0xbb,5,0,0,0},"SDK initialization allocates the same x6 ceiling as admission");
+    Require(plan[3].replacement[6]==5 && plan[4].replacement[1]==5,"override and reported count agree with x6 allocation");
     std::string reason;
     Fake ok(plan);const auto before=ok.bytes;const auto protections=ok.protection;
     Require(Publish(ok,plan,static_cast<std::uint32_t>(ok.bytes.size()),reason)==PatchResult::Applied,"complete publication");

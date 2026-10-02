@@ -6,6 +6,7 @@
 // epochs, bounded diagnostics and native forwarding established before writes.
 // No implementation copied from PureDark's proprietary backend.
 #include "XeFGUnlock.h"
+#include "XeFGOptions.h"
 #include <bcrypt.h>
 #include <intrin.h>
 #include <algorithm>
@@ -97,12 +98,14 @@ PatchResult Publish(Memory& memory,std::span<const Patch> patches,std::uint32_t 
 }
 
 std::vector<Patch> MakePlan(std::uintptr_t present,std::uintptr_t scheduler,std::uintptr_t deadline) {
+    constexpr auto ceiling=static_cast<std::uint8_t>(XeFGMaxGeneratedFrames);
+    static_assert(XeFGMaxGeneratedFrames<=255);
     std::vector<Patch> plan{
         {0x20da4f,{0x0f,0x85,0xcc,0,0,0},{0xe9,0xcd,0,0,0,0x90}},
         {0x1a5de4,{0x74,0x09},{0xeb,0x06}},
-        {0x1a517d,{0xbb,3,0,0,0},{0xbb,3,0,0,0}},
-        {0x1a45c2,{0xc7,0x87,0x6c,1,0,0,1,0,0,0},{0xc7,0x87,0x6c,1,0,0,3,0,0,0}},
-        {0x20973b,{0xb8,1,0,0,0},{0xb8,3,0,0,0}}};
+        {0x1a517d,{0xbb,3,0,0,0},{0xbb,ceiling,0,0,0}},
+        {0x1a45c2,{0xc7,0x87,0x6c,1,0,0,1,0,0,0},{0xc7,0x87,0x6c,1,0,0,ceiling,0,0,0}},
+        {0x20973b,{0xb8,1,0,0,0},{0xb8,ceiling,0,0,0}}};
     for(const auto [rva,target,detour]:{
         std::array<std::uintptr_t,3>{0x25c0,0x21f730,present},
         std::array<std::uintptr_t,3>{0x3100,0x21ee30,scheduler},
@@ -201,7 +204,7 @@ bool Burst(void* arg5,void* arg6,std::uint64_t flag,bool last,Event& e) {
     if(!arg5 || ((static_cast<std::uint8_t>(flag)==1)==last)) return false;
     auto* burst=static_cast<std::uint8_t*>(arg5)-0x38;
     std::uint64_t count{},frames{};
-    if(!ReadSafe(burst+8,&count,8)||count<2||count>3) return false; // x2 forwarded untouched.
+    if(!ReadSafe(burst+8,&count,8)||count<2||count>XeFGMaxGeneratedFrames) return false; // x2 forwarded untouched.
     e.count=count;e.index=count;e.finalFrame=last;e.burst=reinterpret_cast<std::uintptr_t>(burst);
     if(!last) {
         if(!ReadSafe(burst,&frames,8)||!frames||reinterpret_cast<std::uintptr_t>(arg6)<frames) return false;
@@ -269,7 +272,7 @@ bool Scheduler(void* ctx,void* burst,std::uint8_t gate,void* snapshot,std::uint3
 }
 void* Deadline(void* ring,std::int64_t* out,void* lookup,void* snapshot,std::uint32_t index,std::uint32_t countPlus1) {
     void* result=nativeDeadline(ring,out,lookup,snapshot,index,countPlus1);
-    if(!out||!snapshot||index<1||index>3||countPlus1<3||countPlus1>4) return result;
+    if(!out||!snapshot||index<1||index>XeFGMaxGeneratedFrames||countPlus1<3||countPlus1>XeFGMaxGeneratedFrames+1) return result;
     Context(static_cast<std::uint8_t*>(ring)-0x168);
     std::int64_t median{};ReadSafe(static_cast<std::uint8_t*>(snapshot)+8,&median,8);
     const auto unit=median/static_cast<std::int64_t>(countPlus1);if(unit<=0) return result;

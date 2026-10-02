@@ -48,10 +48,9 @@ int wmain(int argc, wchar_t** argv) {
     Require(RegisterClassW(&wc)!=0,"register window");
     HWND window=CreateWindowW(wc.lpszClassName,L"TRP production XeFG presenter test",WS_OVERLAPPEDWINDOW,
         CW_USEDEFAULT,CW_USEDEFAULT,700,440,nullptr,nullptr,wc.hInstance,nullptr);
-    Require(window!=nullptr,"window"); if(!profile) {
-        ShowWindow(window,SW_SHOW);
-        SetWindowPos(window, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
-    }
+    Require(window!=nullptr,"window");
+    ShowWindow(window,SW_SHOWNOACTIVATE);
+    SetWindowPos(window,HWND_TOPMOST,20,20,700,440,SWP_NOACTIVATE|SWP_SHOWWINDOW);
     DXGI_SWAP_CHAIN_DESC desc{}; desc.BufferDesc.Width=width; desc.BufferDesc.Height=height;
     // HDR10 layers: AUTO must also cover 2-bit-alpha UI and frames without a UI layer.
     const bool hdr10=GetEnvironmentVariableW(L"TRP_XEFG_HDR10",nullptr,0)!=0;
@@ -66,7 +65,9 @@ int wmain(int argc, wchar_t** argv) {
     const bool experimental=GetEnvironmentVariableW(L"TRP_XEFG_MFG_TEST",nullptr,0)!=0;
     const bool expectRefusal=GetEnvironmentVariableW(L"TRP_XEFG_EXPECT_REFUSAL",nullptr,0)!=0;
     Require(!expectRefusal||experimental,"refusal mode requires experimental request");
-    std::array<unsigned,4> generatedCounts{};
+    constexpr unsigned maximum=TheosRenderPipeline::XeFGMaxGeneratedFrames;
+    std::array<unsigned,maximum+1> generatedCounts{};
+    constexpr unsigned frameCount=120;
     const bool nativeOnly=GetEnvironmentVariableW(L"TRP_XEFG_NATIVE_ONLY",nullptr,0)!=0;
     const bool releaseNvidia=GetEnvironmentVariableW(L"TRP_XEFG_RELEASE_NV",nullptr,0)!=0;
     wchar_t cyclesText[8]{};
@@ -88,9 +89,9 @@ int wmain(int argc, wchar_t** argv) {
         if(!nativeOnly) {
         ComPtr<IDXGISwapChain> proxy;
         Check(presenter.Create(d12.Get(),queue.Get(),factory.Get(),desc,round==1,&proxy,
-            nvidia?nvidia->session.Snapshot().frameIndex:0,{experimental && round<2,3}),"production Intel presenter");
+            nvidia?nvidia->session.Snapshot().frameIndex:0,{experimental && round<2,maximum}),"production Intel presenter");
         ComPtr<IDXGISwapChain3> proxy3; Check(proxy.As(&proxy3),"proxy3");
-        for(unsigned frame=0;frame<90;++frame) {
+        for(unsigned frame=0;frame<frameCount;++frame) {
             MSG message{}; while(PeekMessageW(&message,nullptr,0,0,PM_REMOVE)) { TranslateMessage(&message); DispatchMessageW(&message); }
             if(!gpuInputWait) Check(interop.Drain(),"producer reuse");
             input.Paint(c11.Get(),frame);
@@ -124,12 +125,12 @@ int wmain(int argc, wchar_t** argv) {
             Check(interop.Begin(Work::SwapChain,&list),"begin output");
             ComPtr<ID3D12Resource> back; Check(proxy->GetBuffer(proxy3->GetCurrentBackBufferIndex(),IID_PPV_ARGS(&back)),"backbuffer");
             Check(Interop::RecordCopy(list,input.color.texture12.Get(),back.Get()),"source copy");
-            const bool enable=frame>=8&&frame<82;
+            const bool enable=frame>=8&&frame<112;
             // Round 0 tags the UI layer, then offers a mismatched layer that must be
             // rejected; later rounds provide none, leaving AUTO to extract from the frame.
             auto* ui=round==0?(frame<45?input.ui.texture12.Get():input.depth.texture12.Get()):nullptr;
             const bool uiExpected=enable&&round==0&&frame<45;
-            const unsigned count=experimental?(frame<30?1u:frame<55?2u:3u):1u;
+            const unsigned count=experimental?std::min(1u+frame/24u,maximum):1u;
             Check(presenter.BeforePresent(list,input.motion.texture12.Get(),input.depth.texture12.Get(),input.hudless.texture12.Get(),ui,enable,true,profile?0:60,count),"production preparation");
             Require(presenter.Snapshot().uiTexture==uiExpected,"UI layer tagged only when it matches the HUD-less layer");
             if(uiExpected) ++uiTagged;
@@ -149,11 +150,11 @@ int wmain(int argc, wchar_t** argv) {
             const auto& state=presenter.Snapshot(); Require(state.framesPresented>=1&&state.framesPresented<=state.generatedFrames+1,"selected count bounds");
             if(!enable) Require(state.framesPresented==1,"off passthrough");
             Require(state.frameLimitUs==(profile?0:16667),"output cap remains independent of ratio");
-            Require(state.maxGeneratedFrames==(experimental && !expectRefusal && round<2?3u:1u),"opt-in capacity, including disable after resident unlock");
+            Require(state.maxGeneratedFrames==(experimental && !expectRefusal && round<2?maximum:1u),"opt-in capacity, including disable after resident unlock");
             if(expectRefusal) Require(!state.unlockReady && state.generatedFrames==1,"refused unlock retains official x2");
             if(enable && state.framesPresented==state.generatedFrames+1) {++generated;++generatedCounts[state.generatedFrames];++(state.uiTexture?generatedWithUI:generatedWithoutUI);}
             if(frame%30==0) std::printf("production round=%u requested=%u actual=%u outputs=%u capacity=%u optIn=%u\n",round,count+1,state.generatedFrames+1,state.framesPresented,state.maxGeneratedFrames+1,state.experimentalMFG);
-            if(frame!=89) {
+            if(frame+1!=frameCount) {
                 const auto start=std::chrono::steady_clock::now();Check(presenter.BeginFrame(),"next frame");
                 if(profile&&enable&&frame>=24) sleepTimes.push_back(std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count());
             }
@@ -180,8 +181,12 @@ int wmain(int argc, wchar_t** argv) {
     if(profile) {
         PrintTiming("outer Present",presentTimes);PrintTiming("post-Present reuse wait",retirementTimes);PrintTiming("BeginFrame / XeLL sleep",sleepTimes);
     }
-    if(experimental && !nativeOnly && !expectRefusal) Require(generatedCounts[1]>20 && generatedCounts[2]>20 && generatedCounts[3]>20,"production live x2/x3/x4 and disable-to-x2");
-    if(expectRefusal && !nativeOnly) Require(generatedCounts[1]>100 && generatedCounts[2]==0 && generatedCounts[3]==0,"sustained official x2 after unlock refusal");
+    if(experimental && !nativeOnly && !expectRefusal)
+        for(unsigned count=1;count<=maximum;++count) Require(generatedCounts[count]>20,"production live x2 through x6 and disable-to-x2");
+    if(expectRefusal && !nativeOnly) {
+        Require(generatedCounts[1]>100,"sustained official x2 after unlock refusal");
+        for(unsigned count=2;count<=maximum;++count) Require(generatedCounts[count]==0,"refusal never enables experimental counts");
+    }
     for(UINT64 n=0;n<messages->GetNumStoredMessagesAllowedByRetrievalFilter();++n) {
         SIZE_T size{}; messages->GetMessage(n,nullptr,&size); std::vector<unsigned char> storage(size);
         auto* message=reinterpret_cast<D3D12_MESSAGE*>(storage.data()); messages->GetMessage(n,message,&size);
@@ -190,5 +195,5 @@ int wmain(int argc, wchar_t** argv) {
     DestroyWindow(window); UnregisterClassW(wc.lpszClassName,wc.hInstance);
     std::printf("PASS mode=%s productionOwner generatedPresents=%u uiTexturePresents=%u stableSharedResources=true physicalCadenceVerified=false\n",
         nativeOnly?"NVIDIA-control":nvidia?"NVIDIA-XeFG-NVIDIA":"DXGI-XeFG-DXGI",generated,uiTagged);
-    std::printf("multiplier coverage x2=%u x3=%u x4=%u experimental=%u\n",generatedCounts[1],generatedCounts[2],generatedCounts[3],experimental);
+    for(unsigned count=1;count<=maximum;++count) std::printf("multiplier coverage x%u=%u experimental=%u\n",count+1,generatedCounts[count],experimental);
 }

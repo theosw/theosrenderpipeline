@@ -8,6 +8,7 @@
 struct XeFGPixelCapture {
     std::filesystem::path directory;
     unsigned saved{};
+    unsigned generatedFrames{3};
     bool started{};
     std::mutex mutex;
     static inline XeFGPixelCapture* active{};
@@ -27,7 +28,7 @@ struct XeFGPixelCapture {
     }
     void Capture(const XeFGExperiment::Event& e) {
         std::lock_guard lock(mutex);
-        if(saved>=9 || e.count!=3) return;
+        if(saved>=3*generatedFrames || e.count!=generatedFrames) return;
         if(!started) { if(e.index!=1 || e.deadlineNs==0) return; started=true; }
         IUnknown *queueRaw{}, *chainRaw{};
         Require(Targets(e.context,queueRaw,chainRaw),"pinned capture ABI");

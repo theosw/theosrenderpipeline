@@ -1,4 +1,5 @@
 #include "XeFGTestSupport.h"
+#include "FrameGen/XeFGOptions.h"
 #include "experimental/XeFGUnlock.h"
 #include "experimental/XeFGPixelCapture.h"
 int wmain(int argc, wchar_t** argv) {
@@ -29,9 +30,10 @@ int wmain(int argc, wchar_t** argv) {
         else { std::fprintf(stderr,"Unknown/incomplete argument\n"); return 2; }
     }
     Require(!runtime.empty() && frames>=48 && frames<=3600,"runtime directory and frames 48..3600");
-    Require(multiplier>=2 && multiplier<=4 && (unlock || (multiplier==2 && !cycle)),"experimental count requires explicit unlock");
+    Require(multiplier>=2 && multiplier<=TheosRenderPipeline::XeFGMaxGeneratedFrames+1 && (unlock || (multiplier==2 && !cycle)),"experimental count requires explicit unlock");
     Require(!forceRefusal || (unlock && multiplier>2),"scheduler injection requires experimental MFG");
-    Require(minimumIntervalUs<=100000 && (pixelCapture.directory.empty() || (unlock && multiplier==4 && !cycle)),"bounded capture and interval");
+    Require(minimumIntervalUs<=100000 && (pixelCapture.directory.empty() || (unlock && multiplier>2 && !cycle)),"bounded capture and interval");
+    pixelCapture.generatedFrames=multiplier-1;
     if(!pixelCapture.directory.empty()) {std::filesystem::create_directories(pixelCapture.directory);XeFGPixelCapture::active=&pixelCapture;}
     std::printf("TRP XeFG isolated prototype; unlock=%u multiplier=%u cycle=%u; no Skyrim hooks\n",unlock,multiplier,cycle);
     Api api(runtime);
@@ -87,7 +89,7 @@ int wmain(int argc, wchar_t** argv) {
         FG(api.xefgSwapChainSetLatencyReduction(fg,ll),"connect XeLL");
         xefg_swapchain_properties_t props{};
         FG(api.xefgSwapChainGetProperties(fg,&props),"capability properties");
-        const unsigned capacity=unlock?3:1;
+        const unsigned capacity=unlock?TheosRenderPipeline::XeFGMaxGeneratedFrames:1;
         std::printf("round=%u maxSupportedInterpolations=%u requestedCapacity=%u\n",round,props.maxSupportedInterpolations,capacity);
         Require(props.maxSupportedInterpolations>=capacity,"requested interpolation capacity admission");
         if(probeOnly) {
@@ -124,7 +126,7 @@ int wmain(int argc, wchar_t** argv) {
                 FG(api.xefgSwapChainSetEnabled(fg,desired),"frame-boundary enable change"); enabled=desired;
                 std::printf("phase round=%u frame=%u enabled=%u\n",round,frame,enabled);
             }
-            const unsigned requested=cycle?1+((frame*3/frames)%3):multiplier-1;
+            const unsigned requested=cycle?1+((frame*capacity/frames)%capacity):multiplier-1;
             if(requested!=activeCount) {
                 FG(api.xefgSwapChainSetNumInterpolatedFrames(fg,requested),"live multiplier change");activeCount=requested;
                 std::printf("multiplier round=%u frame=%u x=%u\n",round,frame,activeCount+1);
@@ -218,7 +220,7 @@ int wmain(int argc, wchar_t** argv) {
         pacing.presents,pacing.scheduled,pacing.refused,pacing.wallWaits,pacing.deadlines,pacing.contextChanges);
     if(unlock && multiplier>2 && !probeOnly) Require(pacing.presents>0,"actual generated-frame hooks exercised");
     if(forceRefusal && !probeOnly) Require(pacing.refused>0 && pacing.wallWaits>0 && pacing.scheduled==0,"actual scheduler refusal and wall-wait fallback");
-    if(XeFGPixelCapture::active) Require(pixelCapture.saved==9,"three complete generated-image capture bursts");
+    if(XeFGPixelCapture::active) Require(pixelCapture.saved==3*pixelCapture.generatedFrames,"three complete generated-image capture bursts");
     std::printf("PASS mode=%s multiplier=%u cycle=%u minimumIntervalUs=%u sdkGeneratedPresents=%u physicalCadenceVerified=false AMDValidated=%s\n",
         probeOnly?"capability-only":"D3D11-shared-inputs-off-generation-off-recreate",multiplier,cycle,minimumIntervalUs,totalGenerated,ad.VendorId==0x1002?"SDK-only":"false");
 }
