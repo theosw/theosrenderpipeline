@@ -219,16 +219,16 @@ They are suppressed while editing text in TRP's menu. Other mods can share
 these keys. Use Save as default to retain an NR state for future launches.
 The existing `ToggleOverlay` menu binding is independent.
 
-## Menu size
+## Menu zoom
 
 The menu sizes itself from the output height: 1080p is 100% and 4K is 200%.
-To make it larger or smaller, use the **A-** and **A+** buttons at the right of
-the menu's title bar; each press changes the size by 25%. Under Advanced, clear
-**Automatic menu size** to set **Menu size** from 75% to 300%, or tick it to
-return to the automatic size. Changes apply immediately; Save as default
-remembers them with the window layout. On smaller outputs the size is limited
-so the menu still fits. The INI equivalent is `UIScale` under `[Overlay]`,
-where 0 is automatic.
+To make it larger or smaller, use **-** and **+** next to **Zoom** at the right
+of the menu's title bar; each press changes the zoom by 25%. Click the
+percentage between them to return to the automatic zoom. Under Advanced, clear
+**Automatic zoom** to set **Zoom** from 75% to 300%. Changes apply immediately;
+Save as default remembers them with the window layout. On smaller outputs the
+zoom is limited so the menu still fits. The INI equivalent is `UIScale` under
+`[Overlay]`, where 0 is automatic.
 
 ## Experimental game versions
 

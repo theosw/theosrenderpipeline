@@ -147,7 +147,7 @@ void OverlayUI::DrawMemoryMeasurements(const FrameView& view)
 void OverlayUI::DrawMenuSizeControl()
 {
     bool automatic = layout.uiScale <= 0;
-    if (ImGui::Checkbox("Automatic menu size", &automatic))
+    if (ImGui::Checkbox("Automatic zoom", &automatic))
         layout.uiScale = automatic ? 0.0f : UIScale();
     DrawSettingsHelp("Sizes text and controls from the output height; 1080p is 100%. Changes apply immediately. "
                      "Save as default remembers them.");
@@ -155,7 +155,7 @@ void OverlayUI::DrawMenuSizeControl()
     if (!menuSizeEditing)
         menuSizeEdit = std::round((automatic ? UIScale() : layout.uiScale) * 100.0f);
     ImGui::BeginDisabled(automatic);
-    ImGui::SliderFloat("Menu size", &menuSizeEdit, MinUIScale * 100.0f, MaxUIScale * 100.0f, "%.0f%%",
+    ImGui::SliderFloat("Zoom", &menuSizeEdit, MinUIScale * 100.0f, MaxUIScale * 100.0f, "%.0f%%",
                        ImGuiSliderFlags_AlwaysClamp);
     menuSizeEditing = ImGui::IsItemActive();
     if (ImGui::IsItemDeactivatedAfterEdit())

@@ -54,7 +54,7 @@ namespace Rows
 {
 // Narrow windows show only Reset; its tooltip gives Base's value.
 inline bool compactState{};
-// Widths in 1x units; callers multiply by the menu size.
+// Widths in 1x units; callers multiply by the zoom.
 inline constexpr float MaxControl = 520, MinControl = 140, WideState = 260, NarrowState = 90, MaxPassCell = 360;
 inline float StateWidth(float available, float fixed)
 {

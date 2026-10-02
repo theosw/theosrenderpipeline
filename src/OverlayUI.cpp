@@ -336,41 +336,62 @@ void OverlayUI::UpdateUIScale()
         embedded ? "embedded" : "fallback", created ? "ready" : "failed");
 }
 
-// Right end of the title bar, so the size can be changed without finding Advanced.
-void OverlayUI::DrawMenuSizeButtons()
+// "Zoom - 133% +" at the right end of the title bar, so the size can be changed
+// without finding Advanced. Clicking the percentage returns to automatic size.
+void OverlayUI::DrawZoomButtons()
 {
     auto* window = ImGui::GetCurrentWindow();
     const auto title = window->TitleBarRect();
     const auto& style = ImGui::GetStyle();
     const auto display = ImGui::GetIO().DisplaySize;
     const float current = UIScale();
-    const char* smaller = "A-##menuSmaller";
-    const char* larger = "A+##menuLarger";
-    const auto width = [&](const char* label) {
-        return ImGui::CalcTextSize(label, nullptr, true).x + style.FramePadding.x * 2.0f;
-    };
-    const float buttons = width(smaller) + style.ItemSpacing.x + width(larger);
+    const float automatic = ResolveUIScale(0, display.x, display.y);
+    const bool manual = layout.uiScale > 0;
+    char percent[32];
+    std::snprintf(percent, sizeof(percent), "%.0f%%###zoomReset", current * 100.0f);
+    const float buttonWidth = ImGui::CalcTextSize("+").x + style.FramePadding.x * 2.0f;
+    // Sized for the widest value so the controls do not shift as the zoom changes.
+    const float percentWidth = ImGui::CalcTextSize("300%").x + style.FramePadding.x * 2.0f;
+    const float total = ImGui::CalcTextSize("Zoom").x + percentWidth + buttonWidth * 2.0f + style.ItemSpacing.x * 3.0f;
     // Title-bar items must not extend the content region the window scrolls.
     const auto cursor = ImGui::GetCursorScreenPos();
     const auto maxPos = window->DC.CursorMaxPos;
     const auto idealMaxPos = window->DC.IdealMaxPos;
     ImGui::PushClipRect(title.Min, title.Max, false);
-    ImGui::SetCursorScreenPos(ImVec2(title.Max.x - style.FramePadding.x - buttons,
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(style.FramePadding.x, 0.0f));
+    ImGui::SetCursorScreenPos(ImVec2(title.Max.x - style.FramePadding.x - total,
                                      title.Min.y + (title.GetHeight() - ImGui::GetFontSize()) * 0.5f));
-    const auto button = [&](const char* label, int direction, const char* action) {
+    ImGui::TextColored(kMuted, "Zoom");
+    const auto step = [&](const char* label, int direction, const char* action) {
+        ImGui::SameLine();
         const float next = StepUIScale(current, direction);
         // Disable a step that the size limits would leave unchanged.
         ImGui::BeginDisabled(std::abs(ResolveUIScale(next, display.x, display.y) - current) < 0.001f);
-        if (ImGui::SmallButton(label))
+        if (ImGui::Button(label, ImVec2(buttonWidth, 0.0f)))
             layout.uiScale = next;
         ImGui::EndDisabled();
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip("%s menu (now %.0f%%).\nSave as default remembers the size. Advanced restores automatic size.",
-                              action, current * 100.0f);
+            ImGui::SetTooltip("%s by 25%%. Save as default remembers the zoom.", action);
     };
-    button(smaller, -1, "Smaller");
+    step("-##zoomOut", -1, "Zoom out");
     ImGui::SameLine();
-    button(larger, 1, "Larger");
+    // A flat readout; it highlights as a button only when there is a manual zoom to clear.
+    const ImVec4 clear(0, 0, 0, 0);
+    ImGui::PushStyleColor(ImGuiCol_Button, clear);
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, manual ? style.Colors[ImGuiCol_ButtonHovered] : clear);
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, manual ? style.Colors[ImGuiCol_ButtonActive] : clear);
+    if (ImGui::Button(percent, ImVec2(percentWidth, 0.0f)) && manual)
+        layout.uiScale = 0;
+    ImGui::PopStyleColor(3);
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+    {
+        if (manual)
+            ImGui::SetTooltip("Click to return to automatic zoom (%.0f%% for this output).", automatic * 100.0f);
+        else
+            ImGui::SetTooltip("Automatic zoom from the output height; 1080p is 100%%.");
+    }
+    step("+##zoomIn", 1, "Zoom in");
+    ImGui::PopStyleVar();
     ImGui::PopClipRect();
     ImGui::SetCursorScreenPos(cursor);
     window->DC.CursorMaxPos = maxPos;
@@ -409,7 +430,7 @@ void OverlayUI::BuildUI()
     layout.y = windowPos.y / scale;
     layout.width = windowSize.x / scale;
     layout.height = windowSize.y / scale;
-    DrawMenuSizeButtons();
+    DrawZoomButtons();
     DrawPipelineSummary(view);
     const auto& layoutStyle = ImGui::GetStyle();
     float reservedActionHeight = ImGui::GetFrameHeightWithSpacing() + ImGui::GetFrameHeight() +
@@ -582,7 +603,7 @@ void OverlayUI::DrawSettingsActions()
         ImGui::PopStyleColor(4);
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
         {
-            ImGui::SetTooltip("Apply live settings and save your choices, menu size, window layout and divider for future launches.\n"
+            ImGui::SetTooltip("Apply live settings and save your choices, zoom, window layout and divider for future launches.\n"
                               "Mode and render scale changes take effect after restarting.");
         }
         ImGui::EndTable();

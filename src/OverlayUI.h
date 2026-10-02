@@ -66,7 +66,7 @@ private:
 	void BuildUI();
     void UpdateUIScale();
     void DrawMenuSizeControl();
-    void DrawMenuSizeButtons();
+    void DrawZoomButtons();
 	void UpdateFrameStats();
 	void HandleHotkey();
 	static LRESULT CALLBACK WindowMessage(int code, WPARAM wParam, LPARAM lParam);
