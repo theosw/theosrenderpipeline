@@ -123,7 +123,7 @@ bool NvidiaHost::CreateGameFacingResources(IDXGISwapChain* a_swapChain)
     EndNativeUIPass();
     gameTargets_.ResetGameFacingAfterRetirement();
     nativeUIPass_.ResetEvaluation();
-    ReleaseSourceUpscaler();
+    if (FAILED(ReleaseSourceUpscaler())) { return false; }
     sourceUpscalerInitializationPending_ = false;
     presentation_.ResetAfterRetirement();
     if (!a_swapChain || !device_ || !context_)
@@ -184,7 +184,7 @@ bool NvidiaHost::CreateGameFacingResources(IDXGISwapChain* a_swapChain)
                       "{}x{} format={} result=0x{:08X}",
                       gameFacingDesc.Width, gameFacingDesc.Height, static_cast<std::uint32_t>(gameFacingDesc.Format),
                       static_cast<std::uint32_t>(createResult));
-        ReleaseSourceUpscaler();
+        if (FAILED(ReleaseSourceUpscaler())) { return false; }
         presentation_.ResetAfterRetirement();
         return false;
     }
@@ -203,7 +203,7 @@ bool NvidiaHost::CreateGameFacingResources(IDXGISwapChain* a_swapChain)
                       "format={} result=0x{:08X}",
                       inputDesc.Width, inputDesc.Height, static_cast<std::uint32_t>(inputDesc.Format), static_cast<std::uint32_t>(inputResult));
         gameTargets_.ResetGameFacingAfterRetirement();
-        ReleaseSourceUpscaler();
+        if (FAILED(ReleaseSourceUpscaler())) { return false; }
         presentation_.ResetAfterRetirement();
         return false;
     }

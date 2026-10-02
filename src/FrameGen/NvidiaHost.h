@@ -130,7 +130,7 @@ class NvidiaHost
     bool FinishSourceFrameForPresent();
     void ApplyLoadingFade(bool composed);
     void EndNativeUIPass();
-    void ReleaseSourceUpscaler();
+    HRESULT ReleaseSourceUpscaler();
     void ArmFrameGenerationWarmup();
     void SetRuntimeEnabled(bool a_enabled);
     void ApplySourceUpscalerSettingsAfterPresent();

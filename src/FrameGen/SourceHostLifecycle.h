@@ -25,19 +25,20 @@ class SourceHostLifecycle
         return result;
     }
 
-    template <class Operations> static bool BeforeResize(Operations& operations)
+    template <class Operations> static HRESULT BeforeResize(Operations& operations)
     {
         operations.DisableGeneration();
         if (!operations.Retire())
         {
-            return false;
+            return DXGI_ERROR_WAS_STILL_DRAWING;
         }
         operations.EndUI();
         operations.ClearAndFlush();
+        const auto released = operations.ReleaseUpscaler();
+        if (FAILED(released)) { return operations.Fail(released, "source upscaler release before resize"); }
         operations.ReleaseGameFacing();
-        operations.ReleaseUpscaler();
         operations.ReleasePresentation();
-        return true;
+        return S_OK;
     }
 
     template <class Operations> static bool Destroy(Operations& operations)
@@ -50,9 +51,14 @@ class SourceHostLifecycle
         }
         operations.BeginDestruction();
         operations.DisableGeneration();
+        const auto released = operations.ReleaseUpscaler();
+        if (FAILED(released)) {
+            operations.Fail(released, "source upscaler release during destruction");
+            operations.DetachFailedHost();
+            return false;
+        }
         operations.DetachSwapchains();
         operations.ReleaseGameFacing();
-        operations.ReleaseUpscaler();
         operations.ReleasePresentation();
         operations.ResetSession();
         return true;

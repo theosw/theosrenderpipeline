@@ -258,16 +258,20 @@ namespace TheosRenderPipeline::SourceDLSSG
 		logger::info("[ReShade] {}", ReShadeIntegration::Get().Status());
 		adapterVendor_ = adapterDesc.VendorId;
         nativeFactory_ = a_factory;
-        const bool intelStartup = RenderPipeline::GetSingleton()->mUpscaleType == ::XeSS;
+        const bool xeSSStartup = RenderPipeline::GetSingleton()->mUpscaleType == ::XeSS;
+        const auto startup = SelectProviderStartup(xeSSStartup, NvidiaAdapter(), RequestedProvider());
+        RequestProvider(startup.requested);
+        provider_ = startup.presenter;
+        const bool intelStartup = provider_ == FrameGenerationProvider::XeFG;
         // Keep the compatibility startup scope through swapchain creation and
         // the initial NVIDIA session, as on the accepted NVIDIA path.
         std::unique_ptr<MFGUnlock::StartupScope> nvidiaStartup;
         if (!intelStartup) { nvidiaStartup = std::make_unique<MFGUnlock::StartupScope>(mfgUnlock_); }
         if (intelStartup) {
-            RequestProvider(FrameGenerationProvider::XeFG);
-            provider_ = FrameGenerationProvider::XeFG;
             logger::info("[FrameGeneration] XeSS startup uses Intel XeFG/XeLL; NVIDIA runtimes are not initialized");
         } else if (!InitializeNvidia(a_directory)) { return fault_; }
+        logger::info("[FrameGeneration] startup upscaler={} requested={} presenter={}",
+            xeSSStartup ? "XeSS" : "DLSS/DLAA", ProviderName(startup.requested), ProviderName(startup.presenter));
 		D3D12_COMMAND_QUEUE_DESC queueDesc{};
 		queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
 		if (!Check(device12_->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&queue_)), "presenting queue") ||
@@ -305,10 +309,14 @@ namespace TheosRenderPipeline::SourceDLSSG
 		desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
 		presenterDesc_ = desc;
 		ComPtr<IDXGISwapChain> native;
+
+        // Upscaling and presentation are independent. XeSS also needs its SR
+        // context when the saved presenter is NVIDIA.
+        if (xeSSStartup && !Check(xess_.Open(device12_.Get(),
+            PluginPaths::Directory() / L"TheosRenderPipeline" / L"Intel"), "XeSS context")) { return fault_; }
 		if (intelStartup) {
             const auto intelDirectory = PluginPaths::Directory() / L"TheosRenderPipeline" / L"Intel";
-            if (!Check(xess_.Open(device12_.Get(), intelDirectory), "XeSS context") ||
-                !CheckXeFG(xefg_.Probe(device12_.Get(), intelDirectory)) ||
+            if (!CheckXeFG(xefg_.Probe(device12_.Get(), intelDirectory)) ||
                 !CheckXeFG(xefg_.Create(device12_.Get(), queue_.Get(), nativeFactory_.Get(), desc, true, &native))) { return fault_; }
             providerStatus_ = "Intel XeFG presenter; latency owner=XeLL";
         } else if (!Check(streamlineFactory_->CreateSwapChain(queue_.Get(), &desc, &native), "Streamline swapchain")) { return fault_; }

@@ -28,7 +28,7 @@ struct NvidiaHost::LifecycleOperations
         host.context_->Flush();
     }
     void ReleaseGameFacing() { host.gameTargets_.ResetGameFacingAfterRetirement(); }
-    void ReleaseUpscaler() { host.ReleaseSourceUpscaler(); }
+    HRESULT ReleaseUpscaler() { return host.ReleaseSourceUpscaler(); }
     void ReleasePresentation() { host.presentation_.ResetAfterRetirement(); }
     void UnpublishInput() { TheosRenderPipeline::NativeInput::Publish(0, 0); }
     void DetachFailedHost()
@@ -73,7 +73,7 @@ HRESULT NvidiaHost::BeforeResizeBuffers(IDXGISwapChain* a_swapChain)
         return S_OK;
     }
     LifecycleOperations operations{*this};
-    return TheosRenderPipeline::SourceHostLifecycle::BeforeResize(operations) ? S_OK : DXGI_ERROR_WAS_STILL_DRAWING;
+    return TheosRenderPipeline::SourceHostLifecycle::BeforeResize(operations);
 }
 
 HRESULT NvidiaHost::AfterResizeBuffers(IDXGISwapChain* a_swapChain, HRESULT a_result)
@@ -118,8 +118,18 @@ void NvidiaHost::ResetSessionAfterRetirement()
     device_.Reset();
 }
 
-void NvidiaHost::ReleaseSourceUpscaler()
+HRESULT NvidiaHost::ReleaseSourceUpscaler()
 {
+    // The SDK retains its owner on failed destruction. Preserve the host's
+    // ownership flags and resources too, and report the original result.
+    if (xeSSActive_) {
+        auto& sr = TheosRenderPipeline::SourceDLSSG::Backend::Get().XeSS();
+        const auto result = sr.ReleaseAfterRetirement();
+        if (FAILED(result)) {
+            status_ = sr.Status();
+            return FailLifecycle(result, "XeSS context destruction");
+        }
+    }
     TheosRenderPipeline::ReShadeIntegration::Get().ResetAfterRetirement();
     communityFrame_.ResetAfterRetirement();
     EndNativeUIPass();
@@ -142,9 +152,9 @@ void NvidiaHost::ReleaseSourceUpscaler()
     {
         DLSSBackend::GetSingleton()->ReleaseFeature();
     }
-    if (xeSSActive_) { TheosRenderPipeline::SourceDLSSG::Backend::Get().XeSS().ReleaseAfterRetirement(); }
     upscalerReady_ = false;
     splitSourceDLSSActive_ = xeSSActive_ = false;
+    return S_OK;
 }
 
 void NvidiaHost::OnPresentCompleted(HRESULT a_result)
