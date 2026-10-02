@@ -3,6 +3,51 @@
 
 namespace TheosRenderPipeline::Overlay
 {
+	namespace
+	{
+		constexpr float kBaseFontPixels = 14.0f;
+		float g_uiScale = 1.0f;
+
+		std::span<const std::byte> EmbeddedFont()
+		{
+			HMODULE module{};
+			if (!::GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+				reinterpret_cast<LPCWSTR>(&EmbeddedFont), &module)) {
+				return {};
+			}
+			const auto resource = ::FindResourceW(module, L"TRP_OVERLAY_FONT", MAKEINTRESOURCEW(10));  // RT_RCDATA
+			const auto loaded = resource ? ::LoadResource(module, resource) : nullptr;
+			const auto data = loaded ? ::LockResource(loaded) : nullptr;
+			if (!data) {
+				return {};
+			}
+			return { static_cast<const std::byte*>(data), ::SizeofResource(module, resource) };
+		}
+	}
+
+	float UIScale()
+	{
+		return g_uiScale;
+	}
+
+	bool BuildRendererFont(float a_scale)
+	{
+		auto& fonts = *ImGui::GetIO().Fonts;
+		fonts.Clear();
+		ImFontConfig config;
+		// The atlas copies the resource; Skyrim's module image stays read-only.
+		config.FontDataOwnedByAtlas = false;
+		const auto font = EmbeddedFont();
+		if (!font.empty() && fonts.AddFontFromMemoryTTF(const_cast<std::byte*>(font.data()),
+				static_cast<int>(font.size()), std::round(kBaseFontPixels * a_scale), &config)) {
+			return true;
+		}
+		config = {};
+		config.SizePixels = std::round(13.0f * a_scale);
+		fonts.AddFontDefault(&config);
+		return false;
+	}
+
 	ImVec4 HealthColor(UIHealth a_health)
 	{
 		switch (a_health) {
@@ -17,9 +62,12 @@ namespace TheosRenderPipeline::Overlay
 		}
 	}
 
-	void ApplyRendererStyle()
+	void ApplyRendererStyle(float a_scale)
 	{
+		g_uiScale = a_scale;
 		auto& style = ImGui::GetStyle();
+		// ScaleAllSizes compounds, so start from ImGui's unscaled defaults.
+		style = ImGuiStyle();
 		style.WindowPadding = ImVec2(14.0f, 12.0f);
 		style.FramePadding = ImVec2(10.0f, 6.0f);
 		style.CellPadding = ImVec2(9.0f, 7.0f);
@@ -87,6 +135,7 @@ namespace TheosRenderPipeline::Overlay
 		colors[ImGuiCol_TableRowBgAlt] = ImVec4(0.10f, 0.105f, 0.105f, 0.40f);
 		colors[ImGuiCol_TextSelectedBg] = ImVec4(0.46f, 0.31f, 0.08f, 0.60f);
 		colors[ImGuiCol_NavHighlight] = kAmber;
+		style.ScaleAllSizes(a_scale);
 	}
 
 	void DrawHealthDot(UIHealth a_health)
@@ -95,7 +144,7 @@ namespace TheosRenderPipeline::Overlay
 		const float size = ImGui::GetTextLineHeight();
 		ImGui::GetWindowDrawList()->AddCircleFilled(
 			ImVec2(cursor.x + size * 0.5f, cursor.y + size * 0.5f),
-			4.0f,
+			Px(4.0f),
 			ImGui::ColorConvertFloat4ToU32(HealthColor(a_health)));
 		ImGui::Dummy(ImVec2(size, size));
 	}
@@ -103,7 +152,7 @@ namespace TheosRenderPipeline::Overlay
 	void DrawStatusLabel(const char* a_label, UIHealth a_health)
 	{
 		DrawHealthDot(a_health);
-		ImGui::SameLine(0.0f, 5.0f);
+		ImGui::SameLine(0.0f, Px(5.0f));
 		ImGui::TextColored(HealthColor(a_health), "%s", a_label);
 	}
 

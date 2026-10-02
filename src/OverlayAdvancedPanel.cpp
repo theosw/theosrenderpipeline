@@ -144,6 +144,28 @@ void OverlayUI::DrawMemoryMeasurements(const FrameView& view)
         DrawStatusLabel(pressure >= 0.92f ? "GPU memory budget critical" : "GPU memory budget pressure", health);
 }
 
+void OverlayUI::DrawMenuSizeControl()
+{
+    bool automatic = layout.uiScale <= 0;
+    if (ImGui::Checkbox("Automatic zoom", &automatic))
+        layout.uiScale = automatic ? 0.0f : UIScale();
+    DrawSettingsHelp("Sizes text and controls from the output height; 1080p is 100%. Changes apply immediately. "
+                     "Save as default remembers them.");
+    // Rebuild the font once on release rather than for every dragged value.
+    if (!menuSizeEditing)
+        menuSizeEdit = std::round((automatic ? UIScale() : layout.uiScale) * 100.0f);
+    ImGui::BeginDisabled(automatic);
+    ImGui::SliderFloat("Zoom", &menuSizeEdit, MinUIScale * 100.0f, MaxUIScale * 100.0f, "%.0f%%",
+                       ImGuiSliderFlags_AlwaysClamp);
+    menuSizeEditing = ImGui::IsItemActive();
+    if (ImGui::IsItemDeactivatedAfterEdit())
+        layout.uiScale = SanitizeUIScale(std::round(menuSizeEdit / 5.0f) * 0.05f);
+    ImGui::EndDisabled();
+    if (!automatic && UIScale() < layout.uiScale - 0.001f)
+        ImGui::TextDisabled("Limited to %.0f%% so the menu fits this output.", UIScale() * 100.0f);
+    ImGui::Separator();
+}
+
 void OverlayUI::DrawAdvancedPanel(float height, const FrameView& view)
 {
     if (!ImGui::BeginTabItem("Advanced", nullptr,
@@ -179,6 +201,7 @@ void OverlayUI::DrawAdvancedPanel(float height, const FrameView& view)
             ImGui::Checkbox("Startup overlays at native resolution", &settingsDraft.lateOverlayBridge);
         }
         ImGui::Separator();
+        DrawMenuSizeControl();
         const auto key = pipeline->mToggleOverlayHotkey;
         char name[64]{};
         const UINT scan = MapVirtualKeyA(static_cast<UINT>(key), MAPVK_VK_TO_VSC_EX);

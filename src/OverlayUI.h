@@ -64,6 +64,9 @@ private:
     void DrawUIStatusPanel();
     void DrawSettingsActions();
 	void BuildUI();
+    void UpdateUIScale();
+    void DrawMenuSizeControl();
+    void DrawZoomButtons();
 	void UpdateFrameStats();
 	void HandleHotkey();
 	static LRESULT CALLBACK WindowMessage(int code, WPARAM wParam, LPARAM lParam);
@@ -94,6 +97,8 @@ private:
     TheosRenderPipeline::Overlay::Layout layout;
     bool layoutPending{true};
     float layoutDisplayWidth{}, layoutDisplayHeight{};
+    float menuSizeEdit{100.0f};
+    bool menuSizeEditing{false};
 	std::string actionMessage;
 	bool actionMessageIsError{ false };
 

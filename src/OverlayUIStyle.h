@@ -24,7 +24,12 @@ namespace TheosRenderPipeline::Overlay
     const char* ModeName(int mode);
 
 	ImVec4 HealthColor(UIHealth a_health);
-	void ApplyRendererStyle();
+	// Rebuild the style and font atlas at a new scale. Call only between frames;
+	// the caller recreates the renderer's font texture afterwards.
+	void ApplyRendererStyle(float a_scale);
+	bool BuildRendererFont(float a_scale);
+	float UIScale();
+	inline float Px(float a_pixels) { return a_pixels * UIScale(); }
 	void DrawHealthDot(UIHealth a_health);
 	void DrawStatusLabel(const char* a_label, UIHealth a_health);
 	void DrawBadge(const char* a_label, const ImVec4& a_color);

@@ -78,11 +78,20 @@ configure_file(
 	@ONLY
 )
 
+set(TRP_OVERLAY_FONT "${CMAKE_CURRENT_SOURCE_DIR}/extern/Roboto/Roboto-Medium.ttf")
+configure_file(
+	${CMAKE_CURRENT_SOURCE_DIR}/cmake/Resources.rc.in
+	${CMAKE_CURRENT_BINARY_DIR}/cmake/Resources.rc
+	@ONLY
+)
+set_source_files_properties(${CMAKE_CURRENT_BINARY_DIR}/cmake/Resources.rc PROPERTIES OBJECT_DEPENDS "${TRP_OVERLAY_FONT}")
+
 target_sources(
 	"${PROJECT_NAME}"
 	PRIVATE
 	${CMAKE_CURRENT_BINARY_DIR}/cmake/Plugin.h
 	${CMAKE_CURRENT_BINARY_DIR}/cmake/Version.rc
+	${CMAKE_CURRENT_BINARY_DIR}/cmake/Resources.rc
 )
 
 target_precompile_headers("${PROJECT_NAME}" PRIVATE include/PCH.h)
@@ -254,7 +263,7 @@ if(TRP_BUILD_COMPATIBILITY_TESTS)
     target_compile_definitions(TRPOverlayLayoutTests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
     target_include_directories(TRPOverlayLayoutTests PRIVATE src "${TRP_SIMPLEINI_INCLUDE_DIR}")
     target_link_libraries(TRPOverlayLayoutTests PRIVATE imgui::imgui)
-    add_test(NAME OverlayLayout COMMAND TRPOverlayLayoutTests)
+    add_test(NAME OverlayLayout COMMAND TRPOverlayLayoutTests "${CMAKE_CURRENT_SOURCE_DIR}/extern/Roboto/Roboto-Medium.ttf")
     set_tests_properties(OverlayLayout PROPERTIES TIMEOUT 15)
     add_executable(TRPOverlayTextInputTests tests/OverlayTextInputTests.cpp)
     target_compile_features(TRPOverlayTextInputTests PRIVATE cxx_std_20)

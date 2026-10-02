@@ -144,8 +144,9 @@ bool PresetRow(int id, const char* name, const std::string& detail, bool selecte
     ImGui::PushID(id);
     const bool clicked = ImGui::Selectable("##row", selected, 0, ImVec2(width, height));
     ImGui::PopID();
-    draw->AddRectFilled(pos, ImVec2(pos.x + 3, pos.y + height), ImGui::GetColorU32(selected ? kAmber : kAmberDim));
-    const float text = pos.x + 3 + style.FramePadding.x * 2;
+    const float accent = std::round(Px(3.0f));
+    draw->AddRectFilled(pos, ImVec2(pos.x + accent, pos.y + height), ImGui::GetColorU32(selected ? kAmber : kAmberDim));
+    const float text = pos.x + accent + style.FramePadding.x * 2;
     float right = pos.x + width - style.FramePadding.x;
     if (now) {
         right -= ImGui::CalcTextSize("NOW").x;
@@ -218,7 +219,7 @@ void OverlayUI::DrawPresetList()
         if (!scene.interior && !state.paused && Appearance::Valid(scene.outgoing.record) && scene.transition < 1) {
             ImGui::TextDisabled("Changing from %s", state.result.outgoing.c_str());
             ImGui::SameLine();
-            ImGui::ProgressBar(scene.transition, ImVec2(120, 0), "");
+            ImGui::ProgressBar(scene.transition, ImVec2(Px(120.0f), 0), "");
         }
     }
     if (!settings.presets.empty()) {
@@ -278,7 +279,7 @@ void OverlayUI::DrawPresetList()
     if (ImGui::Button("Timing...")) { ImGui::OpenPopup("presetTiming"); }
     Tooltip("When each time of day starts, and how smoothly presets change.");
     if (ImGui::BeginPopup("presetTiming")) {
-        ImGui::PushItemWidth(220);
+        ImGui::PushItemWidth(Px(220.0f));
         ImGui::SliderFloat("Transition smoothing (seconds)", &settings.smoothingSeconds, 0, 10, "%.1f");
         ImGui::TextDisabled("Softens changes between presets. Zero follows weather and time directly.");
         ImGui::Spacing();
@@ -427,7 +428,7 @@ void OverlayUI::DrawPresetEditor(const std::function<void(SourceDLSSG::Preferenc
 
     if (ImGui::BeginPopup("weatherPicker")) {
         ImGui::Text("Add weathers to %s", ShownName(preset));
-        ImGui::PushItemWidth(420);
+        ImGui::PushItemWidth(Px(420.0f));
         ImGui::InputTextWithHint("Search", "Name, plugin, FormID or weather type", presetSearch, sizeof(presetSearch));
         const char* filters[]{"All", "Unclassified", "Clear", "Cloudy", "Rain", "Snow"};
         ImGui::Combo("Weather type", &presetWeatherGroup, filters, 6);
@@ -439,7 +440,7 @@ void OverlayUI::DrawPresetEditor(const std::function<void(SourceDLSSG::Preferenc
                 (presetWeatherGroup && static_cast<int>(entry.weather.group) != presetWeatherGroup - 1)) { continue; }
             filtered.push_back(&entry);
         }
-        if (ImGui::BeginChild("weatherResults", ImVec2(640, ImGui::GetTextLineHeightWithSpacing() * 12), ImGuiChildFlags_Border, ImGuiWindowFlags_HorizontalScrollbar)) {
+        if (ImGui::BeginChild("weatherResults", ImVec2(Px(640.0f), ImGui::GetTextLineHeightWithSpacing() * 12), ImGuiChildFlags_Border, ImGuiWindowFlags_HorizontalScrollbar)) {
             ImGuiListClipper results; results.Begin(static_cast<int>(filtered.size()));
             while (results.Step()) { for (int i = results.DisplayStart; i < results.DisplayEnd; ++i) {
                 const auto& entry = *filtered[i];

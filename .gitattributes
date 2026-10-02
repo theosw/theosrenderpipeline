@@ -18,5 +18,6 @@ CMakeLists.txt text eol=lf
 *.pdb binary
 *.zip binary
 *.png binary
+*.ttf binary
 .gitignore text eol=lf
 *.ini text eol=lf

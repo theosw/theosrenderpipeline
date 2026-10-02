@@ -62,8 +62,9 @@ void OverlayUI::Init(IDXGISwapChain* a_swapChain, ID3D11Device* a_device, ID3D11
     menuIni.SetUnicode();
     if (menuIni.LoadFile(L"Data\\SKSE\\Plugins\\TheosRenderPipeline.ini") >= 0)
         layout = LoadLayout(menuIni);
-	ImGui::StyleColorsDark();
-	ApplyRendererStyle();
+	// The first frame refits this to the output; DX11 builds the atlas lazily.
+	ApplyRendererStyle(1.0f);
+	BuildRendererFont(1.0f);
 	ImGui_ImplWin32_Init(hwnd);
 	ImGui_ImplDX11_Init(device, context);
 	VideoMemoryTelemetry::GetSingleton()->Init(device);
@@ -318,45 +319,128 @@ void OverlayUI::ApplySettingsDraft(bool save)
     }
 }
 
+void OverlayUI::UpdateUIScale()
+{
+    const auto displaySize = ImGui::GetIO().DisplaySize;
+    const float scale = ResolveUIScale(layout.uiScale, displaySize.x, displaySize.y);
+    if (std::abs(scale - UIScale()) < 0.001f)
+        return;
+    ApplyRendererStyle(scale);
+    const bool embedded = BuildRendererFont(scale);
+    // Recreate the font texture before NewFrame; draw data never spans the rebuild.
+    ImGui_ImplDX11_InvalidateDeviceObjects();
+    const bool created = ImGui_ImplDX11_CreateDeviceObjects();
+    layoutPending = true;
+    logger::info("[Overlay] UI scale {:.2f} ({}) for {}x{} font={} texture={}", scale,
+        layout.uiScale > 0 ? "manual" : "automatic", displaySize.x, displaySize.y,
+        embedded ? "embedded" : "fallback", created ? "ready" : "failed");
+}
+
+// "Zoom - 133% +" at the right end of the title bar, so the size can be changed
+// without finding Advanced. Clicking the percentage returns to automatic size.
+void OverlayUI::DrawZoomButtons()
+{
+    auto* window = ImGui::GetCurrentWindow();
+    const auto title = window->TitleBarRect();
+    const auto& style = ImGui::GetStyle();
+    const auto display = ImGui::GetIO().DisplaySize;
+    const float current = UIScale();
+    const float automatic = ResolveUIScale(0, display.x, display.y);
+    const bool manual = layout.uiScale > 0;
+    char percent[32];
+    std::snprintf(percent, sizeof(percent), "%.0f%%###zoomReset", current * 100.0f);
+    const float buttonWidth = ImGui::CalcTextSize("+").x + style.FramePadding.x * 2.0f;
+    // Sized for the widest value so the controls do not shift as the zoom changes.
+    const float percentWidth = ImGui::CalcTextSize("300%").x + style.FramePadding.x * 2.0f;
+    const float total = ImGui::CalcTextSize("Zoom").x + percentWidth + buttonWidth * 2.0f + style.ItemSpacing.x * 3.0f;
+    // Title-bar items must not extend the content region the window scrolls.
+    const auto cursor = ImGui::GetCursorScreenPos();
+    const auto maxPos = window->DC.CursorMaxPos;
+    const auto idealMaxPos = window->DC.IdealMaxPos;
+    ImGui::PushClipRect(title.Min, title.Max, false);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(style.FramePadding.x, 0.0f));
+    ImGui::SetCursorScreenPos(ImVec2(title.Max.x - style.FramePadding.x - total,
+                                     title.Min.y + (title.GetHeight() - ImGui::GetFontSize()) * 0.5f));
+    ImGui::TextColored(kMuted, "Zoom");
+    const auto step = [&](const char* label, int direction, const char* action) {
+        ImGui::SameLine();
+        const float next = StepUIScale(current, direction);
+        // Disable a step that the size limits would leave unchanged.
+        ImGui::BeginDisabled(std::abs(ResolveUIScale(next, display.x, display.y) - current) < 0.001f);
+        if (ImGui::Button(label, ImVec2(buttonWidth, 0.0f)))
+            layout.uiScale = next;
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("%s by 25%%. Save as default remembers the zoom.", action);
+    };
+    step("-##zoomOut", -1, "Zoom out");
+    ImGui::SameLine();
+    // A flat readout; it highlights as a button only when there is a manual zoom to clear.
+    const ImVec4 clear(0, 0, 0, 0);
+    ImGui::PushStyleColor(ImGuiCol_Button, clear);
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, manual ? style.Colors[ImGuiCol_ButtonHovered] : clear);
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, manual ? style.Colors[ImGuiCol_ButtonActive] : clear);
+    if (ImGui::Button(percent, ImVec2(percentWidth, 0.0f)) && manual)
+        layout.uiScale = 0;
+    ImGui::PopStyleColor(3);
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+    {
+        if (manual)
+            ImGui::SetTooltip("Click to return to automatic zoom (%.0f%% for this output).", automatic * 100.0f);
+        else
+            ImGui::SetTooltip("Automatic zoom from the output height; 1080p is 100%%.");
+    }
+    step("+##zoomIn", 1, "Zoom in");
+    ImGui::PopStyleVar();
+    ImGui::PopClipRect();
+    ImGui::SetCursorScreenPos(cursor);
+    window->DC.CursorMaxPos = maxPos;
+    window->DC.IdealMaxPos = idealMaxPos;
+}
+
 void OverlayUI::BuildUI()
 {
     const auto view = CaptureFrameView();
     const auto displaySize = ImGui::GetIO().DisplaySize;
     if (displaySize.x <= 0 || displaySize.y <= 0)
         return;
+    const float scale = UIScale();
     if (layoutPending || layoutDisplayWidth != displaySize.x || layoutDisplayHeight != displaySize.y)
     {
-        layout = FitLayout(layout, displaySize.x, displaySize.y);
-        ImGui::SetNextWindowSize(ImVec2(layout.width, layout.height), ImGuiCond_Always);
-        ImGui::SetNextWindowPos(ImVec2(layout.x, layout.y), ImGuiCond_Always);
+        const auto screen = FitLayout(layout, displaySize.x, displaySize.y, scale);
+        ImGui::SetNextWindowSize(ImVec2(screen.width, screen.height), ImGuiCond_Always);
+        ImGui::SetNextWindowPos(ImVec2(screen.x, screen.y), ImGuiCond_Always);
         layoutDisplayWidth = displaySize.x;
         layoutDisplayHeight = displaySize.y;
         layoutPending = false;
     }
     ImGui::SetNextWindowSizeConstraints(
-        ImVec2((std::min)(780.0f, displaySize.x), (std::min)(560.0f, displaySize.y)), displaySize);
+        ImVec2((std::min)(Px(MinWindowWidth), displaySize.x), (std::min)(Px(MinWindowHeight), displaySize.y)),
+        displaySize);
     if (!ImGui::Begin(Plugin::DISPLAY_NAME.data(), nullptr, ImGuiWindowFlags_NoCollapse))
     {
         ImGui::End();
         return;
     }
 
+    // Keep the remembered geometry in 1x units so it follows later scale changes.
     const auto windowPos = ImGui::GetWindowPos();
     const auto windowSize = ImGui::GetWindowSize();
-    layout.x = windowPos.x;
-    layout.y = windowPos.y;
-    layout.width = windowSize.x;
-    layout.height = windowSize.y;
+    layout.x = windowPos.x / scale;
+    layout.y = windowPos.y / scale;
+    layout.width = windowSize.x / scale;
+    layout.height = windowSize.y / scale;
+    DrawZoomButtons();
     DrawPipelineSummary(view);
     const auto& layoutStyle = ImGui::GetStyle();
     float reservedActionHeight = ImGui::GetFrameHeightWithSpacing() + ImGui::GetFrameHeight() +
                                        ImGui::GetTextLineHeightWithSpacing() +
                                        layoutStyle.CellPadding.y * 2.0f + layoutStyle.ItemSpacing.y * 2.0f + 1.0f;
     if (actionMessageIsError && !actionMessage.empty()) {
-        const float statusWidth = (std::max)(1.0f, ImGui::GetContentRegionAvail().x - 450.0f - layoutStyle.CellPadding.x * 4.0f);
+        const float statusWidth = (std::max)(1.0f, ImGui::GetContentRegionAvail().x - Px(450.0f) - layoutStyle.CellPadding.x * 4.0f);
         reservedActionHeight += (std::max)(0.0f, ImGui::CalcTextSize(actionMessage.c_str(), nullptr, false, statusWidth).y - ImGui::GetFrameHeight());
     }
-    const float tabCardHeight = (std::max)(220.0f, ImGui::GetContentRegionAvail().y - reservedActionHeight);
+    const float tabCardHeight = (std::max)(Px(220.0f), ImGui::GetContentRegionAvail().y - reservedActionHeight);
 
     if (ImGui::BeginTabBar("##theosrenderpipelineTabs", ImGuiTabBarFlags_None))
     {
@@ -421,6 +505,7 @@ void OverlayUI::OnPresent(ID3D11Texture2D* producerUI)
 			static_cast<float>(nativeUI ? nvidiaHost->OutputWidth() : nvidiaHost->RenderWidth()),
 			static_cast<float>(nativeUI ? nvidiaHost->OutputHeight() : nvidiaHost->RenderHeight()));
 	}
+	UpdateUIScale();
 	ImGui::NewFrame();
 
 	BuildUI();
@@ -473,7 +558,7 @@ void OverlayUI::DrawSettingsActions()
     if (ImGui::BeginTable("##actionBar", 2, ImGuiTableFlags_SizingStretchProp))
     {
         ImGui::TableSetupColumn("##actionStatus", ImGuiTableColumnFlags_WidthStretch, 1.0f);
-        ImGui::TableSetupColumn("##actions", ImGuiTableColumnFlags_WidthFixed, 450.0f);
+        ImGui::TableSetupColumn("##actions", ImGuiTableColumnFlags_WidthFixed, Px(450.0f));
         ImGui::TableNextColumn();
         const auto status = TheosRenderPipeline::SettingsStatus(stagedChanges, actionMessage, actionMessageIsError);
         using StatusKind = TheosRenderPipeline::SettingsStatusKind;
@@ -484,7 +569,7 @@ void OverlayUI::DrawSettingsActions()
         ImGui::PopTextWrapPos();
         ImGui::TableNextColumn();
         ImGui::BeginDisabled(stagedChanges == 0);
-        if (ImGui::Button("Discard", ImVec2(110.0f, 0.0f)))
+        if (ImGui::Button("Discard", ImVec2(Px(110.0f), 0.0f)))
         {
             CaptureSettingsDraft();
             actionMessage = "Unapplied edits discarded.";
@@ -496,7 +581,7 @@ void OverlayUI::DrawSettingsActions()
                 "Discard edits you have not applied. Applied settings and saved defaults stay as they are.");
         }
         ImGui::SameLine();
-        if (ImGui::Button("Apply", ImVec2(100.0f, 0.0f)))
+        if (ImGui::Button("Apply", ImVec2(Px(100.0f), 0.0f)))
         {
             ApplySettingsDraft(false);
         }
@@ -511,14 +596,14 @@ void OverlayUI::DrawSettingsActions()
         ImGui::PushStyleColor(ImGuiCol_Button, kAmber);
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, kOchre);
         ImGui::PushStyleColor(ImGuiCol_ButtonActive, kAmberDim);
-        if (ImGui::Button("Save as default", ImVec2(200.0f, 0.0f)))
+        if (ImGui::Button("Save as default", ImVec2(Px(200.0f), 0.0f)))
         {
             ApplySettingsDraft(true);
         }
         ImGui::PopStyleColor(4);
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
         {
-            ImGui::SetTooltip("Apply live settings and save your choices, window layout and divider for future launches.\n"
+            ImGui::SetTooltip("Apply live settings and save your choices, zoom, window layout and divider for future launches.\n"
                               "Mode and render scale changes take effect after restarting.");
         }
         ImGui::EndTable();

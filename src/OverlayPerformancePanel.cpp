@@ -12,7 +12,7 @@ using namespace TheosRenderPipeline::Overlay;
 bool OverlayUI::BeginSettingsColumns(const char* id, float height, const FrameView& view)
 {
     ImGui::PushID(id);
-    const auto columns = DrawColumnSplitter(ImGui::GetContentRegionAvail().x, height, layout.leftFraction);
+    const auto columns = DrawColumnSplitter(ImGui::GetContentRegionAvail().x, height, layout.leftFraction, UIScale());
     ImGui::BeginChild("##left", ImVec2(columns.left, height), false,
                       ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     DrawFrameMeasurements(view, height);
@@ -26,10 +26,10 @@ void OverlayUI::NextSettingsColumn(float height)
     ImGui::PopTextWrapPos();
     ImGui::EndChild();
     ImGui::EndChild();
-    ImGui::SameLine(0, ColumnGap);
+    ImGui::SameLine(0, Px(ColumnGap));
     ImGui::BeginChild("##right", ImVec2(0, height), false);
     ImGui::PushTextWrapPos(0);
-    ImGui::PushItemWidth(-180.0f);
+    ImGui::PushItemWidth(-Px(180.0f));
 }
 
 void OverlayUI::EndSettingsColumns()
@@ -62,7 +62,7 @@ void OverlayUI::DrawFrameMeasurements(const FrameView& view, float columnHeight)
     char graphScale[32]{};
     std::snprintf(graphScale, sizeof(graphScale), "0-%.0f ms", graphMaxMs);
     ImGui::PlotLines("##frameTimes", frameTimesMs, frameTimeCount, frameTimeIndex, graphScale, 0, graphMaxMs,
-                     ImVec2(-1, GraphHeight(columnHeight)));
+                     ImVec2(-1, GraphHeight(columnHeight, UIScale())));
     ImGui::Spacing();
 }
 
