@@ -47,6 +47,7 @@
         "TRP_COMMONLIBSSE_NG_DIR": "$env{TRP_DEPENDENCY_ROOT}/CommonLibSSE-NG",
         "TRP_NGX_SDK_DIR": "$env{TRP_DEPENDENCY_ROOT}/Streamline/external/ngx-sdk",
         "TRP_STREAMLINE_INCLUDE_DIR": "$env{TRP_DEPENDENCY_ROOT}/Streamline/include",
+        "TRP_XEFG_SDK_DIR": "$env{TRP_DEPENDENCY_ROOT}/xess",
         "ARP_DETOURS_DIR": "$env{TRP_DEPENDENCY_ROOT}/detours",
         "FETCHCONTENT_SOURCE_DIR_HDE64": "$env{TRP_DEPENDENCY_ROOT}/hde64",
         "TRP_ENABLE_NEURAL_RENDERING": "ON",
