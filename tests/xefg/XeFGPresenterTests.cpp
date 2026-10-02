@@ -2,6 +2,14 @@
 #include "FrameGen/XeFGPresenter.h"
 #include "NvidiaPresenterFixture.h"
 #include <dbghelp.h>
+#include <chrono>
+#include <algorithm>
+
+static void PrintTiming(const char* label,std::vector<double> values) {
+    Require(!values.empty(),"XeFG timing samples");std::sort(values.begin(),values.end());
+    std::printf("XEFG_TIMING %s samples=%zu p50=%.6f p95=%.6f ms (fixture CPU boundary, not GPU model time)\n",
+        label,values.size(),values[(values.size()-1)/2],values[std::size_t((values.size()-1)*.95)]);
+}
 
 // Production owner on hardware. Plain DXGI presenters check HWND retirement
 // before/after Intel; actual Streamline replacement remains a separate check.
@@ -20,6 +28,9 @@ int wmain(int argc, wchar_t** argv) {
         return EXCEPTION_EXECUTE_HANDLER;
     });
     std::setvbuf(stdout,nullptr,_IONBF,0); Require(argc==2||argc==3,"Intel runtime directory, optional NVIDIA runtime directory");
+    const bool profile=GetEnvironmentVariableW(L"TRP_XEFG_PROFILE",nullptr,0)!=0;
+    const unsigned width=profile?5120:640,height=profile?1440:360;
+    std::vector<double> presentTimes,retirementTimes,sleepTimes;
     ComPtr<ID3D12Debug> debug; Check(D3D12GetDebugInterface(IID_PPV_ARGS(&debug)),"debug"); debug->EnableDebugLayer();
     ComPtr<IDXGIFactory4> factory; ComPtr<IDXGIAdapter1> adapter;
     Check(CreateDXGIFactory1(IID_PPV_ARGS(&factory)),"factory"); Check(factory->EnumAdapters1(0,&adapter),"adapter");
@@ -37,9 +48,11 @@ int wmain(int argc, wchar_t** argv) {
     Require(RegisterClassW(&wc)!=0,"register window");
     HWND window=CreateWindowW(wc.lpszClassName,L"TRP production XeFG presenter test",WS_OVERLAPPEDWINDOW,
         CW_USEDEFAULT,CW_USEDEFAULT,700,440,nullptr,nullptr,wc.hInstance,nullptr);
-    Require(window!=nullptr,"window"); ShowWindow(window,SW_SHOW);
-    SetWindowPos(window, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
-    DXGI_SWAP_CHAIN_DESC desc{}; desc.BufferDesc.Width=640; desc.BufferDesc.Height=360;
+    Require(window!=nullptr,"window"); if(!profile) {
+        ShowWindow(window,SW_SHOW);
+        SetWindowPos(window, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+    }
+    DXGI_SWAP_CHAIN_DESC desc{}; desc.BufferDesc.Width=width; desc.BufferDesc.Height=height;
     // HDR10 layers: AUTO must also cover 2-bit-alpha UI and frames without a UI layer.
     const bool hdr10=GetEnvironmentVariableW(L"TRP_XEFG_HDR10",nullptr,0)!=0;
     const DXGI_FORMAT colorFormat=hdr10?DXGI_FORMAT_R10G10B10A2_UNORM:DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -49,7 +62,7 @@ int wmain(int argc, wchar_t** argv) {
     TheosRenderPipeline::XeFGPresenter presenter;
     presenter.SetLogger([](const char* text) { std::printf("[Owner] %s\n",text); });
     Check(presenter.Probe(d12.Get(),std::filesystem::absolute(argv[1])),"production admission");
-    Inputs input; input.Create(interop,d11.Get(),640,360,colorFormat); auto* stable=input.color.texture11.Get(); unsigned generated=0, uiTagged=0, generatedWithUI=0, generatedWithoutUI=0, frameTimeSent=0, frameTimeSkipped=0;
+    Inputs input; input.Create(interop,d11.Get(),width,height,colorFormat); auto* stable=input.color.texture11.Get(); unsigned generated=0, uiTagged=0, generatedWithUI=0, generatedWithoutUI=0, frameTimeSent=0, frameTimeSkipped=0;
     const bool experimental=GetEnvironmentVariableW(L"TRP_XEFG_MFG_TEST",nullptr,0)!=0;
     const bool expectRefusal=GetEnvironmentVariableW(L"TRP_XEFG_EXPECT_REFUSAL",nullptr,0)!=0;
     Require(!expectRefusal||experimental,"refusal mode requires experimental request");
@@ -81,16 +94,16 @@ int wmain(int argc, wchar_t** argv) {
             MSG message{}; while(PeekMessageW(&message,nullptr,0,0,PM_REMOVE)) { TranslateMessage(&message); DispatchMessageW(&message); }
             if(!gpuInputWait) Check(interop.Drain(),"producer reuse");
             input.Paint(c11.Get(),frame);
-            std::vector<uint16_t> motions(640*360*2,0);
-            for(size_t i=0;i<motions.size();i+=2) motions[i]=DirectX::PackedVector::XMConvertFloatToHalf(-2.0f/640.0f);
-            c11->UpdateSubresource(input.producerMotion.Get(),0,nullptr,motions.data(),640*4,0);
+            std::vector<uint16_t> motions(width*height*2,0);
+            for(size_t i=0;i<motions.size();i+=2) motions[i]=DirectX::PackedVector::XMConvertFloatToHalf(-2.0f/width);
+            c11->UpdateSubresource(input.producerMotion.Get(),0,nullptr,motions.data(),width*4,0);
             Check(interop.CopyInput(input.producerColor.Get(),input.color),"color");
             Check(interop.CopyInput(input.producerHudless.Get(),input.hudless),"hudless");
             Check(interop.CopyInput(input.producerMotion.Get(),input.motion),"motion");
             Check(interop.CopyInput(input.producerDepth.Get(),input.depth),"depth");
             Check(interop.CopyInput(input.producerUI.Get(),input.ui),"UI layer");
             sl::Constants camera{}; camera.cameraRight={1,0,0}; camera.cameraUp={0,1,0}; camera.cameraFwd={0,0,-1};
-            camera.cameraPos={-4.0f*frame/640.0f,0,0};
+            camera.cameraPos={-4.0f*frame/width,0,0};
             camera.cameraViewToClip.row[0]={1,0,0,0}; camera.cameraViewToClip.row[1]={0,1,0,0};
             camera.cameraViewToClip.row[2]={0,0,1,0}; camera.cameraViewToClip.row[3]={0,0,0,1};
             camera.jitterOffset={0,0}; camera.depthInverted=round==1?sl::eTrue:sl::eFalse;
@@ -117,22 +130,33 @@ int wmain(int argc, wchar_t** argv) {
             auto* ui=round==0?(frame<45?input.ui.texture12.Get():input.depth.texture12.Get()):nullptr;
             const bool uiExpected=enable&&round==0&&frame<45;
             const unsigned count=experimental?(frame<30?1u:frame<55?2u:3u):1u;
-            Check(presenter.BeforePresent(list,input.motion.texture12.Get(),input.depth.texture12.Get(),input.hudless.texture12.Get(),ui,enable,true,60,count),"production preparation");
+            Check(presenter.BeforePresent(list,input.motion.texture12.Get(),input.depth.texture12.Get(),input.hudless.texture12.Get(),ui,enable,true,profile?0:60,count),"production preparation");
             Require(presenter.Snapshot().uiTexture==uiExpected,"UI layer tagged only when it matches the HUD-less layer");
             if(uiExpected) ++uiTagged;
             Check(interop.Submit(Work::SwapChain),"submit SDK copies"); back.Reset();
             Check(presenter.FinalizePresent(),"markers after queue submission");
-            const auto result=proxy->Present(0,0); Check(result,"Intel present"); Require(result==S_OK,"visible present");
+            const auto presentStart=std::chrono::steady_clock::now();
+            const auto result=proxy->Present(0,0);const auto presentEnd=std::chrono::steady_clock::now();
+            Check(result,"Intel present"); Require(result==S_OK,"visible present");
             Check(presenter.AfterPresent(result),"production completion");
+            const auto retirementStart=std::chrono::steady_clock::now();
             Check(gpuInputWait?interop.WaitD3D11(Work::SwapChain):interop.Drain(),gpuInputWait?"ONLY_NOW input reuse GPU wait":"retire ONLY_NOW copies");
+            const auto retirementEnd=std::chrono::steady_clock::now();
+            if(profile&&enable&&frame>=24) {
+                presentTimes.push_back(std::chrono::duration<double,std::milli>(presentEnd-presentStart).count());
+                retirementTimes.push_back(std::chrono::duration<double,std::milli>(retirementEnd-retirementStart).count());
+            }
             const auto& state=presenter.Snapshot(); Require(state.framesPresented>=1&&state.framesPresented<=state.generatedFrames+1,"selected count bounds");
             if(!enable) Require(state.framesPresented==1,"off passthrough");
-            Require(state.frameLimitUs==16667,"60-output cap remains independent of ratio");
+            Require(state.frameLimitUs==(profile?0:16667),"output cap remains independent of ratio");
             Require(state.maxGeneratedFrames==(experimental && !expectRefusal && round<2?3u:1u),"opt-in capacity, including disable after resident unlock");
             if(expectRefusal) Require(!state.unlockReady && state.generatedFrames==1,"refused unlock retains official x2");
             if(enable && state.framesPresented==state.generatedFrames+1) {++generated;++generatedCounts[state.generatedFrames];++(state.uiTexture?generatedWithUI:generatedWithoutUI);}
             if(frame%30==0) std::printf("production round=%u requested=%u actual=%u outputs=%u capacity=%u optIn=%u\n",round,count+1,state.generatedFrames+1,state.framesPresented,state.maxGeneratedFrames+1,state.experimentalMFG);
-            if(frame!=89) Check(presenter.BeginFrame(),"next frame");
+            if(frame!=89) {
+                const auto start=std::chrono::steady_clock::now();Check(presenter.BeginFrame(),"next frame");
+                if(profile&&enable&&frame>=24) sleepTimes.push_back(std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count());
+            }
         }
         Check(presenter.Disable(),"disable"); Check(interop.Drain(),"retire shared resources");
         proxy3.Reset(); proxy.Reset(); Check(presenter.Destroy(),"SDK private retirement");
@@ -153,6 +177,9 @@ int wmain(int argc, wchar_t** argv) {
     // AUTO must keep generating on frames without a UI layer, in SDR and HDR10.
     std::printf("generated withUI=%u withoutUI=%u hdr10=%u\n",generatedWithUI,generatedWithoutUI,hdr10);
     Require(nativeOnly||(generatedWithUI>20&&generatedWithoutUI>20),"generation with and without a UI layer");
+    if(profile) {
+        PrintTiming("outer Present",presentTimes);PrintTiming("post-Present reuse wait",retirementTimes);PrintTiming("BeginFrame / XeLL sleep",sleepTimes);
+    }
     if(experimental && !nativeOnly && !expectRefusal) Require(generatedCounts[1]>20 && generatedCounts[2]>20 && generatedCounts[3]>20,"production live x2/x3/x4 and disable-to-x2");
     if(expectRefusal && !nativeOnly) Require(generatedCounts[1]>100 && generatedCounts[2]==0 && generatedCounts[3]==0,"sustained official x2 after unlock refusal");
     for(UINT64 n=0;n<messages->GetNumStoredMessagesAllowedByRetrievalFilter();++n) {
