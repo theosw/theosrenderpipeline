@@ -48,12 +48,21 @@ int wmain(int argc, wchar_t** argv) {
     Check(presenter.Probe(d12.Get(),std::filesystem::absolute(argv[1])),"production admission");
     Inputs input; input.Create(interop,d11.Get(),640,360); auto* stable=input.color.texture11.Get(); unsigned generated=0;
     const bool nativeOnly=GetEnvironmentVariableW(L"TRP_XEFG_NATIVE_ONLY",nullptr,0)!=0;
-    for(unsigned round=0;round<2;++round) {
+    const bool releaseNvidia=GetEnvironmentVariableW(L"TRP_XEFG_RELEASE_NV",nullptr,0)!=0;
+    wchar_t cyclesText[8]{};
+    unsigned cycles=2u;
+    if(GetEnvironmentVariableW(L"TRP_XEFG_CYCLES",cyclesText,8)) {
+        cycles=static_cast<unsigned>(std::wcstoul(cyclesText,nullptr,10));
+        Require(cycles>=2 && cycles<=8,"bounded lifecycle cycle count");
+    }
+    std::printf("owner cycles=%u releaseRetiredNvidia=%u\n",cycles,releaseNvidia);
+    for(unsigned round=0;round<cycles;++round) {
         ComPtr<IDXGISwapChain> native; Check(presentingFactory->CreateSwapChain(queue.Get(),&desc,&native),"native before Intel");
         if(nvidia) { nvidia->Begin(presenter.Snapshot().frameId); nvidia->BeforePresent(); }
         Check(native->Present(0,0),"native passthrough");
         if(nvidia) nvidia->AfterPresent(S_OK);
         Check(interop.WaitForInputReaders(nullptr,0),"native retirement bridge"); Check(interop.Drain(),"native queue retirement"); native.Reset();
+        if(nvidia && releaseNvidia) { nvidia->ReleaseRetiredResources(); }
         if(!nativeOnly) {
         ComPtr<IDXGISwapChain> proxy;
         Check(presenter.Create(d12.Get(),queue.Get(),factory.Get(),desc,round==1,&proxy,

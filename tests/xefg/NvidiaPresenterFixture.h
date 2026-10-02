@@ -11,6 +11,7 @@ struct NvidiaPresenterFixture
     ComPtr<ID3D12Device> proxyDevice;
     ComPtr<IDXGIFactory> proxyFactory;
     bool started{};
+    PFun_slFreeResources* freeResources{};
     static void SL(sl::Result result, const char* stage) {
         std::printf("SL stage=%s result=%u\n",stage,static_cast<unsigned>(result));
         Require(result==sl::Result::eOk,stage);
@@ -25,6 +26,7 @@ struct NvidiaPresenterFixture
         api.newFrameToken=Export<PFun_slGetNewFrameToken*>(module,"slGetNewFrameToken");
         api.setConstants=Export<PFun_slSetConstants*>(module,"slSetConstants");
         api.setTag=Export<PFun_slSetTag*>(module,"slSetTag");
+        freeResources=Export<PFun_slFreeResources*>(module,"slFreeResources");
         const wchar_t* paths[]{directory.c_str()}; const sl::Feature features[]{sl::kFeatureReflex,sl::kFeatureDLSS_G};
         sl::Preferences prefs{}; prefs.pathsToPlugins=paths; prefs.numPathsToPlugins=1;
         prefs.featuresToLoad=features; prefs.numFeaturesToLoad=2; prefs.renderAPI=sl::RenderAPI::eD3D12;
@@ -58,4 +60,5 @@ struct NvidiaPresenterFixture
     }
     void BeforePresent() { Require(session.BeforePresent(false),"NVIDIA passthrough preparation"); }
     void AfterPresent(HRESULT result) { Require(session.AfterPresent(SUCCEEDED(result),false,true),"NVIDIA suspend and retire Reflex"); }
+    void ReleaseRetiredResources() { SL(freeResources(sl::kFeatureDLSS_G, sl::ViewportHandle(1)), "release retired NVIDIA FG resources"); }
 };
