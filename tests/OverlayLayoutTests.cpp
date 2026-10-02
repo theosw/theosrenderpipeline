@@ -100,6 +100,12 @@ void Scale()
     const float nan = std::numeric_limits<float>::quiet_NaN();
     Require(ResolveUIScale(0, nan, 0) == 1 && ResolveUIScale(2, -1, 1080) == 2,
             "unknown output keeps the requested or 1x scale");
+    Require(StepUIScale(1, 1) == 1.25f && StepUIScale(2, -1) == 1.75f && StepUIScale(1.83f, 1) == 2 &&
+                StepUIScale(1.83f, -1) == 1.75f && StepUIScale(1440.0f / 1080.0f, -1) == 1.25f,
+            "size buttons move to the next 25% step");
+    Require(StepUIScale(MaxUIScale, 1) == MaxUIScale && StepUIScale(MinUIScale, -1) == MinUIScale &&
+                StepUIScale(nan, 1) == 1.25f && StepUIScale(0, -1) == MinUIScale,
+            "size buttons stay within the menu size limits");
     constexpr std::pair<float, float> outputs[]{{1280.0f, 720.0f},  {1920.0f, 1080.0f}, {2560.0f, 1080.0f},
                                                 {2560.0f, 1440.0f}, {3440.0f, 1440.0f}, {3840.0f, 2160.0f},
                                                 {1024.0f, 768.0f}};

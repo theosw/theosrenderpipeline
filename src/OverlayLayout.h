@@ -38,6 +38,19 @@ inline float ResolveUIScale(float requested, float displayWidth, float displayHe
     return (std::min)(requested > 0 ? requested : automatic, fits);
 }
 
+// The header's size buttons move to the next 25% step from the current size,
+// so an automatic 183% becomes 200% or 175%.
+inline constexpr float UIScaleStep = 0.25f;
+inline float StepUIScale(float current, int direction)
+{
+    if (!std::isfinite(current) || current <= 0)
+        current = 1.0f;
+    const float steps = current / UIScaleStep;
+    const float next = direction > 0 ? (std::floor(steps + 0.001f) + 1.0f) * UIScaleStep
+                                     : (std::ceil(steps - 0.001f) - 1.0f) * UIScaleStep;
+    return std::clamp(next, MinUIScale, MaxUIScale);
+}
+
 inline float ClampColumnFraction(float value)
 {
     if (!std::isfinite(value) || value <= 0 || value >= 1)

@@ -381,6 +381,7 @@ void OverlayUI::BuildUI()
 
     if (ImGui::BeginTabBar("##theosrenderpipelineTabs", ImGuiTabBarFlags_None))
     {
+        DrawMenuSizeButtons();
         DrawImagePanel(tabCardHeight, view);
 
 #if !defined(TRP_NO_NEURAL_RENDERING)

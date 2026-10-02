@@ -54,18 +54,19 @@ namespace Rows
 {
 // Narrow windows show only Reset; its tooltip gives Base's value.
 inline bool compactState{};
-inline constexpr float MaxControl = 520, MinControl = 140, WideState = 260, NarrowState = 90;
+// Widths in 1x units; callers multiply by the menu size.
+inline constexpr float MaxControl = 520, MinControl = 140, WideState = 260, NarrowState = 90, MaxPassCell = 360;
 inline float StateWidth(float available, float fixed)
 {
-    compactState = available < fixed + WideState;
-    return ActivePresetDecor() ? (compactState ? NarrowState : WideState) : 0;
+    compactState = available < fixed + Px(WideState);
+    return ActivePresetDecor() ? Px(compactState ? NarrowState : WideState) : 0;
 }
 inline void Label(const char* label, bool changed, bool restarts)
 {
     ImGui::AlignTextToFramePadding();
     if (changed) { ImGui::TextColored(kAmber, "%s", label); } else { ImGui::TextUnformatted(label); }
     if (restarts) {
-        ImGui::SameLine(0, 5);
+        ImGui::SameLine(0, Px(5.0f));
         ImGui::TextColored(kOchre, "!");
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) { ImGui::SetTooltip("%s", RestartsNRHelp); }
     }
@@ -76,9 +77,9 @@ inline void Label(const char* label, bool changed, bool restarts)
 inline bool BeginSettingRows(const char* id, float labelWidth)
 {
     const float available = ImGui::GetContentRegionAvail().x;
-    const float state = Rows::StateWidth(available, labelWidth + Rows::MaxControl);
+    const float state = Rows::StateWidth(available, labelWidth + Px(Rows::MaxControl));
     const float control = std::clamp(available - labelWidth - state - ImGui::GetStyle().CellPadding.x * 6,
-        Rows::MinControl, Rows::MaxControl);
+        Px(Rows::MinControl), Px(Rows::MaxControl));
     if (!ImGui::BeginTable(id, ActivePresetDecor() ? 3 : 2, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_PadOuterX)) { return false; }
     ImGui::TableSetupColumn("label", ImGuiTableColumnFlags_WidthFixed, labelWidth);
     ImGui::TableSetupColumn("control", ImGuiTableColumnFlags_WidthFixed, control);
@@ -136,9 +137,9 @@ bool SettingRow(const char* label, const char* key, bool restarts, bool disabled
 inline bool BeginPassTable(const char* id, float labelWidth)
 {
     const float available = ImGui::GetContentRegionAvail().x;
-    const float state = Rows::StateWidth(available, labelWidth + 2 * 360.0f);
+    const float state = Rows::StateWidth(available, labelWidth + 2 * Px(Rows::MaxPassCell));
     const float cell = std::clamp((available - labelWidth - state - ImGui::GetStyle().CellPadding.x * 8) / 2,
-        Rows::MinControl, 360.0f);
+        Px(Rows::MinControl), Px(Rows::MaxPassCell));
     if (!ImGui::BeginTable(id, ActivePresetDecor() ? 4 : 3, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_PadOuterX)) { return false; }
     ImGui::TableSetupColumn("label", ImGuiTableColumnFlags_WidthFixed, labelWidth);
     ImGui::TableSetupColumn("pass1", ImGuiTableColumnFlags_WidthFixed, cell);

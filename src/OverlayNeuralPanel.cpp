@@ -148,7 +148,7 @@ void DrawNeuralSettings(TheosRenderPipeline::SourceDLSSG::Preferences& draft, bo
         ImGui::PopStyleColor();
         DrawSettingsHelp("Pass 2 processes Pass 1's result with separate history and adds GPU time and memory. "
                          "Presets switch it on and off without restarting NR.");
-        ImGui::SameLine(0, 14);
+        ImGui::SameLine(0, Px(14.0f));
         if (!enabled)
         {
             ImGui::TextDisabled("off");
