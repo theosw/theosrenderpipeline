@@ -223,7 +223,7 @@ The existing `ToggleOverlay` menu binding is independent.
 
 The menu sizes itself from the output height: 1080p is 100% and 4K is 200%.
 To make it larger or smaller, use the **A-** and **A+** buttons at the right of
-the menu's tabs; each press changes the size by 25%. Under Advanced, clear
+the menu's title bar; each press changes the size by 25%. Under Advanced, clear
 **Automatic menu size** to set **Menu size** from 75% to 300%, or tick it to
 return to the automatic size. Changes apply immediately; Save as default
 remembers them with the window layout. On smaller outputs the size is limited

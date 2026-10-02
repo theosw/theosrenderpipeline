@@ -336,6 +336,47 @@ void OverlayUI::UpdateUIScale()
         embedded ? "embedded" : "fallback", created ? "ready" : "failed");
 }
 
+// Right end of the title bar, so the size can be changed without finding Advanced.
+void OverlayUI::DrawMenuSizeButtons()
+{
+    auto* window = ImGui::GetCurrentWindow();
+    const auto title = window->TitleBarRect();
+    const auto& style = ImGui::GetStyle();
+    const auto display = ImGui::GetIO().DisplaySize;
+    const float current = UIScale();
+    const char* smaller = "A-##menuSmaller";
+    const char* larger = "A+##menuLarger";
+    const auto width = [&](const char* label) {
+        return ImGui::CalcTextSize(label, nullptr, true).x + style.FramePadding.x * 2.0f;
+    };
+    const float buttons = width(smaller) + style.ItemSpacing.x + width(larger);
+    // Title-bar items must not extend the content region the window scrolls.
+    const auto cursor = ImGui::GetCursorScreenPos();
+    const auto maxPos = window->DC.CursorMaxPos;
+    const auto idealMaxPos = window->DC.IdealMaxPos;
+    ImGui::PushClipRect(title.Min, title.Max, false);
+    ImGui::SetCursorScreenPos(ImVec2(title.Max.x - style.FramePadding.x - buttons,
+                                     title.Min.y + (title.GetHeight() - ImGui::GetFontSize()) * 0.5f));
+    const auto button = [&](const char* label, int direction, const char* action) {
+        const float next = StepUIScale(current, direction);
+        // Disable a step that the size limits would leave unchanged.
+        ImGui::BeginDisabled(std::abs(ResolveUIScale(next, display.x, display.y) - current) < 0.001f);
+        if (ImGui::SmallButton(label))
+            layout.uiScale = next;
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("%s menu (now %.0f%%).\nSave as default remembers the size. Advanced restores automatic size.",
+                              action, current * 100.0f);
+    };
+    button(smaller, -1, "Smaller");
+    ImGui::SameLine();
+    button(larger, 1, "Larger");
+    ImGui::PopClipRect();
+    ImGui::SetCursorScreenPos(cursor);
+    window->DC.CursorMaxPos = maxPos;
+    window->DC.IdealMaxPos = idealMaxPos;
+}
+
 void OverlayUI::BuildUI()
 {
     const auto view = CaptureFrameView();
@@ -368,6 +409,7 @@ void OverlayUI::BuildUI()
     layout.y = windowPos.y / scale;
     layout.width = windowSize.x / scale;
     layout.height = windowSize.y / scale;
+    DrawMenuSizeButtons();
     DrawPipelineSummary(view);
     const auto& layoutStyle = ImGui::GetStyle();
     float reservedActionHeight = ImGui::GetFrameHeightWithSpacing() + ImGui::GetFrameHeight() +
@@ -381,7 +423,6 @@ void OverlayUI::BuildUI()
 
     if (ImGui::BeginTabBar("##theosrenderpipelineTabs", ImGuiTabBarFlags_None))
     {
-        DrawMenuSizeButtons();
         DrawImagePanel(tabCardHeight, view);
 
 #if !defined(TRP_NO_NEURAL_RENDERING)

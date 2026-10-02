@@ -166,26 +166,6 @@ void OverlayUI::DrawMenuSizeControl()
     ImGui::Separator();
 }
 
-// Trailing tab-bar buttons, so the size can be changed without finding Advanced.
-void OverlayUI::DrawMenuSizeButtons()
-{
-    const auto display = ImGui::GetIO().DisplaySize;
-    const float current = UIScale();
-    const auto button = [&](const char* label, int direction, const char* action) {
-        const float next = StepUIScale(current, direction);
-        // Disable a step that the size limits would leave unchanged.
-        ImGui::BeginDisabled(std::abs(ResolveUIScale(next, display.x, display.y) - current) < 0.001f);
-        if (ImGui::TabItemButton(label, ImGuiTabItemFlags_Trailing))
-            layout.uiScale = next;
-        ImGui::EndDisabled();
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip("%s menu (now %.0f%%).\nSave as default remembers the size. Advanced restores automatic size.",
-                              action, current * 100.0f);
-    };
-    button("A-##menuSmaller", -1, "Smaller");
-    button("A+##menuLarger", 1, "Larger");
-}
-
 void OverlayUI::DrawAdvancedPanel(float height, const FrameView& view)
 {
     if (!ImGui::BeginTabItem("Advanced", nullptr,
