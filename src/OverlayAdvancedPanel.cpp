@@ -166,6 +166,49 @@ void OverlayUI::DrawMenuSizeControl()
     ImGui::Separator();
 }
 
+void OverlayUI::DrawMenuKeyControl()
+{
+    menuKeyControlDrawn = true;
+    const bool capturing = hotkeys.IsCapturing();
+    const auto key = static_cast<UINT>(settingsDraft.menuHotkey);
+    ImGui::AlignTextToFramePadding();
+    if (settingsDraft.menuHotkey != RenderPipeline::GetSingleton()->mToggleOverlayHotkey)
+        ImGui::TextColored(kAmber, "Menu key");
+    else
+        ImGui::TextUnformatted("Menu key");
+    ImGui::SameLine();
+    const auto label = (capturing ? std::string("Press a key...") : HotkeyName(key)) + "###menuKey";
+    if (ImGui::Button(label.c_str(), ImVec2(Px(150.0f), 0.0f)) && !capturing)
+    {
+        hotkeys.BeginCapture();
+        menuKeyError.clear();
+    }
+    DrawSettingsHelp("Click, then press the key that opens and closes this menu. Escape cancels. Apply uses it "
+                     "now; Save as default keeps it. Use separate keys for TRP, Community Shaders, ReShade and KreatE.");
+    ImGui::SameLine();
+    if (capturing)
+    {
+        if (ImGui::Button("Cancel"))
+            hotkeys.CancelCapture();
+    }
+    else
+    {
+        ImGui::BeginDisabled(key == VK_END);
+        if (ImGui::Button("Reset to End"))
+        {
+            settingsDraft.menuHotkey = VK_END;
+            menuKeyError.clear();
+        }
+        ImGui::EndDisabled();
+    }
+    ImGui::PushTextWrapPos(0);
+    if (!menuKeyError.empty())
+        ImGui::TextColored(kRust, "%s", menuKeyError.c_str());
+    else if (!CanToggleWhileEditing(key))
+        ImGui::TextDisabled("While a text field is active, click outside it before pressing this key.");
+    ImGui::PopTextWrapPos();
+}
+
 void OverlayUI::DrawAdvancedPanel(float height, const FrameView& view)
 {
     if (!ImGui::BeginTabItem("Advanced", nullptr,
@@ -202,15 +245,7 @@ void OverlayUI::DrawAdvancedPanel(float height, const FrameView& view)
         }
         ImGui::Separator();
         DrawMenuSizeControl();
-        const auto key = pipeline->mToggleOverlayHotkey;
-        char name[64]{};
-        const UINT scan = MapVirtualKeyA(static_cast<UINT>(key), MAPVK_VK_TO_VSC_EX);
-        const LONG code = static_cast<LONG>(((scan & 0xff) << 16) | ((scan & 0xff00) ? (1 << 24) : 0));
-        if (GetKeyNameTextA(code, name, sizeof(name)))
-            ImGui::Text("Settings key: %s", name);
-        else
-            ImGui::Text("Settings key: 0x%02X", key);
-        DrawSettingsHelp("Configured in the INI. Use separate keys for TRP, Community Shaders and KreatE.");
+        DrawMenuKeyControl();
         ImGui::TextUnformatted("HDR unsupported");
         if (cs)
             ImGui::TextWrapped("Keep CS HDR, frame generation and Reflex off.");

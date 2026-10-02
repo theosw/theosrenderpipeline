@@ -89,6 +89,12 @@ Newer runtimes use the same filenames and folders; compatibility may vary.
 also saves settings and window layout; **Discard** drops unapplied edits. DLSS/DLAA mode
 and render scale changes take effect after restarting Skyrim.
 
+To change the menu key, open **Advanced**, click the **Menu key** button and
+press a new key, then Apply or Save as default. Escape cancels; **Reset to End**
+restores the default. Pick a key your other mods and Skyrim controls don't use.
+End, function keys, Insert, Page Up/Down, Pause and Scroll Lock also close the
+menu while you type in a field; with other keys, click outside the field first.
+
 Live FPS and related measurements stay beside the controls. Resize the window
 and drag the column divider to change the layout. The pipeline bar above the
 tabs shows the applied rendering order. Advanced contains Lab mode for detailed
@@ -128,7 +134,8 @@ is required even with frame generation switched off. AMD/Intel are not supported
 ENB is optional. With Community Shaders, keep CS upscaling enabled and disable
 CS frame generation and CS Reflex. TRP provides FG/Reflex/NR while CS retains
 upscaling, render scale, sharpening and colour. Assign CS a separate menu key,
-such as F8, avoiding keys already assigned to ReShade or capture tools. TRP keeps End.
+such as F8, avoiding keys already assigned to ReShade or capture tools. TRP keeps End
+unless you change it under Advanced > Menu key.
 With CS, HDR is experimental and works only through CS HDR Display (tested with CS 1.9.1,
 HDR Display 1.2.2 and Universal on one RTX 4080 SUPER; Standard is untested).
 Enable Windows HDR and use borderless windowed. In CS's HDR Display settings, set
@@ -200,9 +207,8 @@ onward; a separate Input Test ZIP is not needed for this release.
 Disable competing ENB Anti-Aliasing and ENB Frame Generation components,
 including their dedicated settings overrides where installed. Keep the base
 SSE Display Tweaks, ENB and ReShade preset; disable SSE ReShade Helper.
-End can conflict with STB Active Effects. With Skyrim closed, set
-`ToggleOverlay=0x79` under `[Hotkeys]` in the winning TRP INI for F10, if free.
-Click outside an active text field before closing with F10.
+End can conflict with STB Active Effects. Change the menu key under
+**Advanced > Menu key**, for example to F10 if free, then Save as default.
 Early OAR/IED loading panels remain a known resolution limitation. The test log
 retains two Streamline RSYNC errors; physical cadence and unreported menu/cell
 transitions remain unverified.

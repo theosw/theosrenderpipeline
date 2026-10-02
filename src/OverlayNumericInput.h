@@ -20,7 +20,7 @@ namespace TheosRenderPipeline::Overlay
 		template <class Translate>
 		void Update(ImGuiIO& io, const Keys& keys, bool focused, Translate&& translate)
 		{
-			if (focused != focused_) { io.AddFocusEvent(focused); }
+			SetFocus(io, focused);
 			if (!focused) {
 				Release(io);
 				return;
@@ -76,6 +76,14 @@ namespace TheosRenderPipeline::Overlay
 			previous_ = current;
 		}
 
+		// Stop editing input, for example while a key binding is picked, without
+		// reporting a focus change. Keys still held afterwards stay blocked.
+		void Suspend(ImGuiIO& io, bool focused)
+		{
+			SetFocus(io, focused);
+			Release(io);
+		}
+
 		void Release(ImGuiIO& io)
 		{
 			for (const auto& key : editingKeys_) { io.AddKeyEvent(key.imgui, false); }
@@ -92,6 +100,11 @@ namespace TheosRenderPipeline::Overlay
 		}
 
 	private:
+		void SetFocus(ImGuiIO& io, bool focused)
+		{
+			if (focused != applicationFocused_) { io.AddFocusEvent(focused); }
+			applicationFocused_ = focused;
+		}
 		static bool Printable(unsigned vk)
 		{
 			return vk == 0x20 || (vk >= 0x30 && vk <= 0x39) || (vk >= 0x41 && vk <= 0x5A) ||
@@ -112,7 +125,8 @@ namespace TheosRenderPipeline::Overlay
 			{ 'X', ImGuiKey_X }, { 'Y', ImGuiKey_Y }, { 'Z', ImGuiKey_Z }
 		};
 		Keys previous_{}, blocked_{};
-		bool focused_{};
+		// Window focus as reported to ImGui; focused_ tracks the editing state.
+		bool applicationFocused_{}, focused_{};
 	};
 
 	inline bool FPSInput(const char* id, int& value)
