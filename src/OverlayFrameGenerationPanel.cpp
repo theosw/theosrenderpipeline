@@ -1,3 +1,4 @@
+#include "CommunityShaderIntegration.h"
 #include "OverlayUI.h"
 #include "OverlayUIStyle.h"
 #include "OverlayFrameView.h"
