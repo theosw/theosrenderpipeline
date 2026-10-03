@@ -1,3 +1,38 @@
+# 0.3.7
+
+- Rebind the settings-menu key under Advanced > Menu key. Apply switches the
+  key immediately; Save as default remembers it. Escape cancels picking, and
+  Reset to End restores the default. Function keys and supported navigation
+  keys can close the menu while editing; letter and number bindings keep text
+  editing active until the field loses focus.
+- Switch TRP's experimental HDR output on or off with Apply, without restarting.
+  The first activation in a session briefly pauses frame generation while the
+  native output buffers become 10-bit. Turning HDR off keeps those buffers until
+  restart; subsequent switches change the output colour space immediately.
+  Windows HDR is required. Community Shaders continues to own HDR on its route.
+
+Both editions retain NR and existing frame-generation compatibility routes.
+NVIDIA runtime DLLs and packaged feature defaults are unchanged from 0.3.6.
+HDR and RTX 20 compatibility remain experimental. This release does not resolve
+the conflict with Bottled's experimental NR implementation.
+
+# 0.3.6
+
+- Scale the menu automatically for higher output resolutions, with a bundled
+  Roboto font for sharp text. No separately installed font is required.
+- Add title-bar Zoom controls, automatic reset and an Advanced zoom slider.
+  Save as default remembers zoom, window dimensions and the column divider.
+- Scale the graphs, pipeline diagram, settings columns and preset popups together.
+- Improve GPU failure diagnostics: retain the first fault and report it once,
+  with optional DRED breadcrumb evidence. DRED remains off by default; existing
+  GPU progress waits and resource-retention protections are preserved.
+
+Both editions retain NR and existing frame-generation compatibility routes.
+NVIDIA runtime DLLs are unchanged. HDR and RTX 20 compatibility remain
+experimental. Compatibility between TRP NR and Bottled's new experimental NR
+implementation remains unverified; loading its NR runtime can prevent TRP NR
+from starting. This release does not fix that conflict.
+
 # 0.3.5
 
 - Reduce HUD ghosting in generated frames: DLSS-G now interpolates the HUD-less

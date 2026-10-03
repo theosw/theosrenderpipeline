@@ -1,4 +1,16 @@
-# Theo's Render Pipeline — Standard, 0.3.5
+# Theo's Render Pipeline — Standard, 0.3.7
+
+Version 0.3.7 adds menu-key rebinding under Advanced > Menu key and live
+experimental HDR output switching with Apply. The first HDR activation briefly
+pauses frame generation; later switches are immediate. Save as default remembers
+the menu key and HDR setting. Both editions retain NR and their existing
+frame-generation routes, with unchanged NVIDIA runtime DLLs and feature defaults.
+
+Version 0.3.6 adds automatic menu scaling and title-bar Zoom controls, with
+an embedded font; no separate font installation is required. Save as default
+remembers zoom, window geometry and the divider. GPU failure diagnostics retain
+the first fault and support optional DRED evidence (off by default). Both editions
+retain NR and existing compatibility routes; NVIDIA runtime DLLs are unchanged.
 
 Version 0.3.5 enables DLSS-G UI recomposition by default to reduce HUD
 ghosting; toggle it live under Frame generation. GPU retirement waits now
@@ -107,6 +119,12 @@ for its scope. Standard HDR gameplay is still unverified. Recurring NVIDIA
 flip-queue errors remain unresolved; physical frame cadence and other GPUs are
 unverified.
 
+Bottled's new experimental NR implementation is not yet validated alongside
+TRP NR. Its runtime can remain loaded even with its NR checkbox off, preventing
+TRP NR from starting. Do not switch between the two NR implementations in the
+same launch; a restart and isolated runtime ownership are required. This release
+does not resolve that conflict.
+
 ## ReShade (optional)
 
 Keep your existing ReShade installation, preset and hotkeys. **Disable SSE
@@ -133,12 +151,12 @@ an RTX 4080 SUPER: ordinary 6.8.0.2158 and full add-on 6.8.0.2155, with
 early NR and x4. Sky Reflection Fix's ReShade registration was excluded;
 Rumble passed a separate initial test. ReGrade+, combined third-party add-ons,
 Standard gameplay and CS with ReShade remain unverified. These were earlier
-development builds; the exact 0.3.5 package still needs its final game test.
+development builds; the exact 0.3.7 package still needs its final game test.
 
 ## With the Universal edition
 
 For the RTX 40 MFG unlock or experimental RTX 20/30 support, install the matching
-0.3.5 Universal ZIP after Standard in MO2's left pane. Let Universal win file conflicts. Universal uses
+0.3.7 Universal ZIP after Standard in MO2's left pane. Let Universal win file conflicts. Universal uses
 the NVIDIA runtimes included here, including NR.
 
 Both editions contain settings files; the later mod's files win. Switching

@@ -1,4 +1,4 @@
-# RTX 20 compatibility — Universal 0.3.5
+# RTX 20 compatibility — Universal 0.3.7
 
 This retains the RTX 2060-tested compatibility path and the released maintenance fixes.
 Earlier compatibility builds have positive ENB/RTX 4080 SUPER regression feedback.
@@ -6,7 +6,7 @@ RTX 20 support remains experimental. Intended cards are RTX 2060, 2070 and
 2080 variants; GTX 16 and other Turing products are excluded.
 
 Keep Standard enabled for its runtimes (0.3.0 and 0.2.5 supply the same bundle).
-Disable the previous Universal edition and enable Universal 0.3.5 below Standard
+Disable the previous Universal edition and enable Universal 0.3.7 below Standard
 in MO2. Existing settings can stay; compatibility requires
 `[Experimental] SourceDLSSGMFGUnlock=true`. Packaged defaults remain x2,
 dynamic MFG off and NR off. No NVIDIA runtime replacement is part of this fix.
@@ -30,7 +30,7 @@ The log should select `route=Turing` and `stage=network-selection` with
 `target=SM75 networks=2 kernelLoads=39 source=prepared-PTX`. This identifies
 preparation; actual output and image quality are separate observations.
 
-To roll back, disable Universal 0.3.5 and restore the previous setup. Standard
+To roll back, disable Universal 0.3.7 and restore the previous setup. Standard
 alone is not an RTX 20 FG fallback because TRP still requires its FG host at
 startup. This RTX 2060 result does not establish other RTX 20 models, CS on
 RTX 20, repeated restart stability, image equivalence or physical display
