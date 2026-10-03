@@ -28,6 +28,7 @@ namespace TheosRenderPipeline
             frame_ = frame;
             guidesReady_ = sceneReady_ = encodedReady_ = uiReady_ = consumed_ = false;
             sceneSource_.Reset(); encodedSource_.Reset(); uiSource_.Reset();
+            uiCaptureResult_ = E_NOTIMPL;
             render_ = renderExtent; output_ = outputExtent;
             if (!output_.width || !output_.height || render_.width > output_.width ||
                 render_.height > output_.height || !context || !motion || !depth) { return E_INVALIDARG; }
@@ -69,7 +70,7 @@ namespace TheosRenderPipeline
         // then restore all changed slots. The caller still performs the original
         // dispatch exactly once. Unrelated passes are left alone.
         HRESULT CaptureDisplayTransform(ID3D11DeviceContext* context,
-            UINT x, UINT y, UINT z, Dispatch dispatch)
+            UINT x, UINT y, UINT z, Dispatch dispatch, bool captureUIAlpha = false)
         {
             if (!sceneReady_ || consumed_ || encodedReady_ || !isolation_.Accepts(context, producerContext_) ||
                 !dispatch || !x || !y || z != 1) { return S_FALSE; }
@@ -106,6 +107,10 @@ namespace TheosRenderPipeline
                 result = device->CreateUnorderedAccessView(encoded_.Get(), nullptr, encodedUAV_.ReleaseAndGetAddressOf());
                 if (FAILED(result)) { return result; }
                 encodedUAVSource_ = encoded_;
+            }
+            if (captureUIAlpha) {
+                uiCaptureResult_ = CaptureAlpha(context, views, destination.Get(), dispatch);
+                uiReady_ = uiCaptureResult_ == S_OK;
             }
             ID3D11ShaderResourceView* cleanViews[]{sceneSRV_.Get(), nullptr};
             auto* cleanOutput = encodedUAV_.Get();
@@ -154,70 +159,9 @@ namespace TheosRenderPipeline
                 (encodedReady_ ? encoded_.Get() : scene_.Get()) : nullptr;
         }
 
-        // Capture after the producer's UI/display composite, just before its
-        // real Present. The producer UI may be SDR while the backbuffer is PQ;
-        // tagging that raw layer would violate Streamline's blending contract.
-        // As in native HUD-less detection, changed pixels become opaque final
-        // colour and unchanged pixels transparent. This preserves the exact
-        // composed colour, including translucent UI's already-blended background.
-        HRESULT CaptureUI(ID3D11DeviceContext* context, ID3D11Texture2D* presentation)
-        {
-            uiReady_ = false;
-            if (!context || !presentation) { return E_INVALIDARG; }
-            D3D11_TEXTURE2D_DESC desc{}; presentation->GetDesc(&desc);
-            auto* clean = Hudless(desc);
-            if (!clean) { return E_UNEXPECTED; }
-            D3D11ContextIsolation::Scope scope{isolation_, context};
-            if (!scope) { return E_NOINTERFACE; }
-            auto result = Ensure(context, presentation, output_, DXGI_FORMAT_UNKNOWN,
-                D3D11_BIND_SHADER_RESOURCE, composed_);
-            if (SUCCEEDED(result)) { result = Ensure(context, presentation, output_, DXGI_FORMAT_UNKNOWN,
-                D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS, ui_); }
-            if (FAILED(result)) { return result; }
-            Microsoft::WRL::ComPtr<ID3D11Device> device; context->GetDevice(&device);
-            if (!uiShader_) {
-                constexpr char program[] = R"(
-Texture2D<float4> finalColor : register(t0);
-Texture2D<float4> cleanColor : register(t1);
-RWTexture2D<float4> ui : register(u0);
-[numthreads(8,8,1)] void main(uint3 p : SV_DispatchThreadID) {
-    uint w,h; ui.GetDimensions(w,h); if (p.x>=w || p.y>=h) return;
-    float3 final = finalColor.Load(int3(p.xy,0)).rgb;
-    float3 clean = cleanColor.Load(int3(p.xy,0)).rgb;
-    ui[p.xy] = all(final == clean) ? float4(0,0,0,0) : float4(final,1);
-})";
-                Microsoft::WRL::ComPtr<ID3DBlob> code;
-                result = D3DCompile(program, sizeof(program) - 1, "CSHudlessUI", nullptr, nullptr,
-                    "main", "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, nullptr);
-                if (FAILED(result)) { return result; }
-                result = device->CreateComputeShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, &uiShader_);
-                if (FAILED(result)) { return result; }
-            }
-            if (composedSRVSource_.Get() != composed_.Get()) {
-                result = device->CreateShaderResourceView(composed_.Get(), nullptr, composedSRV_.ReleaseAndGetAddressOf());
-                if (FAILED(result)) { return result; }
-                composedSRVSource_ = composed_;
-            }
-            if (cleanUISRVSource_.Get() != clean) {
-                result = device->CreateShaderResourceView(clean, nullptr, cleanUISRV_.ReleaseAndGetAddressOf());
-                if (FAILED(result)) { return result; }
-                cleanUISRVSource_ = clean;
-            }
-            if (uiUAVSource_.Get() != ui_.Get()) {
-                result = device->CreateUnorderedAccessView(ui_.Get(), nullptr, uiUAV_.ReleaseAndGetAddressOf());
-                if (FAILED(result)) { return result; }
-                uiUAVSource_ = ui_;
-            }
-            result = D3D11FrameCopy::Color(context, presentation, composed_.Get(), output_);
-            if (FAILED(result)) { return result; }
-            ID3D11ShaderResourceView* inputs[]{composedSRV_.Get(), cleanUISRV_.Get()};
-            context->CSSetShaderResources(0, 2, inputs);
-            context->CSSetUnorderedAccessViews(0, 1, uiUAV_.GetAddressOf(), nullptr);
-            context->CSSetShader(uiShader_.Get(), nullptr, 0);
-            context->Dispatch((output_.width + 7) / 8, (output_.height + 7) / 8, 1);
-            uiReady_ = true;
-            return S_OK;
-        }
+        // Only producer-authored fractional coverage is suitable for CS UI.
+        // The compositor snapshot is confirmed with the matching display copy.
+        HRESULT UICaptureResult() const { return uiCaptureResult_; }
 
         ID3D11Texture2D* UI(const D3D11_TEXTURE2D_DESC& presentation) const
         {
@@ -239,9 +183,8 @@ RWTexture2D<float4> ui : register(u0);
             motion_.Reset(); depth_.Reset(); scene_.Reset(); sceneSource_.Reset(); uiSource_.Reset();
             encoded_.Reset(); encodedSource_.Reset(); encodedUAV_.Reset(); encodedUAVSource_.Reset();
             sceneSRV_.Reset(); sceneSRVSource_.Reset();
-            composed_.Reset(); ui_.Reset(); uiShader_.Reset();
-            composedSRV_.Reset(); cleanUISRV_.Reset(); uiUAV_.Reset();
-            composedSRVSource_.Reset(); cleanUISRVSource_.Reset(); uiUAVSource_.Reset();
+            ui_.Reset(); uiShader_.Reset(); uiUAV_.Reset(); uiUAVSource_.Reset();
+            uiCaptureResult_ = E_NOTIMPL;
             guidesReady_ = sceneReady_ = encodedReady_ = uiReady_ = consumed_ = false;
             frame_ = (std::numeric_limits<std::uint64_t>::max)(); render_ = output_ = {};
         }
@@ -256,6 +199,59 @@ RWTexture2D<float4> ui : register(u0);
         }
 
     private:
+        // Read the compositor's actual t1 before it can clear/reuse that UI
+        // target. Preserve subpixel/translucent coverage in R8 rather than the
+        // backbuffer's two-bit alpha. No scene pixels or colour-space guesses.
+        HRESULT CaptureAlpha(ID3D11DeviceContext* context, ID3D11ShaderResourceView* const* views,
+            ID3D11UnorderedAccessView* originalOutput, Dispatch dispatch)
+        {
+            auto source = Texture(views[1]);
+            if (!source) { return E_INVALIDARG; }
+            D3D11_TEXTURE2D_DESC desc{}; source->GetDesc(&desc);
+            if (desc.Width != output_.width || desc.Height != output_.height) { return E_INVALIDARG; }
+            auto result = Ensure(context, source.Get(), output_, DXGI_FORMAT_R8_UNORM,
+                D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS, ui_);
+            if (FAILED(result)) { return result; }
+            Microsoft::WRL::ComPtr<ID3D11Device> device; context->GetDevice(&device);
+            if (!uiShader_) {
+                constexpr char program[] = R"(
+Texture2D<float4> producerUI : register(t0);
+RWTexture2D<float> alpha : register(u0);
+[numthreads(8,8,1)] void main(uint3 p : SV_DispatchThreadID) {
+    uint w,h; alpha.GetDimensions(w,h); if(p.x>=w || p.y>=h) return;
+    alpha[p.xy] = saturate(producerUI.Load(int3(p.xy,0)).a);
+})";
+                Microsoft::WRL::ComPtr<ID3DBlob> code;
+                result = D3DCompile(program, sizeof(program)-1, "CSUIAlpha", nullptr, nullptr,
+                    "main", "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, nullptr);
+                if (FAILED(result)) { return result; }
+                result = device->CreateComputeShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, &uiShader_);
+                if (FAILED(result)) { return result; }
+            }
+            if (uiUAVSource_.Get() != ui_.Get()) {
+                result = device->CreateUnorderedAccessView(ui_.Get(), nullptr, uiUAV_.ReleaseAndGetAddressOf());
+                if (FAILED(result)) { return result; }
+                uiUAVSource_ = ui_;
+            }
+            Microsoft::WRL::ComPtr<ID3D11ComputeShader> savedShader;
+            struct Instances {
+                ID3D11ClassInstance* values[D3D11_SHADER_MAX_INTERFACES]{};
+                UINT count{D3D11_SHADER_MAX_INTERFACES};
+                ~Instances() { for (UINT i=0; i<count; ++i) { if(values[i]) { values[i]->Release(); } } }
+            } instances;
+            context->CSGetShader(&savedShader, instances.values, &instances.count);
+            ID3D11ShaderResourceView* inputs[]{views[1], nullptr};
+            context->CSSetShaderResources(0, 2, inputs);
+            context->CSSetUnorderedAccessViews(0, 1, uiUAV_.GetAddressOf(), nullptr);
+            context->CSSetShader(uiShader_.Get(), nullptr, 0);
+            // Bypass the observer entry: this is our pass, not a producer pass.
+            dispatch(context, (output_.width+7)/8, (output_.height+7)/8, 1);
+            context->CSSetShader(savedShader.Get(), instances.values, instances.count);
+            context->CSSetUnorderedAccessViews(0, 1, &originalOutput, nullptr);
+            context->CSSetShaderResources(0, 2, views);
+            return S_OK;
+        }
+
         static bool References(ID3D11View* view, ID3D11Texture2D* texture)
         {
             return D3D11FrameCopy::SameObject(Texture(view).Get(), texture);
@@ -290,10 +286,10 @@ RWTexture2D<float4> ui : register(u0);
         Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> sceneSRV_;
         Microsoft::WRL::ComPtr<ID3D11Texture2D> sceneSRVSource_, encodedUAVSource_;
         Microsoft::WRL::ComPtr<ID3D11UnorderedAccessView> encodedUAV_;
-        Microsoft::WRL::ComPtr<ID3D11Texture2D> composed_, ui_, composedSRVSource_, cleanUISRVSource_, uiUAVSource_;
-        Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> composedSRV_, cleanUISRV_;
+        Microsoft::WRL::ComPtr<ID3D11Texture2D> ui_, uiUAVSource_;
         Microsoft::WRL::ComPtr<ID3D11UnorderedAccessView> uiUAV_;
         Microsoft::WRL::ComPtr<ID3D11ComputeShader> uiShader_;
+        HRESULT uiCaptureResult_{E_NOTIMPL};
         FrameExtent render_{}, output_{};
         std::uint64_t frame_{(std::numeric_limits<std::uint64_t>::max)()};
         ID3D11DeviceContext* producerContext_{};

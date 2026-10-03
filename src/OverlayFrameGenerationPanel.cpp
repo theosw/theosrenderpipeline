@@ -161,7 +161,7 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& v
             DrawSettingsHelp("Generates the scene and HUD separately to reduce HUD ghosting in motion. "
                              "Small GPU and VRAM cost. Apply to compare live.");
             if (TheosRenderPipeline::CommunityShaders::Active())
-                ImGui::TextDisabled("HUD-less detection; translucent UI retains its blended background.");
+                ImGui::TextDisabled("Uses CS's separate UI alpha; unavailable when UI draws directly into the scene.");
             if (frameGenerationRuntimeActive && sourceState.uiRecompositionRequested)
             {
                 if (sourceState.options.enableUserInterfaceRecomposition == sl::eTrue)

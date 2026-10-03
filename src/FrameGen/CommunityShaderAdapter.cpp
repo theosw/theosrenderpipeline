@@ -119,7 +119,8 @@ namespace TheosRenderPipeline
         UINT x, UINT y, UINT z, CommunityShaderFrame::Dispatch dispatch)
     {
         if (!worldCompleted_) { return S_FALSE; }
-        return resources_.CaptureDisplayTransform(context, x, y, z, dispatch);
+        return resources_.CaptureDisplayTransform(context, x, y, z, dispatch,
+            SourceDLSSG::Backend::Get().UIRecompositionConfiguration());
     }
 
     bool CommunityShaderAdapter::ConfirmPresentationCopy(ID3D11Resource* source)
@@ -149,11 +150,11 @@ namespace TheosRenderPipeline
         auto& backend = SourceDLSSG::Backend::Get();
         ID3D11Texture2D* ui = nullptr;
         if (backend.UIRecompositionConfiguration()) {
-            const auto result = resources_.CaptureUI(context_.Get(), presentationTexture);
-            ui = result == S_OK ? resources_.UI(presentation) : nullptr;
+            const auto result = resources_.UICaptureResult();
+            ui = resources_.UI(presentation);
             if (ui && (!uiCaptureReported_ || uiCaptureFailed_)) {
-                logger::info("[CS Adapter] UI colour-and-alpha captured method=HUD-less detection extent={}x{} format={}",
-                    presentation.Width, presentation.Height, static_cast<unsigned>(presentation.Format));
+                logger::info("[CS Adapter] producer UI alpha captured extent={}x{} format=R8_UNORM",
+                    presentation.Width, presentation.Height);
                 uiCaptureReported_ = true;
             } else if (!ui && !uiCaptureFailed_) {
                 logger::warn("[CS Adapter] UI capture unavailable result=0x{:08X}; continuing without UI recomposition",
@@ -165,7 +166,7 @@ namespace TheosRenderPipeline
         if (!scope) { status_ = "CS context unavailable at submission"; return false; }
         const auto render = resources_.RenderExtent(), output = resources_.OutputExtent();
         prepared_ = backend.Prepare(camera_, resources_.Motion(), resources_.Depth(),
-            ui, hudless, render, output.width, output.height, eligible_);
+            ui, hudless, render, output.width, output.height, eligible_, true);
         status_ = prepared_ ? "CS frame submitted to NVIDIA" : "CS frame preparation failed";
         return prepared_;
     }

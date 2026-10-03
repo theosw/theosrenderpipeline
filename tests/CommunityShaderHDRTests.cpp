@@ -32,7 +32,8 @@ static UINT Pixel(ID3D11DeviceContext* context, ID3D11Texture2D* source, UINT x 
     ComPtr<ID3D11Texture2D> staging; Check(device->CreateTexture2D(&desc, nullptr, &staging), "staging");
     context->CopyResource(staging.Get(), source);
     D3D11_MAPPED_SUBRESOURCE map{}; Check(context->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &map), "readback");
-    UINT pixel{}; std::memcpy(&pixel, static_cast<const char*>(map.pData) + y * map.RowPitch + x * sizeof(pixel), sizeof(pixel));
+    const UINT bytes = desc.Format == DXGI_FORMAT_R8_UNORM ? 1 : sizeof(UINT);
+    UINT pixel{}; std::memcpy(&pixel, static_cast<const char*>(map.pData) + y * map.RowPitch + x * bytes, bytes);
     context->Unmap(staging.Get(), 0);
     return pixel;
 }
@@ -124,21 +125,24 @@ struct Fixture
         const float green[]{0, 1, 0, 1}; context->ClearRenderTargetView(uiRTV.Get(), green);
         return true;
     }
-    void Composite(bool capture)
+    void Composite(bool capture, bool captureAlpha = false)
     {
         context->OMSetRenderTargets(0, nullptr, nullptr);
         context->CSSetShader(shader.Get(), nullptr, 0);
         ID3D11ShaderResourceView* inputs[]{sceneSRV.Get(), uiSRV.Get()};
         context->CSSetShaderResources(0, 2, inputs);
         context->CSSetUnorderedAccessViews(0, 1, outputUAV.GetAddressOf(), nullptr);
-        const auto result = frame.CaptureDisplayTransform(context.Get(), width / 4, height / 2, 1, Replay);
+        const auto result = frame.CaptureDisplayTransform(context.Get(), width / 4, height / 2, 1, Replay, captureAlpha);
         Require(result == (capture ? S_OK : S_FALSE), "only an identified current-frame compositor is replayed");
         if (capture) { Require(frame.PresentationStatus(desc) == State::AwaitingCopy, "replay awaits actual presentation copy"); }
+        Require(!frame.UI(desc), "UI alpha remains unpublished until the actual display copy");
         ComPtr<ID3D11ShaderResourceView> restoredScene, restoredUI;
         ComPtr<ID3D11UnorderedAccessView> restoredOutput;
+        ComPtr<ID3D11ComputeShader> restoredShader;
+        context->CSGetShader(&restoredShader, nullptr, nullptr);
         context->CSGetShaderResources(0, 1, &restoredScene); context->CSGetShaderResources(1, 1, &restoredUI);
         context->CSGetUnorderedAccessViews(0, 1, &restoredOutput);
-        Require(restoredScene == sceneSRV && restoredUI == uiSRV && restoredOutput == outputUAV, "HDR producer bindings restored");
+        Require(restoredScene == sceneSRV && restoredUI == uiSRV && restoredOutput == outputUAV && restoredShader == shader, "HDR producer shader and bindings restored");
         context->Dispatch(width / 4, height / 2, 1);
         context->ClearState();
         Require(!frame.ConfirmPresentationCopy(scene.Get()), "unrelated copy rejected");
@@ -161,7 +165,7 @@ namespace LiveObservers
     {
         if (!fixture || context != fixture->context.Get()) { return; }
         ++dispatchCalls;
-        if (fixture->frame.CaptureDisplayTransform(context, x, y, z, original) == S_OK) { ++transforms; }
+        if (fixture->frame.CaptureDisplayTransform(context, x, y, z, original, true) == S_OK) { ++transforms; }
     }
     static void CopyResource(ID3D11DeviceContext* context, ID3D11Resource* destination, ID3D11Resource* source)
     {
@@ -224,6 +228,8 @@ namespace LiveObservers
             if (number == 1) { clean = actualClean; visible = actualVisible; }
             Require(clean != visible && actualClean == clean && actualVisible == visible,
                 "fresh HUDless replay and visible HDR UI survive every mutation");
+            Require(Pixel(f.context.Get(), f.frame.UI(f.desc)) == 255,
+                "producer alpha reaches each real observed frame without recursive dispatch capture");
             f.Present();
             Require(!f.frame.Hudless(f.desc), "completed presentation cannot supply stale FG inputs");
         }
@@ -243,100 +249,71 @@ namespace LiveObservers
 static void UILayers()
 {
     Fixture f;
-    for (unsigned number = 1; number <= 3; ++number) {
+    for (unsigned number = 1; number <= 4; ++number) {
         if (number == 3) { f.Resize(12, 6); }
         f.Begin(number); f.FinishUI();
-        // Empty, opaque green, half-transparent red, opaque black. The colour
-        // transform blends in linear space before nonlinear PQ encoding, so a
-        // raw SDR UI texture cannot satisfy the display-space blend contract.
+        // Empty, opaque green, half-alpha red, opaque black, low-coverage AA.
+        // A changed-pixel mask incorrectly promoted these fractions to opaque.
         UINT pixels[72]{};
-        pixels[1] = 0xFF00FF00; pixels[2] = 0x800000FF; pixels[3] = 0xFF000000;
+        if (number != 4) {
+            pixels[1] = 0xFF00FF00; pixels[2] = 0x800000FF;
+            pixels[3] = 0xFF000000; pixels[4] = 0x200000FF;
+        }
         f.context->UpdateSubresource(f.ui.Get(), 0, nullptr, pixels, f.width * 4, 0);
-        Require(FAILED(f.frame.CaptureUI(f.context.Get(), f.presentation.Get())) && !f.frame.UI(f.desc),
-            "UI unavailable until the matching display composite is confirmed");
-        f.Composite(true);
-        ComPtr<ID3D11RenderTargetView> rtv;
-        Check(f.device->CreateRenderTargetView(f.presentation.Get(), nullptr, &rtv), "presentation RTV");
-        f.context->OMSetRenderTargets(1, rtv.GetAddressOf(), nullptr);
-        f.context->CSSetShader(f.shader.Get(), nullptr, 0);
-        f.context->PSSetShaderResources(4, 1, f.uiSRV.GetAddressOf());
-        const D3D11_VIEWPORT viewport{0, 0, float(f.width), float(f.height), 0, 1};
-        f.context->RSSetViewports(1, &viewport);
-        Check(f.frame.CaptureUI(f.context.Get(), f.presentation.Get()), "display-encoded UI capture");
-        auto* captured = f.frame.UI(f.desc); Require(captured != nullptr, "current-frame UI published");
+        if (number == 2) {
+            // Later producer scene changes must never become UI coverage.
+            const float changed[]{.1f,.2f,.3f,1};
+            f.context->ClearRenderTargetView(f.sceneRTV.Get(), changed);
+        }
+        Require(!f.frame.UI(f.desc), "no UI alpha before the current compositor");
+        f.Composite(true, true);
+        auto* captured = f.frame.UI(f.desc); Require(captured != nullptr, "current-frame alpha published");
         D3D11_TEXTURE2D_DESC uiDesc{}; captured->GetDesc(&uiDesc);
-        Require(uiDesc.Format == f.desc.Format && uiDesc.Width == f.width && uiDesc.Height == f.height,
-            "UI and backbuffer share display format and extent");
-        ComPtr<ID3D11RenderTargetView> restoredRTV;
-        ComPtr<ID3D11ShaderResourceView> restoredPS;
-        ComPtr<ID3D11ComputeShader> restoredShader;
-        f.context->OMGetRenderTargets(1, &restoredRTV, nullptr);
-        f.context->PSGetShaderResources(4, 1, &restoredPS);
-        f.context->CSGetShader(&restoredShader, nullptr, nullptr);
-        UINT count = 1; D3D11_VIEWPORT restoredViewport{};
-        f.context->RSGetViewports(&count, &restoredViewport);
-        Require(restoredRTV == rtv && restoredPS == f.uiSRV && restoredShader == f.shader &&
-            count == 1 && std::memcmp(&viewport, &restoredViewport, sizeof(viewport)) == 0,
-            "UI detection restores producer graphics and compute state");
-        f.context->ClearState();
+        Require(uiDesc.Format == DXGI_FORMAT_R8_UNORM && uiDesc.Width == f.width && uiDesc.Height == f.height,
+            "single-channel alpha keeps eight-bit coverage at presentation extent");
         for (UINT y = 0; y < f.height; ++y) { for (UINT x = 0; x < f.width; ++x) {
-            const auto final = Pixel(f.context.Get(), f.presentation.Get(), x, y);
-            const auto clean = Pixel(f.context.Get(), f.frame.Hudless(f.desc), x, y);
-            const auto layer = Pixel(f.context.Get(), captured, x, y);
-            if (x >= 1 && x <= 3 && y == 0) {
-                Require((layer >> 30) == 3 && (layer & 0x3FFFFFFF) == (final & 0x3FFFFFFF),
-                    "opaque, translucent and black UI preserve exact PQ colour with full coverage");
-            } else {
-                Require(layer == 0 && final == clean, "pixels without UI remain transparent");
-            }
+            const auto alpha = Pixel(f.context.Get(), captured, x, y);
+            Require(alpha == (pixels[y*f.width+x] >> 24),
+                "empty, black, opaque, half-transparent and antialiased alpha copied exactly");
         } }
+        // Independent motion/blending oracle: the translucent underlay must
+        // contribute to a generated pixel. The failed opaque fallback gives 0.
+        if (number != 4) {
+            const float coverage = Pixel(f.context.Get(), captured, 2) / 255.f;
+            const float underlayChange = (1.f-coverage) * (.8f-.2f);
+            Require(underlayChange > .29f && underlayChange < .31f,
+                "translucent coverage preserves moving underlay rather than freezing it opaque");
+            const float edge = Pixel(f.context.Get(), captured, 4) / 255.f;
+            Require((1.f-edge) > .87f, "low-coverage edge is not promoted to a solid outline");
+        }
         const auto saved = Pixel(f.context.Get(), captured, 2);
         const float empty[4]{}; f.context->ClearRenderTargetView(f.uiRTV.Get(), empty);
-        Require(Pixel(f.context.Get(), captured, 2) == saved, "producer UI clear cannot erase captured layer");
-        Require(FAILED(f.frame.CaptureUI(nullptr, f.presentation.Get())) && !f.frame.UI(f.desc) && f.frame.Hudless(f.desc),
-            "capture failure cannot submit stale UI or prevent normal frame generation");
-        Check(f.frame.CaptureUI(f.context.Get(), f.presentation.Get()), "capture recovers after failure");
-        f.Present();
-        Require(!f.frame.UI(f.desc), "consumed interval cannot expose stale UI");
+        Require(Pixel(f.context.Get(), captured, 2) == saved, "producer clear cannot erase the tagged snapshot");
+        f.Present(); Require(!f.frame.UI(f.desc), "consumed interval cannot expose stale alpha");
     }
-    f.Begin(4, false);
-    Require(FAILED(f.frame.CaptureUI(f.context.Get(), f.presentation.Get())) && !f.frame.UI(f.desc),
-        "loading cannot reuse previous world UI");
-    f.frame.ResetAfterRetirement();
-    Require(!f.frame.UI(f.desc), "retired layer unavailable");
-    std::puts("CS UI layers: exact PQ colours, empty/opaque/translucent/black coverage, state restoration, producer clear, failure, loading and resize passed.");
+    f.Begin(5); f.FinishUI(); f.Composite(true, false);
+    Require(!f.frame.UI(f.desc) && f.frame.Hudless(f.desc), "disabled capture clears alpha without stopping FG");
+    f.Present(); f.Begin(6, false);
+    Require(!f.frame.UI(f.desc), "loading cannot reuse previous world alpha");
+    f.frame.ResetAfterRetirement(); Require(!f.frame.UI(f.desc), "retired alpha unavailable");
+    std::puts("CS UI alpha: fractional opacity/AA, moving-underlay oracle, black/empty coverage, scene changes, producer clear, disable, loading and resize passed.");
 }
 
 static void SDRUI()
 {
     Fixture f;
-    // Odd dimensions exercise dispatch bounds independently of the producer's
-    // HDR shader. SDR draws UI directly onto the world framebuffer.
-    const UINT w = 9, h = 3;
-    auto scene = Texture(f.device.Get(), w, h, DXGI_FORMAT_R8G8B8A8_UNORM,
+    const UINT w=9,h=3;
+    auto scene = Texture(f.device.Get(), w,h, DXGI_FORMAT_R8G8B8A8_UNORM,
         D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE);
-    auto presentation = Texture(f.device.Get(), w, h, DXGI_FORMAT_R8G8B8A8_UNORM, D3D11_BIND_RENDER_TARGET);
-    auto guides = Texture(f.device.Get(), w, h, DXGI_FORMAT_R32_FLOAT, D3D11_BIND_SHADER_RESOURCE);
-    UINT clean[27], visible[27];
-    for (UINT i = 0; i < 27; ++i) { clean[i] = visible[i] = 0xFF604020; }
-    visible[0] = 0xFF00FF00; visible[1] = 0xFF000000; visible[2] = 0xFF302090;
+    auto guides = Texture(f.device.Get(), w,h, DXGI_FORMAT_R32_FLOAT, D3D11_BIND_SHADER_RESOURCE);
     CommunityShaderFrame frame;
-    for (unsigned number = 1; number <= 2; ++number) {
-        f.context->UpdateSubresource(scene.Get(), 0, nullptr, clean, w * 4, 0);
-        f.context->UpdateSubresource(presentation.Get(), 0, nullptr, number == 1 ? visible : clean, w * 4, 0);
-        Check(frame.CaptureGuides(f.context.Get(), number, guides.Get(), guides.Get(), {w,h}, {w,h}), "SDR guides");
-        Check(frame.CaptureScene(f.context.Get(), scene.Get()), "SDR clean scene");
-        frame.SetUIBoundary(scene.Get()); // Direct UI target: no display replay.
-        Check(frame.CaptureUI(f.context.Get(), presentation.Get()), "SDR UI capture");
-        D3D11_TEXTURE2D_DESC desc{}; presentation->GetDesc(&desc);
-        for (UINT x = 0; x < w; ++x) {
-            const auto layer = Pixel(f.context.Get(), frame.UI(desc), x);
-            Require(layer == (number == 1 && x < 3 ? visible[x] : 0),
-                "SDR coloured/black/partial pixels exact; removed UI clears next frame");
-        }
-        frame.Consume(); Require(!frame.UI(desc), "SDR layer consumed once");
-    }
-    std::puts("CS SDR UI: direct framebuffer, exact colour, transparent coverage, odd extent and disappearing UI passed.");
+    Check(frame.CaptureGuides(f.context.Get(), 1, guides.Get(), guides.Get(), {w,h}, {w,h}), "SDR guides");
+    Check(frame.CaptureScene(f.context.Get(), scene.Get()), "SDR clean scene");
+    frame.SetUIBoundary(scene.Get());
+    D3D11_TEXTURE2D_DESC desc{}; scene->GetDesc(&desc);
+    Require(frame.Hudless(desc) && !frame.UI(desc),
+        "direct SDR UI has no proven alpha; keep ordinary FG without a guessed UI mask");
+    std::puts("CS SDR: direct UI leaves recomposition unavailable while HUDless FG remains ready.");
 }
 
 int main(int argc, char** argv)

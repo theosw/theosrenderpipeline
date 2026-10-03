@@ -29,7 +29,7 @@ namespace
         std::string otherOperation;
         std::vector<std::string> calls;
         unsigned optionsCalls{}, waits{};
-        bool waitOK{true}, lastReset{}, lastDepthInverted{};
+        bool waitOK{true}, lastReset{}, lastDepthInverted{}, uiTag{}, alphaTag{};
         sl::Result Call(const char* name)
         {
             calls.emplace_back(name);
@@ -76,8 +76,16 @@ namespace
         runtime->lastDepthInverted = constants.depthInverted == sl::eTrue;
         return runtime->Call("constants");
     }
-    sl::Result Tags(const sl::ViewportHandle&, const sl::ResourceTag*, std::uint32_t, sl::CommandBuffer*)
-    { return runtime->Call("tags"); }
+    sl::Result Tags(const sl::ViewportHandle&, const sl::ResourceTag* tags, std::uint32_t count, sl::CommandBuffer*)
+    {
+        bool sawUI=false, sawAlpha=false;
+        for (unsigned i=0; i<count; ++i) {
+            if (tags[i].type == sl::kBufferTypeUIColorAndAlpha) { sawUI=true; runtime->uiTag=tags[i].resource != nullptr; }
+            if (tags[i].type == sl::kBufferTypeUIAlpha) { sawAlpha=true; runtime->alphaTag=tags[i].resource != nullptr; }
+        }
+        Require(sawUI && sawAlpha, "both optional UI identities explicitly supplied or cleared");
+        return runtime->Call("tags");
+    }
     sl::Result Reflex(const sl::ReflexOptions&) { return runtime->Call("reflex"); }
     sl::Result Sleep(const sl::FrameToken&) { return runtime->Call("sleep"); }
     sl::Result Marker(sl::PCLMarker marker, const sl::FrameToken&)
@@ -95,7 +103,7 @@ namespace
         api.setReflexOptions = Reflex; api.reflexSleep = Sleep; api.marker = Marker; api.context = &value;
         return api;
     }
-    bool TryPrepare(Session& session, bool depthInverted = false, bool layers = false)
+    bool TryPrepare(Session& session, bool depthInverted = false, bool layers = false, bool alphaOnly = false)
     {
         sl::Constants c{};
         for (auto* m : {&c.cameraViewToClip, &c.clipToCameraView, &c.clipToPrevClip, &c.prevClipToClip}) {
@@ -117,6 +125,7 @@ namespace
             texture->resource.width = 2560; texture->resource.height = 1440;
             texture->extent = {0, 0, 2560, 1440};
         }
+        if (layers && alphaOnly) { guides.uiAlpha = guides.ui; guides.ui = {}; }
         return session.Prepare(c, guides, reinterpret_cast<sl::CommandBuffer*>(0x2000)) && session.CompleteInputWrites();
     }
     void Prepare(Session& session, bool layers = false)
@@ -201,6 +210,20 @@ int main()
         Frame(s, 2, true, true);
         Require(r.optionsCalls == calls + 1 && r.submitted.enableUserInterfaceRecomposition == sl::eFalse,
             "live disable is submitted on the next generated frame");
+    }
+    // Switching colour+alpha, alpha-only and no UI must not retain a stale tag.
+    {
+        Runtime r; Session s; Require(s.Start(API(r),7), "alpha-only session starts");
+        s.RequestUIRecomposition(true);
+        Require(TryPrepare(s,false,true,true) && r.alphaTag && !r.uiTag, "alpha-only tag replaces colour UI");
+        Require(s.BeforePresent(true) && r.submitted.enableUserInterfaceRecomposition == sl::eTrue,
+            "HUDless plus fractional alpha enables recomposition");
+        Require(s.AfterPresent(true), "alpha frame completes and retires inputs");
+        Require(TryPrepare(s,false,true) && r.uiTag && !r.alphaTag, "native colour UI replaces old alpha tag");
+        Require(s.BeforePresent(true) && s.AfterPresent(true), "colour UI frame completes");
+        Require(TryPrepare(s,false,false) && !r.uiTag && !r.alphaTag, "missing UI explicitly clears both tags");
+        Require(s.BeforePresent(true) && s.AfterPresent(true), "missing UI frame completes");
+        Require(r.submitted.enableUserInterfaceRecomposition == sl::eFalse, "missing UI never reuses alpha-only layer");
     }
     // Startup, no-world pass-through, and resize also use the same options boundary.
     {

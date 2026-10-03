@@ -41,7 +41,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 			IDXGISwapChain** a_result);
 		bool Prepare(const sl::Constants& a_constants, ID3D11Texture2D* a_motion,
 			ID3D11Texture2D* a_depth, ID3D11Texture2D* a_ui, ID3D11Texture2D* a_hudless,
-			FrameExtent a_renderExtent, UINT a_displayWidth, UINT a_displayHeight, bool a_neuralEligible = true);
+            FrameExtent a_renderExtent, UINT a_displayWidth, UINT a_displayHeight, bool a_neuralEligible = true,
+            bool a_uiAlphaOnly = false);
 		void ConfigureNeuralRendering(NeuralOptions a_options);
 		// Freeze NR settings before DLSS, optionally replace its D3D11 input, and
 		// return a shared history reset. A null camera skips the early NR stage.
