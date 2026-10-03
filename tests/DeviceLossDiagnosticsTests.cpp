@@ -1,4 +1,5 @@
 #include "FrameGen/SourceDLSSGDeviceLoss.h"
+#include "FrameGen/SourceDLSSGDiagnosticMarker.h"
 #include <dxgi1_4.h>
 #include <spdlog/sinks/ostream_sink.h>
 #include <spdlog/spdlog.h>
@@ -50,6 +51,7 @@ static void Contracts(std::ostringstream& log)
     const auto beforeConfigure = log.str().size();
     diagnostic.Configure(false);
     Require(log.str().size() == beforeConfigure, "DRED off leaves settings and log untouched");
+    Require(!diagnostic.RecordingEnabled(), "DRED off also disables NR recording diagnostics");
     Require(!diagnostic.Report(S_OK, "successful operation", 0, nullptr, nullptr, {}), "success is not a failure");
     SetLastError(4321);
     Require(!diagnostic.Report(E_FAIL, "Streamline immediate presentation requires tearing support", 0, nullptr, nullptr, {}),
@@ -110,6 +112,27 @@ static void Contracts(std::ostringstream& log)
     node.pCommandHistory = ring.data();
     DeviceLossDiagnostics::LogBreadcrumbs({&node});
     Require(Contains(log, "op index=65539") && Contains(log, "count=65540"), "64K ring wrap serialized safely");
+    // Reproduce a long list whose important NR context was previously lost
+    // because only the first sixteen strings were serialized.
+    std::vector<D3D12_DRED_BREADCRUMB_CONTEXT> contexts(40);
+    for (UINT i = 0; i < contexts.size(); ++i) { contexts[i] = { i * 2, L"earlier phase" }; }
+    contexts[30].pContextString = L"TRP NR pass 1 NGX evaluation";
+    node.pBreadcrumbContexts = contexts.data();
+    node.BreadcrumbContextsCount = static_cast<UINT>(contexts.size());
+    node.BreadcrumbCount = 80;
+    completed = 68;
+    ring[68] = D3D12_AUTO_BREADCRUMB_OP_RESOLVEQUERYDATA;
+    ring[69] = D3D12_AUTO_BREADCRUMB_OP_BEGINCOMMANDLIST;
+    ring[70] = D3D12_AUTO_BREADCRUMB_OP_SETMARKER;
+    const auto beforeContexts = log.str().size();
+    DeviceLossDiagnostics::LogBreadcrumbs({&node});
+    const auto contextLog = log.str().substr(beforeContexts);
+    Require(contextLog.find("context index=60 text=TRP NR pass 1 NGX evaluation") != std::string::npos,
+        "context at the operation window survives more than sixteen earlier markers");
+    Require(contextLog.find("context index=0 ") == std::string::npos, "older contexts skipped without unbounded output");
+    Require(contextLog.find("name=ResolveQueryData") != std::string::npos &&
+        contextLog.find("name=BeginCommandList") != std::string::npos && contextLog.find("name=SetMarker") != std::string::npos,
+        "query, list and marker operations have distinct names");
     D3D12_DRED_ALLOCATION_NODE1 allocation{};
     allocation.ObjectNameA = "retained resource";
     allocation.pNext = &allocation;
@@ -238,9 +261,16 @@ static void SoftwareDeviceLoss(std::ostringstream& log, bool dredEnabled)
     for (unsigned i = 0; i < 3; ++i) {
         ID3D12GraphicsCommandList* list = nullptr;
         Check(interop.SignalD3D11(Work::Upscaling), "produce inputs");
+        const auto producer = interop.LastValue(Work::Upscaling);
+        const auto slot = interop.CurrentSlot(Work::Upscaling);
         Check(interop.Begin(Work::Upscaling, &list), "begin healthy NR transport");
+        DiagnosticMarker(list, diagnostic.RecordingEnabled(), L"TRP NR fixture copy");
         list->CopyBufferRegion(destination.Get(), 0, upload.Get(), 0, 256);
         Check(interop.Submit(Work::Upscaling), "submit healthy work");
+        const auto snapshot = interop.QueueSlots(Work::Upscaling)[slot];
+        Require(snapshot.list == list && snapshot.fence && snapshot.producer == producer &&
+            snapshot.submitted == interop.LastValue(Work::Upscaling) && snapshot.submitted > snapshot.producer,
+            "retained queue record links this list to producer and completion values");
         Check(interop.Drain(), "retire healthy work");
     }
     Require(interop.Ready() && !interop.LastFailure().valid, "healthy transport unchanged");
@@ -257,6 +287,7 @@ static void SoftwareDeviceLoss(std::ostringstream& log, bool dredEnabled)
     ID3D12GraphicsCommandList* pendingList = nullptr;
     Check(interop.Begin(Work::Upscaling, &pendingList), "record pending copy");
     pendingList->CopyBufferRegion(destination.Get(), 0, upload.Get(), 0, 256);
+    DiagnosticMarker(pendingList, diagnostic.RecordingEnabled(), L"TRP NR fixture pending copy recorded");
     Check(interop.Submit(Work::Upscaling), "submit pending copy");
 
     ComPtr<ID3D12Device5> removable;

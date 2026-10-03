@@ -52,6 +52,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 		const char* Breadcrumb(D3D12_AUTO_BREADCRUMB_OP a_operation)
 		{
 			switch (a_operation) {
+			case D3D12_AUTO_BREADCRUMB_OP_SETMARKER: return "SetMarker";
+			case D3D12_AUTO_BREADCRUMB_OP_BEGINCOMMANDLIST: return "BeginCommandList";
+			case D3D12_AUTO_BREADCRUMB_OP_RESOLVEQUERYDATA: return "ResolveQueryData";
 			case D3D12_AUTO_BREADCRUMB_OP_DRAWINSTANCED: return "DrawInstanced";
 			case D3D12_AUTO_BREADCRUMB_OP_DRAWINDEXEDINSTANCED: return "DrawIndexedInstanced";
 			case D3D12_AUTO_BREADCRUMB_OP_DISPATCH: return "Dispatch";
@@ -164,13 +167,29 @@ namespace TheosRenderPipeline::SourceDLSSG
 				}
 			}
 			if (node->pBreadcrumbContexts) {
-				const auto limit = (std::min)(node->BreadcrumbContextsCount, kMaxOperations);
-				for (UINT i = 0; i < limit; ++i) {
+				// Contexts are sorted by breadcrumb index. Keep the marker just
+				// before the operation window, rather than always the first 16
+				// markers (which can hide NR on a longer command list).
+				UINT startContext = 0;
+				if (hasCompleted && completed <= count) {
+					const UINT firstRetained = count > kHistorySize ? count - kHistorySize : 0;
+					const UINT startOp = (std::max)(firstRetained, completed > 8 ? completed - 8 : 0);
+					const auto* first = node->pBreadcrumbContexts;
+					const auto* after = std::upper_bound(first, first + node->BreadcrumbContextsCount, startOp,
+						[](UINT index, const D3D12_DRED_BREADCRUMB_CONTEXT& context) { return index < context.BreadcrumbIndex; });
+					startContext = static_cast<UINT>(after - first);
+					if (startContext) { --startContext; }
+				}
+				const auto endContext = startContext + (std::min)(node->BreadcrumbContextsCount - startContext, kMaxOperations);
+				for (UINT i = startContext; i < endContext; ++i) {
 					const auto& context = node->pBreadcrumbContexts[i];
 					spdlog::info("[GPUFailure] DRED context index={} text={}", context.BreadcrumbIndex,
 						Name(nullptr, context.pContextString));
 				}
-				if (limit < node->BreadcrumbContextsCount) { spdlog::info("[GPUFailure] DRED contexts truncated=true"); }
+				if (startContext || endContext < node->BreadcrumbContextsCount) {
+					spdlog::info("[GPUFailure] DRED contexts truncated=true first={} logged={} total={}",
+						startContext, endContext - startContext, node->BreadcrumbContextsCount);
+				}
 			}
 		}
 		spdlog::info("[GPUFailure] DRED breadcrumbLists={} truncated={}", nodes, node != nullptr);

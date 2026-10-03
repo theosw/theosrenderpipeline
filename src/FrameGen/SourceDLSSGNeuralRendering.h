@@ -21,7 +21,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 			float motionScaleX, float motionScaleY,
 			ID3D12Resource* motion, ID3D12Resource* depth, ID3D12Resource* ui,
 			ID3D12Resource* hudless, ID3D12Resource* composed,
-			std::uint64_t timestampFrequency = 0);
+			std::uint64_t timestampFrequency = 0, bool diagnostics = false, std::uint64_t producerValue = 0);
+		// Address/descriptor snapshots only; never query removed resources or wait.
+		void LogDiagnostics() const noexcept;
 		ID3D12Resource* Composed() const { return composed_.Get(); }
 		ID3D12Resource* Corrected() const { return corrected_.Get(); }
 		NeuralTelemetrySnapshot Telemetry() const { return telemetry_.Snapshot(); }
@@ -53,6 +55,25 @@ namespace TheosRenderPipeline::SourceDLSSG
 			const NeuralRendering::FeatureSession::EvaluationInput& second, const ResolveConstants& originalConstants);
 		void InitializeTelemetry(ID3D12Device* device, std::uint64_t timestampFrequency);
 		void HarvestTelemetry(std::size_t slot);
+		void CaptureEvaluation(const NeuralRendering::FeatureSession::EvaluationInput& input,
+			std::size_t slot, unsigned pass, std::uint64_t evaluation);
+		struct ResourceObservation
+		{
+			const void* object{};
+			D3D12_RESOURCE_DESC desc{};
+			D3D12_RESOURCE_STATES expectedState{};
+		};
+		struct EvaluationObservation
+		{
+			const void* list{};
+			std::uint64_t evaluation{};
+			std::uint64_t producerValue{};
+			std::array<ResourceObservation, 6> resources{};
+			bool recorded{};
+		};
+		std::array<std::array<EvaluationObservation, 2>, kCommandSlots> diagnosticSlots_{};
+		bool diagnostics_{};
+		std::uint64_t diagnosticProducer_{};
 		struct PendingTiming
 		{
 			std::uint64_t evaluation{};

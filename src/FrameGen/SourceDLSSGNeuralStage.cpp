@@ -1,5 +1,6 @@
 #include <PCH.h>
 #include "SourceDLSSGBackend.h"
+#include "SourceDLSSGDiagnosticMarker.h"
 #include "NeuralRenderingRuntimeIdentity.h"
 #include "PerformanceTuning.h"
 #include <chrono>
@@ -125,7 +126,8 @@ namespace TheosRenderPipeline::SourceDLSSG
             frameNeuralReset_, camera->depthInverted == sl::eTrue,
             camera->mvecScale.x * motion_.desc.Width, camera->mvecScale.y * motion_.desc.Height,
             motion_.texture12.Get(), depth_.texture12.Get(), nullptr, earlyNeuralColor_.texture12.Get(), nullptr,
-            neuralTimestampFrequency_)) { return FailNeuralRecording(); }
+            neuralTimestampFrequency_, deviceLoss_.RecordingEnabled(), interop_.LastValue(Work::Upscaling))) { return FailNeuralRecording(); }
+        DiagnosticMarker(list, deviceLoss_.RecordingEnabled(), L"TRP NR copy early result to shared color");
         if (!Check(Interop::RecordCopy(list, neuralPass_->Corrected(), earlyNeuralColor_.texture12.Get()), "early NR result copy") ||
             !Check(interop_.Submit(Work::Upscaling), "submit NR before DLSS") ||
             !Check(interop_.WaitD3D11(Work::Upscaling), "DLSS waits for NR")) { return false; }
