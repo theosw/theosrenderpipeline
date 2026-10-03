@@ -86,7 +86,9 @@ already clipped cannot be recovered, and 8-bit output can band in bright gradien
 Frame generation receives matching HDR10 HUD-less and UI images. NR and ReShade
 still run on the SDR image.
 
-Enable Windows HDR, turn on **HDR output**, save as default and restart. By
+Enable Windows HDR, turn on **HDR output** and apply; save as default to keep it.
+The first switch on in a session reallocates the swapchain and briefly pauses
+frame generation. Turning it off keeps the 10-bit swapchain until restart. By
 default, paper white and UI brightness follow Windows' SDR content brightness
 (**Match Windows SDR brightness**). Paper white, peak, UI brightness, highlight
 strength, expansion start and SDR decoding apply live. When Windows HDR is off for the game's display, output stays SDR.

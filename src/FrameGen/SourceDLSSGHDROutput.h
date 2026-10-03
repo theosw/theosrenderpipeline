@@ -47,9 +47,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 	// Published for the overlay and logs.
 	struct HDROutputState
 	{
-		bool requested{};      // Enabled in settings when the swapchain was created.
+		bool requested{};      // Enabled setting last applied by the render thread.
 		bool native{};         // Native swapchain allocated as HDR10-capable RGB10A2.
-		bool display{};        // Windows reports HDR on the game's monitor; PQ is signalled.
+		bool display{};        // Windows reports HDR on the game's monitor.
 		bool displayKnown{};
 		float displayMaxNits{};
 		std::uint64_t composedFrames{}, encodedFrames{};
