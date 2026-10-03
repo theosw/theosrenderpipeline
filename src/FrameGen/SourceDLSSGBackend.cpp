@@ -500,7 +500,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		const bool active = options.enabled && eligible && (!options.WorldOnly() || neuralEvaluatedEarly_);
 		const bool lateActive = active && !options.WorldOnly();
 		const bool reset = prepared ? frameNeuralReset_ : neuralHistory_.ResetFor(options, false, false);
-		if (lateActive && !RecreateNeuralIfNeeded(options)) { return fault_; }
+		if (lateActive && !RecreateNeuralIfNeeded(options, hudless_.texture12.Get())) { return fault_; }
 #endif
 		ID3D12GraphicsCommandList* list = nullptr;
 		if (!Check(interop_.SignalD3D11(Work::SwapChain), "native D3D11 output ready") ||
@@ -508,7 +508,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		auto* realSource = a_source;
 #if !defined(TRP_NO_NEURAL_RENDERING)
 		if (lateActive) {
-			if (!neuralPass_) { neuralPass_ = std::make_unique<NeuralPass>(); }
+			if (!neuralPass_) { neuralPass_ = std::make_unique<NeuralExecution>(); }
 			if (!neuralPass_->Record(device12_.Get(), list, interop_.CurrentSlot(Work::SwapChain), options,
 				reset, frameConstants_.depthInverted == sl::eTrue,
 				frameConstants_.mvecScale.x * motion_.desc.Width, frameConstants_.mvecScale.y * motion_.desc.Height,
@@ -548,6 +548,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 		const bool generationAllowed = enabled_ && !transitionBlocked && transitionWarmup == 0;
 		if (!Check(outputResult, "record native output copy/conversion") ||
 			!Check(interop_.Submit(Work::SwapChain), "submit native output copy")) { return fault_; }
+#if !defined(TRP_NO_NEURAL_RENDERING)
+        if (lateActive && !Check(neuralPass_->Submitted(interop_.SubmissionFence(Work::SwapChain), interop_.LastValue(Work::SwapChain)), "publish async NR capture")) { return fault_; }
+#endif
 		if (screenshotRecorded_) {
 			screenshotRecorded_ = false;
 			ScreenshotBoundary([&] {
@@ -710,6 +713,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		ReleaseGuides();
 #if !defined(TRP_NO_NEURAL_RENDERING)
 		if (neuralPass_) {
+            if (!Check(neuralPass_->RetireAsync() ? S_OK : E_FAIL, "retire async NR worker before resize")) { return false; }
 			neuralPass_->RetireTelemetry();
 			std::scoped_lock lock(neuralMutex_);
 			neuralSnapshot_.telemetry = neuralPass_->Telemetry();

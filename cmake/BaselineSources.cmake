@@ -196,6 +196,8 @@ set(ARP_NEURAL_SOURCES
     src/FrameGen/NeuralRenderingRuntimeIdentity.cpp
     src/FrameGen/SourceDLSSGNeuralRendering.cpp
     src/FrameGen/SourceDLSSGNeuralStage.cpp
+    src/FrameGen/SourceDLSSGNeuralExecution.cpp
+    src/FrameGen/NeuralAsyncPipeline.cpp
     src/FrameGen/SourceDLSSGNeuralResolve.cpp
     src/OverlayNeuralPanel.cpp
 )

@@ -14,6 +14,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 	{
 		bool enabled{ false }; // Standard DLSS unless source NR was explicitly saved.
 		bool beforeUpscaling{ false };
+        bool async{ false };
 		// Input contract supplied by the renderer adapter, never a saved setting.
 		// CS can run either placement before UI composition.
 		bool worldOnly{ false };
