@@ -54,8 +54,7 @@ bool NeuralPass::RecordSecond(ID3D12Device* device, ID3D12GraphicsCommandList* l
 		FAILED(Interop::RecordCopy(list, second.color, second.output))) {
 		status_ = "NR second-pass background copy rejected"; return false;
 	}
-	Transition(list, second.color, common, read);
-	Transition(list, second.output, common, write);
+	Barriers{list}.Add(second.color, common, read).Add(second.output, common, write).Flush();
 	second.backbuffer = NeuralRendering::UsesReconstructionContract(secondFeature_.Build()) ? second.output : first.backbuffer;
 	if (!secondFeature_.RecordEvaluation(second)) { status_ = "NR second pass: " + secondFeature_.Status(); return false; }
 	secondHistoryInvalid_ = false;
@@ -65,7 +64,8 @@ bool NeuralPass::RecordSecond(ID3D12Device* device, ID3D12GraphicsCommandList* l
 // Keep final restoration/copy outside the existing inference timing boundary.
 bool NeuralPass::FinishSecond(ID3D12Device* device, ID3D12GraphicsCommandList* list, std::size_t slot,
 	const NeuralRendering::FeatureSession::EvaluationInput& first,
-	const NeuralRendering::FeatureSession::EvaluationInput& second, const ResolveConstants& originalConstants)
+	const NeuralRendering::FeatureSession::EvaluationInput& second, const ResolveConstants& originalConstants,
+	ID3D12Resource** directResult)
 {
 	constexpr auto read = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
 	constexpr auto common = D3D12_RESOURCE_STATE_COMMON;
@@ -77,11 +77,12 @@ bool NeuralPass::FinishSecond(ID3D12Device* device, ID3D12GraphicsCommandList* l
 		if (FAILED(hr)) { status_ = std::format("NR pass 2 preparation failed 0x{:08X}", static_cast<UINT>(hr)); }
 		return SUCCEEDED(hr);
 	};
-	Transition(list, second.color, read, common);
-	Transition(list, second.output, write, common);
+	Barriers barriers{list};
+	barriers.Add(second.color, read, common).Add(second.output, write, common);
 	if (secondMotion_) {
-		for (auto* r : { second.depth, second.motionVectors, second.ui }) { Transition(list, r, read, common); }
+		for (auto* r : { second.depth, second.motionVectors, second.ui }) { barriers.Add(r, read, common); }
 	}
+	barriers.Flush();
 	auto* result = second.output;
 	if (secondInput_) {
 		// Transfer only pass 2's RGB change back to pass 1's grid. This preserves
@@ -94,8 +95,13 @@ bool NeuralPass::FinishSecond(ID3D12Device* device, ID3D12GraphicsCommandList* l
 		if (!dispatch(10, ResolveKernel::RestoreSecond, second.color, second.output, first.output, secondRestored_.Get())) { return false; }
 		result = secondRestored_.Get();
 	}
-	// Keep the established final resolve/composition endpoint stable. Copy
-	// elimination can be evaluated independently of these new controls.
+	if (directResult) {
+		// The resolve reads the final result in place. Each feature keeps its own
+		// history, and corrected_ remains the stable composition endpoint.
+		*directResult = result;
+		return true;
+	}
+	// Auto has no resolve, so corrected_ itself must receive the result.
 	if (FAILED(Interop::RecordCopy(list, result, first.output))) { status_ = "NR second-pass result copy rejected"; return false; }
 	Transition(list, first.output, common, write);
 	return true;

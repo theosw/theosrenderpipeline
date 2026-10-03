@@ -90,9 +90,17 @@ bool NvidiaHost::EvaluateFrame(IDXGISwapChain* a_swapChain, bool a_nativeUIHando
     evaluationFailureLogged_ = false;
     if (StartupConfigured())
     {
-        status_ = std::format("TheosRenderPipeline source DLSS + Streamline DLSS-G; camera/input "
-                              "valid={} warm-up={}",
-                              !splitSourceRuntimeFailureLogged_, warmupPresentsRemaining_);
+        // Format only when a field changes; other paths may have replaced status_.
+        const bool valid = !splitSourceRuntimeFailureLogged_;
+        if (sourceStatus_.empty() || sourceStatusValid_ != valid || sourceStatusWarmup_ != warmupPresentsRemaining_)
+        {
+            sourceStatusValid_ = valid;
+            sourceStatusWarmup_ = warmupPresentsRemaining_;
+            sourceStatus_ = std::format("TheosRenderPipeline source DLSS + Streamline DLSS-G; camera/input "
+                                        "valid={} warm-up={}",
+                                        valid, warmupPresentsRemaining_);
+        }
+        if (status_ != sourceStatus_) { status_ = sourceStatus_; }
     }
     if (evaluationCount_ <= 3 || evaluationCount_ % 600 == 0)
     {

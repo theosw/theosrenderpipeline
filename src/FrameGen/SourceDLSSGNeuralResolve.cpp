@@ -52,51 +52,65 @@ namespace TheosRenderPipeline::SourceDLSSG
 			!a || !output || a == output || b == output || original == output ||
 			(secondOutput && (secondOutput == a || secondOutput == b || secondOutput == original || secondOutput == output)) ||
 			(kernel == ResolveKernel::PackGuides && (!b || !secondOutput))) { return E_INVALIDARG; }
-		for (auto* texture : { a, b, original, output, secondOutput }) {
-			if (!texture) { continue; }
-			const auto d = texture->GetDesc();
-			if (d.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D || d.DepthOrArraySize != 1 || d.MipLevels != 1 ||
-				d.SampleDesc.Count != 1 || !d.Width || !d.Height || d.Width > UINT_MAX) { return E_INVALIDARG; }
-		}
-		auto transition = [&](ID3D12Resource* resource, D3D12_RESOURCE_STATES before, D3D12_RESOURCE_STATES after) {
-			D3D12_RESOURCE_BARRIER barrier{}; barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-			barrier.Transition = { resource, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES, before, after };
-			list->ResourceBarrier(1, &barrier);
-		};
-		std::array<ID3D12Resource*, 3> inputs{ a, b, original };
-		for (unsigned i = 0; i < inputs.size(); ++i) {
-			if (inputs[i] && std::find(inputs.begin(), inputs.begin() + i, inputs[i]) == inputs.begin() + i) {
-				transition(inputs[i], D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-			}
-		}
+		const std::array<ID3D12Resource*, 5> bound{ a, b, original, output, secondOutput };
+		auto& table = tables_[slot][stage];
+		bool unchanged = table.valid;
+		for (std::size_t i = 0; unchanged && i < bound.size(); ++i) { unchanged = table.resources[i].Get() == bound[i]; }
 		auto* heap = heaps_[slot][stage].Get();
-		auto cpu = heap->GetCPUDescriptorHandleForHeapStart();
-		const auto stride = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-		for (auto* texture : inputs) {
-			D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
-			srv.Format = texture ? texture->GetDesc().Format : DXGI_FORMAT_R32G32B32A32_FLOAT;
-			srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D; srv.Texture2D.MipLevels = 1;
-			srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-			device->CreateShaderResourceView(texture, &srv, cpu); cpu.ptr += stride;
+		if (!unchanged) {
+			// Resource descriptions are immutable, so a retained identity needs no revalidation.
+			std::array<D3D12_RESOURCE_DESC, 5> descs{};
+			for (std::size_t i = 0; i < bound.size(); ++i) {
+				if (!bound[i]) { continue; }
+				const auto& d = descs[i] = bound[i]->GetDesc();
+				if (d.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D || d.DepthOrArraySize != 1 || d.MipLevels != 1 ||
+					d.SampleDesc.Count != 1 || !d.Width || !d.Height || d.Width > UINT_MAX) { return E_INVALIDARG; }
+			}
+			// Interop::Begin retired this slot, so its descriptors are no longer referenced.
+			auto cpu = heap->GetCPUDescriptorHandleForHeapStart();
+			const auto stride = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+			for (std::size_t i = 0; i < 3; ++i) {
+				D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
+				srv.Format = bound[i] ? descs[i].Format : DXGI_FORMAT_R32G32B32A32_FLOAT;
+				srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D; srv.Texture2D.MipLevels = 1;
+				srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+				device->CreateShaderResourceView(bound[i], &srv, cpu); cpu.ptr += stride;
+			}
+			for (std::size_t i = 3; i < bound.size(); ++i) {
+				D3D12_UNORDERED_ACCESS_VIEW_DESC uav{}; uav.Format = bound[i] ? descs[i].Format : DXGI_FORMAT_R32G32_FLOAT;
+				uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+				device->CreateUnorderedAccessView(bound[i], nullptr, &uav, cpu); cpu.ptr += stride;
+			}
+			for (std::size_t i = 0; i < bound.size(); ++i) { table.resources[i] = bound[i]; }
+			table.width = static_cast<UINT>(descs[3].Width); table.height = descs[3].Height;
+			table.valid = true;
+			++descriptorWrites_;
 		}
-		for (auto* texture : { output, secondOutput }) {
-			D3D12_UNORDERED_ACCESS_VIEW_DESC uav{}; uav.Format = texture ? texture->GetDesc().Format : DXGI_FORMAT_R32G32_FLOAT;
-			uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
-			device->CreateUnorderedAccessView(texture, nullptr, &uav, cpu); cpu.ptr += stride;
-			if (texture) { transition(texture, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_UNORDERED_ACCESS); }
-		}
+		// One barrier batch before and after the dispatch. Inputs may repeat.
+		std::array<D3D12_RESOURCE_BARRIER, 5> barriers{};
+		UINT count = 0;
+		auto record = [&](bool entering) {
+			count = 0;
+			const auto read = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, write = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+			auto add = [&](ID3D12Resource* resource, D3D12_RESOURCE_STATES state) {
+				auto& barrier = barriers[count++]; barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+				barrier.Transition = { resource, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
+					entering ? D3D12_RESOURCE_STATE_COMMON : state, entering ? state : D3D12_RESOURCE_STATE_COMMON };
+			};
+			for (std::size_t i = 0; i < 3; ++i) {
+				if (bound[i] && std::find(bound.begin(), bound.begin() + i, bound[i]) == bound.begin() + i) { add(bound[i], read); }
+			}
+			add(output, write);
+			if (secondOutput) { add(secondOutput, write); }
+			list->ResourceBarrier(count, barriers.data());
+		};
+		record(true);
 		list->SetDescriptorHeaps(1, &heap); list->SetComputeRootSignature(root_.Get());
 		list->SetPipelineState(pipelines_[unsigned(kernel)].Get());
 		list->SetComputeRoot32BitConstants(0, sizeof(constants) / 4, &constants, 0);
 		list->SetComputeRootDescriptorTable(1, heap->GetGPUDescriptorHandleForHeapStart());
-		list->Dispatch((static_cast<UINT>(output->GetDesc().Width) + 7) / 8, (output->GetDesc().Height + 7) / 8, 1);
-		transition(output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
-		if (secondOutput) { transition(secondOutput, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON); }
-		for (unsigned i = 0; i < inputs.size(); ++i) {
-			if (inputs[i] && std::find(inputs.begin(), inputs.begin() + i, inputs[i]) == inputs.begin() + i) {
-				transition(inputs[i], D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COMMON);
-			}
-		}
+		list->Dispatch((table.width + 7) / 8, (table.height + 7) / 8, 1);
+		record(false);
 		return S_OK;
 	}
 }
