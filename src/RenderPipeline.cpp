@@ -56,7 +56,7 @@ void RenderPipeline::LoadINI()
 		logger::error(
 			"[DynRes] ignored unsupported DynamicResolution request: TheosRenderPipeline's scaled-proxy path upscales at Present and requires a fixed full proxy input");
 	}
-	mToggleOverlayHotkey = (int)ini.GetLongValue("Hotkeys", "ToggleOverlay", 0x23);
+	mToggleOverlayHotkey = TheosRenderPipeline::Overlay::LoadMenuHotkey(ini);
 	mEnableNRHotkeys = TheosRenderPipeline::Overlay::LoadNRHotkeysEnabled(ini);
 	logger::info("[Overlay Input] NR shortcuts enabled={}", mEnableNRHotkeys);
 	mLogMenuMetrics = ini.GetBoolValue("Debug", "LogMenuMetrics", false);
@@ -136,6 +136,7 @@ bool RenderPipeline::SaveINI(const TheosRenderPipeline::Overlay::Layout* layout)
     appearance.Configure(presets.settings);
     const bool presetsSaved = presets.Ok();
 	ini.SetBoolValue("Debug", "LogMenuMetrics", mLogMenuMetrics);
+	TheosRenderPipeline::Overlay::StoreMenuHotkey(ini, mToggleOverlayHotkey);
     if (layout) { TheosRenderPipeline::Overlay::StoreLayout(ini, *layout); }
 	const auto rc = ini.SaveFile(L"Data\\SKSE\\Plugins\\TheosRenderPipeline.ini");
 	if (rc < 0) {

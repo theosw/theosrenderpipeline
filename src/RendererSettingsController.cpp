@@ -20,6 +20,7 @@ RendererSettingsDraft RendererSettingsController::Capture([[maybe_unused]] bool 
 {
     RendererSettingsDraft settingsDraft;
     settingsDraft.valid = true;
+    settingsDraft.menuHotkey = upscaler_.mToggleOverlayHotkey;
     settingsDraft.upscaleType = upscaler_.mUpscaleType;
     settingsDraft.qualityLevel = upscaler_.mQualityLevel;
     settingsDraft.dlssPreset = upscaler_.mDLSSPreset;
@@ -103,6 +104,12 @@ RendererSettingsResult RendererSettingsController::Apply(const RendererSettingsD
         return RejectSettingsAction(a_saveAsDefault, textures_.Status(),
             [](const std::string& message) { logger::error("{}", message); });
     }
+    if (upscaler_.mToggleOverlayHotkey != settingsDraft.menuHotkey)
+    {
+        logger::info("[Overlay Input] menu key vk=0x{:02X} -> 0x{:02X}", upscaler_.mToggleOverlayHotkey,
+                     settingsDraft.menuHotkey);
+    }
+    upscaler_.mToggleOverlayHotkey = settingsDraft.menuHotkey;
     upscaler_.mUpscaleType = settingsDraft.upscaleType;
     upscaler_.mQualityLevel = std::clamp(settingsDraft.qualityLevel, 0, 4);
     upscaler_.mDLSSPreset = settingsDraft.dlssPreset;

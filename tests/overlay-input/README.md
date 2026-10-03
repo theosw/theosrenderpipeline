@@ -15,6 +15,10 @@ includes either input route alone, matching in both orders across Present
 drains, two presses in one interval, empty/consumed game batches, Windows
 auto-repeat, non-removing peeks, downstream message consumption, focus loss,
 modifier/extended scan codes, existing mouse bindings and text-editing policy.
+It also covers the Advanced > Menu key picker: capture from either route, the
+other route's copy of the picked key, skipped modifiers, Escape/rejection/focus
+cancellation, live rebinding without reinstalling the hook, key names and the
+INI round trip. The picker itself has no game acceptance yet.
 
 The game listener registers through `BSInputDeviceManager` at InputLoaded,
 with an idempotent DataLoaded retry. It forwards only initial keyboard button

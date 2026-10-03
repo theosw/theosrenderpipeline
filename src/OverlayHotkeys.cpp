@@ -1,7 +1,42 @@
 #include "OverlayHotkeys.h"
 
+#include <cstdio>
+
 namespace TheosRenderPipeline::Overlay
 {
+    std::string HotkeyName(UINT key)
+    {
+        if (key >= VK_F1 && key <= VK_F24) { return "F" + std::to_string(key - VK_F1 + 1); }
+        if (key >= VK_NUMPAD0 && key <= VK_NUMPAD9) { return "Num " + std::to_string(key - VK_NUMPAD0); }
+        switch (key) {
+        case VK_LBUTTON: return "Mouse 1";
+        case VK_RBUTTON: return "Mouse 2";
+        case VK_MBUTTON: return "Mouse 3";
+        case VK_XBUTTON1: return "Mouse 4";
+        case VK_XBUTTON2: return "Mouse 5";
+        default: break;
+        }
+        const auto scan = MapVirtualKeyW(key, MAPVK_VK_TO_VSC_EX);
+        LONG flags = static_cast<LONG>((scan & 0xFF) << 16);
+        // VK-to-scan mapping does not retain E0 for navigation keys on every
+        // layout. Keep them distinct from the numeric keypad.
+        if ((scan & 0xFF00) != 0 || key == VK_INSERT || key == VK_DELETE || key == VK_HOME ||
+            key == VK_END || key == VK_PRIOR || key == VK_NEXT || key == VK_LEFT || key == VK_RIGHT ||
+            key == VK_UP || key == VK_DOWN || key == VK_DIVIDE || key == VK_NUMLOCK ||
+            key == VK_RCONTROL || key == VK_RMENU) {
+            flags |= 1 << 24;
+        }
+        wchar_t name[128]{};
+        char utf8[512]{};
+        if (scan && GetKeyNameTextW(flags, name, 128) > 0 &&
+            WideCharToMultiByte(CP_UTF8, 0, name, -1, utf8, 512, nullptr, nullptr) > 0) {
+            return utf8;
+        }
+        char hex[16]{};
+        std::snprintf(hex, sizeof(hex), "Key 0x%02X", key);
+        return hex;
+    }
+
     WindowHotkeys::~WindowHotkeys() { Uninstall(); }
 
     DWORD WindowHotkeys::Install(HWND window, UINT toggleKey, HOOKPROC callback, ForegroundQuery foreground)
@@ -35,6 +70,47 @@ namespace TheosRenderPipeline::Overlay
         std::scoped_lock lock(mutex_);
         window_ = nullptr;
         ClearPending();
+        capture_ = {};
+    }
+
+    void WindowHotkeys::SetToggleKey(UINT key)
+    {
+        std::scoped_lock lock(mutex_);
+        if (toggleKey_ == key) { return; }
+        toggleKey_ = key;
+        ClearPending();
+    }
+
+    void WindowHotkeys::BeginCapture()
+    {
+        std::scoped_lock lock(mutex_);
+        ClearPending();
+        capture_ = { CaptureStatus::Waiting };
+    }
+
+    void WindowHotkeys::CancelCapture()
+    {
+        std::scoped_lock lock(mutex_);
+        capture_ = {};
+    }
+
+    bool WindowHotkeys::IsCapturing()
+    {
+        std::scoped_lock lock(mutex_);
+        return capture_.status != CaptureStatus::Idle;
+    }
+
+    HotkeyCapture WindowHotkeys::TakeCapture()
+    {
+        std::scoped_lock lock(mutex_);
+        if (capture_.status != CaptureStatus::Idle && !HasFocus()) { capture_ = { CaptureStatus::Cancelled }; }
+        const auto result = capture_;
+        if (result.status == CaptureStatus::Accepted || result.status == CaptureStatus::Cancelled) {
+            capture_ = {};
+        } else if (result.status == CaptureStatus::Rejected) {
+            capture_ = { CaptureStatus::Waiting };
+        }
+        return result;
     }
 
     bool WindowHotkeys::HasFocus() const
@@ -48,6 +124,27 @@ namespace TheosRenderPipeline::Overlay
         pending_.clear();
         windowPresses_.fill(0);
         gamePresses_.fill(0);
+    }
+
+    void WindowHotkeys::LoseFocus()
+    {
+        ClearPending();
+        if (capture_.status != CaptureStatus::Idle) { capture_ = { CaptureStatus::Cancelled }; }
+    }
+
+    void WindowHotkeys::CaptureKey(UINT key, std::array<unsigned, 256>& route, std::array<unsigned, 256>& other)
+    {
+        if (!key || key >= route.size() || IsModifierKey(key)) { return; }
+        // The other route's copy of the same press is matched like a hotkey, so
+        // it can neither select again nor toggle once capture has finished.
+        if (other[key]) {
+            --other[key];
+            return;
+        }
+        ++route[key];
+        if (capture_.status != CaptureStatus::Waiting) { return; }
+        capture_ = { key == VK_ESCAPE ? CaptureStatus::Cancelled :
+            IsBindableKeyboardKey(key) ? CaptureStatus::Accepted : CaptureStatus::Rejected, key };
     }
 
     UINT WindowHotkeys::NormalizeKey(UINT key) const
@@ -92,9 +189,13 @@ namespace TheosRenderPipeline::Overlay
     void WindowHotkeys::ObserveGameKeys(const std::vector<UINT>& pressedKeys)
     {
         std::scoped_lock lock(mutex_);
-        if (!HasFocus()) { ClearPending(); return; }
+        if (!HasFocus()) { LoseFocus(); return; }
         gamePresses_.fill(0);
         for (auto key : pressedKeys) {
+            if (capture_.status != CaptureStatus::Idle) {
+                CaptureKey(key, gamePresses_, windowPresses_);
+                continue;
+            }
             key = NormalizeKey(key);
             if (!IsHotkey(key)) { continue; }
             if (windowPresses_[key]) { --windowPresses_[key]; }
@@ -111,7 +212,7 @@ namespace TheosRenderPipeline::Overlay
         std::scoped_lock lock(mutex_);
         if (!window_ || (message.hwnd != window_ && !IsChild(window_, message.hwnd))) { return; }
         if (!HasFocus()) {
-            ClearPending();
+            LoseFocus();
             return;
         }
 
@@ -140,6 +241,13 @@ namespace TheosRenderPipeline::Overlay
         default: return;
         }
 
+        if (capture_.status != CaptureStatus::Idle) {
+            // Mouse clicks still reach the menu, such as its Cancel button.
+            if (message.message == WM_KEYDOWN || message.message == WM_SYSKEYDOWN) {
+                CaptureKey(key, windowPresses_, gamePresses_);
+            }
+            return;
+        }
         key = NormalizeKey(key);
         if (!IsHotkey(key)) { return; }
         if (gamePresses_[key]) { --gamePresses_[key]; }

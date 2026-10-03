@@ -18,8 +18,9 @@ Neural Rendering (NR), and native-resolution menus and HUD. Current version:
 - Native UI composition, inventory/spell previews, loading artwork and external
   ImGui integration, with live GPU measurements beside the settings.
 
-**End** opens settings. **Apply** changes the session; **Save as default** persists
-settings and window layout; **Discard** drops unapplied edits. NR keyboard
+**End** opens settings; change the key under **Advanced > Menu key**. **Apply**
+changes the session; **Save as default** persists settings and window layout;
+**Discard** drops unapplied edits. NR keyboard
 shortcuts are opt-in. HDR is experimental, through Community Shaders or TRP's own
 HDR output; see [HDR](#hdr-experimental).
 
