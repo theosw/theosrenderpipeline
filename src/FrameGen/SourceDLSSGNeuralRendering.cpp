@@ -16,6 +16,32 @@ namespace TheosRenderPipeline::SourceDLSSG
 			b.Transition = { resource, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES, before, after };
 			list->ResourceBarrier(1, &b);
 		}
+		// Issues transitions recorded together as one ResourceBarrier call. Null
+		// resources are skipped; a resource must appear at most once per flush.
+		class Barriers
+		{
+		public:
+			explicit Barriers(ID3D12GraphicsCommandList* list) : list_(list) {}
+			Barriers& Add(ID3D12Resource* resource, D3D12_RESOURCE_STATES before, D3D12_RESOURCE_STATES after)
+			{
+				if (!resource) { return *this; }
+				if (count_ == barriers_.size()) { Flush(); }
+				auto& b = barriers_[count_++];
+				b = {};
+				b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+				b.Transition = { resource, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES, before, after };
+				return *this;
+			}
+			void Flush()
+			{
+				if (count_) { list_->ResourceBarrier(count_, barriers_.data()); }
+				count_ = 0;
+			}
+		private:
+			ID3D12GraphicsCommandList* list_;
+			std::array<D3D12_RESOURCE_BARRIER, 8> barriers_{};
+			UINT count_{};
+		};
 		bool Texture(ID3D12Resource* resource)
 		{
 			if (!resource) { return false; }
@@ -299,9 +325,19 @@ namespace TheosRenderPipeline::SourceDLSSG
 			status_ = "NR correction background copy rejected"; return false;
 		}
 		constexpr auto read = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
-		for (auto* input : { featureMotion, featureDepth, featureUI, hudless, composed }) { Transition(list, input, D3D12_RESOURCE_STATE_COMMON, read); }
-		if (featureColor != hudless) { Transition(list, featureColor, D3D12_RESOURCE_STATE_COMMON, read); }
-		Transition(list, featureOutput, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		constexpr auto common = D3D12_RESOURCE_STATE_COMMON;
+		constexpr auto write = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+		// Every resource NGX reads. featureColor is hudless unless preparation replaced it.
+		const std::array<ID3D12Resource*, 6> inputs{ featureMotion, featureDepth, featureUI, hudless, composed,
+			featureColor != hudless ? featureColor : nullptr };
+		auto transitionInputs = [&](Barriers& barriers, D3D12_RESOURCE_STATES before, D3D12_RESOURCE_STATES after) {
+			for (auto* resource : inputs) { barriers.Add(resource, before, after); }
+		};
+		{
+			Barriers barriers{list};
+			transitionInputs(barriers, common, read);
+			barriers.Add(featureOutput, common, write).Flush();
+		}
 		NeuralRendering::FeatureSession::EvaluationInput input;
 		input.commandList = list; input.color = featureColor; input.motionVectors = featureMotion; input.depth = featureDepth;
 		input.output = featureOutput; input.ui = featureUI;
@@ -339,49 +375,66 @@ namespace TheosRenderPipeline::SourceDLSSG
 			telemetry_.RecordCPUOnly(cpuRecordNanoseconds);
 		}
 
-		if (effectivePasses == 2 && !FinishSecond(device, list, slot, input, second, constants)) { return false; }
+		// With a resolve to follow, it reads the final pass-2 result in place.
+		auto* modelResult = featureOutput;
+		if (effectivePasses == 2 && !FinishSecond(device, list, slot, input, second, constants,
+			resolving ? &modelResult : nullptr)) { return false; }
 
 		if (resolving) {
-			Transition(list, featureOutput, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
-			if (featureColor != hudless) { Transition(list, featureColor, read, D3D12_RESOURCE_STATE_COMMON); }
-			for (auto* resource : { featureMotion, featureDepth, featureUI, hudless, composed }) { Transition(list, resource, read, D3D12_RESOURCE_STATE_COMMON); }
+			// The kernels take every input in COMMON and leave it there; nothing
+			// after the resolve reads the NGX inputs again.
+			Barriers barriers{list};
+			transitionInputs(barriers, read, common);
+			// A direct pass-2 result and featureOutput are already COMMON.
+			if (modelResult == featureOutput) { barriers.Add(featureOutput, write, common); }
+			barriers.Flush();
 			if (method == NeuralRendering::ResolveMethod::Residual) {
 				constants.targetWidth = constants.workWidth; constants.targetHeight = constants.workHeight;
-				if (!dispatch(2, ResolveKernel::Residual, featureColor, featureOutput, nullptr, residual_.Get())) { return false; }
+				if (!dispatch(2, ResolveKernel::Residual, featureColor, modelResult, nullptr, residual_.Get())) { return false; }
 				constants.mode = 1;
 				if (!dispatch(3, ResolveKernel::Residual, hudless, residual_.Get(), nullptr, corrected_.Get())) { return false; }
 			} else {
 				constants.mode = 1; constants.targetWidth = constants.sourceWidth; constants.targetHeight = constants.sourceHeight;
-				if (!dispatch(3, ResolveKernel::Ratio, featureColor, featureOutput, hudless, corrected_.Get())) { return false; }
+				if (!dispatch(3, ResolveKernel::Ratio, featureColor, modelResult, hudless, corrected_.Get())) { return false; }
 			}
-			for (auto* resource : { featureMotion, featureDepth, featureUI, hudless, composed }) { Transition(list, resource, D3D12_RESOURCE_STATE_COMMON, read); }
-			Transition(list, corrected_.Get(), D3D12_RESOURCE_STATE_COMMON, read);
-		} else {
-			Transition(list, corrected_.Get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS, read);
 		}
 
-		const auto overrideStatus = options.passOverride != NeuralRendering::PassOverride::None ?
-			std::format("; pass override={}; requested={}", NeuralRendering::PassOverrideName(options.passOverride), options.passes) : std::string{};
-		const auto secondStatus = effectivePasses == 2 ? std::format("; pass2={}x{} preset={} linked={} intensity={:.3f}",
-			secondOutput_->GetDesc().Width, secondOutput_->GetDesc().Height, secondSettings_.preset, options.secondPass.linked, secondSettings_.tuning.intensity) : std::string{};
+		StatusKey key;
+		key.workWidth = constants.workWidth; key.workHeight = constants.workHeight;
+		key.sourceWidth = constants.sourceWidth; key.sourceHeight = constants.sourceHeight;
+		key.passes = effectivePasses; key.worldOnly = options.WorldOnly(); key.beforeUpscaling = options.beforeUpscaling;
+		key.producerColor = reconstruction.producerColor; key.peripheral = reconstruction.peripheralCompression;
+		key.fusionRequested = reconstruction.fusedPreparation; key.fusedColor = fusedColor_; key.method = method;
+		if (effectivePasses == 2) {
+			key.secondWidth = static_cast<UINT>(secondOutput_->GetDesc().Width); key.secondHeight = secondOutput_->GetDesc().Height;
+			key.secondPreset = secondSettings_.preset; key.secondLinked = options.secondPass.linked;
+			key.secondIntensity = secondSettings_.tuning.intensity;
+		}
+		key.passOverride = options.passOverride; key.requestedPasses = options.passes;
 		if (options.WorldOnly()) {
-			Transition(list, corrected_.Get(), read, D3D12_RESOURCE_STATE_COMMON);
-			for (auto* texture : { featureMotion, featureDepth, hudless }) { Transition(list, texture, read, D3D12_RESOURCE_STATE_COMMON); }
-			status_ = std::format("NR {} upscaling {}x{} -> {}x{}; {} pass(es); {}; {}; world only; UI correction unused; fusion requested={} colour={} guides={}",
-				options.beforeUpscaling ? "before" : "after", constants.workWidth, constants.workHeight,
-				constants.sourceWidth, constants.sourceHeight, effectivePasses,
-				reconstruction.producerColor ? "producer RGB reconstruction" : "user reconstruction",
-				reconstruction.peripheralCompression ? "peripheral 80/90" : "uniform",
-				reconstruction.fusedPreparation, fusedColor_, reconstruction.fusedPreparation && reconstruction.peripheralCompression);
-			status_ += secondStatus + overrideStatus;
+			if (!resolving) {
+				// NGX wrote corrected_ directly; return it and its inputs to COMMON.
+				Barriers barriers{list};
+				barriers.Add(corrected_.Get(), write, common);
+				transitionInputs(barriers, read, common);
+				barriers.Flush();
+			}
+			PublishStatus(key);
 			return true;
 		}
 
 		// Interop::Begin retired this slot before any descriptors are
 		// overwritten. NGX may bind its own heaps/root/PSO; explicitly bind ours.
 		// In peripheral mode NGX consumed a private warped UI. Composition still
-		// samples the untouched native UI; it has remained COMMON until here.
-		if (featureUI != ui) { Transition(list, ui, D3D12_RESOURCE_STATE_COMMON, read); }
+		// samples the untouched native UI. After a resolve it is COMMON, as it is
+		// when NGX read the warped copy; otherwise it is still in the read state.
+		const bool uiCommon = resolving || featureUI != ui;
+		{
+			Barriers barriers{list};
+			barriers.Add(corrected_.Get(), resolving ? common : write, read);
+			if (uiCommon) { barriers.Add(ui, common, read); }
+			barriers.Add(composed_.Get(), common, write).Flush();
+		}
 		auto* heap = heaps_[slot].Get();
 		auto cpu = heap->GetCPUDescriptorHandleForHeapStart();
 		const auto stride = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
@@ -394,24 +447,51 @@ namespace TheosRenderPipeline::SourceDLSSG
 		D3D12_UNORDERED_ACCESS_VIEW_DESC uav{}; uav.Format = composed_->GetDesc().Format;
 		uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
 		device->CreateUnorderedAccessView(composed_.Get(), nullptr, &uav, cpu);
-		Transition(list, composed_.Get(), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		list->SetDescriptorHeaps(1, &heap); list->SetComputeRootSignature(root_.Get());
 		list->SetPipelineState(pipeline_.Get()); list->SetComputeRootDescriptorTable(0, heap->GetGPUDescriptorHandleForHeapStart());
 		list->Dispatch((static_cast<UINT>(composed_->GetDesc().Width) + 7) / 8, (composed_->GetDesc().Height + 7) / 8, 1);
-		Transition(list, composed_.Get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
-		Transition(list, corrected_.Get(), read, D3D12_RESOURCE_STATE_COMMON);
-		for (auto* texture : { featureMotion, featureDepth, featureUI, hudless, composed }) { Transition(list, texture, read, D3D12_RESOURCE_STATE_COMMON); }
-		if (featureUI != ui) { Transition(list, ui, read, D3D12_RESOURCE_STATE_COMMON); }
+		{
+			Barriers barriers{list};
+			barriers.Add(composed_.Get(), write, common).Add(corrected_.Get(), read, common);
+			if (uiCommon) { barriers.Add(ui, read, common); }
+			// Without a resolve, the NGX inputs (including a native UI it read) are still readable.
+			if (!resolving) { transitionInputs(barriers, read, common); }
+			barriers.Flush();
+		}
 		// Preserve the HUD-less tag identity already registered with Streamline.
 		// Both its generated frames and our real-frame composition use corrected_.
 		if (FAILED(Interop::RecordCopy(list, corrected_.Get(), hudless))) { status_ = "NR HUD-less copy rejected"; return false; }
-		status_ = std::format("source NR after DLSS {}x{} -> {}x{}; {} pass(es); {} resolve; {}; native UI after NR; NR feeds real output and HUD-less FG tag; fusion requested={} colour={} guides={}",
-			constants.workWidth, constants.workHeight, constants.sourceWidth, constants.sourceHeight,
-			effectivePasses,
-			method == NeuralRendering::ResolveMethod::Ratio ? "ratio" : method == NeuralRendering::ResolveMethod::Residual ? "residual" : "direct",
-			reconstruction.peripheralCompression ? "peripheral 80/90" : "uniform",
-			reconstruction.fusedPreparation, fusedColor_, reconstruction.fusedPreparation && reconstruction.peripheralCompression);
-		status_ += secondStatus + overrideStatus;
+		PublishStatus(key);
 		return true;
+	}
+
+	void NeuralPass::PublishStatus(const StatusKey& key)
+	{
+		// Status() is read every frame; reformat only when a reported field changes.
+		if (successStatus_.empty() || key != statusKey_) {
+			statusKey_ = key;
+			const auto reconstruction = key.peripheral ? "peripheral 80/90" : "uniform";
+			if (key.worldOnly) {
+				successStatus_ = std::format("NR {} upscaling {}x{} -> {}x{}; {} pass(es); {}; {}; world only; UI correction unused; fusion requested={} colour={} guides={}",
+					key.beforeUpscaling ? "before" : "after", key.workWidth, key.workHeight,
+					key.sourceWidth, key.sourceHeight, key.passes,
+					key.producerColor ? "producer RGB reconstruction" : "user reconstruction",
+					reconstruction, key.fusionRequested, key.fusedColor, key.fusionRequested && key.peripheral);
+			} else {
+				successStatus_ = std::format("source NR after DLSS {}x{} -> {}x{}; {} pass(es); {} resolve; {}; native UI after NR; NR feeds real output and HUD-less FG tag; fusion requested={} colour={} guides={}",
+					key.workWidth, key.workHeight, key.sourceWidth, key.sourceHeight, key.passes,
+					key.method == NeuralRendering::ResolveMethod::Ratio ? "ratio" : key.method == NeuralRendering::ResolveMethod::Residual ? "residual" : "direct",
+					reconstruction, key.fusionRequested, key.fusedColor, key.fusionRequested && key.peripheral);
+			}
+			if (key.passes == 2) {
+				successStatus_ += std::format("; pass2={}x{} preset={} linked={} intensity={:.3f}",
+					key.secondWidth, key.secondHeight, key.secondPreset, key.secondLinked, key.secondIntensity);
+			}
+			if (key.passOverride != NeuralRendering::PassOverride::None) {
+				successStatus_ += std::format("; pass override={}; requested={}",
+					NeuralRendering::PassOverrideName(key.passOverride), key.requestedPasses);
+			}
+		}
+		if (status_ != successStatus_) { status_ = successStatus_; }
 	}
 }

@@ -27,7 +27,19 @@ namespace TheosRenderPipeline::SourceDLSSG
 		HRESULT Record(ID3D12Device* device, ID3D12GraphicsCommandList* list, std::size_t slot, unsigned stage,
 			ResolveKernel kernel, const ResolveConstants& constants, ID3D12Resource* a, ID3D12Resource* b,
 			ID3D12Resource* original, ID3D12Resource* output, ID3D12Resource* secondOutput = nullptr);
+		// Test observation: descriptor tables written since initialization.
+		std::uint64_t DescriptorWrites() const { return descriptorWrites_; }
 	private:
+		struct DescriptorTable
+		{
+			// Retain identities so a released resource's address cannot be reused
+			// and mistaken for an unchanged table. Rewrite only a retired slot.
+			std::array<Microsoft::WRL::ComPtr<ID3D12Resource>, 5> resources;
+			UINT width{}, height{};
+			bool valid{};
+		};
+		std::array<std::array<DescriptorTable, kStages>, kCommandSlots> tables_;
+		std::uint64_t descriptorWrites_{};
 		Microsoft::WRL::ComPtr<ID3D12RootSignature> root_;
 		std::array<Microsoft::WRL::ComPtr<ID3D12PipelineState>, 9> pipelines_;
 		std::array<std::array<Microsoft::WRL::ComPtr<ID3D12DescriptorHeap>, kStages>, kCommandSlots> heaps_;
