@@ -52,15 +52,15 @@ namespace TheosRenderPipeline::SourceDLSSG
 #endif
 				if (deviceLoss_.RecordingEnabled()) {
 					try {
-					for (auto work : { Work::Upscaling, Work::FrameGeneration, Work::SwapChain }) {
-						const auto slots = interop_.QueueSlots(work);
-						for (std::size_t slot = 0; slot < slots.size(); ++slot) {
-							const auto& s = slots[slot];
-							logger::info("[GPUFailure] queue slot work={} slot={} list={} fence={} producerWait={} submittedSignal={}; retained CPU values, not GPU completion",
-								WorkName(work), slot, s.list, s.fence, s.producer, s.submitted);
+						for (auto work : { Work::Upscaling, Work::FrameGeneration, Work::SwapChain }) {
+							const auto slots = interop_.QueueSlots(work);
+							for (std::size_t slot = 0; slot < slots.size(); ++slot) {
+								const auto& s = slots[slot];
+								logger::info("[GPUFailure] queue slot work={} slot={} list={} fence={} producerWait={} submittedSignal={}; retained CPU values, not GPU completion",
+									WorkName(work), slot, s.list, s.fence, s.producer, s.submitted);
+							}
 						}
-					}
-					spdlog::default_logger()->flush();
+						spdlog::default_logger()->flush();
 					} catch (...) {} // A diagnostic failure must not escape Check.
 				}
 			}
