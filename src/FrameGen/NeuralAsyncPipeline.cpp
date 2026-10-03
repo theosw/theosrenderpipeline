@@ -1,5 +1,5 @@
-#include "AsyncPipeline.h"
-#include "AsyncShader.h"
+#include "NeuralAsyncPipeline.h"
+#include "NeuralAsyncShader.h"
 #include <d3dcompiler.h>
 #include <algorithm>
 #include <chrono>
@@ -44,6 +44,7 @@ struct AsyncPipeline::State {
     struct Slot {
         Phase phase{Free};
         std::uint64_t frame{}, generation{};
+        std::shared_ptr<const void> metadata;
         ComPtr<ID3D12Resource> color,motion,depth,output;
         std::array<ComPtr<ID3D12Resource>,2> flow;
         unsigned flowIndex{};
@@ -54,6 +55,7 @@ struct AsyncPipeline::State {
         unsigned width,height,initialize,useResult;
         float scaleX,scaleY,depthTolerance,colorTolerance,maxRatio;
         unsigned age,maxAge,padding{};
+        unsigned guideWidth,guideHeight,padding2{},padding3{};
     };
     Config config;
     Evaluator evaluate;
@@ -81,9 +83,9 @@ struct AsyncPipeline::State {
 
     ~State(){if(event)CloseHandle(event);}
     void Fail(const std::string& error) {std::lock_guard lock(mutex);stats.failed=true;stats.error=error;}
-    ComPtr<ID3D12Resource> Texture(DXGI_FORMAT format) {
+    ComPtr<ID3D12Resource> Texture(DXGI_FORMAT format,bool guide=false) {
         D3D12_RESOURCE_DESC desc{};desc.Dimension=D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-        desc.Width=config.width;desc.Height=config.height;desc.DepthOrArraySize=desc.MipLevels=desc.SampleDesc.Count=1;
+        desc.Width=guide?config.guideWidth:config.width;desc.Height=guide?config.guideHeight:config.height;desc.DepthOrArraySize=desc.MipLevels=desc.SampleDesc.Count=1;
         desc.Format=format;desc.Flags=D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
         D3D12_HEAP_PROPERTIES heap{};heap.Type=D3D12_HEAP_TYPE_DEFAULT;
         ComPtr<ID3D12Resource> resource;
@@ -136,7 +138,7 @@ struct AsyncPipeline::State {
                 if(!Wait(slot.captureFence.Get(),slot.captureValue,event))throw std::runtime_error("capture completion unconfirmed");
                 const auto begin=std::chrono::steady_clock::now();
                 Check(workerAllocator->Reset());Check(workerList->Reset(workerAllocator.Get(),nullptr));
-                Capture input{slot.color.Get(),slot.motion.Get(),slot.depth.Get(),slot.output.Get(),slot.frame,slot.generation};
+                Capture input{slot.color.Get(),slot.motion.Get(),slot.depth.Get(),slot.output.Get(),slot.frame,slot.generation,slot.metadata};
                 if(!evaluate(workerList.Get(),input))throw std::runtime_error("NR recording failed; no speculative submission");
                 Check(workerList->Close());
                 ID3D12CommandList* lists[]{workerList.Get()};workerOutstanding=true;
@@ -162,32 +164,37 @@ AsyncPipeline::~AsyncPipeline() {
         (void)state_.release();
     }
 }
-HRESULT AsyncPipeline::Initialize(ID3D12Device* device,const Config& config,Evaluator evaluate) {
+HRESULT AsyncPipeline::Initialize(ID3D12Device* device,const Config& request,Evaluator evaluate) {
+    auto config=request;
+    if(!config.guideWidth)config.guideWidth=config.width;
+    if(!config.guideHeight)config.guideHeight=config.height;
     if(state_ || !device || !evaluate || !config.width || !config.height || config.width>8192 || config.height>8192 ||
+        !config.guideWidth || !config.guideHeight || config.guideWidth>8192 || config.guideHeight>8192 ||
+        (config.motionFormat!=DXGI_FORMAT_R32G32_FLOAT && config.motionFormat!=DXGI_FORMAT_R16G16_FLOAT) ||
         config.maxAge==0 || config.maxAge>120 || !std::isfinite(config.depthTolerance) || config.depthTolerance<0 ||
         !std::isfinite(config.colorTolerance) || config.colorTolerance<0 ||
-        !std::isfinite(config.maxRatio) || config.maxRatio<1 || config.maxRatio>8 ||
+        !std::isfinite(config.maxRatio) || config.maxRatio<1 || config.maxRatio>16 ||
         !std::isfinite(config.motionScaleX) || !std::isfinite(config.motionScaleY) || !config.motionScaleX || !config.motionScaleY ||
-        (config.format!=DXGI_FORMAT_R16G16B16A16_FLOAT && config.format!=DXGI_FORMAT_R32G32B32A32_FLOAT))return E_INVALIDARG;
-    // Fixed memory policy for this prototype. Check the adapter's allocation
-    // sizes before allocating any history; live budget admission is a separate
-    // requirement for a future game integration.
+        (config.format!=DXGI_FORMAT_R16G16B16A16_FLOAT && config.format!=DXGI_FORMAT_R32G32B32A32_FLOAT && config.format!=DXGI_FORMAT_R8G8B8A8_UNORM))return E_INVALIDARG;
+    // Admission checks actual allocation sizes before creating any history.
+    // The game owner supplies a cap derived from the live adapter budget.
     std::uint64_t required=0;
     const std::array<std::pair<DXGI_FORMAT,unsigned>,4> allocations{{
-        {config.format,7},{DXGI_FORMAT_R32_FLOAT,4},{DXGI_FORMAT_R32G32_FLOAT,3},{DXGI_FORMAT_R32G32B32A32_FLOAT,6}}};
+        {config.format,7},{DXGI_FORMAT_R32_FLOAT,4},{config.motionFormat,3},{DXGI_FORMAT_R32G32B32A32_FLOAT,6}}};
     for(auto [format,count]:allocations) {
         D3D12_RESOURCE_DESC desc{};desc.Dimension=D3D12_RESOURCE_DIMENSION_TEXTURE2D;desc.Width=config.width;desc.Height=config.height;
         desc.DepthOrArraySize=desc.MipLevels=desc.SampleDesc.Count=1;desc.Format=format;desc.Flags=D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+        if(format==DXGI_FORMAT_R32_FLOAT || format==config.motionFormat){desc.Width=config.guideWidth;desc.Height=config.guideHeight;}
         const auto bytes=device->GetResourceAllocationInfo(0,1,&desc).SizeInBytes;
         if(bytes==UINT64_MAX || bytes>config.maxAllocationBytes/count || required>config.maxAllocationBytes-bytes*count)return E_OUTOFMEMORY;
         required+=bytes*count;
     }
     auto state=std::make_unique<State>();state->config=config;state->device=device;state->evaluate=std::move(evaluate);
     try {
-        state->output=state->Texture(config.format);state->previousDepth=state->Texture(DXGI_FORMAT_R32_FLOAT);
+        state->output=state->Texture(config.format);state->previousDepth=state->Texture(DXGI_FORMAT_R32_FLOAT,true);
         for(auto& slot:state->slots) {
             slot.color=state->Texture(config.format);slot.output=state->Texture(config.format);
-            slot.motion=state->Texture(DXGI_FORMAT_R32G32_FLOAT);slot.depth=state->Texture(DXGI_FORMAT_R32_FLOAT);
+            slot.motion=state->Texture(config.motionFormat,true);slot.depth=state->Texture(DXGI_FORMAT_R32_FLOAT,true);
             for(auto& flow:slot.flow)flow=state->Texture(DXGI_FORMAT_R32G32B32A32_FLOAT);
         }
         D3D12_COMMAND_QUEUE_DESC q{};q.Type=D3D12_COMMAND_LIST_TYPE_DIRECT;
@@ -218,17 +225,17 @@ HRESULT AsyncPipeline::Initialize(ID3D12Device* device,const Config& config,Eval
     state_=std::move(state);state_->worker=std::thread([s=state_.get()]{s->Run();});return S_OK;
 }
 HRESULT AsyncPipeline::Record(ID3D12GraphicsCommandList* list,ID3D12Resource* color,
-    ID3D12Resource* motion,ID3D12Resource* depth,bool reset,bool enabled) {
+    ID3D12Resource* motion,ID3D12Resource* depth,bool reset,bool enabled,std::shared_ptr<const void> metadata) {
     if(!state_ || !list || list->GetType()!=D3D12_COMMAND_LIST_TYPE_DIRECT)return E_INVALIDARG;
     auto& s=*state_;std::lock_guard lock(s.mutex);
     if(s.stopping || s.stats.failed || s.recording)return E_UNEXPECTED;
-    auto matches=[&](ID3D12Resource* resource,DXGI_FORMAT format) {
+    auto matches=[&](ID3D12Resource* resource,DXGI_FORMAT format,bool guide=false) {
         if(!resource)return false;const auto d=resource->GetDesc();ComPtr<ID3D12Device> owner;
         if(FAILED(resource->GetDevice(IID_PPV_ARGS(&owner))) || owner.Get()!=s.device.Get())return false;
-        return d.Dimension==D3D12_RESOURCE_DIMENSION_TEXTURE2D && d.Width==s.config.width && d.Height==s.config.height &&
+        return d.Dimension==D3D12_RESOURCE_DIMENSION_TEXTURE2D && d.Width==(guide?s.config.guideWidth:s.config.width) && d.Height==(guide?s.config.guideHeight:s.config.height) &&
             d.Format==format && d.DepthOrArraySize==1 && d.MipLevels==1 && d.SampleDesc.Count==1;
     };
-    if(!matches(color,s.config.format) || !matches(motion,DXGI_FORMAT_R32G32_FLOAT) || !matches(depth,DXGI_FORMAT_R32_FLOAT) || color==s.output.Get())return E_INVALIDARG;
+    if(!matches(color,s.config.format) || !matches(motion,s.config.motionFormat,true) || !matches(depth,DXGI_FORMAT_R32_FLOAT,true) || color==s.output.Get())return E_INVALIDARG;
     ComPtr<ID3D12Device> listDevice;
     if(FAILED(list->GetDevice(IID_PPV_ARGS(&listDevice))) || listDevice.Get()!=s.device.Get())return E_INVALIDARG;
     if(!Complete(s.hostFence.Get(),s.hostValue))return S_FALSE;
@@ -255,7 +262,7 @@ HRESULT AsyncPipeline::Record(ID3D12GraphicsCommandList* list,ID3D12Resource* co
     }
     try {
         State::Constants constants{s.config.width,s.config.height,0,0,s.config.motionScaleX,s.config.motionScaleY,
-            s.config.depthTolerance,s.config.colorTolerance,s.config.maxRatio,0,s.config.maxAge};
+            s.config.depthTolerance,s.config.colorTolerance,s.config.maxRatio,0,s.config.maxAge,0,s.config.guideWidth,s.config.guideHeight};
         // Advance each immutable capture's map, including captures still being
         // evaluated. The worker never accesses these main-queue-only textures.
         if(enabled)for(auto& slot:s.slots)if(slot.phase!=State::Free) {
@@ -275,7 +282,7 @@ HRESULT AsyncPipeline::Record(ID3D12GraphicsCommandList* list,ID3D12Resource* co
             if(s.capture<0)for(unsigned i=0;i<s.slots.size();++i)if(s.slots[i].phase==State::Free){s.capture=int(i);break;}
             if(s.capture>=0) {
                 auto& slot=s.slots[s.capture];slot.phase=State::Pending;slot.frame=s.stats.frame;slot.generation=s.stats.generation;
-                slot.captureFence.Reset();slot.captureValue=0;slot.flowIndex=0;
+                slot.captureFence.Reset();slot.captureValue=0;slot.flowIndex=0;slot.metadata=std::move(metadata);
                 Copy(list,color,slot.color.Get());Copy(list,motion,slot.motion.Get());Copy(list,depth,slot.depth.Get());
                 constants.initialize=1;s.Dispatch(list,0,constants,{},slot.flow[0].Get());
             }else ++s.stats.dropped;

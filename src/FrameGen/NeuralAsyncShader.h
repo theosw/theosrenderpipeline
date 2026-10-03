@@ -14,6 +14,7 @@ cbuffer Constants:register(b0) {
     uint Width, Height, Initialize, UseResult;
     float ScaleX, ScaleY, DepthTolerance, ColorTolerance;
     float MaxRatio; uint Age, MaxAge, Padding;
+    uint GuideWidth, GuideHeight, Padding2, Padding3;
 };
 bool Inside(float2 p) {
     return all(isfinite(p)) && all(p >= .5) && all(p <= float2(Width,Height)-.5);
@@ -24,20 +25,26 @@ float4 Sample(Texture2D<float4> tex,float2 p) {
     return lerp(lerp(tex.Load(int3(clamp(lo,0,hi),0)),tex.Load(int3(clamp(lo+int2(1,0),0,hi),0)),t.x),
                 lerp(tex.Load(int3(clamp(lo+int2(0,1),0,hi),0)),tex.Load(int3(clamp(lo+1,0,hi),0)),t.x),t.y);
 }
-bool DepthMatches(float a,float b) {
+float GuideDepth(Texture2D<float4> tex,float2 p) {
+    float2 q=p*float2(GuideWidth,GuideHeight)/float2(Width,Height)-.5;
+    int2 lo=int2(floor(q)), hi=int2(GuideWidth,GuideHeight)-1; float2 t=frac(q);
+    return lerp(lerp(tex.Load(int3(clamp(lo,0,hi),0)).r,tex.Load(int3(clamp(lo+int2(1,0),0,hi),0)).r,t.x),
+                lerp(tex.Load(int3(clamp(lo+int2(0,1),0,hi),0)).r,tex.Load(int3(clamp(lo+1,0,hi),0)).r,t.x),t.y);
+}
+ bool DepthMatches(float a,float b) {
     return isfinite(a) && isfinite(b) && abs(a-b)<=DepthTolerance*max(max(abs(a),abs(b)),1e-6);
 }
 [numthreads(8,8,1)] void Track(uint3 id:SV_DispatchThreadID) {
     if(id.x>=Width || id.y>=Height)return;
     if(Initialize){Out[id.xy]=float4(0,0,1,0);return;}
-    float2 mv=A.Load(int3(id.xy,0)).xy*float2(ScaleX,ScaleY);
+    float2 mv=A.Load(int3(min(uint2((id.xy+.5)*float2(GuideWidth,GuideHeight)/float2(Width,Height)),uint2(GuideWidth,GuideHeight)-1),0)).xy*float2(ScaleX,ScaleY);
     float2 q=id.xy+.5+mv; float4 old=0;
     bool valid=Inside(q);
     if(valid) {
         old=Sample(B,q);
         // Any invalid bilinear contributor invalidates the chain. A later
         // valid depth must never revive a point that was occluded on the way.
-        valid=old.z>.9999 && DepthMatches(C.Load(int3(id.xy,0)).r,Sample(D,q).r);
+        valid=old.z>.9999 && DepthMatches(GuideDepth(C,id.xy+.5),GuideDepth(D,q));
     }
     Out[id.xy]=valid?float4(mv+old.xy,1,0):float4(0,0,0,0);
 }
@@ -51,7 +58,7 @@ bool DepthMatches(float a,float b) {
     if(valid) {
         float4 anchor=Sample(C,q), enhanced=Sample(D,q);
         float scale=max(max(max(abs(now.r),abs(now.g)),abs(now.b)),.05);
-        valid=DepthMatches(E.Load(int3(id.xy,0)).r,Sample(F,q).r) &&
+        valid=DepthMatches(GuideDepth(E,id.xy+.5),GuideDepth(F,q)) &&
             all(isfinite(anchor.rgb)) && all(isfinite(enhanced.rgb)) &&
             all(abs(now.rgb-anchor.rgb)<=ColorTolerance*scale);
         if(valid)delta=enhanced.rgb-anchor.rgb;

@@ -6,7 +6,7 @@
 #include "SourceDLSSGSession.h"
 #include "SourceDLSSGNeuralState.h"
 #if !defined(TRP_NO_NEURAL_RENDERING)
-#include "SourceDLSSGNeuralRendering.h"
+#include "SourceDLSSGNeuralExecution.h"
 #include "SourceDLSSGNeuralAvailability.h"
 #endif
 #include "SourceDLSSGHDR.h"
@@ -174,7 +174,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		Microsoft::WRL::ComPtr<IDXGISwapChain> retainedNative_;
 		SharedTexture motion_, depth_, ui_, hudless_, earlyNeuralColor_;
 #if !defined(TRP_NO_NEURAL_RENDERING)
-		std::unique_ptr<NeuralPass> neuralPass_;
+		std::unique_ptr<NeuralExecution> neuralPass_;
 		NeuralRuntimeAvailability neuralAvailability_; // Protected by neuralMutex_.
 		const char* neuralReportedUnavailable_{};
 #endif

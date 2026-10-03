@@ -5,9 +5,23 @@ This experiment is based on the asynchronous capture/evaluate/compose idea in
 It uses TRP's existing native NVIDIA feature session and runtime checks. It does
 not use ZLUDA, AMD kernels, OptiScaler, or copied upstream source.
 
-The prototype is outside the renderer source list. Building it does not alter a
-plugin, installed mod, saved setting or release package. It is disabled by
-default in `AsyncPipeline::Config` and must be enabled by its standalone caller.
+The experimental pipeline now lives under `src/FrameGen` and is also used by
+the renderer's opt-in **Execution: Async** control. Regular NR remains the
+default (`NRAsync=false`). Building this standalone harness does not deploy or
+launch a game. Async is disabled by default in `AsyncPipeline::Config`.
+
+The game owner uses immutable per-capture options, native RG16/RG32 guides at
+their own extent, one or two independently configured passes, and a live adapter
+budget with a 2 GiB history cap and model/rendering reserve. Unsupported formats,
+insufficient budget and late native UI composition retain regular NR with an
+explicit status. Async currently needs a world-only scene; CS provides both
+placements, while the native route provides its before-upscale scene. The host
+skips busy capture admissions and invalidates the missing motion chain.
+
+`TRPNeuralIntegrationBenchmark` is a manual NVIDIA probe of the production
+execution wrapper: Regular / Async / independent two-pass Async / Regular,
+different guide/scene extents, finite outputs, alpha, retirement and shutdown.
+It requires Skyrim closed and does not establish game or MFG acceptance.
 
 ## Ownership and scheduling
 

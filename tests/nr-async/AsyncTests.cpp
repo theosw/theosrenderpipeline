@@ -88,6 +88,22 @@ int main() {
     SetErrorMode(SEM_FAILCRITICALERRORS|SEM_NOGPFAULTERRORBOX|SEM_NOOPENFILEERRORBOX);
     unsigned cases=0;
     {
+        // Skyrim motion uses RG16F and can be at a different resolution from
+        // scene colour. Test the real delayed residual, not only allocation.
+        Fixture f; auto script=std::make_shared<Script>(f.gpu.device.Get()); AsyncPipeline p;
+        auto c=f.Config(); c.guideWidth=17; c.guideHeight=9; c.motionFormat=DXGI_FORMAT_R16G16_FLOAT;
+        f.motion=f.gpu.Texture(17,9,std::vector<Pixel>(153,{0,0,0,0}),DXGI_FORMAT_R16G16_FLOAT);
+        f.depth=f.gpu.Texture(17,9,std::vector<Pixel>(153,{.5f,0,0,0}),DXGI_FORMAT_R32_FLOAT);
+        Check(p.Initialize(f.gpu.device.Get(),c,[script](auto* list,const auto& capture) {
+            Require(capture.motion->GetDesc().Format==DXGI_FORMAT_R16G16_FLOAT && capture.depth->GetDesc().Width==17,"immutable native guides");
+            return script->Evaluate(list,capture);
+        }),"reduced guides initialize");
+        script->Permit(); f.Frame(p); Until([&]{return p.Status().evaluations==1;},"reduced guides evaluated");
+        auto out=f.Frame(p); Near(out[15][0],.63,2e-6,"different guide resolution preserves residual");
+        Near(out[15][3],.37,1e-6,"different guide resolution preserves alpha");
+        script->Release(); Require(p.Stop(),"reduced guides retired"); ++cases;
+    }
+    {
         Fixture f;AsyncPipeline p;auto config=f.Config();config.maxAllocationBytes=1;
         Require(p.Initialize(f.gpu.device.Get(),config,[](auto*,const auto&){return true;})==E_OUTOFMEMORY,"history memory policy before allocation");
         config=f.Config();config.motionScaleX=NAN;

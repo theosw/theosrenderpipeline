@@ -310,6 +310,21 @@ void DrawNeuralSettings(TheosRenderPipeline::SourceDLSSG::Preferences& draft, bo
     }
 }
 
+void DrawNeuralExecution(TheosRenderPipeline::SourceDLSSG::Preferences& draft, bool unavailable)
+{
+    if (BeginSettingRows("nrExecution", LabelWidth({"Execution"}))) {
+        SettingRow("Execution", "Async", true, unavailable, [&] {
+            const char* modes[]{"Regular", "Async (experimental)"};
+            int mode = draft.neuralAsync ? 1 : 0;
+            const bool changed = ImGui::Combo("##v", &mode, modes, IM_ARRAYSIZE(modes));
+            if (changed) { draft.neuralAsync = mode == 1; }
+            DrawSettingsHelp("Async evaluates older scene snapshots while rendering continues. Uses more VRAM; motion or lighting changes can temporarily lose correction. Apply to switch; Save as default to remember.");
+            return changed;
+        });
+        ImGui::EndTable();
+    }
+}
+
 void DrawSourceNeuralControls(TheosRenderPipeline::SourceDLSSG::Preferences& draft, bool& sharpening,
                               float& sharpness, int upscaleType, bool nrRuntimePresent)
 {
@@ -353,6 +368,8 @@ void OverlayUI::DrawNeuralRenderingPanel(float height, const FrameView& view)
                                            : "unavailable");
         DrawSettingsHelp("Combined model inference and inter-pass preparation. Excludes input preparation, final Pass "
                          "2 restoration, reconstruction, UI composition and the D3D11/D3D12 handoff.");
+        DrawSettingsValue("Execution", applied.async ? "Async requested" : "Regular");
+        if (applied.async && state.active) { ImGui::TextWrapped("%s", state.status.c_str()); }
         DrawNRAppliedPasses(applied);
         if (state.active) {
             const auto execution = state.passOverride == TheosRenderPipeline::NeuralRendering::PassOverride::None ?
@@ -378,6 +395,7 @@ void OverlayUI::DrawNeuralRenderingPanel(float height, const FrameView& view)
         }
         DrawPresetList();
         NextSettingsColumn(height);
+        DrawNeuralExecution(settingsDraft.sourceDLSSG, NeuralUnavailableReason(settingsDraft.upscaleType, nrRuntimePresent) != nullptr);
         if (PresetEditorSelected()) {
             const bool unavailable = NeuralUnavailableReason(settingsDraft.upscaleType, nrRuntimePresent) != nullptr;
             DrawPresetEditor([&](TheosRenderPipeline::SourceDLSSG::Preferences& draft, bool& sharpening, float& sharpness) {

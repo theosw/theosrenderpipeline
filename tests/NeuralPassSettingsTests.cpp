@@ -16,6 +16,10 @@ int main()
 	CSimpleIniA ini;
 	Require(ini.LoadData("[SourceDLSSG]\nNRPasses=2\nNRInputScale=0.75\nNRPreset=1\nNRIntensity=0.4\n") >= 0, "old INI");
 	auto old = LoadPreferences(ini);
+    Require(!old.neuralAsync, "legacy INI defaults to regular NR");
+    old.neuralAsync = true;
+    StorePreferences(ini, old);
+    Require(LoadPreferences(ini).neuralAsync, "async execution persists independently of passes");
 	Require(!old.neuralCombat.Enabled() && old.neuralCombat.recoverySeconds == 5, "old INI keeps combat policy off");
 	old.neuralCombat = {true, true, 7.5f};
 	Require(old.neuralSecondPass.linked && old.neuralSecondPass.inputScale == .75f && old.neuralSecondPass.preset == 1 &&
@@ -38,6 +42,8 @@ int main()
 	NeuralHistory history;
 	Require(history.ResetFor(options, true, false), "initial history");
 	Require(!history.ResetFor(options, true, false), "stable history");
+    options.async = true;
+    Require(history.ResetFor(options, true, false), "mode switch invalidates delayed history");
 	options.secondPass.tuning.intensity = .8f;
 	Require(history.ResetFor(options, true, false), "second tuning resets history");
 	options.secondPass.linked = true;
