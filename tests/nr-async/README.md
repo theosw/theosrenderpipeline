@@ -161,10 +161,15 @@ Capture runs are separate because DMA/readback changes the GPU workload:
 python tests/nr-async/run_replay.py `
   out/build/async-replay/Release/TRPNeuralReplayBenchmark.exe `
   "<absolute path to locally supplied nvngx_dlssnr.dll>" `
-  out/evidence/replay-images --width 640 --height 360 --rates 60 --capture-hz 10
+  out/evidence/replay-images --width 640 --height 360 --rates 60 --capture-hz 10 --capture-events
 python tests/nr-async/analyze_replay.py out/evidence/replay-images
 ```
 
+`--capture-events` adds every source frame from two frames before to seven after
+the case cuts and exposure step, retaining the base capture rate elsewhere.
+This resolves single-frame fallback behavior that a 10-Hz movie can miss.
+The GIF follows the irregular source timestamps approximately, with the format's
+10-ms time granularity; it is a preview, not a display-cadence measurement.
 Capture buffers have a separate 512 MiB bound before allocation. They are
 allocated before warmup and copied on the existing host
 submission. CPU mapping and raw FP16 file writes happen after all host/worker

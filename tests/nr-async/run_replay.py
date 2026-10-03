@@ -36,6 +36,8 @@ def main():
     parser.add_argument("--rates", type=int, nargs="+", default=[30, 60, 90])
     parser.add_argument("--seconds", type=int, default=6)
     parser.add_argument("--capture-hz", type=int, default=0)
+    parser.add_argument("--capture-events", action="store_true",
+                        help="Capture every source frame from two before to seven after cuts/exposure, plus the base capture rate.")
     parser.add_argument("--modes", nargs="+", choices=["off", "regular", "reset", "async", "init-only", "create-only"],
                         default=["off", "regular", "reset", "async"])
     parser.add_argument("--timeout", type=float, default=90)
@@ -56,14 +58,15 @@ def main():
                 "runtime": str(args.runtime), "runtime_sha256": sha256(args.runtime),
                 "width": args.width, "height": args.height, "seconds": args.seconds,
                 "requested_rates": args.rates, "capture_hz": args.capture_hz,
-                "timing_only": args.capture_hz == 0, "runs": []}
+                "capture_events": args.capture_events,
+                "timing_only": args.capture_hz == 0 and not args.capture_events, "runs": []}
     failures = 0
     for fps in args.rates:
         for index, mode in enumerate(args.modes):
             run_dir = args.output / f"{fps}-{index}-{mode}"
             run_dir.mkdir()
             command = [str(binary), str(args.runtime), mode, str(args.width), str(args.height), str(fps),
-                       str(args.seconds), str(run_dir), str(args.capture_hz)]
+                       str(args.seconds), str(run_dir), str(args.capture_hz) + ("+events" if args.capture_events else "")]
             begin = time.monotonic()
             shutdown_begin = None
             timeout_stage = None

@@ -59,9 +59,14 @@ int wmain(int argc,wchar_t** argv){
     const std::wstring mode=argv[2];
     Require(mode==L"off"||mode==L"regular"||mode==L"reset"||mode==L"async"||mode==L"init-only"||mode==L"create-only","mode");
     const unsigned w=unsigned(std::stoul(argv[3])),h=unsigned(std::stoul(argv[4])),fps=unsigned(std::stoul(argv[5]));
-    const unsigned seconds=unsigned(std::stoul(argv[6])),captureHz=unsigned(std::stoul(argv[8]));
+    const unsigned seconds=unsigned(std::stoul(argv[6]));
+    const std::wstring captureRequest=argv[8];size_t parsed{};
+    const unsigned captureHz=unsigned(std::stoul(captureRequest,&parsed));
+    const bool captureEvents=captureRequest.substr(parsed)==L"+events";
+    Require(parsed==captureRequest.size()||captureEvents,"capture-hz suffix must be +events");
     Require(w>=64&&h>=64&&w<=2560&&h<=1440&&fps>=10&&fps<=120&&seconds>=1&&seconds<=12,"bounded replay parameters");
     Require(captureHz==0||(captureHz<=20&&fps%captureHz==0),"capture frequency must divide source fps, at most 20 Hz");
+    Require(!captureEvents||captureHz>0,"dense event captures need a base capture rate");
     const auto output=std::filesystem::absolute(argv[7]);std::filesystem::create_directories(output);
     const auto runtime=std::filesystem::absolute(argv[1]);const auto cache=output/"ngx-cache";std::filesystem::create_directories(cache);
     GPU gpu(true);GameGuard guard;
@@ -94,12 +99,21 @@ int wmain(int argc,wchar_t** argv){
         return SUCCEEDED(Interop::RecordCopy(list,pass->Corrected(),capture.output));
     }),"async initialize");
     const unsigned frames=fps*seconds,warmup=16;
+    std::vector<unsigned> captureFrames;
+    if(captureHz)for(unsigned frame=0;frame<frames;++frame){
+        bool take=frame%(fps/captureHz)==0;
+        if(captureEvents)for(double event:{0.,1.5,3.,4.5,5.1}){
+            const int eventFrame=int(std::floor(event*fps));
+            take=take||(int(frame)>=eventFrame-2&&int(frame)<=eventFrame+7);
+        }
+        if(take)captureFrames.push_back(frame);
+    }
     std::vector<ReplayCapture> captures;
     if(captureHz){
         const auto desc=color->GetDesc();UINT64 bytes{};
         gpu.device->GetCopyableFootprints(&desc,0,1,0,nullptr,nullptr,nullptr,&bytes);
-        Require(bytes*seconds*captureHz<=512ull*1024*1024,"capture buffers exceed the separate 512 MiB bound; lower extent or capture rate");
-        for(unsigned i=0;i<seconds*captureHz;++i)captures.emplace_back(gpu,color.Get());
+        Require(bytes*captureFrames.size()<=512ull*1024*1024,"capture buffers exceed the separate 512 MiB bound; lower extent or capture rate");
+        for(unsigned i=0;i<captureFrames.size();++i)captures.emplace_back(gpu,color.Get());
     }
     std::ofstream samples(output/"samples.csv"),images(output/"captures.csv");Require(bool(samples)&&bool(images),"CSV files");
     samples<<"frame,scene,source_time,reset,cpu_frame_ms,cpu_record_ms,cpu_submit_wait_ms,host_gpu_ms,producer_interval_ms,start_lateness_ms,deadline_miss,evaluations,result_age,result_age_ms,result_wall_age_ms,result_frame,displaying,evaluation_roundtrip_ms,dropped\n";
@@ -139,7 +153,7 @@ int wmain(int argc,wchar_t** argv){
         }
         gpu.list->EndQuery(query.Get(),D3D12_QUERY_TYPE_TIMESTAMP,1);
         gpu.list->ResolveQueryData(query.Get(),D3D12_QUERY_TYPE_TIMESTAMP,0,2,timestamp.Get(),0);
-        const bool capture=measured&&captureHz&&frame%(fps/captureHz)==0;
+        const bool capture=measured&&captureIndex<captureFrames.size()&&frame==captureFrames[captureIndex];
         if(capture)captures[captureIndex].Record(gpu,result);
         Check(gpu.list->Close(),"host close");const auto recordedAt=Clock::now();
         ID3D12CommandList* lists[]{gpu.list.Get()};gpu.queue->ExecuteCommandLists(1,lists);
@@ -175,7 +189,7 @@ int wmain(int argc,wchar_t** argv){
     // Stop after the final host fence, before mapping captures; preserve failures.
     Require(async.Stop(),"host and worker retirement");
     if(mode==L"async")Require(status.evaluations>0,"native async evaluation activity");
-    for(unsigned i=0;i<captures.size();++i)captures[i].Write(output/("frame-"+std::to_string(i*(fps/captureHz))+".rgba16f"));
+    for(unsigned i=0;i<captures.size();++i)captures[i].Write(output/("frame-"+std::to_string(captureFrames[i])+".rgba16f"));
     std::printf("RESULT mode=%ls size=%ux%u fps=%u frames=%u captures=%u evaluations=%llu native_resets=%llu allocation=%llu local_usage_warm=%llu local_usage_end=%llu\n",
         mode.c_str(),w,h,fps,frames,captureIndex,mode==L"async"?status.evaluations:synchronousEvaluations,
         mode==L"async"?status.evaluations:nativeResets,status.allocationBytes,memoryWarm,memoryEnd);

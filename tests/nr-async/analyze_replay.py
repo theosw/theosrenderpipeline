@@ -125,8 +125,13 @@ def main():
             panel.paste(preview(pixels[mode][i, ..., :3]).resize((thumb_w, thumb_h)), (column * thumb_w, 28))
             draw.text((column * thumb_w + 8, 8), f"{mode} | {names[scene]} {t:.2f}s", fill="white")
         animation.append(panel)
+    # GIF timestamps have 10-ms granularity. Quantize cumulative source time so
+    # irregular event sampling preserves the sequence's duration approximately.
+    ticks = [round(r[2] * 100) for r in index["off"]]
+    durations = [max(10, (b-a)*10) for a,b in zip(ticks,ticks[1:])]
+    durations.append(round(1000 / identity["capture_hz"]))
     animation[0].save(root / "motion-comparison.gif", save_all=True, append_images=animation[1:],
-                      duration=round(1000 / identity["capture_hz"]), loop=0)
+                      duration=durations, loop=0)
     print(json.dumps(report, indent=2))
 
 
