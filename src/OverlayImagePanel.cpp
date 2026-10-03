@@ -75,13 +75,18 @@ void OverlayUI::DrawHDROutputSettings()
     namespace HDR = TheosRenderPipeline::HDROutput;
     auto& hdr = settingsDraft.sourceDLSSG.hdrOutput;
     const auto state = TheosRenderPipeline::SourceDLSSG::Backend::Get().HDRState();
-    DrawSettingsHeading("HDR output (experimental)", "on/off: save and restart");
+    DrawSettingsHeading("HDR output (experimental)", "on/off: Apply");
     ImGui::Checkbox("HDR output", &hdr.enabled);
     DrawSettingsHelp("Expands the finished SDR image (including ENB) to HDR10 and shows the UI at its own "
-                     "brightness. Highlights the preset already clipped cannot be recovered. Requires Windows HDR.");
+                     "brightness. Highlights the preset already clipped cannot be recovered. Requires Windows HDR. "
+                     "The first switch on in a session briefly pauses frame generation.");
     if (hdr.enabled != state.requested)
     {
-        ImGui::TextColored(kAmber, "Save as default and restart to %s HDR output", hdr.enabled ? "allocate" : "release");
+        ImGui::TextColored(kAmber, "Apply to turn HDR output %s", hdr.enabled ? "on" : "off");
+    }
+    else if (!state.requested && state.native)
+    {
+        ImGui::TextDisabled("HDR output off; 10-bit output stays allocated until restart");
     }
     else if (state.requested)
     {

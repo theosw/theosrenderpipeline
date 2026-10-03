@@ -96,7 +96,7 @@ HRESULT STDMETHODCALLTYPE SwapChain::Present(UINT a_syncInterval, UINT a_flags)
 	if (FAILED(prepared)) { return prepared; }
 	const auto presented = inner_->Present(a_syncInterval, a_flags);
 	ObservePresentationFeedback(presented);
-	return backend_.AfterPresent(presented);
+	return StartHDROutput(backend_.AfterPresent(presented));
 }
 
 HRESULT STDMETHODCALLTYPE SwapChain::GetBuffer(UINT a_buffer, REFIID a_iid, void** a_surface)
@@ -201,7 +201,7 @@ HRESULT STDMETHODCALLTYPE SwapChain::Present1(
 	if (FAILED(prepared)) { return prepared; }
 	const auto presented = inner1_->Present1(a_syncInterval, a_flags, a_parameters);
 	ObservePresentationFeedback(presented);
-	return backend_.AfterPresent(presented);
+	return StartHDROutput(backend_.AfterPresent(presented));
 }
 
 BOOL STDMETHODCALLTYPE SwapChain::IsTemporaryMonoSupported()
@@ -329,7 +329,7 @@ HRESULT STDMETHODCALLTYPE SwapChain::SetHDRMetaData(
 }
 
 
-HRESULT SwapChain::RebuildBuffers()
+HRESULT SwapChain::RebuildBuffers(bool a_gameFacing)
 {
 	if (!inner3_) { return E_NOINTERFACE; }
 	DXGI_SWAP_CHAIN_DESC desc{};
@@ -339,6 +339,7 @@ HRESULT SwapChain::RebuildBuffers()
 	for (UINT i = 0; i < buffers_.size(); ++i) {
 		result = inner_->GetBuffer(i, IID_PPV_ARGS(nativeBuffers_[i].ReleaseAndGetAddressOf()));
 		if (FAILED(result)) { return result; }
+		if (!a_gameFacing) { continue; }
 		D3D11_TEXTURE2D_DESC shared{};
 		shared.Width = desc.BufferDesc.Width; shared.Height = desc.BufferDesc.Height;
 		shared.MipLevels = 1; shared.ArraySize = 1; shared.Format = gameFormat_;
@@ -349,6 +350,37 @@ HRESULT SwapChain::RebuildBuffers()
 	}
 	return S_OK;
 }
+
+// Starts renderer-owned HDR between frames without a restart. Only the native
+// buffers change format; game-facing buffers keep their format and identity, so
+// the game takes no part. A refused reallocation restores the previous format.
+HRESULT SwapChain::StartHDROutput(HRESULT a_presented)
+{
+	if (FAILED(a_presented) || !backend_.UpdateHDRRequest(gameFormat_)) { return a_presented; }
+	DXGI_SWAP_CHAIN_DESC desc{};
+	const auto described = inner_->GetDesc(&desc);
+	if (!backend_.Check(described, "native description for HDR output")) { return described; }
+	const bool generation = backend_.Enabled();
+	if (!backend_.Quiesce()) { return E_FAIL; }
+	nativeBuffers_ = {};
+	const auto resize = [&] {
+		return inner_->ResizeBuffers(2, desc.BufferDesc.Width, desc.BufferDesc.Height, backend_.NativeFormat(gameFormat_),
+			(desc.Flags & ~0x6000u) | DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING);
+	};
+	backend_.SetHDRNative(true);
+	const auto reallocated = resize();
+	if (FAILED(reallocated)) {
+		backend_.SetHDRNative(false);
+		const auto restored = resize();
+		if (!backend_.Check(restored, "restore native format after HDR reallocation")) { return restored; }
+	}
+	const auto rebuilt = RebuildBuffers(false);
+	if (!backend_.Check(rebuilt, "rebuild after HDR reallocation")) { return rebuilt; }
+	if (!backend_.ResumeAfterResize()) { return E_FAIL; }
+	backend_.FinishHDRStart(reallocated, generation);
+	return a_presented;
+}
+
 HRESULT SwapChain::BeginPresent()
 {
 	const auto index = GetCurrentBackBufferIndex();

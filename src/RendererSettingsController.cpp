@@ -139,7 +139,7 @@ RendererSettingsResult RendererSettingsController::Apply(const RendererSettingsD
         source.ConfigureUIRecomposition(frameGen_.settings.sourceDLSSG.uiRecomposition);
         source.ConfigureOutputFPSLimit(frameGen_.settings.sourceDLSSG.outputFPSLimit);
         source.ConfigureGeneration(frameGen_.settings.sourceDLSSG.generation);
-        // Enabled is kept for saving; the backend applies it at the next swapchain creation.
+        // The backend applies Enabled at the next present boundary.
         source.ConfigureHDROutput(frameGen_.settings.sourceDLSSG.hdrOutput);
         TheosRenderPipeline::SourceDLSSG::NeuralOptions options;
         options.enabled = frameGen_.settings.sourceDLSSG.neuralEnabled &&
