@@ -1,9 +1,6 @@
 #include "OverlayUI.h"
 #include "OverlayUIStyle.h"
 #include "OverlayFrameView.h"
-#include "PerformanceTuning.h"
-#include "FrameTrace.h"
-#include "CommunityShaderIntegration.h"
 #include <cstdio>
 #include <PCH.h>
 
@@ -66,19 +63,18 @@ void OverlayUI::DrawFrameMeasurements(const FrameView& view, float columnHeight)
     ImGui::Spacing();
 }
 
-void OverlayUI::DrawStageMeasurements(SettingsPage page)
+void OverlayUI::DrawStageMeasurements(const FrameView& view, SettingsPage page)
 {
-    const auto* performance = PerformanceTuning::GetSingleton();
-    const auto& timings = performance->GetTimingSnapshot();
-    if (performance->TimingEnabled() && performance->GetQueryDiagnostics().quarantined)
+    const auto& timings = view.timings;
+    if (view.timingEnabled && view.timingQuarantined)
     {
         ImGui::TextDisabled("GPU timings unavailable (query failure)");
         DrawSettingsHelp("GPU timing queries failed. Restarting the game retries timings; rendering continues.");
         return;
     }
-    if (!performance->TimingEnabled() || !timings.lastCompletedGeneration)
+    if (!view.timingEnabled || !timings.lastCompletedGeneration)
     {
-        ImGui::TextDisabled("%s", performance->TimingEnabled() ? "GPU timings: waiting" : "GPU timings: off");
+        ImGui::TextDisabled("%s", view.timingEnabled ? "GPU timings: waiting" : "GPU timings: off");
         DrawSettingsHelp("Enable stage timings in Advanced, then Apply.");
         return;
     }
@@ -91,7 +87,7 @@ void OverlayUI::DrawStageMeasurements(SettingsPage page)
     };
     if (page == SettingsPage::Image)
     {
-        if (!TheosRenderPipeline::CommunityShaders::Active())
+        if (!view.communityShaders)
         {
             row("DLSS", Stage::kDLSS);
             row("Sharpening", Stage::kRCAS);
@@ -146,13 +142,13 @@ void OverlayUI::DrawOutputOptimizations()
     DrawSettingsHelp("Avoids the DLSS copy when sharpening is off; does not disable sharpening. Apply required.");
 }
 
-void OverlayUI::DrawMeasurementControls()
+void OverlayUI::DrawMeasurementControls(const FrameView& view)
 {
     ImGui::Checkbox("Stage timings", &settingsDraft.enableGPUTimings);
     DrawSettingsHelp("Non-blocking GPU/CPU measurements; Apply required.");
     ImGui::Checkbox("Record frame trace", &settingsDraft.enableFrameTrace);
     DrawSettingsHelp("Writes a .sfgtrace sidecar on a background thread; Apply required.");
-    const auto trace = FrameTrace::GetSingleton()->GetStatus();
+    const auto& trace = view.trace;
     if (trace.enabled || trace.written || trace.dropped || trace.writerFailed)
     {
         ImGui::TextWrapped("Trace: %s | written %llu | dropped %llu",
@@ -165,16 +161,15 @@ void OverlayUI::DrawMeasurementControls()
     }
     if (showDeveloperControls)
     {
-        auto* performance = PerformanceTuning::GetSingleton();
         if (ImGui::Button("Reset session fallbacks"))
         {
-            performance->ResetSessionFallbacks();
+            ResetSessionFallbacks();
             actionMessage = "Performance fallback latches reset.";
             actionMessageIsError = false;
         }
         if (ImGui::Button("Clear timing window"))
         {
-            performance->ResetTimingWindow();
+            ClearTimingWindow();
             actionMessage = "Rolling timing window cleared.";
             actionMessageIsError = false;
         }

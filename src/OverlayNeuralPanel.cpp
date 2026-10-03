@@ -2,17 +2,11 @@
 #include "OverlayUIStyle.h"
 #include "OverlaySettingRows.h"
 #include "OverlayFrameView.h"
-
-#include "FrameGen/NvidiaHost.h"
-#include "FrameGen/SourceDLSSGBackend.h"
-#include "FrameGen/SourceFrameGeneration.h"
 #include <PCH.h>
 
 using namespace TheosRenderPipeline::Overlay;
 
-#include "CommunityShaderIntegration.h"
 #include "NeuralRenderingMode.h"
-#include "RenderPipeline.h"
 
 namespace
 {
@@ -29,11 +23,10 @@ void DrawNRInputPreview(const char* label, std::uint32_t width, std::uint32_t he
                 TheosRenderPipeline::NeuralRendering::ModelExtent(height, reconstruction));
 }
 
-void DrawNRAppliedPasses(const TheosRenderPipeline::SourceDLSSG::NeuralOptions& applied)
+void DrawNRAppliedPasses(const OverlayUI::FrameView& view, const TheosRenderPipeline::SourceDLSSG::NeuralOptions& applied)
 {
-    const auto* host = NvidiaHost::GetSingleton();
-    const auto width = applied.beforeUpscaling ? host->RenderWidth() : host->OutputWidth();
-    const auto height = applied.beforeUpscaling ? host->RenderHeight() : host->OutputHeight();
+    const auto width = applied.beforeUpscaling ? view.renderWidth : view.outputWidth;
+    const auto height = applied.beforeUpscaling ? view.renderHeight : view.outputHeight;
     DrawSettingsValue("Placement", applied.beforeUpscaling ? "Before upscaling" : "After upscaling");
     DrawSettingsValue("Scene", std::format("{} x {}", width, height).c_str());
     auto pass = [&](const char* label, float scale, int preset) {
@@ -56,11 +49,9 @@ void DrawNRAppliedPasses(const TheosRenderPipeline::SourceDLSSG::NeuralOptions& 
 }
 
 // Why NR cannot run now, or null. Shown above Base's controls.
-const char* NeuralUnavailableReason(int upscaleType, bool nrRuntimePresent)
+const char* NeuralUnavailableReason(const OverlayUI::FrameView& view, int upscaleType, bool nrRuntimePresent)
 {
-    auto& backend = TheosRenderPipeline::SourceDLSSG::Backend::Get();
-    const auto* frameGen = SourceFrameGeneration::GetSingleton();
-    if (frameGen->settings.neuralRenderingRuntimePath.empty())
+    if (view.neuralRuntimePath.empty())
     {
         return "NR runtime path is empty. Configure NeuralRenderingRuntimePath in TheosRenderPipeline.ini "
                "and restart Skyrim.";
@@ -69,19 +60,19 @@ const char* NeuralUnavailableReason(int upscaleType, bool nrRuntimePresent)
     {
         return "NR runtime DLL not found. Install the optional nvngx_dlssnr.dll at the path below and restart Skyrim.";
     }
-    if (!backend.Ready())
+    if (!view.sourceReady)
     {
         return "The NVIDIA host is not ready. Check runtime status and restart Skyrim.";
     }
-    if (backend.NeuralState().failed)
+    if (view.neuralState.failed)
     {
         return "NR failed. See the error in the left column.";
     }
-    if (!TheosRenderPipeline::SupportsNeuralRenderingMode(upscaleType, TheosRenderPipeline::CommunityShaders::Active()))
+    if (!TheosRenderPipeline::SupportsNeuralRenderingMode(upscaleType, view.communityShaders))
     {
         return "NR requires DLSS or DLAA mode. Select either in Image and restart Skyrim.";
     }
-    if (!TheosRenderPipeline::CommunityShaders::Active() && !NvidiaHost::GetSingleton()->DedicatedUITextureMode())
+    if (!view.communityShaders && !view.dedicatedUITexture)
     {
         return "NR requires dedicated UI composition. Set NativeUICompositionMode=0 in the INI and "
                "restart Skyrim. If it is already 0, check the log for a composition failure.";
@@ -90,19 +81,18 @@ const char* NeuralUnavailableReason(int upscaleType, bool nrRuntimePresent)
 }
 
 // Base and presets share these controls. Presets add each row's state column.
-void DrawNeuralSettings(TheosRenderPipeline::SourceDLSSG::Preferences& draft, bool& sharpening, float& sharpness,
-                        bool unavailable)
+void DrawNeuralSettings(const OverlayUI::FrameView& view, TheosRenderPipeline::SourceDLSSG::Preferences& draft,
+                        bool& sharpening, float& sharpness, bool unavailable)
 {
     namespace NR = TheosRenderPipeline::NeuralRendering;
     auto& reconstruction = draft.neuralReconstruction;
     auto& second = draft.neuralSecondPass;
-    const bool cs = TheosRenderPipeline::CommunityShaders::Active();
+    const bool cs = view.communityShaders;
     const bool producerColor = cs && draft.neuralBeforeUpscaling;
     const bool twoPasses = draft.neuralPasses == 2;
     const float label = LabelWidth({"One pass while weapons are drawn", "Input colour is linear HDR", "NR input resolution"});
-    const auto* host = NvidiaHost::GetSingleton();
-    const auto width = draft.neuralBeforeUpscaling ? host->RenderWidth() : host->OutputWidth();
-    const auto height = draft.neuralBeforeUpscaling ? host->RenderHeight() : host->OutputHeight();
+    const auto width = draft.neuralBeforeUpscaling ? view.renderWidth : view.outputWidth;
+    const auto height = draft.neuralBeforeUpscaling ? view.renderHeight : view.outputHeight;
     const char* placements[]{"Before upscaling", "After upscaling"};
     const char* styles[]{"Style 0", "Style 1", "Style 2", "Style 3", "Style 4", "Style 5", "Style 6", "Style 7"};
     const char* networks[]{"Default", "Shipping"};
@@ -310,24 +300,23 @@ void DrawNeuralSettings(TheosRenderPipeline::SourceDLSSG::Preferences& draft, bo
     }
 }
 
-void DrawSourceNeuralControls(TheosRenderPipeline::SourceDLSSG::Preferences& draft, bool& sharpening,
-                              float& sharpness, int upscaleType, bool nrRuntimePresent)
+void DrawSourceNeuralControls(const OverlayUI::FrameView& view, TheosRenderPipeline::SourceDLSSG::Preferences& draft,
+                              bool& sharpening, float& sharpness, int upscaleType, bool nrRuntimePresent)
 {
-    auto& backend = TheosRenderPipeline::SourceDLSSG::Backend::Get();
-    const auto state = backend.NeuralState();
-    const char* unavailableReason = NeuralUnavailableReason(upscaleType, nrRuntimePresent);
+    const auto& state = view.neuralState;
+    const char* unavailableReason = NeuralUnavailableReason(view, upscaleType, nrRuntimePresent);
     const bool unavailable = unavailableReason != nullptr;
-    const auto applied = backend.NeuralConfiguration();
+    const auto& applied = view.neuralApplied;
     if (unavailable)
     {
         ImGui::TextWrapped("%s", unavailableReason);
-        ImGui::TextWrapped("NR runtime path: %s", SourceFrameGeneration::GetSingleton()->settings.neuralRenderingRuntimePath.c_str());
+        ImGui::TextWrapped("NR runtime path: %s", view.neuralRuntimePath.c_str());
     }
     if (applied.enabled && !state.active && !unavailable)
     {
         ImGui::TextWrapped("%s", state.status.c_str());
     }
-    DrawNeuralSettings(draft, sharpening, sharpness, unavailable);
+    DrawNeuralSettings(view, draft, sharpening, sharpness, unavailable);
 }
 } // namespace
 
@@ -338,7 +327,7 @@ void OverlayUI::DrawNeuralRenderingPanel(float height, const FrameView& view)
         return;
     if (BeginSettingsColumns("neural", height, view))
     {
-        const auto applied = TheosRenderPipeline::SourceDLSSG::Backend::Get().NeuralConfiguration();
+        const auto& applied = view.neuralApplied;
         const auto& state = view.sourceNeural;
         DrawStatusLabel(state.failed      ? "NR failed"
                         : state.active    ? "NR active"
@@ -353,7 +342,7 @@ void OverlayUI::DrawNeuralRenderingPanel(float height, const FrameView& view)
                                            : "unavailable");
         DrawSettingsHelp("Combined model inference and inter-pass preparation. Excludes input preparation, final Pass "
                          "2 restoration, reconstruction, UI composition and the D3D11/D3D12 handoff.");
-        DrawNRAppliedPasses(applied);
+        DrawNRAppliedPasses(view, applied);
         if (state.active) {
             const auto execution = state.passOverride == TheosRenderPipeline::NeuralRendering::PassOverride::None ?
                 std::format("{} pass(es)", state.effectivePasses) :
@@ -376,15 +365,15 @@ void OverlayUI::DrawNeuralRenderingPanel(float height, const FrameView& view)
                                    static_cast<unsigned long long>(timing.gpuSamples),
                                    static_cast<unsigned long long>(timing.gpuQueryFailures));
         }
-        DrawPresetList();
+        DrawPresetList(view);
         NextSettingsColumn(height);
         if (PresetEditorSelected()) {
-            const bool unavailable = NeuralUnavailableReason(settingsDraft.upscaleType, nrRuntimePresent) != nullptr;
-            DrawPresetEditor([&](TheosRenderPipeline::SourceDLSSG::Preferences& draft, bool& sharpening, float& sharpness) {
-                DrawNeuralSettings(draft, sharpening, sharpness, unavailable);
+            const bool unavailable = NeuralUnavailableReason(view, settingsDraft.upscaleType, nrRuntimePresent) != nullptr;
+            DrawPresetEditor(view, [&](TheosRenderPipeline::SourceDLSSG::Preferences& draft, bool& sharpening, float& sharpness) {
+                DrawNeuralSettings(view, draft, sharpening, sharpness, unavailable);
             });
         }
-        else { DrawSourceNeuralControls(settingsDraft.sourceDLSSG, settingsDraft.sharpening, settingsDraft.sharpness, settingsDraft.upscaleType, nrRuntimePresent); }
+        else { DrawSourceNeuralControls(view, settingsDraft.sourceDLSSG, settingsDraft.sharpening, settingsDraft.sharpness, settingsDraft.upscaleType, nrRuntimePresent); }
         EndSettingsColumns();
     }
     ImGui::EndTabItem();

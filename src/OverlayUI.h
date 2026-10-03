@@ -35,20 +35,42 @@ public:
 
     void ObserveGameHotkeys(const std::vector<UINT>& pressedKeys) { hotkeys.ObserveGameKeys(pressedKeys); }
 
+    // The renderer state the menu draws from (OverlayFrameView.h).
+    struct FrameView;
+
 private:
 	OverlayUI() = default;
 	OverlayUI(const OverlayUI&) = delete;
 	OverlayUI& operator=(const OverlayUI&) = delete;
+    // Draws the menu offline from scenarios (tools/OverlayPreview).
+    friend class OverlayPreview;
 
-    struct FrameView;
+    // Drawing (OverlayMenu.cpp, OverlayFrameView.cpp and the panels) reads the
+    // renderer only through FrameView and changes it only through the members
+    // below, so the same menu code also draws without the game.
+    // Defined in OverlayFrameCapture.cpp, OverlayUI.cpp and OverlayLabPanel.cpp:
     FrameView CaptureFrameView();
+    void CaptureSettingsDraft();
+    int CountStagedChanges() const;
+    void ApplySettingsDraft(bool a_saveAsDefault);
+    void RequestFrameGeneration(bool enabled);
+    void PausePresets(bool paused);
+    void RefreshWeatherList();
+    void ResetSessionFallbacks();
+    void ClearTimingWindow();
+    void DrawLabImageDetails(const FrameView& view);
+    void DrawLabGenerationDetails(const FrameView& view);
+    void DrawLabMenuDiagnostics();
+
+    void DescribeFrameView(FrameView& view) const;
     void DrawPipelineSummary(const FrameView& view);
     void DrawImagePanel(float tabCardHeight, const FrameView& view);
     bool PresetEditorSelected() const;
-    void DrawPresetList();
-    void DrawPresetEditor(const std::function<void(TheosRenderPipeline::SourceDLSSG::Preferences&, bool&, float&)>& drawSettings);
-    void DrawPresetSharpeningStatus();
-    void DrawHDROutputSettings();
+    void DrawPresetList(const FrameView& view);
+    void DrawPresetEditor(const FrameView& view,
+        const std::function<void(TheosRenderPipeline::SourceDLSSG::Preferences&, bool&, float&)>& drawSettings);
+    void DrawPresetSharpeningStatus(const FrameView& view);
+    void DrawHDROutputSettings(const FrameView& view);
     void DrawTextureMemoryPanel(const FrameView& view);
     void DrawAdvancedPanel(float tabCardHeight, const FrameView& view);
     bool BeginSettingsColumns(const char* id, float height, const FrameView& view);
@@ -56,17 +78,17 @@ private:
     void EndSettingsColumns();
     void DrawFrameMeasurements(const FrameView& view, float columnHeight);
     void DrawImageMeasurements(const FrameView& view);
-    void DrawStageMeasurements(TheosRenderPipeline::Overlay::SettingsPage page);
+    void DrawStageMeasurements(const FrameView& view, TheosRenderPipeline::Overlay::SettingsPage page);
     void DrawMemoryMeasurements(const FrameView& view);
     void DrawReportingDetails(const FrameView& view);
-    void DrawMeasurementControls();
+    void DrawMeasurementControls(const FrameView& view);
     void DrawOutputOptimizations();
-    void DrawUIStatusPanel();
+    void DrawUIStatusPanel(const FrameView& view);
     void DrawSettingsActions();
 	void BuildUI();
     void UpdateUIScale();
     void DrawMenuSizeControl();
-    void DrawMenuKeyControl();
+    void DrawMenuKeyControl(const FrameView& view);
     void DrawZoomButtons();
 	void UpdateFrameStats();
 	void HandleHotkey();
@@ -75,10 +97,7 @@ private:
 	void SetTextInputCapture(bool a_capture);
 	void SetVisible(bool a_visible);
     void UpdateControlCapture();
-	void CaptureSettingsDraft();
     void RefreshNeuralRuntimeAvailability();
-	int CountStagedChanges() const;
-	void ApplySettingsDraft(bool a_saveAsDefault);
 	void ApplyNeuralRenderingStateForSession(int a_state);
 	void DrawNeuralRenderingPanel(float tabCardHeight, const FrameView& view);
 	void DrawFrameGenerationPanel(float tabCardHeight, const FrameView& view);

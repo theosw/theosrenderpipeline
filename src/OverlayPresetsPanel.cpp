@@ -2,9 +2,8 @@
 #include "OverlayUI.h"
 #include "OverlayUIStyle.h"
 #include "OverlaySettingRows.h"
-#include "WeatherAppearanceRuntime.h"
+#include "OverlayFrameView.h"
 #include "WeatherAppearanceINI.h"
-#include "CommunityShaderIntegration.h"
 #include <SimpleIni.h>
 #include <cstdio>
 #include <optional>
@@ -186,12 +185,11 @@ bool OverlayUI::PresetEditorSelected() const
     return presetSelected != BaseRow && Appearance::FindPreset(settingsDraft.appearance, presetSelected);
 }
 
-void OverlayUI::DrawPresetList()
+void OverlayUI::DrawPresetList(const FrameView& view)
 {
-    auto& runtime = Appearance::Runtime::Get();
-    const auto state = runtime.State();
-    const auto catalogue = runtime.Catalogue();
-    const bool cs = CommunityShaders::Active();
+    const auto& state = view.appearance;
+    const auto& catalogue = view.weatherCatalogue;
+    const bool cs = view.communityShaders;
     auto& settings = settingsDraft.appearance;
     const auto& scene = state.context;
 
@@ -224,7 +222,7 @@ void OverlayUI::DrawPresetList()
     }
     if (!settings.presets.empty()) {
         bool paused = state.paused;
-        if (ImGui::Checkbox("Pause presets", &paused)) { runtime.Pause(paused); }
+        if (ImGui::Checkbox("Pause presets", &paused)) { PausePresets(paused); }
         Tooltip("Uses Base right away, until you untick this or restart the game. Not saved.");
     }
 
@@ -305,11 +303,11 @@ void OverlayUI::DrawPresetList()
     settings.enabled = Appearance::UsesPresets(settings);
 }
 
-void OverlayUI::DrawPresetEditor(const std::function<void(SourceDLSSG::Preferences&, bool&, float&)>& drawSettings)
+void OverlayUI::DrawPresetEditor(const FrameView& view,
+    const std::function<void(SourceDLSSG::Preferences&, bool&, float&)>& drawSettings)
 {
-    auto& runtime = Appearance::Runtime::Get();
-    const auto state = runtime.State();
-    const auto catalogue = runtime.Catalogue();
+    const auto& state = view.appearance;
+    const auto& catalogue = view.weatherCatalogue;
     auto& settings = settingsDraft.appearance;
     const auto& scene = state.context;
     auto found = std::ranges::find_if(settings.presets, [&](const auto& item) { return item.id == presetSelected; });
@@ -466,7 +464,7 @@ void OverlayUI::DrawPresetEditor(const std::function<void(SourceDLSSG::Preferenc
             }
         }
         ImGui::SameLine(); if (ImGui::Button("Clear selection")) { presetPickerSelection.clear(); }
-        ImGui::SameLine(); if (ImGui::Button("Refresh list")) { SKSE::GetTaskInterface()->AddTask([] { Appearance::Runtime::Get().CaptureCatalogue(); }); }
+        ImGui::SameLine(); if (ImGui::Button("Refresh list")) { RefreshWeatherList(); }
         ImGui::BeginDisabled(presetPickerSelection.empty());
         if (ImGui::Button("Add selected")) {
             if (Appearance::AddWeathers(settings, preset.id, presetPickerSelection)) { presetPickerSelection.clear(); ImGui::CloseCurrentPopup(); }
@@ -552,9 +550,9 @@ void OverlayUI::DrawPresetEditor(const std::function<void(SourceDLSSG::Preferenc
     settings.enabled = Appearance::UsesPresets(settings);
 }
 
-void OverlayUI::DrawPresetSharpeningStatus()
+void OverlayUI::DrawPresetSharpeningStatus(const FrameView& view)
 {
-    const auto state = Appearance::Runtime::Get().State();
+    const auto& state = view.appearance;
     if (!state.result.active || state.result.sharpnessSource == "Base") { return; }
     ImGui::TextDisabled("Now %.2f from the \"%s\" preset.", state.result.setup.sharpness, state.result.sharpnessSource.c_str());
 }

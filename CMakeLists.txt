@@ -272,6 +272,30 @@ if(TRP_BUILD_COMPATIBILITY_TESTS)
     target_link_libraries(TRPOverlayTextInputTests PRIVATE imgui::imgui)
     add_test(NAME OverlayTextInput COMMAND TRPOverlayTextInputTests)
     set_tests_properties(OverlayTextInput PROPERTIES TIMEOUT 15)
+    # Draws the production menu offline to PNGs; see tools/OverlayPreview/README.md.
+    set(TRP_OVERLAY_PREVIEW_MENU_SOURCES ${ARP_OVERLAY_MENU_SOURCES})
+    if(TRP_ENABLE_NEURAL_RENDERING)
+        list(APPEND TRP_OVERLAY_PREVIEW_MENU_SOURCES src/OverlayNeuralPanel.cpp)
+    endif()
+    add_executable(TRPOverlayPreview tools/OverlayPreview/OverlayPreview.cpp tools/OverlayPreview/PreviewHost.cpp
+        tools/OverlayPreview/PreviewScenarios.cpp src/ScreenshotFile.cpp ${TRP_OVERLAY_PREVIEW_MENU_SOURCES}
+        ${CMAKE_CURRENT_BINARY_DIR}/cmake/Resources.rc)
+    set_source_files_properties(${CMAKE_CURRENT_BINARY_DIR}/cmake/Resources.rc TARGET_DIRECTORY TRPOverlayPreview
+        PROPERTIES OBJECT_DEPENDS "${TRP_OVERLAY_FONT}")
+    target_compile_features(TRPOverlayPreview PRIVATE cxx_std_23)
+    target_compile_options(TRPOverlayPreview PRIVATE /MP /W4 /permissive- /Zc:__cplusplus)
+    target_precompile_headers(TRPOverlayPreview PRIVATE include/PCH.h)
+    target_include_directories(TRPOverlayPreview PRIVATE include src tools/OverlayPreview
+        "${CMAKE_CURRENT_BINARY_DIR}/cmake" "${TRP_STREAMLINE_INCLUDE_DIR}" "${TRP_NGX_SDK_DIR}/include"
+        "${TRP_SIMPLEINI_INCLUDE_DIR}")
+    if(NOT TRP_ENABLE_NEURAL_RENDERING)
+        target_compile_definitions(TRPOverlayPreview PRIVATE TRP_NO_NEURAL_RENDERING)
+    endif()
+    # CommonLib and Detours only satisfy the shared PCH; nothing calls the game.
+    target_link_libraries(TRPOverlayPreview PRIVATE CommonLibSSE::CommonLibSSE ARPDetours imgui::imgui d3d11 dxgi
+        windowscodecs ole32)
+    add_test(NAME OverlayPreview COMMAND TRPOverlayPreview --warp --out "${CMAKE_CURRENT_BINARY_DIR}/overlay-preview")
+    set_tests_properties(OverlayPreview PROPERTIES TIMEOUT 120)
     add_executable(TRPStartupPreferencesTests tests/StartupPreferencesTests.cpp)
     target_compile_features(TRPStartupPreferencesTests PRIVATE cxx_std_23)
     target_compile_definitions(TRPStartupPreferencesTests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
