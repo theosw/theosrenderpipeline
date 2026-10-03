@@ -292,6 +292,14 @@ namespace TheosRenderPipeline::SourceDLSSG
 				{ secondUI_.Get(), L"TRP NR pass 2 UI" }
 			} }) { if (resource) { (void)resource->SetName(name); } }
 		}
+		if (diagnostics_) {
+			wchar_t label[120]{};
+			swprintf_s(label, L"TRP NR %ls slot=%zu producer=%llu evaluation=%llu",
+				options.beforeUpscaling ? L"before" : L"after", slot,
+				static_cast<unsigned long long>(producerValue),
+				static_cast<unsigned long long>(feature_.EvaluationsRecorded() + 1));
+			DiagnosticMarker(list, true, label);
+		}
 		DiagnosticMarker(list, diagnostics_, L"TRP NR prepare inputs");
 		const int effectivePasses = options.EffectivePasses();
 		if (effectivePasses == 1) { secondHistoryInvalid_ = true; }
