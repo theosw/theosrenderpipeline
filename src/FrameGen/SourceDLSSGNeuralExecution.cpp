@@ -6,6 +6,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 {
 namespace
 {
+static_assert(kCommandSlots <= TRPExperiment::AsyncPipeline::kHostFrames);
 struct FrameOptions { NeuralOptions options; bool depthInverted; float scaleX, scaleY; };
 // Reserve room for model allocation and other rendering activity. This checks
 // live process-local budget on the SAME physical adapter, before histories exist.
@@ -87,17 +88,17 @@ bool NeuralExecution::Record(ID3D12Device* device, ID3D12GraphicsCommandList* li
         corrected_=regular_->Corrected(); status_=fallback_.empty()?regular_->Status():fallback_+"; "+regular_->Status(); return ok;
     }
     auto frame=std::make_shared<FrameOptions>(FrameOptions{options,depthInverted,scaleX,scaleY});
-    const auto result=async_->Record(list,color,motion,depth,reset||skipped_,true,std::move(frame));
-    if (result==S_FALSE) {
-        // Do not reuse an unadvanced displacement chain after a missed host frame.
-        skipped_=true; corrected_=color; status_="Async: scene unchanged while capture retires"; return true;
-    }
+    const auto result=async_->Record(list,color,motion,depth,reset,true,std::move(frame));
     if (FAILED(result)) { status_="Async NR failed: "+async_->Status().error; return false; }
-    skipped_=false; pendingSubmission_=true; corrected_=async_->Output();
+    pendingSubmission_=true; corrected_=async_->Output();
     const auto state=async_->Status();
     status_=std::format("Async: {}; result age {} frames; {} evaluations; {:.1f} MiB history; worker {:.2f} ms",
         state.displaying?"delayed correction":"waiting for correction",state.resultAge,state.evaluations,
         state.allocationBytes/(1024.*1024.),state.evaluationMs);
+    if(state.frame==1 || reset || state.frame%600==0)
+        logger::info("[SourceDLSSG async] sourceFrames={} composedFrames={} captures={} evaluations={} generation={} droppedSnapshots={} hostInFlight={} hostPeak={}",
+            state.frame,state.compositions,state.captures,state.evaluations,state.generation,state.dropped,
+            state.hostFramesInFlight,state.peakHostFramesInFlight);
     return true;
 }
 HRESULT NeuralExecution::Submitted(ID3D12Fence* fence,std::uint64_t value)

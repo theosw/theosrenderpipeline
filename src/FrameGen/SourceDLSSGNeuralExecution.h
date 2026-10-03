@@ -30,7 +30,7 @@ private:
     UINT guideWidth_{}, guideHeight_{};
     D3D12_RESOURCE_DESC sceneDesc_{};
     DXGI_FORMAT motionFormat_{};
-    bool initialized_{}, pendingSubmission_{}, skipped_{};
+    bool initialized_{}, pendingSubmission_{};
     ID3D12Resource* corrected_{}; // Host input or privately owned output, never worker data.
     std::string status_, fallback_;
 };

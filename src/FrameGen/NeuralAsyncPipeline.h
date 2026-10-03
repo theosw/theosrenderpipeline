@@ -12,10 +12,14 @@ namespace TRPExperiment {
 // Experimental worker queue. Regular NR remains the default.
 // The caller owns COMMON-state, same-size scene/depth/motion resources and
 // submits the recorded frame before calling Submitted. No inference wait is
-// allowed on this path. One host frame may be outstanding; admission polls its
-// fence rather than waiting. GPU readers own immutable snapshots until retired.
+// allowed on this path. Submit all host frames on the same ordered queue/fence.
+// Descriptors and inputs are owned per submission until its fence retires;
+// motion advances every frame, independently of inference capture admission.
 class AsyncPipeline {
 public:
+    // Production interop has three command slots. Extra capacity also permits
+    // queued-host fixtures; exhaustion is a terminal caller-contract violation.
+    static constexpr unsigned kHostFrames = 8;
     struct Config {
         unsigned width{}, height{};
         unsigned guideWidth{}, guideHeight{}; // Zero means scene extent.
@@ -37,7 +41,8 @@ public:
     // must outlive Stop and must be retained if Stop cannot prove retirement.
     using Evaluator = std::function<bool(ID3D12GraphicsCommandList*, const Capture&)>;
     struct Snapshot {
-        std::uint64_t frame{}, generation{}, evaluations{}, dropped{}, resultFrame{};
+        std::uint64_t frame{}, generation{}, evaluations{}, dropped{}, resultFrame{}, compositions{}, captures{};
+        unsigned hostFramesInFlight{}, peakHostFramesInFlight{};
         unsigned resultAge{};
         bool displaying{}, failed{};
         double evaluationMs{};

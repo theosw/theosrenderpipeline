@@ -57,6 +57,12 @@ struct AsyncPipeline::State {
         unsigned age,maxAge,padding{};
         unsigned guideWidth,guideHeight,padding2{},padding3{};
     };
+    struct HostFrame {
+        std::array<ComPtr<ID3D12DescriptorHeap>,5> heaps;
+        std::array<ComPtr<ID3D12Resource>,3> inputs;
+        ComPtr<ID3D12Fence> fence;
+        std::uint64_t value{};
+    };
     Config config;
     Evaluator evaluate;
     ComPtr<ID3D12Device> device;
@@ -74,11 +80,13 @@ struct AsyncPipeline::State {
     int capture{-1},display{-1};
     Snapshot stats;
     ComPtr<ID3D12Resource> previousDepth,output;
-    std::array<ComPtr<ID3D12Resource>,3> hostInputs;
     ComPtr<ID3D12RootSignature> root;
     std::array<ComPtr<ID3D12PipelineState>,2> pipelines;
-    // One host submission outstanding. Each dispatch needs distinct descriptors.
-    std::array<ComPtr<ID3D12DescriptorHeap>,5> heaps;
+    // Resources shared between host frames (flows/output/previousDepth) are
+    // ordered by the host queue. CPU-written descriptors must remain immutable
+    // until EACH submission retires, even when the next list is already open.
+    std::array<HostFrame,kHostFrames> hostFrames;
+    HostFrame* currentHost{};
     unsigned heapIndex{};
 
     ~State(){if(event)CloseHandle(event);}
@@ -96,8 +104,8 @@ struct AsyncPipeline::State {
     }
     void Dispatch(ID3D12GraphicsCommandList* list,unsigned kernel,Constants constants,
         std::array<ID3D12Resource*,6> inputs,ID3D12Resource* target) {
-        if(heapIndex>=heaps.size())throw std::runtime_error("too many frame dispatches");
-        auto* heap=heaps[heapIndex++].Get();auto cpu=heap->GetCPUDescriptorHandleForHeapStart();
+        if(heapIndex>=currentHost->heaps.size())throw std::runtime_error("too many frame dispatches");
+        auto* heap=currentHost->heaps[heapIndex++].Get();auto cpu=heap->GetCPUDescriptorHandleForHeapStart();
         const auto stride=device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
         std::vector<ID3D12Resource*> unique;
         for(auto* r:inputs) {
@@ -218,7 +226,7 @@ HRESULT AsyncPipeline::Initialize(ID3D12Device* device,const Config& request,Eva
             D3D12_COMPUTE_PIPELINE_STATE_DESC p{};p.pRootSignature=state->root.Get();p.CS={blob->GetBufferPointer(),blob->GetBufferSize()};
             Check(device->CreateComputePipelineState(&p,IID_PPV_ARGS(&state->pipelines[i])));
         }
-        for(auto& heap:state->heaps) {
+        for(auto& frame:state->hostFrames)for(auto& heap:frame.heaps) {
             D3D12_DESCRIPTOR_HEAP_DESC h{D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,7,D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE,0};
             Check(device->CreateDescriptorHeap(&h,IID_PPV_ARGS(&heap)));
         }
@@ -239,8 +247,21 @@ HRESULT AsyncPipeline::Record(ID3D12GraphicsCommandList* list,ID3D12Resource* co
     if(!matches(color,s.config.format) || !matches(motion,s.config.motionFormat,true) || !matches(depth,DXGI_FORMAT_R32_FLOAT,true) || color==s.output.Get())return E_INVALIDARG;
     ComPtr<ID3D12Device> listDevice;
     if(FAILED(list->GetDevice(IID_PPV_ARGS(&listDevice))) || listDevice.Get()!=s.device.Get())return E_INVALIDARG;
-    if(!Complete(s.hostFence.Get(),s.hostValue))return S_FALSE;
-    s.recording=true;s.heapIndex=0;s.capture=-1;s.hostInputs={color,motion,depth};
+    s.currentHost=nullptr;s.stats.hostFramesInFlight=0;
+    for(auto& frame:s.hostFrames) {
+        if(Complete(frame.fence.Get(),frame.value)) {
+            frame.inputs={};
+            if(!s.currentHost)s.currentHost=&frame;
+        }else ++s.stats.hostFramesInFlight;
+    }
+    if(!s.currentHost) {
+        // Never silently skip a motion link or reset good correction history.
+        // The owner must bound host work (production interop has three slots).
+        s.stats.failed=true;s.stats.error="host submission capacity exceeded";return E_UNEXPECTED;
+    }
+    s.recording=true;s.heapIndex=0;s.capture=-1;s.currentHost->inputs={color,motion,depth};
+    ++s.stats.hostFramesInFlight;
+    s.stats.peakHostFramesInFlight=std::max(s.stats.peakHostFramesInFlight,s.stats.hostFramesInFlight);
     ++s.stats.frame;enabled=enabled && s.config.enabled;
     if(reset || enabled!=s.enabledLast) {
         ++s.stats.generation;s.display=-1;
@@ -274,14 +295,16 @@ HRESULT AsyncPipeline::Record(ID3D12GraphicsCommandList* list,ID3D12Resource* co
         if(s.display>=0) {
             auto& slot=s.slots[s.display];constants.useResult=1;constants.age=unsigned(s.stats.frame-slot.frame);
             s.Dispatch(list,1,constants,{color,slot.flow[slot.flowIndex].Get(),slot.color.Get(),slot.output.Get(),depth,slot.depth.Get()},s.output.Get());
-            s.stats.resultFrame=slot.frame;s.stats.resultAge=constants.age;s.stats.displaying=true;
+            s.stats.resultFrame=slot.frame;s.stats.resultAge=constants.age;s.stats.displaying=true;++s.stats.compositions;
         }else {Copy(list,color,s.output.Get());s.stats.displaying=false;s.stats.resultAge=0;s.stats.resultFrame=0;}
-        // A single pending capture, replaced with the newest frame when its
-        // preceding host submission is retired. Never build an inference backlog.
+        // Replace only a snapshot the worker has not claimed. Host writes stay
+        // ordered; the worker waits for the newest snapshot's capture fence.
+        // Motion/compose above continue even when no capture slot is available.
         if(enabled) {
             for(unsigned i=0;i<s.slots.size();++i)if(s.slots[i].phase==State::Pending){s.capture=int(i);++s.stats.dropped;break;}
             if(s.capture<0)for(unsigned i=0;i<s.slots.size();++i)if(s.slots[i].phase==State::Free){s.capture=int(i);break;}
             if(s.capture>=0) {
+                ++s.stats.captures;
                 auto& slot=s.slots[s.capture];slot.phase=State::Pending;slot.frame=s.stats.frame;slot.generation=s.stats.generation;
                 slot.captureFence.Reset();slot.captureValue=0;slot.flowIndex=0;slot.metadata=std::move(metadata);
                 Copy(list,color,slot.color.Get());Copy(list,motion,slot.motion.Get());Copy(list,depth,slot.depth.Get());
@@ -299,6 +322,7 @@ HRESULT AsyncPipeline::Submitted(ID3D12Fence* fence,std::uint64_t value) {
     if(FAILED(fence->GetDevice(IID_PPV_ARGS(&owner))) || owner.Get()!=s.device.Get())return E_INVALIDARG;
     if(!s.recording || s.stats.failed || (s.hostFence && (s.hostFence.Get()!=fence || value<=s.hostValue)))return E_INVALIDARG;
     s.hostFence=fence;s.hostValue=value;s.recording=false;
+    s.currentHost->fence=fence;s.currentHost->value=value;
     if(s.capture>=0) {auto& slot=s.slots[s.capture];slot.captureFence=fence;slot.captureValue=value;}
     s.wake.notify_one();return S_OK;
 }

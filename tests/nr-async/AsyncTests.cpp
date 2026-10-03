@@ -112,6 +112,62 @@ int main() {
         Require(p.Initialize(f.gpu.device.Get(),config,[](auto*,const auto&){return true;})==E_INVALIDARG,"nonfinite guide scale rejected");++cases;
     }
     {
+        // Reproduce real host pipelining: three frames are recorded/submitted
+        // while a GPU queue gate keeps ALL their retirement fences incomplete.
+        // Keep the next evaluator blocked so the same completed residual must
+        // survive, advance three motion links and compose on every frame.
+        Fixture f;auto script=std::make_shared<Script>(f.gpu.device.Get());AsyncPipeline p;
+        Check(p.Initialize(f.gpu.device.Get(),f.Config(),[script](auto* list,const auto& capture){return script->Evaluate(list,capture);}),"queued host initialize");
+        script->Permit();f.Frame(p);Until([&]{return p.Status().evaluations==1;},"queued host first answer");
+        f.Set(.4f,-1.f);auto first=f.Frame(p);
+        Near(first[15][0],.4+.2+.002*14,2e-6,"queued host first displacement");
+        Until([&]{return script->Entered()==2;},"queued host next worker blocked");
+        struct Queued {
+            ComPtr<ID3D12CommandAllocator> allocator;
+            ComPtr<ID3D12GraphicsCommandList> list;
+            ComPtr<ID3D12Resource> output;
+        };
+        std::array<Queued,3> frames;
+        for(auto& frame:frames) {
+            frame.output=f.gpu.Texture(f.w,f.h);
+            Check(f.gpu.device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,IID_PPV_ARGS(&frame.allocator)),"queued allocator");
+            Check(f.gpu.device->CreateCommandList(0,D3D12_COMMAND_LIST_TYPE_DIRECT,frame.allocator.Get(),nullptr,IID_PPV_ARGS(&frame.list)),"queued list");
+        }
+        ComPtr<ID3D12Fence> gate;Check(f.gpu.device->CreateFence(0,D3D12_FENCE_FLAG_NONE,IID_PPV_ARGS(&gate)),"queue gate");
+        Check(f.gpu.queue->Wait(gate.Get(),1),"hold host queue");
+        const auto generation=p.Status().generation;
+        for(auto& frame:frames) {
+            const auto result=p.Record(frame.list.Get(),f.color.Get(),f.motion.Get(),f.depth.Get());
+            // A negative-control failure must release the GPU gate too.
+            if(result!=S_OK) {Check(gate->Signal(1),"negative control gate release");script->Release();}
+            Require(result==S_OK,"queued host records without bypass");
+            Script::Barrier(frame.list.Get(),p.Output(),D3D12_RESOURCE_STATE_COMMON,D3D12_RESOURCE_STATE_COPY_SOURCE);
+            Script::Barrier(frame.list.Get(),frame.output.Get(),D3D12_RESOURCE_STATE_COMMON,D3D12_RESOURCE_STATE_COPY_DEST);
+            frame.list->CopyResource(frame.output.Get(),p.Output());
+            Script::Barrier(frame.list.Get(),frame.output.Get(),D3D12_RESOURCE_STATE_COPY_DEST,D3D12_RESOURCE_STATE_COMMON);
+            Script::Barrier(frame.list.Get(),p.Output(),D3D12_RESOURCE_STATE_COPY_SOURCE,D3D12_RESOURCE_STATE_COMMON);
+            Check(frame.list->Close(),"queued close");ID3D12CommandList* lists[]{frame.list.Get()};f.gpu.queue->ExecuteCommandLists(1,lists);
+            Check(f.gpu.queue->Signal(f.gpu.fence.Get(),++f.gpu.serial),"queued signal");
+            Check(p.Submitted(f.gpu.fence.Get(),f.gpu.serial),"queued submission");
+            Require(f.gpu.fence->GetCompletedValue()<f.gpu.serial,"host remains genuinely in flight");
+            Require(p.Status().displaying && p.Status().generation==generation,"queued correction/history preserved");
+        }
+        Require(p.Status().peakHostFramesInFlight==3 && p.Status().frame==5 && p.Status().compositions==4,"every queued frame advances and composes");
+        Check(gate->Signal(1),"release host queue");
+        Check(f.gpu.fence->SetEventOnCompletion(f.gpu.serial,f.gpu.event),"queued completion event");
+        Require(WaitForSingleObject(f.gpu.event,10000)==WAIT_OBJECT_0,"queued frames retired");
+        for(unsigned i=0;i<frames.size();++i) {
+            auto out=f.gpu.Read(frames[i].output.Get());
+            Near(out[15][0],.4+.2+.002*(15-(i+2)),2e-6,"queued descriptors/motion preserve exact correction");
+            Near(out[15][3],.37,1e-6,"queued alpha retained");
+            Near(out[0][0],.4,1e-6,"queued offscreen rejection retained");
+        }
+        // Reuse retired descriptors; repeated queued work must not exhaust the
+        // pool or lose its displacement history after it has drained.
+        auto out=f.Frame(p);Near(out[15][0],.4+.2+.002*10,2e-6,"retired context reused with continuous motion");
+        script->Release();Require(p.Stop(),"queued host and worker retired");++cases;
+    }
+    {
         Fixture f;AsyncPipeline p;auto c=f.Config();c.enabled=false;
         Check(p.Initialize(f.gpu.device.Get(),c,[](auto*,const auto&){Require(false,"disabled never evaluates");return false;}),"disabled initialize");
         auto out=f.Frame(p);Near(out[7][0],.4,1e-6,"default disabled bypass");Require(p.Status().evaluations==0,"no disabled inference");Require(p.Stop(),"disabled retire");++cases;
@@ -192,11 +248,14 @@ int main() {
         Check(f.gpu.queue->Signal(f.gpu.fence.Get(),++f.gpu.serial),"test allocator signal");
         Check(f.gpu.fence->SetEventOnCompletion(f.gpu.serial,f.gpu.event),"test allocator event");
         Require(WaitForSingleObject(f.gpu.event,10000)==WAIT_OBJECT_0,"test allocator retired");
-        f.gpu.Begin();Require(p.Record(f.gpu.list.Get(),f.color.Get(),f.motion.Get(),f.depth.Get())==S_FALSE,"unfinished host polls admission");
-        // Close the unused list; its allocator wasn't the async owner's.
-        Check(f.gpu.list->Close(),"empty list close");
+        for(unsigned i=1;i<AsyncPipeline::kHostFrames;++i) {
+            f.gpu.Begin();Require(p.Record(f.gpu.list.Get(),f.color.Get(),f.motion.Get(),f.depth.Get())==S_OK,"unfinished host uses distinct descriptors");
+            f.gpu.End();Check(p.Submitted(gate.Get(),i+1),"future pooled retirement token");
+        }
+        f.gpu.Begin();Require(p.Record(f.gpu.list.Get(),f.color.Get(),f.motion.Get(),f.depth.Get())==E_UNEXPECTED,"unbounded caller fails rather than skipping motion");
+        Check(f.gpu.list->Close(),"capacity failure empty list close");
         Require(!p.Stop(),"unconfirmed host refuses release");
-        Check(f.gpu.queue->Signal(gate.Get(),1),"real completion token");Check(gate->SetEventOnCompletion(1,f.gpu.event),"gate event");
+        Check(f.gpu.queue->Signal(gate.Get(),AsyncPipeline::kHostFrames),"real completion token");Check(gate->SetEventOnCompletion(AsyncPipeline::kHostFrames,f.gpu.event),"gate event");
         Require(WaitForSingleObject(f.gpu.event,10000)==WAIT_OBJECT_0 && p.Stop(),"fence confirmed release");++cases;
     }
     std::printf("PASS %u async GPU scenarios: blocked inference, motion, per-link occlusion, age/cut/disable, gain, failures and retirement\n",cases);
