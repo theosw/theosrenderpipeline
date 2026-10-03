@@ -151,7 +151,13 @@ int main(int argc, char** argv)
     Check(interop.Begin(Work::FrameGeneration, &list), "begin waits through slow progress");
     slowProgress.join();
     Require(list && interop.Ready(), "slow progress leaves interop usable");
-    Require(interop.TakeExtendedWait(wait) && wait.result == S_OK && wait.slices * 20 > 2 * 150 &&
+    // Windows rounds 20 ms slices and 50 ms gaps up to its timer granularity
+    // (about 31 and 62 ms by default), so nominal slices x 20 is not elapsed time.
+    // Without progress resets the wait would fail after 150 / 20 timed-out
+    // slices; exceeding that count and twice the limit in real time proves them.
+    Require(interop.TakeExtendedWait(wait), "slow progress is reported as an extended wait");
+    std::printf("slow progress slices=%u elapsedMs=%llu\n", wait.slices, static_cast<unsigned long long>(wait.elapsedMs));
+    Require(wait.result == S_OK && wait.slices > 150 / 20 && wait.elapsedMs > 2 * 150 &&
         wait.completedAtEnd > wait.completedAtStart, "slow progress outlasts the no-progress limit");
     Check(interop.Submit(Work::FrameGeneration), "submit after slow progress");
     Check(interop.Drain(), "retire slow progress");
