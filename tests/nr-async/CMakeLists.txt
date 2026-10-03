@@ -12,22 +12,30 @@ add_executable(TRPNeuralAsyncTests AsyncTests.cpp)
 target_link_libraries(TRPNeuralAsyncTests PRIVATE TRPNeuralAsync)
 add_test(NAME NeuralAsyncPixelsAndLifetime COMMAND TRPNeuralAsyncTests)
 set_tests_properties(NeuralAsyncPixelsAndLifetime PROPERTIES TIMEOUT 60)
+add_executable(TRPNeuralReplayTests ReplayTests.cpp)
+target_link_libraries(TRPNeuralReplayTests PRIVATE TRPNeuralAsync)
+add_test(NAME NeuralReplayGuidesAndCapture COMMAND TRPNeuralReplayTests)
+set_tests_properties(NeuralReplayGuidesAndCapture PROPERTIES TIMEOUT 60)
 
 # Built and run explicitly; never run inference or launch anything from CTest.
 option(TRP_NR_ASYNC_VENDOR "Build manual native NVIDIA NR experiment" OFF)
 if(TRP_NR_ASYNC_VENDOR)
     include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/NeuralShaders.cmake")
     set(NGX_SDK "" CACHE PATH "Locally supplied NGX SDK")
-    add_executable(TRPNeuralAsyncBenchmark VendorBenchmark.cpp
+    set(native_sources
         ../../src/FrameGen/SourceDLSSGNeuralRendering.cpp
         ../../src/FrameGen/SourceDLSSGNeuralResolve.cpp
         ../../src/FrameGen/SourceDLSSGInterop.cpp
         ../../src/FrameGen/NeuralRenderingFeatureSession.cpp
         ../../src/FrameGen/NeuralRenderingModulePathHook.cpp
         ../../src/FrameGen/NeuralRenderingRuntimeIdentity.cpp)
-    target_link_libraries(TRPNeuralAsyncBenchmark PRIVATE TRPNeuralAsync bcrypt version
+    add_executable(TRPNeuralAsyncBenchmark VendorBenchmark.cpp ${native_sources})
+    add_executable(TRPNeuralReplayBenchmark ReplayBenchmark.cpp ${native_sources})
+    foreach(target TRPNeuralAsyncBenchmark TRPNeuralReplayBenchmark)
+    target_link_libraries(${target} PRIVATE TRPNeuralAsync bcrypt version
         "${NGX_SDK}/lib/Windows_x86_64/nvsdk_ngx_d.lib")
-    target_compile_definitions(TRPNeuralAsyncBenchmark PRIVATE TRP_NR_VENDOR_BENCHMARK)
-    target_include_directories(TRPNeuralAsyncBenchmark PRIVATE "${NGX_SDK}/include")
-    trp_target_neural_shaders(TRPNeuralAsyncBenchmark)
+    target_compile_definitions(${target} PRIVATE TRP_NR_VENDOR_BENCHMARK)
+    target_include_directories(${target} PRIVATE "${NGX_SDK}/include")
+    trp_target_neural_shaders(${target})
+    endforeach()
 endif()

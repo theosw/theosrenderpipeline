@@ -35,9 +35,11 @@ default in `AsyncPipeline::Config` and must be enabled by its standalone caller.
   Unconfirmed submission/retirement keeps the entire state and evaluator alive for
   process lifetime. A failed native recording is terminal and is never submitted.
 
-The first version deliberately resets the model's own temporal history on every
-evaluation. Both comparison modes use that policy. It is not a replacement for
-the every-frame renderer's normal model-history policy.
+The asynchronous prototype deliberately resets the model's own temporal history
+on every evaluation. The original `VendorBenchmark` resets both native modes.
+The paced replay below adds a regular NR baseline that preserves model history
+between cuts, plus an every-frame reset control. Async is not a replacement for
+the renderer's normal model-history policy.
 
 ## Build and software verification
 
@@ -100,3 +102,77 @@ prototype histories only, excluding native runtime allocations; live adapter
 budget admission is still required for game use. Independent queues may contend
 for the same GPU. There is no claim of useful overlap, Skyrim quality, smoother
 display timing, AMD support or release readiness from a passing software fixture.
+
+## Paced A/B replay
+
+`TRPNeuralReplayBenchmark` uses the same production `NeuralPass`, one full-size
+FP16 world pass, reversed R32 depth and normalized R32G32 current-to-previous
+motion. It compares `off`, `regular` (reset only on the first warmup frame and
+case cuts), `reset` (reset every evaluation) and `async` (reset every worker
+evaluation). Six seconds covers four deterministic 1.5-second cases: world
+camera pan, a moving foreground occluder, swaying thin geometry and an exposure
+step. Every case transition resets visible/model history. There are no game
+images or invented face-quality claims. The additional WARP fixture checks
+analytic camera/object guides, reversed depth, cut vectors, thin geometry,
+exposure and readback transitions using actual GPU pixels and the debug layer.
+
+```powershell
+cmake -S tests/nr-async -B out/build/async-replay `
+  -DTRP_NR_ASYNC_VENDOR=ON -DNGX_SDK="<your NGX SDK>"
+cmake --build out/build/async-replay --config Release --parallel 2
+ctest --test-dir out/build/async-replay -C Release --output-on-failure
+python tests/nr-async/run_replay.py `
+  out/build/async-replay/Release/TRPNeuralReplayBenchmark.exe `
+  "<absolute path to locally supplied nvngx_dlssnr.dll>" `
+  out/evidence/replay-timing --rates 30 60 90
+```
+
+The producer uses a Windows high-resolution waitable timer against fixed source
+deadlines. It records actual intervals, start lateness and deadline misses; a
+requested rate is not a physical-cadence measurement. Overdue frames are produced
+without dropping their deterministic source indices. Sixteen static warmup
+frames and initial async feature creation are outside the paced population.
+CPU frame cost includes recording, submit and host retirement; recording and
+submit/wait scopes are also separate. Host GPU timestamps include queue
+scheduling gaps. Async evaluation roundtrip includes worker CPU recording and
+fence completion. Result age is recorded in source frames, nominal source time
+and wall time from the captured source frame's CPU start to current host
+retirement. The wall value includes capture/recording delays and excludes scanout;
+it does not assume missed deadlines have uniform intervals. Frame-weighted evaluation-roundtrip
+statistics can repeat the same latest worker sample. CSV evaluation counts mark
+the replay interval; stopping can complete a final in-flight evaluation afterward.
+
+The runner preserves the exact executable/PDB and runtime hash, complete CSVs,
+phase logs and failed exit statuses. Shutdown gets its own bounded timeout after
+the flushed feature-release marker. `--allow-shutdown-timeout` is an explicit
+continuation for that phase only and still returns failure after the sequence.
+`init-only` and `create-only` provide controls with no evaluation, using the same
+NGX bootstrap and pinned runtime admission. The game guard also applies to these
+controls. No benchmark is registered as an automatic native CTest.
+
+Memory output contains the fixed prototype allocation and process-local DXGI
+usage snapshots after warmup and at the last source frame. DXGI usage includes
+runtime, input and other device allocations; it is not an isolated model size or
+peak/live-budget admission. Prototype histories remain bounded before allocation.
+
+Capture runs are separate because DMA/readback changes the GPU workload:
+
+```powershell
+python tests/nr-async/run_replay.py `
+  out/build/async-replay/Release/TRPNeuralReplayBenchmark.exe `
+  "<absolute path to locally supplied nvngx_dlssnr.dll>" `
+  out/evidence/replay-images --width 640 --height 360 --rates 60 --capture-hz 10
+python tests/nr-async/analyze_replay.py out/evidence/replay-images
+```
+
+Capture buffers have a separate 512 MiB bound before allocation. They are
+allocated before warmup and copied on the existing host
+submission. CPU mapping and raw FP16 file writes happen after all host/worker
+retirement. The offline analyzer requires NumPy and Pillow, verifies exact source
+frame/time/case alignment, file extent, finite pixels and alpha, and produces a
+contact sheet, motion GIF and pixel diagnostics. All image panels use the same
+linear-HDR display mapping. Difference panels are signed RGB differences around
+gray at 8x scale. Camera-only enhancement-change residuals use the analytic guide
+to sample the previous correction; they combine sampling error, model behavior
+and scheduling. Pixel disagreement, unchanged-pixel fractions and temporal
+residuals are not perceptual scores, confidence masks or game acceptance.
