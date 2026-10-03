@@ -69,6 +69,28 @@ static void Kernels(GPU& gpu){
     }
     std::puts("PASS: production D3D12 pack/resolve, mixed guide extents, rounded work extents, centre density, offscreen endpoint motion, depth and alpha");
 }
+static void DescriptorCache(GPU& gpu){
+    NeuralResolveKernels kernels;Check(kernels.Initialize(gpu.device.Get()),"cache kernels");
+    const unsigned w=16,h=8;
+    ResolveConstants c;c.sourceWidth=c.targetWidth=c.workWidth=w;c.sourceHeight=c.targetHeight=c.workHeight=h;
+    auto fill=[&](float v){return std::vector<Pixel>(size_t(w)*h,Pixel{v,v*.5f,v*.25f,1});};
+    auto a=gpu.Texture(w,h,fill(.2f)),out=gpu.Texture(w,h);
+    auto run=[&](ID3D12Resource* source,std::size_t slot){
+        gpu.Begin();Check(kernels.Record(gpu.device.Get(),gpu.list.Get(),slot,1,ResolveKernel::Downsample,c,source,nullptr,nullptr,out.Get()),"cached dispatch");gpu.End();
+    };
+    auto expect=[&](float v,const char* why){for(const auto& p:gpu.Read(out.Get()))Near(p[0],v,.0001,why);};
+    run(a.Get(),0);expect(.2f,"first table");
+    run(a.Get(),0);expect(.2f,"unchanged table reused");
+    Require(kernels.DescriptorWrites()==1,"identical resources reuse the slot's descriptors");
+    run(a.Get(),1);Require(kernels.DescriptorWrites()==2,"each retired slot owns its table");
+    auto b=gpu.Texture(w,h,fill(.6f));run(b.Get(),0);expect(.6f,"changed input rewrites the table");
+    Require(kernels.DescriptorWrites()==3,"changed identity rewrites once");
+    // Drop the caller's reference before each replacement. A new allocation must
+    // never be mistaken for the cached resource and read through a stale view.
+    for(int i=1;i<=8;++i){b.Reset();b=gpu.Texture(w,h,fill(.1f*i));run(b.Get(),0);expect(.1f*i,"replacement allocation reads its own pixels");}
+    Require(kernels.DescriptorWrites()==11,"every replacement rewrites its table");
+    std::puts("PASS: resolve descriptor tables reused per slot/stage, rewritten on identity change and safe across released inputs");
+}
 static void Passes(GPU& gpu){
     using namespace TheosRenderPipeline::NeuralRendering;
     unsigned cases=0;
@@ -159,6 +181,9 @@ static void IndependentPasses(GPU& gpu,bool adaptive=false){
             // independently of the upstream camera/history reset.
             gpu.Begin();Require(pass.Record(gpu.device.Get(),gpu.list.Get(),frame%kCommandSlots,options,adaptive && frame==6?false:reset,true,float(gw),float(gh),
                 motion.Get(),depth.Get(),world?nullptr:ui.Get(),scene.Get(),world?nullptr:composed.Get()),pass.Status().c_str());gpu.End();
+            // The cached status must still follow per-frame pass changes.
+            Require((pass.Status().find("; pass override=")!=std::string::npos)==reduced &&
+                (pass.Status().find("; pass2=")!=std::string::npos)==!reduced,"status follows automatic pass changes");
             auto actual=gpu.Read(pass.Corrected());
             for(size_t i=0;i<actual.size();++i)for(unsigned ch=0;ch<4;++ch){
                 const auto first=pixels[i][ch]*.8f+.01f;
@@ -185,4 +210,4 @@ static void IndependentPasses(GPU& gpu,bool adaptive=false){
     Fixture::secondWidth=Fixture::secondHeight=0;Fixture::transform=false;
     std::printf("PASS: %u independent pass configurations (adaptive=%d); rounded sizes, larger/smaller/equal second grid, per-pass tuning/preset, identity detail, chained transform and UI/history contracts\n",cases,adaptive);
 }
-int main(){GPU gpu;Kernels(gpu);Passes(gpu);CombinedPreparation(gpu);PreparationRecorder(gpu);IndependentPasses(gpu);IndependentPasses(gpu,true);}
+int main(){GPU gpu;Kernels(gpu);DescriptorCache(gpu);Passes(gpu);CombinedPreparation(gpu);PreparationRecorder(gpu);IndependentPasses(gpu);IndependentPasses(gpu,true);}

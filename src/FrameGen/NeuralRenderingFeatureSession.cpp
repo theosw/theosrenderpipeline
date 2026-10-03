@@ -3,6 +3,7 @@
 #include "NeuralRenderingCreationContext.h"
 #include "NeuralRenderingModulePathHook.h"
 #include "NeuralRenderingRuntimeIdentity.h"
+#include "NeuralRenderingSubrect.h"
 
 #include <PCH.h>
 
@@ -78,20 +79,6 @@ namespace TheosRenderPipeline::NeuralRendering
 				return module;
 			}
 			return ::GetModuleHandleW(L"_nvngx.dll");
-		}
-
-		void SetSubrect(
-			NVSDK_NGX_Parameter* a_parameters,
-			const char* a_prefix,
-			std::uint32_t a_width,
-			std::uint32_t a_height)
-		{
-			a_parameters->Set(std::format("DLSSNR.{}SubrectBaseX", a_prefix).c_str(), 0u);
-			a_parameters->Set(std::format("DLSSNR.{}SubrectBaseY", a_prefix).c_str(), 0u);
-			a_parameters->Set(
-				std::format("DLSSNR.{}SubrectWidth", a_prefix).c_str(), a_width);
-			a_parameters->Set(
-				std::format("DLSSNR.{}SubrectHeight", a_prefix).c_str(), a_height);
 		}
 
 	}
@@ -368,29 +355,29 @@ namespace TheosRenderPipeline::NeuralRendering
 		parameters->Set(
 			"DLSSNR.BidirectionalDistortionField",
 			a_input.bidirectionalDistortionField);
-		SetSubrect(parameters, "Color", state.displayWidth, state.displayHeight);
-		SetSubrect(parameters, "MVec", state.renderWidth, state.renderHeight);
-		SetSubrect(parameters, "Depth", state.renderWidth, state.renderHeight);
-		SetSubrect(parameters, "Output", state.displayWidth, state.displayHeight);
-		SetSubrect(parameters, "Backbuffer", state.displayWidth, state.displayHeight);
+		SetSubrect(parameters, Subrect::Color, state.displayWidth, state.displayHeight);
+		SetSubrect(parameters, Subrect::MVec, state.renderWidth, state.renderHeight);
+		SetSubrect(parameters, Subrect::Depth, state.renderWidth, state.renderHeight);
+		SetSubrect(parameters, Subrect::Output, state.displayWidth, state.displayHeight);
+		SetSubrect(parameters, Subrect::Backbuffer, state.displayWidth, state.displayHeight);
 		SetSubrect(
 			parameters,
-			"ControlMask",
+			Subrect::ControlMask,
 			a_input.controlMask ? state.displayWidth : 0,
 			a_input.controlMask ? state.displayHeight : 0);
 		SetSubrect(
 			parameters,
-			"UI",
+			Subrect::UI,
 			a_input.ui ? static_cast<std::uint32_t>(a_input.ui->GetDesc().Width) : 0,
 			a_input.ui ? a_input.ui->GetDesc().Height : 0);
 		SetSubrect(
 			parameters,
-			"UIAlpha",
+			Subrect::UIAlpha,
 			a_input.uiAlpha ? state.displayWidth : 0,
 			a_input.uiAlpha ? state.displayHeight : 0);
 		SetSubrect(
 			parameters,
-			"BidirectionalDistortionField",
+			Subrect::BidirectionalDistortionField,
 			a_input.bidirectionalDistortionField ? state.displayWidth : 0,
 			a_input.bidirectionalDistortionField ? state.displayHeight : 0);
 		parameters->Set("DLSSNR.MVecScaleX", a_input.motionVectorScaleX);

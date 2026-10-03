@@ -48,9 +48,28 @@ namespace TheosRenderPipeline::SourceDLSSG
 			const NeuralOptions& options, const NeuralRendering::FeatureSession::EvaluationInput& first,
 			const ResolveConstants& constants, ID3D12Resource* motion, ID3D12Resource* depth, ID3D12Resource* ui,
 			NeuralRendering::FeatureSession::EvaluationInput& second);
+		// With directResult, the final pass-2 result is returned in COMMON for the
+		// resolve to read; otherwise it is copied back to first.output in UAV state.
 		bool FinishSecond(ID3D12Device* device, ID3D12GraphicsCommandList* list, std::size_t slot,
 			const NeuralRendering::FeatureSession::EvaluationInput& first,
-			const NeuralRendering::FeatureSession::EvaluationInput& second, const ResolveConstants& originalConstants);
+			const NeuralRendering::FeatureSession::EvaluationInput& second, const ResolveConstants& originalConstants,
+			ID3D12Resource** directResult);
+		// Every field shown by the success status. The text is formatted only when one changes.
+		struct StatusKey
+		{
+			UINT workWidth{}, workHeight{}, sourceWidth{}, sourceHeight{};
+			int passes{};
+			bool worldOnly{}, beforeUpscaling{}, producerColor{}, peripheral{}, fusionRequested{}, fusedColor{};
+			NeuralRendering::ResolveMethod method{};
+			UINT secondWidth{}, secondHeight{};
+			int secondPreset{};
+			bool secondLinked{};
+			float secondIntensity{};
+			NeuralRendering::PassOverride passOverride{};
+			int requestedPasses{};
+			bool operator==(const StatusKey&) const = default;
+		};
+		void PublishStatus(const StatusKey& key);
 		void InitializeTelemetry(ID3D12Device* device, std::uint64_t timestampFrequency);
 		void HarvestTelemetry(std::size_t slot);
 		struct PendingTiming
@@ -88,5 +107,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		bool telemetryAttempted_{};
 		NeuralTelemetryTracker telemetry_;
 		std::string status_;
+		StatusKey statusKey_{};
+		std::string successStatus_;
 	};
 }
