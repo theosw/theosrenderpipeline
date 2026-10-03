@@ -463,7 +463,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		guides.displayWidth = a_width; guides.displayHeight = a_height;
 		if (nvidiaNeedsPresent_) { return true; } // Establish the new native presenter before Reflex markers.
 		if (provider_ == FrameGenerationProvider::XeFG) {
-			if (!CheckXeFG(xefg_.Prepare(frameConstants_))) { return false; }
+			if (!CheckXeFG(xefg_.Prepare(frameConstants_, XeFGFrameTimeConfiguration()))) { return false; }
 			recreateXeFG_ = xefg_.Snapshot().invertedDepth != (frameConstants_.depthInverted == sl::eTrue);
 			return true; // Intel copies the final HUD-less image after late NR, at Present.
 		}
@@ -622,6 +622,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 				const auto ui = intelUI->GetDesc();
 				if (ui.Format != destination.Format || ui.Width != destination.Width || ui.Height != destination.Height) { intelUI = nullptr; }
 			}
+			if (!CheckXeFG(xefg_.SetDebugView(XeFGOnlyGenerated(), XeFGTagGenerated()))) { return fault_; }
 			if (!CheckXeFG(xefg_.BeforePresent(list, motion_.texture12.Get(), depth_.texture12.Get(), intelHudless, intelUI,
 				generationAllowed && prepared && compatible, UIRecompositionConfiguration(),
 				outputFPSLimit_.load()))) { return fault_; }
@@ -695,9 +696,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 				!Check(interop_.Drain(), "retire Intel ONLY_NOW input copies")) { return fault_; }
 			const auto& intel = xefg_.Snapshot();
 			if (intel.presents <= 3 || intel.presents % 600 == 0) {
-				logger::info("[XeFG] frame={} enabled={} presented={} totalOutputs={} generatedPresents={} interpolationResult={} warnings={} epoch={} uiTexture={} uiTexturePresents={} latency=XeLL",
+				logger::info("[XeFG] frame={} enabled={} presented={} totalOutputs={} generatedPresents={} interpolationResult={} warnings={} epoch={} uiTexture={} uiTexturePresents={} frameTimeMs={:.2f} onlyGenerated={} tagGenerated={} latency=XeLL",
 					intel.frameId, intel.enabled, intel.framesPresented, intel.totalOutputs, intel.generatedPresents,
-					intel.interpolationResult, intel.warnings, intel.epoch, intel.uiTexture, intel.uiTexturePresents);
+					intel.interpolationResult, intel.warnings, intel.epoch, intel.uiTexture, intel.uiTexturePresents, intel.frameTimeMs, intel.onlyGenerated, intel.tagGenerated);
 			}
 		} else if (nvidiaNeedsPresent_) {
 			// The NVIDIA driver can retain the former Intel swapchain's latency

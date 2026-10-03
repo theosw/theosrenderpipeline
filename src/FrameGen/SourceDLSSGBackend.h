@@ -76,6 +76,16 @@ namespace TheosRenderPipeline::SourceDLSSG
 		sl::ReflexMode ReflexConfiguration() const { return reflexMode_.load(std::memory_order_relaxed); }
 		void ConfigureUIRecomposition(bool a_enabled) { uiRecomposition_.store(a_enabled, std::memory_order_relaxed); }
 		bool UIRecompositionConfiguration() const { return uiRecomposition_.load(std::memory_order_relaxed); }
+		void ConfigureXeFGFrameTime(bool a_enabled) { xefgFrameTime_.store(a_enabled, std::memory_order_relaxed); }
+		bool XeFGFrameTimeConfiguration() const { return xefgFrameTime_.load(std::memory_order_relaxed); }
+		// Lab diagnostics, not saved: present only Intel's generated frames, or tag them.
+		void ConfigureXeFGDebugView(bool a_onlyGenerated, bool a_tagGenerated)
+		{
+			xefgOnlyGenerated_.store(a_onlyGenerated, std::memory_order_relaxed);
+			xefgTagGenerated_.store(a_tagGenerated, std::memory_order_relaxed);
+		}
+		bool XeFGOnlyGenerated() const { return xefgOnlyGenerated_.load(std::memory_order_relaxed); }
+		bool XeFGTagGenerated() const { return xefgTagGenerated_.load(std::memory_order_relaxed); }
 		bool ConfigureOutputFPSLimit(int a_fps)
 		{
 			if (a_fps < 0 || a_fps > 1000) { return false; }
@@ -195,6 +205,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		MFGUnlock mfgUnlock_;
 		std::atomic<sl::ReflexMode> reflexMode_{ sl::ReflexMode::eLowLatency };
 		std::atomic<bool> uiRecomposition_{ true };
+		std::atomic<bool> xefgFrameTime_{ true }, xefgOnlyGenerated_{}, xefgTagGenerated_{};
 		std::atomic<int> outputFPSLimit_{ 0 };
 		mutable std::mutex presentationFeedbackMutex_;
 		PresentationFeedbackTracker presentationFeedback_;

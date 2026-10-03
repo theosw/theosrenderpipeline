@@ -85,7 +85,15 @@ int wmain(int argc, wchar_t** argv) {
             camera.cameraViewToClip.row[2]={0,0,1,0}; camera.cameraViewToClip.row[3]={0,0,0,1};
             camera.jitterOffset={0,0}; camera.depthInverted=round==1?sl::eTrue:sl::eFalse;
             camera.reset=frame==8||frame==45?sl::eTrue:sl::eFalse;
-            Check(presenter.Prepare(camera),"production camera"); Require(presenter.Snapshot().prepared,"depth convention");
+            // Round 1 sends the measured frame time; round 0 leaves Intel's estimate.
+            Check(presenter.Prepare(camera,round==1),"production camera"); Require(presenter.Snapshot().prepared,"depth convention");
+            Require(round==1&&frame>=1 ? presenter.Snapshot().frameTimeMs>0 && presenter.Snapshot().frameTimeMs<=250 :
+                presenter.Snapshot().frameTimeMs==0,"frame time sent only when requested and measured");
+            // Round 0 exercises both Intel debug views live; recreation starts with them off.
+            const bool onlyGenerated=round==0&&frame>=70&&frame<76, tagGenerated=round==0&&frame>=60&&frame<76;
+            if(round==1&&frame==0) Require(!presenter.Snapshot().onlyGenerated&&!presenter.Snapshot().tagGenerated,"debug views reset with the context");
+            Check(presenter.SetDebugView(onlyGenerated,tagGenerated),"debug view");
+            Require(presenter.Snapshot().onlyGenerated==onlyGenerated&&presenter.Snapshot().tagGenerated==tagGenerated,"debug view state");
             ID3D12GraphicsCommandList* list{}; Check(interop.SignalD3D11(Work::SwapChain),"signal source");
             Check(interop.Begin(Work::SwapChain,&list),"begin output");
             ComPtr<ID3D12Resource> back; Check(proxy->GetBuffer(proxy3->GetCurrentBackBufferIndex(),IID_PPV_ARGS(&back)),"backbuffer");

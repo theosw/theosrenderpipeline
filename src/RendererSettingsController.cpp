@@ -139,6 +139,7 @@ RendererSettingsResult RendererSettingsController::Apply(const RendererSettingsD
         source.RequestProvider(frameGen_.settings.sourceDLSSG.provider);
         source.ConfigureReflex(static_cast<sl::ReflexMode>(frameGen_.settings.sourceDLSSG.reflexMode));
         source.ConfigureUIRecomposition(frameGen_.settings.sourceDLSSG.uiRecomposition);
+        source.ConfigureXeFGFrameTime(frameGen_.settings.sourceDLSSG.xefgFrameTime);
         source.ConfigureOutputFPSLimit(frameGen_.settings.sourceDLSSG.outputFPSLimit);
         source.ConfigureGeneration(frameGen_.settings.sourceDLSSG.generation);
         // The backend applies Enabled at the next present boundary.

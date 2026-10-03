@@ -4,7 +4,9 @@
 #include <wrl/client.h>
 #include <sl_consts.h>
 #include <xess_fg/xefg_swapchain_d3d12.h>
+#include <xess_fg/xefg_swapchain_debug.h>
 #include <xell/xell_d3d12.h>
+#include <chrono>
 #include <filesystem>
 #include <string>
 
@@ -16,7 +18,9 @@ namespace TheosRenderPipeline
         std::uint64_t presents{}, totalOutputs{}, epoch{1}, generatedPresents{}, warnings{}, uiTexturePresents{};
         int interpolationResult{};
         bool enabled{}, prepared{}, invertedDepth{}, uiTexture{};
+        bool onlyGenerated{}, tagGenerated{};
         std::uint32_t frameLimitUs{};
+        float frameTimeMs{}; // Last frameRenderTime sent; 0 lets Intel estimate.
     };
 
     // One Intel-owned presenter and XeLL owner. DLLs remain process-resident.
@@ -32,7 +36,11 @@ namespace TheosRenderPipeline
             const DXGI_SWAP_CHAIN_DESC& desc, bool inverted, IDXGISwapChain** swapchain,
             std::uint32_t lastApplicationFrame = 0);
         HRESULT BeginFrame();
-        HRESULT Prepare(const sl::Constants& camera);
+        // frameTime sends the measured interval between application frames as
+        // frameRenderTime; otherwise Intel uses its own estimate.
+        HRESULT Prepare(const sl::Constants& camera, bool frameTime = false);
+        // Intel debug features; applied when changed and again after recreation.
+        HRESULT SetDebugView(bool onlyGenerated, bool tagGenerated);
         // ui is optional: a premultiplied UI-only layer matching the HUD-less
         // format and size. AUTO composition blends it when tagged and otherwise
         // extracts the UI from the back buffer.
@@ -73,6 +81,7 @@ namespace TheosRenderPipeline
         TRP_FG_FUNCTION(xefgSwapChainSetPresentId)
         TRP_FG_FUNCTION(xefgSwapChainSetEnabled)
         TRP_FG_FUNCTION(xefgSwapChainSetNumInterpolatedFrames)
+        TRP_FG_FUNCTION(xefgSwapChainEnableDebugFeature)
         TRP_FG_FUNCTION(xefgSwapChainGetLastPresentStatus)
         TRP_FG_FUNCTION(xefgSwapChainSetUiCompositionState)
         TRP_FG_FUNCTION(xefgSwapChainDestroy)
@@ -92,5 +101,8 @@ namespace TheosRenderPipeline
         int lastWarning_{};
         std::string lastWarningOperation_;
         bool initialized_{}, frameBegun_{}, presentPending_{}, needsReset_{true};
+        std::chrono::steady_clock::time_point lastFrameBegin_{};
+        float frameIntervalMs_{};
+        bool debugOnlyGenerated_{}, debugTagGenerated_{};
     };
 }

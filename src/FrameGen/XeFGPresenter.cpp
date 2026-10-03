@@ -64,6 +64,7 @@ namespace TheosRenderPipeline
         RESOLVE(fgModule_, xefgSwapChainSetPresentId)
         RESOLVE(fgModule_, xefgSwapChainSetEnabled)
         RESOLVE(fgModule_, xefgSwapChainSetNumInterpolatedFrames)
+        RESOLVE(fgModule_, xefgSwapChainEnableDebugFeature)
         RESOLVE(fgModule_, xefgSwapChainGetLastPresentStatus)
         RESOLVE(fgModule_, xefgSwapChainSetUiCompositionState)
         RESOLVE(fgModule_, xefgSwapChainDestroy)
@@ -143,6 +144,10 @@ namespace TheosRenderPipeline
         snapshot_.frameLimitUs = 0;
         snapshot_.framesPresented = 0; snapshot_.prepared = false; ++snapshot_.epoch;
         needsReset_ = true;
+        // A new context starts with Intel's debug features off and no frame history.
+        debugOnlyGenerated_ = debugTagGenerated_ = false;
+        snapshot_.onlyGenerated = snapshot_.tagGenerated = false;
+        lastFrameBegin_ = {}; frameIntervalMs_ = 0; snapshot_.frameTimeMs = 0;
         snapshot_.frameId = (std::max)(snapshot_.frameId, lastApplicationFrame);
         if (FAILED(hr = FG(xefgSwapChainSetNumInterpolatedFrames_(fg_, 1), "select x2")) ||
             FAILED(hr = FG(xefgSwapChainSetEnabled_(fg_, 0), "initial passthrough"))) { return hr; }
@@ -153,11 +158,33 @@ namespace TheosRenderPipeline
     {
         if (!initialized_ || frameBegun_ || snapshot_.frameId == (std::numeric_limits<std::uint32_t>::max)()) { return E_UNEXPECTED; }
         ++snapshot_.frameId; snapshot_.prepared = false;
+        // Start-to-start application interval, including XeLL's sleep: the
+        // inverse of the frame rate Intel's frameRenderTime describes.
+        const auto now = std::chrono::steady_clock::now();
+        frameIntervalMs_ = lastFrameBegin_ == std::chrono::steady_clock::time_point{} ? 0.0f :
+            std::chrono::duration<float, std::milli>(now - lastFrameBegin_).count();
+        lastFrameBegin_ = now;
         auto hr = LL(xellSleep_(ll_, snapshot_.frameId), "sleep");
         if (FAILED(hr) || FAILED(hr = LL(xellAddMarkerData_(ll_, snapshot_.frameId, XELL_SIMULATION_START), "simulation start"))) { return hr; }
         frameBegun_ = true; return S_OK;
     }
-    HRESULT XeFGPresenter::Prepare(const sl::Constants& c)
+    HRESULT XeFGPresenter::SetDebugView(bool onlyGenerated, bool tagGenerated)
+    {
+        if (!initialized_) { return S_OK; }
+        HRESULT hr = S_OK;
+        if (onlyGenerated != debugOnlyGenerated_) {
+            if (FAILED(hr = FG(xefgSwapChainEnableDebugFeature_(fg_, XEFG_SWAPCHAIN_DEBUG_FEATURE_SHOW_ONLY_INTERPOLATION,
+                onlyGenerated, nullptr), "debug view: only generated frames"))) { return hr; }
+            debugOnlyGenerated_ = snapshot_.onlyGenerated = onlyGenerated;
+        }
+        if (tagGenerated != debugTagGenerated_) {
+            if (FAILED(hr = FG(xefgSwapChainEnableDebugFeature_(fg_, XEFG_SWAPCHAIN_DEBUG_FEATURE_TAG_INTERPOLATED_FRAMES,
+                tagGenerated, nullptr), "debug view: tag generated frames"))) { return hr; }
+            debugTagGenerated_ = snapshot_.tagGenerated = tagGenerated;
+        }
+        return hr;
+    }
+    HRESULT XeFGPresenter::Prepare(const sl::Constants& c, bool frameTime)
     {
         if (!frameBegun_ || snapshot_.prepared) { return E_UNEXPECTED; }
         // CameraHistory already validates these bases and rebuilds an absolute
@@ -175,8 +202,11 @@ namespace TheosRenderPipeline
         std::memcpy(constants_.projectionMatrix, &c.cameraViewToClip, sizeof(constants_.projectionMatrix));
         constants_.jitterOffsetX = c.jitterOffset.x; constants_.jitterOffsetY = c.jitterOffset.y;
         constants_.resetHistory = needsReset_ || c.reset == sl::eTrue;
-        // Zero uses Intel's rendering-time estimate, not CPU Present duration.
-        constants_.frameRenderTime = 0;
+        // Intel: frame time in ms (the inverse of the frame rate), or 0 when
+        // unavailable; non-Intel GPUs use it to sanity-check pacing. Skip the first
+        // frame of a context and stalls such as loading or a paused game.
+        constants_.frameRenderTime = frameTime && frameIntervalMs_ > 0 && frameIntervalMs_ <= 250 ? frameIntervalMs_ : 0;
+        snapshot_.frameTimeMs = constants_.frameRenderTime;
         snapshot_.prepared = snapshot_.invertedDepth == (c.depthInverted == sl::eTrue);
         if (!snapshot_.prepared) { status_ = "depth convention changed; provider recreation required"; needsReset_ = true; }
         return S_OK;

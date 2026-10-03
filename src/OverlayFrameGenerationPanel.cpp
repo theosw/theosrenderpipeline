@@ -63,6 +63,19 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& v
             DrawSettingsValue("UI composition", !sourceBackend.UIRecompositionConfiguration() ? "Off (UI interpolated)"
                                                 : state.uiTexture ? "UI layer + HUD-less"
                                                                   : "Extracted from frame");
+            if (state.frameTimeMs > 0)
+                ImGui::Text("Frame time sent: %.2f ms", state.frameTimeMs);
+            if (showDeveloperControls)
+            {
+                // Session-only diagnostics: separate generated-frame artifacts from upscaler ones.
+                bool onlyGenerated = sourceBackend.XeFGOnlyGenerated(), tagGenerated = sourceBackend.XeFGTagGenerated();
+                bool changed = ImGui::Checkbox("Show only generated frames (Lab)", &onlyGenerated);
+                changed |= ImGui::Checkbox("Tag generated frames (Lab)", &tagGenerated);
+                if (changed)
+                    sourceBackend.ConfigureXeFGDebugView(onlyGenerated, tagGenerated);
+                DrawSettingsHelp("Intel debug views, not saved. Only generated frames hides every real frame; "
+                                 "tagging marks generated frames with corner boxes.");
+            }
         }
         if (!intel && unlock.UsesCompatibilityUnlock() && !unlock.Ready())
             ImGui::TextWrapped("%s", unlock.status);
@@ -200,6 +213,12 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& v
                     ImGui::TextDisabled("Submitted to DLSS-G");
                 else
                     ImGui::TextColored(kOchre, "Waiting for HUD-less and UI layers");
+            }
+            if (editIntel)
+            {
+                ImGui::Checkbox("Send frame time to XeFG##sourceDLSSG", &settingsDraft.sourceDLSSG.xefgFrameTime);
+                DrawSettingsHelp("Gives Intel's frame pacing the measured frame time. On AMD and NVIDIA cards Intel "
+                                 "uses it to sanity-check pacing. Apply to compare live.");
             }
             ImGui::Separator();
             ImGui::BeginDisabled(editIntel);
