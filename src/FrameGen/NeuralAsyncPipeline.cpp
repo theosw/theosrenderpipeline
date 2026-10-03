@@ -85,7 +85,8 @@ struct AsyncPipeline::State {
     void Fail(const std::string& error) {std::lock_guard lock(mutex);stats.failed=true;stats.error=error;}
     ComPtr<ID3D12Resource> Texture(DXGI_FORMAT format,bool guide=false) {
         D3D12_RESOURCE_DESC desc{};desc.Dimension=D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-        desc.Width=guide?config.guideWidth:config.width;desc.Height=guide?config.guideHeight:config.height;desc.DepthOrArraySize=desc.MipLevels=desc.SampleDesc.Count=1;
+        desc.Width=guide?config.guideWidth:config.width;desc.Height=guide?config.guideHeight:config.height;
+        desc.DepthOrArraySize=1;desc.MipLevels=1;desc.SampleDesc.Count=1;
         desc.Format=format;desc.Flags=D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
         D3D12_HEAP_PROPERTIES heap{};heap.Type=D3D12_HEAP_TYPE_DEFAULT;
         ComPtr<ID3D12Resource> resource;
@@ -183,7 +184,7 @@ HRESULT AsyncPipeline::Initialize(ID3D12Device* device,const Config& request,Eva
         {config.format,7},{DXGI_FORMAT_R32_FLOAT,4},{config.motionFormat,3},{DXGI_FORMAT_R32G32B32A32_FLOAT,6}}};
     for(auto [format,count]:allocations) {
         D3D12_RESOURCE_DESC desc{};desc.Dimension=D3D12_RESOURCE_DIMENSION_TEXTURE2D;desc.Width=config.width;desc.Height=config.height;
-        desc.DepthOrArraySize=desc.MipLevels=desc.SampleDesc.Count=1;desc.Format=format;desc.Flags=D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+        desc.DepthOrArraySize=1;desc.MipLevels=1;desc.SampleDesc.Count=1;desc.Format=format;desc.Flags=D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
         if(format==DXGI_FORMAT_R32_FLOAT || format==config.motionFormat){desc.Width=config.guideWidth;desc.Height=config.guideHeight;}
         const auto bytes=device->GetResourceAllocationInfo(0,1,&desc).SizeInBytes;
         if(bytes==UINT64_MAX || bytes>config.maxAllocationBytes/count || required>config.maxAllocationBytes-bytes*count)return E_OUTOFMEMORY;

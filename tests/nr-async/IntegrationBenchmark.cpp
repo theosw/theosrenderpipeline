@@ -31,11 +31,12 @@ int wmain(int argc,wchar_t** argv)
     // Live transitions use the same recreation predicate and retirement entry
     // points as Backend. A fresh worker receives per-capture options, two passes
     // and native RG16 guides. No benchmark-only evaluator replaces the runtime.
-    for(unsigned phase=0;phase<4;++phase) {
-        options.async=phase==1||phase==2;options.passes=phase==2?2:1;
+    for(unsigned phase=0;phase<5;++phase) {
+        options.async=phase>=1&&phase<=3;options.passes=phase==2||phase==3?2:1;
+        if(phase==3)color=gpu.Texture(w*3/4,h*3/4,std::vector<Pixel>(size_t(w*3/4)*(h*3/4),{.4f,.35f,.3f,.37f}),DXGI_FORMAT_R16G16B16A16_FLOAT);
         options.secondPass.linked=false;options.secondPass.inputScale=.25f;
         if(execution) {
-            Require(execution->NeedsRecreation(options,w/2,h/2),"live switch requests retirement");
+            Require(execution->NeedsRecreation(options,w/2,h/2,color.Get(),motion->GetDesc().Format),"live switch requests retirement");
             Require(execution->RetireAsync(),"retire worker before mode/pass switch");execution.reset();
         }
         execution=std::make_unique<NeuralExecution>();bool displayed=false;
@@ -56,5 +57,5 @@ int wmain(int argc,wchar_t** argv)
     }
     Require(execution->RetireAsync(),"final worker retirement");execution.reset();
     Require(NVSDK_NGX_SUCCEED(NVSDK_NGX_D3D12_Shutdown1(gpu.device.Get())),"NGX shutdown");
-    std::puts("PASS production execution, regular/async/2-pass/regular switches and shutdown");
+    std::puts("PASS production execution, regular/async/2-pass/scene-resize/regular switches and shutdown");
 }

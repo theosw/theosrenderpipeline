@@ -42,9 +42,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 	{
 		std::scoped_lock lock(neuralMutex_); return neuralSnapshot_;
 	}
-    bool Backend::RecreateNeuralIfNeeded(const NeuralOptions& options)
+    bool Backend::RecreateNeuralIfNeeded(const NeuralOptions& options, ID3D12Resource* scene)
     {
-        if (!neuralPass_ || !neuralPass_->NeedsRecreation(options, motion_.desc.Width, motion_.desc.Height)) { return true; }
+        if (!neuralPass_ || !neuralPass_->NeedsRecreation(options, motion_.desc.Width, motion_.desc.Height, scene, motion_.desc.Format)) { return true; }
         // Private outputs are copied into stable shared textures. Only our
         // queues read the feature, and no command list may be open here.
         if (!Check(interop_.Drain(), "retire NR before placement/reconstruction change")) { return false; }
@@ -115,7 +115,7 @@ namespace TheosRenderPipeline::SourceDLSSG
             !EnsureGuide(motion, motion_, DXGI_FORMAT_UNKNOWN, renderExtent) ||
             !EnsureGuide(depth, depth_, DXGI_FORMAT_R32_FLOAT, renderExtent) ||
             !EnsureGuide(color, earlyNeuralColor_, DXGI_FORMAT_UNKNOWN, colorExtent) ||
-            !RecreateNeuralIfNeeded(frameNeuralOptions_)) { return false; }
+            !RecreateNeuralIfNeeded(frameNeuralOptions_, earlyNeuralColor_.texture12.Get())) { return false; }
         if (!CopyDepth(depth) || !Check(interop_.CopyInputRegion(motion, motion_, renderExtent), "early NR motion copy") ||
             !Check(interop_.CopyInputRegion(color, earlyNeuralColor_, colorExtent), "early NR world copy") ||
             !Check(interop_.SignalD3D11(Work::Upscaling), "early NR inputs ready")) { return false; }

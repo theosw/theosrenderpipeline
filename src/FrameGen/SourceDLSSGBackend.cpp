@@ -500,7 +500,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		const bool active = options.enabled && eligible && (!options.WorldOnly() || neuralEvaluatedEarly_);
 		const bool lateActive = active && !options.WorldOnly();
 		const bool reset = prepared ? frameNeuralReset_ : neuralHistory_.ResetFor(options, false, false);
-		if (lateActive && !RecreateNeuralIfNeeded(options)) { return fault_; }
+		if (lateActive && !RecreateNeuralIfNeeded(options, hudless_.texture12.Get())) { return fault_; }
 #endif
 		ID3D12GraphicsCommandList* list = nullptr;
 		if (!Check(interop_.SignalD3D11(Work::SwapChain), "native D3D11 output ready") ||

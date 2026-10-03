@@ -92,6 +92,7 @@ int main() {
         // scene colour. Test the real delayed residual, not only allocation.
         Fixture f; auto script=std::make_shared<Script>(f.gpu.device.Get()); AsyncPipeline p;
         auto c=f.Config(); c.guideWidth=17; c.guideHeight=9; c.motionFormat=DXGI_FORMAT_R16G16_FLOAT;
+        c.motionScaleX=float(c.width)/c.guideWidth;
         f.motion=f.gpu.Texture(17,9,std::vector<Pixel>(153,{0,0,0,0}),DXGI_FORMAT_R16G16_FLOAT);
         f.depth=f.gpu.Texture(17,9,std::vector<Pixel>(153,{.5f,0,0,0}),DXGI_FORMAT_R32_FLOAT);
         Check(p.Initialize(f.gpu.device.Get(),c,[script](auto* list,const auto& capture) {
@@ -99,7 +100,8 @@ int main() {
             return script->Evaluate(list,capture);
         }),"reduced guides initialize");
         script->Permit(); f.Frame(p); Until([&]{return p.Status().evaluations==1;},"reduced guides evaluated");
-        auto out=f.Frame(p); Near(out[15][0],.63,2e-6,"different guide resolution preserves residual");
+        f.motion=f.gpu.Texture(17,9,std::vector<Pixel>(153,{-1,0,0,0}),DXGI_FORMAT_R16G16_FLOAT);
+        auto out=f.Frame(p); Near(out[15][0],.4+.2+.002*(15-float(c.width)/c.guideWidth),2e-6,"native guide motion scales into scene pixels");
         Near(out[15][3],.37,1e-6,"different guide resolution preserves alpha");
         script->Release(); Require(p.Stop(),"reduced guides retired"); ++cases;
     }

@@ -22,10 +22,15 @@ std::uint64_t HistoryBudget(ID3D12Device* device, int passes)
     return std::min<std::uint64_t>(2ull*1024*1024*1024,memory.Budget-memory.CurrentUsage-reserve);
 }
 }
-bool NeuralExecution::NeedsRecreation(const NeuralOptions& options, UINT width, UINT height) const
+bool NeuralExecution::NeedsRecreation(const NeuralOptions& options, UINT width, UINT height, ID3D12Resource* scene, DXGI_FORMAT motionFormat) const
 {
     if (!initialized_) return false;
     if (allocated_.async!=options.async) return true;
+    if (scene) {
+        const auto desc=scene->GetDesc();
+        if (desc.Width!=sceneDesc_.Width || desc.Height!=sceneDesc_.Height || desc.Format!=sceneDesc_.Format) return true;
+    }
+    if (motionFormat!=DXGI_FORMAT_UNKNOWN && motionFormat_!=motionFormat) return true;
     if (regular_) return regular_->NeedsRecreation(options,width,height);
     return allocated_.runtimePath!=options.runtimePath || allocated_.WorldOnly()!=options.WorldOnly() ||
         allocated_.beforeUpscaling!=options.beforeUpscaling || allocated_.passes!=options.passes ||
@@ -42,6 +47,7 @@ bool NeuralExecution::Record(ID3D12Device* device, ID3D12GraphicsCommandList* li
 {
     if (!device || !list || !motion || !depth || !color) { status_="NR input unavailable"; return false; }
     if (!initialized_) {
+        sceneDesc_=color->GetDesc(); motionFormat_=motion->GetDesc().Format;
         allocated_=options; guideWidth_=static_cast<UINT>(motion->GetDesc().Width); guideHeight_=motion->GetDesc().Height;
         if (options.async && options.WorldOnly()) {
             TRPExperiment::AsyncPipeline::Config config;

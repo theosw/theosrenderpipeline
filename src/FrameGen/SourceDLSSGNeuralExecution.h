@@ -19,7 +19,7 @@ public:
     NeuralTelemetrySnapshot Telemetry() const { return regular_ ? regular_->Telemetry() : NeuralTelemetrySnapshot{}; }
     NeuralRendering::RuntimeBuild RetainedRuntimeBuild(const std::filesystem::path& path) const
     { return regular_ ? regular_->RetainedRuntimeBuild(path) : NeuralRendering::RuntimeBuild::Unknown; }
-    bool NeedsRecreation(const NeuralOptions&, UINT width=0, UINT height=0) const;
+    bool NeedsRecreation(const NeuralOptions&, UINT width=0, UINT height=0, ID3D12Resource* scene=nullptr, DXGI_FORMAT motionFormat=DXGI_FORMAT_UNKNOWN) const;
     ID3D12Resource* Corrected() const { return corrected_; }
     ID3D12Resource* Composed() const { return regular_ ? regular_->Composed() : nullptr; }
     const std::string& Status() const { return status_; }
@@ -28,6 +28,8 @@ private:
     std::unique_ptr<TRPExperiment::AsyncPipeline> async_;
     NeuralOptions allocated_;
     UINT guideWidth_{}, guideHeight_{};
+    D3D12_RESOURCE_DESC sceneDesc_{};
+    DXGI_FORMAT motionFormat_{};
     bool initialized_{}, pendingSubmission_{}, skipped_{};
     ID3D12Resource* corrected_{}; // Host input or privately owned output, never worker data.
     std::string status_, fallback_;

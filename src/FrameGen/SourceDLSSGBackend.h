@@ -123,7 +123,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			DXGI_FORMAT a_format = DXGI_FORMAT_UNKNOWN, FrameExtent a_extent = {});
 		bool CopyDepth(ID3D11Texture2D* a_depth);
 		void ReleaseGuides();
-		bool RecreateNeuralIfNeeded(const NeuralOptions& options);
+		bool RecreateNeuralIfNeeded(const NeuralOptions& options, ID3D12Resource* scene=nullptr);
 		bool FailNeuralRecording();
 		const char* NeuralUnavailableReason(const NeuralOptions& options);
 		void RecordPresentationFeedback(std::uint32_t a_presentCount,

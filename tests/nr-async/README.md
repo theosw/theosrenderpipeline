@@ -20,7 +20,8 @@ skips busy capture admissions and invalidates the missing motion chain.
 
 `TRPNeuralIntegrationBenchmark` is a manual NVIDIA probe of the production
 execution wrapper: Regular / Async / independent two-pass Async / Regular,
-different guide/scene extents, finite outputs, alpha, retirement and shutdown.
+different guide/scene extents, a scene resize with unchanged guides, finite
+outputs, alpha, retirement and shutdown.
 It requires Skyrim closed and does not establish game or MFG acceptance.
 
 ## Ownership and scheduling
