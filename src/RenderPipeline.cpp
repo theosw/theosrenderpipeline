@@ -190,15 +190,18 @@ bool RenderPipeline::IsEnabled()
 	return !DRS::GetSingleton()->reset;
 }
 
-void RenderPipeline::GetJitters(float* a_outX, float* a_outY)
+int RenderPipeline::JitterPhaseCount() const
 {
 	const auto* host = NvidiaHost::GetSingleton();
-    const auto phase = host->XeSSActive() && host->RenderWidth() && host->RenderHeight() ?
+    return host->XeSSActive() && host->RenderWidth() && host->RenderHeight() ?
         static_cast<int>(std::ceil(8.0 * host->OutputWidth() * host->OutputHeight() / (static_cast<double>(host->RenderWidth()) * host->RenderHeight()))) :
         DLSSBackend::GetSingleton()->GetJitterPhaseCount();
+}
 
+void RenderPipeline::GetJitters(float* a_outX, float* a_outY)
+{
 	mJitterIndex++;
-	DLSSBackend::GetJitterOffset(a_outX, a_outY, static_cast<int>(mJitterIndex), phase);
+	DLSSBackend::GetJitterOffset(a_outX, a_outY, static_cast<int>(mJitterIndex), JitterPhaseCount());
 }
 
 void RenderPipeline::SetJitterOffsets(float a_x, float a_y)

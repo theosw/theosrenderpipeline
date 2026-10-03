@@ -70,7 +70,7 @@ void OverlayUI::DrawImageMeasurements(const FrameView& view)
         if (!TheosRenderPipeline::CommunityShaders::Active())
         {
             ImGui::Text("Jitter: (%.4f, %.4f) | phases: %d", upscaler->mJitterOffsets[0], upscaler->mJitterOffsets[1],
-                        backend->GetJitterPhaseCount());
+                        upscaler->JitterPhaseCount());
             ImGui::Text("Mip LOD bias: %.3f", upscaler->mMipLodBias);
             ImGui::Text("NGX evals ok/failed: %llu / %llu | last 0x%08X",
                         static_cast<unsigned long long>(backend->EvalSuccessCount()),
