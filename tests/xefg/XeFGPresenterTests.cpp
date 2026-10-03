@@ -49,7 +49,7 @@ int wmain(int argc, wchar_t** argv) {
     TheosRenderPipeline::XeFGPresenter presenter;
     presenter.SetLogger([](const char* text) { std::printf("[Owner] %s\n",text); });
     Check(presenter.Probe(d12.Get(),std::filesystem::absolute(argv[1])),"production admission");
-    Inputs input; input.Create(interop,d11.Get(),640,360,colorFormat); auto* stable=input.color.texture11.Get(); unsigned generated=0, uiTagged=0, generatedWithUI=0, generatedWithoutUI=0;
+    Inputs input; input.Create(interop,d11.Get(),640,360,colorFormat); auto* stable=input.color.texture11.Get(); unsigned generated=0, uiTagged=0, generatedWithUI=0, generatedWithoutUI=0, frameTimeSent=0, frameTimeSkipped=0;
     const bool nativeOnly=GetEnvironmentVariableW(L"TRP_XEFG_NATIVE_ONLY",nullptr,0)!=0;
     const bool releaseNvidia=GetEnvironmentVariableW(L"TRP_XEFG_RELEASE_NV",nullptr,0)!=0;
     wchar_t cyclesText[8]{};
@@ -93,8 +93,11 @@ int wmain(int argc, wchar_t** argv) {
             camera.reset=frame==8||frame==45?sl::eTrue:sl::eFalse;
             // Round 1 sends the measured frame time; round 0 leaves Intel's estimate.
             Check(presenter.Prepare(camera,round==1),"production camera"); Require(presenter.Snapshot().prepared,"depth convention");
-            Require(round==1&&frame>=1 ? presenter.Snapshot().frameTimeMs>0 && presenter.Snapshot().frameTimeMs<=250 :
-                presenter.Snapshot().frameTimeMs==0,"frame time sent only when requested and measured");
+            // Intervals over 250 ms (a slow profile frame, or a multiplier change that
+            // rebuilds Intel's shaders) correctly send 0, so require most frames, not all.
+            const float sentFrameTime=presenter.Snapshot().frameTimeMs;
+            Require(round==1&&frame>=1 ? sentFrameTime>=0 && sentFrameTime<=250 : sentFrameTime==0,"frame time sent only when requested and measured");
+            if(round==1&&frame>=1) ++(sentFrameTime>0?frameTimeSent:frameTimeSkipped);
             // Round 0 exercises both Intel debug views live; recreation starts with them off.
             const bool onlyGenerated=round==0&&frame>=70&&frame<76, tagGenerated=round==0&&frame>=60&&frame<76;
             if(round==1&&frame==0) Require(!presenter.Snapshot().onlyGenerated&&!presenter.Snapshot().tagGenerated,"debug views reset with the context");
@@ -136,6 +139,8 @@ int wmain(int argc, wchar_t** argv) {
     }
     Require(nativeOnly||generated>100,"sustained production x2 both depth conventions");
     Require(presenter.Snapshot().uiTexturePresents==uiTagged && (nativeOnly||uiTagged>0),"UI layer tag count");
+    std::printf("frame time sent=%u skipped=%u\n",frameTimeSent,frameTimeSkipped);
+    Require(nativeOnly||frameTimeSent>frameTimeSkipped*4,"measured frame time sent on most frames");
     // AUTO must keep generating on frames without a UI layer, in SDR and HDR10.
     std::printf("generated withUI=%u withoutUI=%u hdr10=%u\n",generatedWithUI,generatedWithoutUI,hdr10);
     Require(nativeOnly||(generatedWithUI>20&&generatedWithoutUI>20),"generation with and without a UI layer");
