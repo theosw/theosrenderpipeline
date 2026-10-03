@@ -87,8 +87,8 @@ static LRESULT CALLBACK WindowProc(HWND w, UINT m, WPARAM a, LPARAM b) {
     return DefWindowProcW(w,m,a,b);
 }
 struct Inputs {
-    SharedTexture color, hudless, depth, motion;
-    ComPtr<ID3D11Texture2D> producerColor, producerHudless, producerDepth, producerMotion;
+    SharedTexture color, hudless, depth, motion, ui;
+    ComPtr<ID3D11Texture2D> producerColor, producerHudless, producerDepth, producerMotion, producerUI;
     UINT width{}, height{};
     void Create(Interop& interop, ID3D11Device* device, UINT w, UINT h) {
         width=w; height=h;
@@ -104,11 +104,13 @@ struct Inputs {
         create(DXGI_FORMAT_R8G8B8A8_UNORM,hudless,producerHudless);
         create(DXGI_FORMAT_R32_FLOAT,depth,producerDepth);
         create(DXGI_FORMAT_R16G16_FLOAT,motion,producerMotion);
+        create(DXGI_FORMAT_R8G8B8A8_UNORM,ui,producerUI);
     }
     void Paint(ID3D11DeviceContext* context, unsigned frame) {
         const auto pixels=static_cast<size_t>(width)*height;
         std::vector<uint32_t> colors(pixels);
         std::vector<uint32_t> hudlessColors(pixels);
+        std::vector<uint32_t> uiColors(pixels,0);
         std::vector<float> depths(pixels,0.5f);
         std::vector<uint16_t> motions(pixels*2,0);
         // An orthographic plane translating two screen pixels per source frame.
@@ -121,12 +123,14 @@ struct Inputs {
             hudlessColors[n]=colors[n];
             motions[n*2]=velocity;
             // Depth/MV describe the HUD-less plane even underneath the UI.
-            if (x<96 && y<24) colors[n]=0xff20c060;
+            // Premultiplied UI-only layer: final = ui + (1 - ui.a) * HUD-less.
+            if (x<96 && y<24) { colors[n]=0xff20c060; uiColors[n]=0xff20c060; }
         }
         context->UpdateSubresource(producerColor.Get(),0,nullptr,colors.data(),width*4,0);
         context->UpdateSubresource(producerHudless.Get(),0,nullptr,hudlessColors.data(),width*4,0);
         context->UpdateSubresource(producerDepth.Get(),0,nullptr,depths.data(),width*4,0);
         context->UpdateSubresource(producerMotion.Get(),0,nullptr,motions.data(),width*4,0);
+        context->UpdateSubresource(producerUI.Get(),0,nullptr,uiColors.data(),width*4,0);
     }
 };
 

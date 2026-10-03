@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstring>
 #include <limits>
+#include <span>
 
 namespace TheosRenderPipeline
 {
@@ -126,7 +127,9 @@ namespace TheosRenderPipeline
         native.Flags = desc.Flags & ~DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
         xefg_swapchain_d3d12_init_params_t init{};
         init.maxInterpolatedFrames = 1;
-        init.uiMode = XEFG_SWAPCHAIN_UI_MODE_BACKBUFFER_HUDLESS;
+        // AUTO selects per frame from the tagged layers: HUD-less plus the UI
+        // texture when the host has one, otherwise back-buffer extraction.
+        init.uiMode = XEFG_SWAPCHAIN_UI_MODE_AUTO;
         init.initFlags = inverted ? XEFG_SWAPCHAIN_INIT_FLAG_INVERTED_DEPTH : 0;
         Microsoft::WRL::ComPtr<IDXGIFactory2> factory2;
         if (FAILED(hr = factory->QueryInterface(IID_PPV_ARGS(&factory2)))) { return hr; }
@@ -179,10 +182,15 @@ namespace TheosRenderPipeline
         return S_OK;
     }
     HRESULT XeFGPresenter::BeforePresent(ID3D12GraphicsCommandList* list, ID3D12Resource* motion,
-        ID3D12Resource* depth, ID3D12Resource* hudless, bool enabled, bool uiComposition, int outputFPSLimit)
+        ID3D12Resource* depth, ID3D12Resource* hudless, ID3D12Resource* ui, bool enabled, bool uiComposition, int outputFPSLimit)
     {
         if (!frameBegun_ || presentPending_) { return E_UNEXPECTED; }
         const bool generate = enabled && snapshot_.prepared && motion && depth && hudless;
+        if (ui && hudless) {
+            const auto u = ui->GetDesc(), h = hudless->GetDesc();
+            if (u.Format != h.Format || u.Width != h.Width || u.Height != h.Height) { ui = nullptr; }
+        }
+        const bool tagUI = generate && uiComposition && ui;
         auto hr = LL(xellAddMarkerData_(ll_, snapshot_.frameId, XELL_SIMULATION_END), "simulation end");
         if (FAILED(hr) || FAILED(hr = LL(xellAddMarkerData_(ll_, snapshot_.frameId, XELL_RENDERSUBMIT_START), "render start"))) { return hr; }
         xell_sleep_params_t sleep{}; sleep.bLowLatencyMode = 1;
@@ -198,8 +206,9 @@ namespace TheosRenderPipeline
             if (!list) { return E_POINTER; }
             if (FAILED(hr = FG(xefgSwapChainSetUiCompositionState_(fg_, uiComposition ?
                 XEFG_SWAPCHAIN_UI_COMPOSITION_STATE_ENABLED : XEFG_SWAPCHAIN_UI_COMPOSITION_STATE_DISABLED), "UI composition"))) { return hr; }
-            for (const auto& pair : {std::pair{XEFG_SWAPCHAIN_RES_DEPTH, depth},
-                std::pair{XEFG_SWAPCHAIN_RES_MOTION_VECTOR, motion}, std::pair{XEFG_SWAPCHAIN_RES_HUDLESS_COLOR, hudless}}) {
+            const std::pair<xefg_swapchain_resource_type_t, ID3D12Resource*> inputs[]{{XEFG_SWAPCHAIN_RES_DEPTH, depth},
+                {XEFG_SWAPCHAIN_RES_MOTION_VECTOR, motion}, {XEFG_SWAPCHAIN_RES_HUDLESS_COLOR, hudless}, {XEFG_SWAPCHAIN_RES_UI, ui}};
+            for (const auto& pair : std::span(inputs, tagUI ? 4 : 3)) {
                 const auto desc = pair.second->GetDesc();
                 xefg_swapchain_d3d12_resource_data_t data{};
                 data.type = pair.first; data.validity = XEFG_SWAPCHAIN_RV_ONLY_NOW;
@@ -212,6 +221,8 @@ namespace TheosRenderPipeline
             if (FAILED(hr = FG(xefgSwapChainTagFrameConstants_(fg_, snapshot_.frameId, &constants_), "frame constants"))) { return hr; }
             needsReset_ = false;
         } else { needsReset_ = true; }
+        snapshot_.uiTexture = tagUI;
+        if (tagUI) { ++snapshot_.uiTexturePresents; }
         snapshot_.enabled = generate; return S_OK;
     }
     HRESULT XeFGPresenter::FinalizePresent()

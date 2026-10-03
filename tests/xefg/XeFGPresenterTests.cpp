@@ -46,7 +46,7 @@ int wmain(int argc, wchar_t** argv) {
     TheosRenderPipeline::XeFGPresenter presenter;
     presenter.SetLogger([](const char* text) { std::printf("[Owner] %s\n",text); });
     Check(presenter.Probe(d12.Get(),std::filesystem::absolute(argv[1])),"production admission");
-    Inputs input; input.Create(interop,d11.Get(),640,360); auto* stable=input.color.texture11.Get(); unsigned generated=0;
+    Inputs input; input.Create(interop,d11.Get(),640,360); auto* stable=input.color.texture11.Get(); unsigned generated=0, uiTagged=0;
     const bool nativeOnly=GetEnvironmentVariableW(L"TRP_XEFG_NATIVE_ONLY",nullptr,0)!=0;
     const bool releaseNvidia=GetEnvironmentVariableW(L"TRP_XEFG_RELEASE_NV",nullptr,0)!=0;
     wchar_t cyclesText[8]{};
@@ -78,6 +78,7 @@ int wmain(int argc, wchar_t** argv) {
             Check(interop.CopyInput(input.producerHudless.Get(),input.hudless),"hudless");
             Check(interop.CopyInput(input.producerMotion.Get(),input.motion),"motion");
             Check(interop.CopyInput(input.producerDepth.Get(),input.depth),"depth");
+            Check(interop.CopyInput(input.producerUI.Get(),input.ui),"UI layer");
             sl::Constants camera{}; camera.cameraRight={1,0,0}; camera.cameraUp={0,1,0}; camera.cameraFwd={0,0,-1};
             camera.cameraPos={-4.0f*frame/640.0f,0,0};
             camera.cameraViewToClip.row[0]={1,0,0,0}; camera.cameraViewToClip.row[1]={0,1,0,0};
@@ -90,7 +91,13 @@ int wmain(int argc, wchar_t** argv) {
             ComPtr<ID3D12Resource> back; Check(proxy->GetBuffer(proxy3->GetCurrentBackBufferIndex(),IID_PPV_ARGS(&back)),"backbuffer");
             Check(Interop::RecordCopy(list,input.color.texture12.Get(),back.Get()),"source copy");
             const bool enable=frame>=8&&frame<82;
-            Check(presenter.BeforePresent(list,input.motion.texture12.Get(),input.depth.texture12.Get(),input.hudless.texture12.Get(),enable,true,60),"production preparation");
+            // Round 0 tags the UI layer, then offers a mismatched layer that must be
+            // rejected; round 1 provides none, leaving AUTO to extract from the frame.
+            auto* ui=round==0?(frame<45?input.ui.texture12.Get():input.depth.texture12.Get()):nullptr;
+            const bool uiExpected=enable&&round==0&&frame<45;
+            Check(presenter.BeforePresent(list,input.motion.texture12.Get(),input.depth.texture12.Get(),input.hudless.texture12.Get(),ui,enable,true,60),"production preparation");
+            Require(presenter.Snapshot().uiTexture==uiExpected,"UI layer tagged only when it matches the HUD-less layer");
+            if(uiExpected) ++uiTagged;
             Check(interop.Submit(Work::SwapChain),"submit SDK copies"); back.Reset();
             Check(presenter.FinalizePresent(),"markers after queue submission");
             const auto result=proxy->Present(0,0); Check(result,"Intel present"); Require(result==S_OK,"visible present");
@@ -113,12 +120,13 @@ int wmain(int argc, wchar_t** argv) {
         Check(interop.Drain(),"restored native queue retirement"); native.Reset();
     }
     Require(nativeOnly||generated>100,"sustained production x2 both depth conventions");
+    Require(presenter.Snapshot().uiTexturePresents==uiTagged && (nativeOnly||uiTagged>0),"UI layer tag count");
     for(UINT64 n=0;n<messages->GetNumStoredMessagesAllowedByRetrievalFilter();++n) {
         SIZE_T size{}; messages->GetMessage(n,nullptr,&size); std::vector<unsigned char> storage(size);
         auto* message=reinterpret_cast<D3D12_MESSAGE*>(storage.data()); messages->GetMessage(n,message,&size);
         if(message->Severity<=D3D12_MESSAGE_SEVERITY_ERROR) { std::fprintf(stderr,"%s\n",message->pDescription); Require(false,"debug errors"); }
     }
     DestroyWindow(window); UnregisterClassW(wc.lpszClassName,wc.hInstance);
-    std::printf("PASS mode=%s productionOwner generatedPresents=%u stableSharedResources=true physicalCadenceVerified=false\n",
-        nativeOnly?"NVIDIA-control":nvidia?"NVIDIA-XeFG-NVIDIA":"DXGI-XeFG-DXGI",generated);
+    std::printf("PASS mode=%s productionOwner generatedPresents=%u uiTexturePresents=%u stableSharedResources=true physicalCadenceVerified=false\n",
+        nativeOnly?"NVIDIA-control":nvidia?"NVIDIA-XeFG-NVIDIA":"DXGI-XeFG-DXGI",generated,uiTagged);
 }

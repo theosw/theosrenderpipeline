@@ -60,6 +60,9 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& v
             const auto& state = sourceBackend.XeFGState();
             ImGui::Text("Runtime outputs: %u | generated presents: %llu", state.framesPresented,
                 static_cast<unsigned long long>(state.generatedPresents));
+            DrawSettingsValue("UI composition", !sourceBackend.UIRecompositionConfiguration() ? "Off (UI interpolated)"
+                                                : state.uiTexture ? "UI layer + HUD-less"
+                                                                  : "Extracted from frame");
         }
         if (!intel && unlock.UsesCompatibilityUnlock() && !unlock.Ready())
             ImGui::TextWrapped("%s", unlock.status);

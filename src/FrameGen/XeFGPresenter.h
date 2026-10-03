@@ -13,9 +13,9 @@ namespace TheosRenderPipeline
     struct XeFGSnapshot
     {
         std::uint32_t frameId{}, framesPresented{};
-        std::uint64_t presents{}, totalOutputs{}, epoch{1}, generatedPresents{}, warnings{};
+        std::uint64_t presents{}, totalOutputs{}, epoch{1}, generatedPresents{}, warnings{}, uiTexturePresents{};
         int interpolationResult{};
-        bool enabled{}, prepared{}, invertedDepth{};
+        bool enabled{}, prepared{}, invertedDepth{}, uiTexture{};
         std::uint32_t frameLimitUs{};
     };
 
@@ -33,8 +33,11 @@ namespace TheosRenderPipeline
             std::uint32_t lastApplicationFrame = 0);
         HRESULT BeginFrame();
         HRESULT Prepare(const sl::Constants& camera);
+        // ui is optional: a premultiplied UI-only layer matching the HUD-less
+        // format and size. AUTO composition blends it when tagged and otherwise
+        // extracts the UI from the back buffer.
         HRESULT BeforePresent(ID3D12GraphicsCommandList* list, ID3D12Resource* motion,
-            ID3D12Resource* depth, ID3D12Resource* hudless, bool enabled, bool uiComposition,
+            ID3D12Resource* depth, ID3D12Resource* hudless, ID3D12Resource* ui, bool enabled, bool uiComposition,
             int outputFPSLimit);
         HRESULT AfterPresent(HRESULT result);
         HRESULT FinalizePresent(); // After the host submits the input-copy command list.

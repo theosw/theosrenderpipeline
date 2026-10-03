@@ -596,6 +596,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		} else {
 			outputResult = Interop::RecordCopy(list, realSource, a_destination);
 		}
+		const bool hdrLayersComposed = hdrFrameTagged_;
 		hdrFrameTagged_ = false;
 		if (SUCCEEDED(outputResult)) {
 			// CS can deliver already-encoded PQ through an equal-format copy.
@@ -608,11 +609,20 @@ namespace TheosRenderPipeline::SourceDLSSG
 		const auto transitionWarmup = transitionWarmupPresents_.load(std::memory_order_acquire);
 		const bool generationAllowed = enabled_ && !transitionBlocked && transitionWarmup == 0;
 		if (provider_ == FrameGenerationProvider::XeFG) {
-			auto* intelHudless = hdrNative_ && hdrDisplay_ && hdrOutputPass_ ?
-				hdrOutputPass_->HudlessTarget() : hudless_.texture12.Get();
+			const bool hdrLayers = hdrNative_ && hdrDisplay_ && hdrOutputPass_;
+			auto* intelHudless = hdrLayers ? hdrOutputPass_->HudlessTarget() : hudless_.texture12.Get();
+			// The same premultiplied UI layer DLSS-G recomposes. HDR output wrote
+			// its HDR10 copy only when both layers were composed this frame.
+			auto* intelUI = hdrLayers ? (hdrLayersComposed ? hdrOutputPass_->UITarget() : nullptr) :
+				(uiSource_ ? ui_.texture12.Get() : nullptr);
 			// No FP16/scRGB reinterpretation. XeFG copies matching native-format layers.
-			const bool compatible = intelHudless && intelHudless->GetDesc().Format == a_destination->GetDesc().Format;
-			if (!CheckXeFG(xefg_.BeforePresent(list, motion_.texture12.Get(), depth_.texture12.Get(), intelHudless,
+			const auto destination = a_destination->GetDesc();
+			const bool compatible = intelHudless && intelHudless->GetDesc().Format == destination.Format;
+			if (intelUI) {
+				const auto ui = intelUI->GetDesc();
+				if (ui.Format != destination.Format || ui.Width != destination.Width || ui.Height != destination.Height) { intelUI = nullptr; }
+			}
+			if (!CheckXeFG(xefg_.BeforePresent(list, motion_.texture12.Get(), depth_.texture12.Get(), intelHudless, intelUI,
 				generationAllowed && prepared && compatible, UIRecompositionConfiguration(),
 				outputFPSLimit_.load()))) { return fault_; }
 		}
@@ -685,9 +695,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 				!Check(interop_.Drain(), "retire Intel ONLY_NOW input copies")) { return fault_; }
 			const auto& intel = xefg_.Snapshot();
 			if (intel.presents <= 3 || intel.presents % 600 == 0) {
-				logger::info("[XeFG] frame={} enabled={} presented={} totalOutputs={} generatedPresents={} interpolationResult={} warnings={} epoch={} latency=XeLL",
+				logger::info("[XeFG] frame={} enabled={} presented={} totalOutputs={} generatedPresents={} interpolationResult={} warnings={} epoch={} uiTexture={} uiTexturePresents={} latency=XeLL",
 					intel.frameId, intel.enabled, intel.framesPresented, intel.totalOutputs, intel.generatedPresents,
-					intel.interpolationResult, intel.warnings, intel.epoch);
+					intel.interpolationResult, intel.warnings, intel.epoch, intel.uiTexture, intel.uiTexturePresents);
 			}
 		} else if (nvidiaNeedsPresent_) {
 			// The NVIDIA driver can retain the former Intel swapchain's latency
