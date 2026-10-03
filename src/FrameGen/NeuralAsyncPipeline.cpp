@@ -261,7 +261,7 @@ HRESULT AsyncPipeline::Record(ID3D12GraphicsCommandList* list,ID3D12Resource* co
     }
     s.recording=true;s.heapIndex=0;s.capture=-1;s.currentHost->inputs={color,motion,depth};
     ++s.stats.hostFramesInFlight;
-    s.stats.peakHostFramesInFlight=std::max(s.stats.peakHostFramesInFlight,s.stats.hostFramesInFlight);
+    s.stats.peakHostFramesInFlight=(std::max)(s.stats.peakHostFramesInFlight,s.stats.hostFramesInFlight);
     ++s.stats.frame;enabled=enabled && s.config.enabled;
     if(reset || enabled!=s.enabledLast) {
         ++s.stats.generation;s.display=-1;
