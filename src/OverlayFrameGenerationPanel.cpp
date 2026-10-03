@@ -1,18 +1,12 @@
 #include "OverlayUI.h"
 #include "OverlayUIStyle.h"
 #include "OverlayFrameView.h"
-
-#include "FrameGen/NvidiaHost.h"
-#include "FrameGen/SourceDLSSGBackend.h"
-#include "FrameGen/SourceFrameGeneration.h"
 #include <PCH.h>
 
 using namespace TheosRenderPipeline::Overlay;
 
 void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& view)
 {
-    auto* frameGen = SourceFrameGeneration::GetSingleton();
-    auto* nvidiaHost = NvidiaHost::GetSingleton();
     const auto& sourceDLSSGActive = view.sourceDLSSGActive;
     const auto& frameGenerationRuntimeActive = view.frameGenerationRuntimeActive;
     const auto& activeDisplayMultiplier = view.activeDisplayMultiplier;
@@ -21,9 +15,8 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& v
                             requestedPage == SettingsPage::FrameGeneration ? ImGuiTabItemFlags_SetSelected
                                                                            : ImGuiTabItemFlags_None))
     {
-        auto& sourceBackend = TheosRenderPipeline::SourceDLSSG::Backend::Get();
-        const auto& sourceState = sourceBackend.Snapshot();
-        const auto& unlock = sourceBackend.MFGState();
+        const auto& sourceState = view.session;
+        const auto& unlock = view.mfg;
         const auto usableMaximum = TheosRenderPipeline::SourceDLSSG::MFGContract::Maximum(
             unlock.UsesCompatibilityUnlock(), unlock.Ready(), sourceState.state.numFramesToGenerateMax);
         const bool supportsDynamic = TheosRenderPipeline::SourceDLSSG::MFGContract::Dynamic(
@@ -38,7 +31,7 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& v
         DrawStatusLabel(frameGenerationRuntimeActive ? "DLSS-G active" : "Frame generation inactive",
                         frameGenerationRuntimeActive ? UIHealth::kHealthy : UIHealth::kIdle);
         DrawSettingsValue("Multiplier", std::format("x{}", activeDisplayMultiplier).c_str());
-        DrawSettingsValue("Display", std::format("{:.0f} Hz", frameGen->refreshRate).c_str());
+        DrawSettingsValue("Display", std::format("{:.0f} Hz", view.refreshRate).c_str());
         DrawSettingsValue("Reflex", TheosRenderPipeline::SourceDLSSG::ReflexModeName(sourceState.reflexSubmitted));
         DrawSettingsValue("Output cap",
                           sourceState.frameLimitSubmittedUs
@@ -56,46 +49,21 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& v
             ImGui::TextWrapped("%s", unlock.status);
         if (sourceState.stateQueryResult == sl::Result::eWarnOutOfVRAM)
             ImGui::TextColored(kOchre, "NVIDIA VRAM budget warning");
-        if (nvidiaHost->WarmupPresentsRemaining() > 0)
-            ImGui::Text("Warmup: %d frames", nvidiaHost->WarmupPresentsRemaining());
+        if (view.warmupPresentsRemaining > 0)
+            ImGui::Text("Warmup: %d frames", view.warmupPresentsRemaining);
         if (showDeveloperControls && ImGui::CollapsingHeader("Runtime details"))
         {
-            ImGui::Text("Evaluations: %llu", static_cast<unsigned long long>(nvidiaHost->EvaluationCount()));
-            ImGui::Text("Host Presents: %llu | failures %llu | last 0x%08X",
-                        static_cast<unsigned long long>(nvidiaHost->PresentCount()),
-                        static_cast<unsigned long long>(nvidiaHost->FailedPresentCount()),
-                        static_cast<unsigned int>(nvidiaHost->LastPresentResult()));
-            if (nvidiaHost->RuntimeStateObservationCount() > 0)
-            {
-                ImGui::Text("Last query: %u outputs | max generated %u | min dimension %u",
-                            nvidiaHost->RuntimeFramesActuallyPresented(), nvidiaHost->RuntimeMaxGeneratedFrames(),
-                            nvidiaHost->RuntimeMinWidthOrHeight());
-                ImGui::Text("DLSS-G status: %u | observations: %llu", nvidiaHost->RuntimeDLSSGStatus(),
-                            static_cast<unsigned long long>(nvidiaHost->RuntimeStateObservationCount()));
-            }
-            else
-            {
-                ImGui::TextDisabled("DLSS-G state: waiting");
-            }
-            ImGui::TextWrapped("%s", nvidiaHost->Status().c_str());
-            if (view.sourceDLSSGActive)
-            {
-                ImGui::Text("Configured multiplier: x%u", sourceBackend.Snapshot().options.numFramesToGenerate + 1);
-                ImGui::Text("Output limit submitted interval: %u us", sourceBackend.Snapshot().frameLimitSubmittedUs);
-                ImGui::TextWrapped("MFG: %s", sourceBackend.MFGState().status);
-            }
-
-            ImGui::Text("Dynamic multiplier: %s", supportsDynamic ? "supported" : "unavailable");
+            DrawLabGenerationDetails(view);
         }
-        DrawStageMeasurements(SettingsPage::FrameGeneration);
+        DrawStageMeasurements(view, SettingsPage::FrameGeneration);
         NextSettingsColumn(tabCardHeight);
-        bool runtimeInterpolationRequested = frameGen->RuntimeInterpolationRequested();
+        bool runtimeInterpolationRequested = view.frameGenerationRequested;
         if (ImGui::Checkbox("Frame generation##runtime", &runtimeInterpolationRequested))
         {
-            frameGen->RequestRuntimeInterpolation(runtimeInterpolationRequested);
+            RequestFrameGeneration(runtimeInterpolationRequested);
         }
         DrawSettingsHelp("Takes effect immediately. Save as default to keep this choice for the next launch.");
-        if (runtimeInterpolationRequested != nvidiaHost->FrameGenerationEnabled())
+        if (runtimeInterpolationRequested != view.hostFrameGenerationEnabled)
         {
             ImGui::TextDisabled("Waiting for the current GPU frame to retire...");
         }

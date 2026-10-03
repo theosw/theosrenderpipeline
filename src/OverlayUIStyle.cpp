@@ -1,5 +1,5 @@
 #include "OverlayUIStyle.h"
-#include "RenderPipeline.h"
+#include "UpscaleType.h"
 
 namespace TheosRenderPipeline::Overlay
 {

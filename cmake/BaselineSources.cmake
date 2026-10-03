@@ -89,7 +89,6 @@ set(ARP_BASELINE_SOURCES
     src/WeatherAppearanceRuntime.cpp
     src/WeatherAppearanceSetup.h
     src/WeatherAppearanceFiles.h
-    src/OverlayPresetsPanel.cpp
     src/RenderPipeline.h
     src/ReShadeIntegration.cpp
     src/ReShadeIntegration.h
@@ -146,25 +145,18 @@ set(ARP_BASELINE_SOURCES
     src/FrameTrace.h
     src/NvidiaBaselinePolicy.h
     src/OverlayNumericInput.h
-    src/OverlayHotkeys.cpp
     src/OverlayHotkeys.h
     src/OverlayGameInput.cpp
     src/OverlayGameInput.h
     src/OverlayUI.cpp
-    src/OverlayFrameView.cpp
+    src/OverlayFrameCapture.cpp
+    src/OverlayLabPanel.cpp
     src/OverlayFrameView.h
-    src/OverlayPipeline.cpp
     src/OverlayPipeline.h
-    src/OverlayLayout.cpp
     src/OverlayLayout.h
-    src/OverlayImagePanel.cpp
-    src/OverlayAdvancedPanel.cpp
-    src/OverlayUIStyle.cpp
     src/OverlayUIStyle.h
     src/OverlayPresetDecor.h
     src/OverlaySettingRows.h
-    src/OverlayFrameGenerationPanel.cpp
-    src/OverlayPerformancePanel.cpp
     src/OverlayUI.h
     src/OverlayRenderTarget.h
     src/RendererSettings.h
@@ -185,6 +177,24 @@ set(ARP_BASELINE_SOURCES
     src/VideoMemoryTelemetry.h
     src/XSEPlugin.cpp
 )
+
+# Menu drawing, shared with the offline preview (tools/OverlayPreview). It reads
+# the renderer only through OverlayUI::FrameView; OverlayNeuralPanel.cpp is in
+# ARP_NEURAL_SOURCES.
+set(ARP_OVERLAY_MENU_SOURCES
+    src/OverlayMenu.cpp
+    src/OverlayFrameView.cpp
+    src/OverlayImagePanel.cpp
+    src/OverlayFrameGenerationPanel.cpp
+    src/OverlayAdvancedPanel.cpp
+    src/OverlayPerformancePanel.cpp
+    src/OverlayPresetsPanel.cpp
+    src/OverlayPipeline.cpp
+    src/OverlayLayout.cpp
+    src/OverlayUIStyle.cpp
+    src/OverlayHotkeys.cpp
+)
+list(APPEND ARP_BASELINE_SOURCES ${ARP_OVERLAY_MENU_SOURCES})
 
 # Neural Rendering is available independently of MFG compatibility.
 set(ARP_NEURAL_SOURCES

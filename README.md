@@ -190,6 +190,10 @@ targets with `cmake --build <build-directory> --config Release`, then run
 do not establish game acceptance. Build output alone is not a complete install;
 use the installation guides for configuration, shaders and required runtimes.
 
+The same build includes `TRPOverlayPreview`, which draws the in-game menu
+offline from sample renderer states and writes PNGs for reviewing menu
+changes without launching Skyrim. See [the preview guide](tools/OverlayPreview/README.md).
+
 The optional ReShade lifecycle fixture compares automatic and exported D3D11
 runtimes, single effect execution, effects-off GUI completion, shared input and
 paired teardown. It needs a supplied x64 ReShade DLL and an accepted hardware

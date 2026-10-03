@@ -1,32 +1,20 @@
-#include "CommunityShaderIntegration.h"
-#include "DLSSBackend.h"
 #include "DLSSPreset.h"
-#include "FrameGen/NvidiaHost.h"
-#include "FrameGen/SourceDLSSGBackend.h"
 #include "OverlayFrameView.h"
 #include "OverlayUI.h"
 #include "OverlayUIStyle.h"
-#include "PerformanceTuning.h"
-#include "ReShadeIntegration.h"
-#include "RenderPipeline.h"
 #include <PCH.h>
 using namespace TheosRenderPipeline::Overlay;
 
 void OverlayUI::DrawImageMeasurements(const FrameView& view)
 {
-    auto* upscaler = RenderPipeline::GetSingleton();
-    auto* backend = DLSSBackend::GetSingleton();
-    auto* host = NvidiaHost::GetSingleton();
-    const bool cs = TheosRenderPipeline::CommunityShaders::Active();
-    DrawStatusLabel(cs ? "Community Shaders" : ModeName(host->SourceUpscalerSettings().Effective().mode),
-                    view.upscaleHealth);
-    DrawSettingsValue("Render", std::format("{} x {}", host->RenderWidth(), host->RenderHeight()).c_str());
+    const bool cs = view.communityShaders;
+    DrawStatusLabel(cs ? "Community Shaders" : ModeName(view.upscaler.mode), view.upscaleHealth);
+    DrawSettingsValue("Render", std::format("{} x {}", view.renderWidth, view.renderHeight).c_str());
     DrawSettingsValue("Output", std::format("{} x {}", view.nativeWidth, view.nativeHeight).c_str());
     if (!cs)
-        DrawSettingsValue("Preset request", TheosRenderPipeline::DLSSPreset::ShortName(
-                                                host->SourceUpscalerSettings().Effective().preset));
+        DrawSettingsValue("Preset request", TheosRenderPipeline::DLSSPreset::ShortName(view.upscaler.preset));
     ImGui::Separator();
-    DrawStageMeasurements(SettingsPage::Image);
+    DrawStageMeasurements(view, SettingsPage::Image);
     DrawMemoryMeasurements(view);
     if (view.textureProviderAvailable)
     {
@@ -54,58 +42,11 @@ void OverlayUI::DrawImageMeasurements(const FrameView& view)
                            "textures. Avoided allocation is an independent estimate; actual GPU memory usage is "
                            "shown in the left column.");
         ImGui::Spacing();
-        ImGui::TextDisabled("%s", TextureProviderBridge::GetSingleton()->Status());
+        ImGui::TextDisabled("%s", view.textureProviderStatus.c_str());
     }
     if (showDeveloperControls)
     {
-        ImGui::Separator();
-        ImGui::Text("Host Present calls: %.1f FPS | %s: %s", presentedFps, view.outputLabel, view.outputText.c_str());
-        ImGui::Text("Active path: %s%s", view.activeUpscaleStage,
-                    TheosRenderPipeline::CommunityShaders::Active() || upscaler->IsEnabled() ? "" : " (inactive)");
-        ImGui::Text("Render %d x %d -> Native %d x %d (%.1f%%)", upscaler->mRenderSizeX, upscaler->mRenderSizeY,
-                    view.nativeWidth, view.nativeHeight,
-                    view.nativeWidth > 0
-                        ? static_cast<float>(upscaler->mRenderSizeX) / static_cast<float>(view.nativeWidth) * 100.0f
-                        : 100.0f);
-        if (!TheosRenderPipeline::CommunityShaders::Active())
-        {
-            ImGui::Text("Jitter: (%.4f, %.4f) | phases: %d", upscaler->mJitterOffsets[0], upscaler->mJitterOffsets[1],
-                        backend->GetJitterPhaseCount());
-            ImGui::Text("Mip LOD bias: %.3f", upscaler->mMipLodBias);
-            ImGui::Text("NGX evals ok/failed: %llu / %llu | last 0x%08X",
-                        static_cast<unsigned long long>(backend->EvalSuccessCount()),
-                        static_cast<unsigned long long>(backend->EvalFailCount()), backend->LastEvalResult());
-            ImGui::Text("Feature: %s | formats in/out: %d / %d | Linear HDR input: %s",
-                        backend->HasFeature() ? "created" : "none", backend->InputFormat(), backend->OutputFormat(),
-                        backend->IsHDRInput() ? "yes" : "no");
-        }
-        if (upscaler->mGraphicsState)
-        {
-            auto& runtimeData = upscaler->mGraphicsState->GetRuntimeData();
-            ImGui::Text("Engine resolution ratio at present: %.3f x %.3f", runtimeData.dynamicResolutionWidthRatio,
-                        runtimeData.dynamicResolutionHeightRatio);
-        }
-
-        if (!cs)
-        {
-            auto* performance = PerformanceTuning::GetSingleton();
-            for (auto item : {PerformanceTuning::Optimization::kDirectRCASOutput,
-                              PerformanceTuning::Optimization::kDirectDLSSOutput})
-            {
-                const auto& route = performance->GetRouteStatus(item);
-                ImGui::SeparatorText(item == PerformanceTuning::Optimization::kDirectRCASOutput ? "RCAS output"
-                                                                                                : "DLSS output");
-                ImGui::TextWrapped("%s: %s",
-                                   route.sessionRejected   ? "Fallback latched"
-                                   : route.activeLastFrame ? "Active"
-                                   : route.requested       ? "Armed"
-                                                           : "Off",
-                                   !route.activeLastFrame && route.reason == "active" ? "not used this frame"
-                                                                                    : route.reason.c_str());
-                ImGui::TextWrapped("Frames %llu | fallbacks %llu", static_cast<unsigned long long>(route.activeFrames),
-                                   static_cast<unsigned long long>(route.fallbackCount));
-            }
-        }
+        DrawLabImageDetails(view);
     }
 }
 
@@ -114,7 +55,7 @@ void OverlayUI::DrawMemoryMeasurements(const FrameView& view)
     ImGui::Separator();
     if (!view.memorySnapshot.available || view.memorySnapshot.budget == 0)
     {
-        DrawSettingsValue("GPU memory", VideoMemoryTelemetry::GetSingleton()->Status());
+        DrawSettingsValue("GPU memory", view.memoryStatus.c_str());
         return;
     }
     constexpr double gib = 1024.0 * 1024.0 * 1024.0;
@@ -166,13 +107,13 @@ void OverlayUI::DrawMenuSizeControl()
     ImGui::Separator();
 }
 
-void OverlayUI::DrawMenuKeyControl()
+void OverlayUI::DrawMenuKeyControl(const FrameView& view)
 {
     menuKeyControlDrawn = true;
     const bool capturing = hotkeys.IsCapturing();
     const auto key = static_cast<UINT>(settingsDraft.menuHotkey);
     ImGui::AlignTextToFramePadding();
-    if (settingsDraft.menuHotkey != RenderPipeline::GetSingleton()->mToggleOverlayHotkey)
+    if (settingsDraft.menuHotkey != view.menuHotkey)
         ImGui::TextColored(kAmber, "Menu key");
     else
         ImGui::TextUnformatted("Menu key");
@@ -216,14 +157,13 @@ void OverlayUI::DrawAdvancedPanel(float height, const FrameView& view)
         return;
     if (BeginSettingsColumns("advanced", height, view))
     {
-        auto* pipeline = RenderPipeline::GetSingleton();
-        const bool cs = TheosRenderPipeline::CommunityShaders::Active();
+        const bool cs = view.communityShaders;
         DrawStatusLabel(cs ? "Community Shaders" : "Skyrim / ENB", view.nativeUIHealth);
         DrawSettingsValue("ReShade request",
-                          pipeline->mReShadeBeforeUpscaling ? "Before upscaling" : "After upscaling");
-        ImGui::TextWrapped("%s", TheosRenderPipeline::ReShadeIntegration::Get().Status().c_str());
-        DrawUIStatusPanel();
-        DrawStageMeasurements(SettingsPage::Advanced);
+                          view.reShadeBeforeUpscaling ? "Before upscaling" : "After upscaling");
+        ImGui::TextWrapped("%s", view.reShadeStatus.c_str());
+        DrawUIStatusPanel(view);
+        DrawStageMeasurements(view, SettingsPage::Advanced);
         DrawReportingDetails(view);
         NextSettingsColumn(height);
         int placement = settingsDraft.reShadeBeforeUpscaling ? 0 : 1;
@@ -236,7 +176,7 @@ void OverlayUI::DrawAdvancedPanel(float height, const FrameView& view)
         ImGui::Separator();
         ImGui::Checkbox("Lab mode", &showDeveloperControls);
         DrawSettingsHelp("Show runtime details and experimental controls. This changes menu visibility only.");
-        DrawMeasurementControls();
+        DrawMeasurementControls(view);
         if (showDeveloperControls && !cs && ImGui::CollapsingHeader("UI integration (Lab)"))
         {
             ImGui::TextDisabled("Save and restart");
@@ -245,56 +185,30 @@ void OverlayUI::DrawAdvancedPanel(float height, const FrameView& view)
         }
         ImGui::Separator();
         DrawMenuSizeControl();
-        DrawMenuKeyControl();
+        DrawMenuKeyControl(view);
         ImGui::TextUnformatted("HDR unsupported");
         if (cs)
             ImGui::TextWrapped("Keep CS HDR, frame generation and Reflex off.");
         if (showDeveloperControls && !cs && ImGui::CollapsingHeader("Menu diagnostics (Lab)"))
         {
-            auto* upscaler = pipeline;
-            ImGui::Spacing();
-            ImGui::TextColored(kRust, "These controls deliberately break or instrument the normal render path.");
-            if (ImGui::Checkbox("Log menu/Console metrics (debug)", &upscaler->mLogMenuMetrics))
-            {
-                upscaler->mConsoleDiagnosticsActive.store(upscaler->mLogMenuMetrics &&
-                                                              upscaler->mConsoleOpen.load(std::memory_order_relaxed),
-                                                          std::memory_order_relaxed);
-            }
-            ImGui::Spacing();
-            ImGui::SeparatorText("MAGIC PREVIEW DRAW ISOLATION");
-            static const char* drawIsolationModes[] = {"Normal",      "Only draw 1", "Only draw 2",
-                                                       "Only draw 3", "Only draw 4", "Hide draw 1",
-                                                       "Hide draw 2", "Hide draw 3", "Hide draw 4"};
-            if (ImGui::Combo("Inventory3D draw view", &upscaler->mInventory3DDrawIsolationMode, drawIsolationModes,
-                             static_cast<int>(std::size(drawIsolationModes))))
-            {
-                upscaler->mInventory3DLastObservedDraws.store(0, std::memory_order_relaxed);
-                upscaler->mInventory3DLastSkippedDraws.store(0, std::memory_order_relaxed);
-                logger::info("[Inventory3DDrawIsolation] mode {} ({})", upscaler->mInventory3DDrawIsolationMode,
-                             drawIsolationModes[upscaler->mInventory3DDrawIsolationMode]);
-            }
-            ImGui::TextDisabled("Runtime only. Last preview frame: %u draws observed, %u skipped.",
-                                upscaler->mInventory3DLastObservedDraws.load(std::memory_order_relaxed),
-                                upscaler->mInventory3DLastSkippedDraws.load(std::memory_order_relaxed));
+            DrawLabMenuDiagnostics();
         }
         EndSettingsColumns();
     }
     ImGui::EndTabItem();
 }
 
-void OverlayUI::DrawUIStatusPanel()
+void OverlayUI::DrawUIStatusPanel(const FrameView& view)
 {
-    auto* pipeline = RenderPipeline::GetSingleton();
-    auto* host = NvidiaHost::GetSingleton();
-    const bool cs = TheosRenderPipeline::CommunityShaders::Active();
-    DrawSettingsValue("UI composition", cs                    ? "Community Shaders"
-                                        : pipeline->mNativeUI ? "Native resolution"
-                                                              : "Render resolution");
+    const bool cs = view.communityShaders;
+    DrawSettingsValue("UI composition", cs              ? "Community Shaders"
+                                        : view.nativeUI ? "Native resolution"
+                                                        : "Render resolution");
     if (ImGui::CollapsingHeader("UI details"))
     {
-        DrawSettingsValue("External overlays", cs                          ? "CS UI path"
-                                               : host->StartupConfigured() ? "Native host"
-                                                                           : "Unavailable");
+        DrawSettingsValue("External overlays", cs                           ? "CS UI path"
+                                               : view.hostStartupConfigured ? "Native host"
+                                                                            : "Unavailable");
         ImGui::TextWrapped("%s", cs ? "Community Shaders owns the UI render targets."
                                     : "Supported startup overlays use the native foreground target.");
     }
@@ -305,9 +219,9 @@ void OverlayUI::DrawReportingDetails(const FrameView& view)
     ImGui::Spacing();
     if (ImGui::CollapsingHeader("Reporting a problem"))
     {
-        const auto& upscaler = NvidiaHost::GetSingleton()->SourceUpscalerSettings().Effective();
-        const auto neural = TheosRenderPipeline::SourceDLSSG::Backend::Get().NeuralConfiguration();
-        if (!TheosRenderPipeline::CommunityShaders::Active())
+        const auto& upscaler = view.upscaler;
+        const auto& neural = view.neuralApplied;
+        if (!view.communityShaders)
         {
             ImGui::Text("Upscaling: %s | requested preset %s", ModeName(upscaler.mode),
                         TheosRenderPipeline::DLSSPreset::ShortName(upscaler.preset));
