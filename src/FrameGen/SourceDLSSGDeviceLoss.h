@@ -27,6 +27,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// Before the host's D3D12 device creation. False leaves OS/other-owner
 		// DRED settings alone. Enabling DRED affects subsequent process devices.
 		void Configure(bool a_enableDRED) noexcept;
+		bool RecordingEnabled() const noexcept { return requested_ && configured_; }
 		// Reports only a GPU failure: an observed device removal or a fault
 		// retained by the interop. Returns whether a report was written.
 		bool Report(HRESULT a_result, const char* a_operation, std::uint64_t a_frame,

@@ -45,8 +45,25 @@ namespace TheosRenderPipeline::SourceDLSSG
 			fault_ = a_result;
 			status_ = std::format("{} failed HRESULT=0x{:08X}", a_operation, static_cast<std::uint32_t>(a_result));
 			logger::error("[SourceDLSSG] {}", status_);
-			deviceLoss_.Report(a_result, a_operation, session_.Snapshot().frameIndex,
-				device11_.Get(), device12_.Get(), failure);
+			if (deviceLoss_.Report(a_result, a_operation, session_.Snapshot().frameIndex,
+				device11_.Get(), device12_.Get(), failure)) {
+#if !defined(TRP_NO_NEURAL_RENDERING)
+				if (neuralPass_) { neuralPass_->LogDiagnostics(); }
+#endif
+				if (deviceLoss_.RecordingEnabled()) {
+					try {
+						for (auto work : { Work::Upscaling, Work::FrameGeneration, Work::SwapChain }) {
+							const auto slots = interop_.QueueSlots(work);
+							for (std::size_t slot = 0; slot < slots.size(); ++slot) {
+								const auto& s = slots[slot];
+								logger::info("[GPUFailure] queue slot work={} slot={} list={} fence={} producerWait={} submittedSignal={}; retained CPU values, not GPU completion",
+									WorkName(work), slot, s.list, s.fence, s.producer, s.submitted);
+							}
+						}
+						spdlog::default_logger()->flush();
+					} catch (...) {} // A diagnostic failure must not escape Check.
+				}
+			}
 		}
 		return false;
 	}
@@ -514,7 +531,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 				reset, frameConstants_.depthInverted == sl::eTrue,
 				frameConstants_.mvecScale.x * motion_.desc.Width, frameConstants_.mvecScale.y * motion_.desc.Height,
 				motion_.texture12.Get(), depth_.texture12.Get(), ui_.texture12.Get(), hudless_.texture12.Get(), a_source,
-				neuralTimestampFrequency_)) {
+				neuralTimestampFrequency_, deviceLoss_.RecordingEnabled(), interop_.LastValue(Work::SwapChain))) {
 				FailNeuralRecording();
 				return fault_; // Retain all objects and the unsubmitted list on unknown NGX failure.
 			}

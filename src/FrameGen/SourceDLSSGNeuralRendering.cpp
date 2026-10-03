@@ -1,6 +1,7 @@
 #include <PCH.h>
 #include "SourceDLSSGNeuralRendering.h"
 #include "TRPNeuralShaders.generated.h"
+#include "SourceDLSSGDiagnosticMarker.h"
 #include <chrono>
 
 namespace TheosRenderPipeline::SourceDLSSG
@@ -92,6 +93,48 @@ namespace TheosRenderPipeline::SourceDLSSG
 		for (std::size_t slot = 0; slot < pendingTiming_.size(); ++slot) {
 			HarvestTelemetry(slot);
 		}
+	}
+
+	void NeuralPass::CaptureEvaluation(const NeuralRendering::FeatureSession::EvaluationInput& input,
+		std::size_t slot, unsigned pass, std::uint64_t evaluation)
+	{
+		if (!diagnostics_) { return; }
+		auto& observation = diagnosticSlots_[slot][pass];
+		observation = {};
+		observation.list = input.commandList;
+		observation.evaluation = evaluation;
+		observation.producerValue = diagnosticProducer_;
+		const std::array resources{ input.color, input.motionVectors, input.depth, input.ui, input.output, input.backbuffer };
+		for (std::size_t i = 0; i < resources.size(); ++i) {
+			if (!resources[i]) { continue; }
+			// These are the caller's declared states at evaluation entry, not a
+			// driver state query or proof that NGX preserves the contract.
+			const auto state = resources[i] == input.output ? D3D12_RESOURCE_STATE_UNORDERED_ACCESS :
+				D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+			observation.resources[i] = { resources[i], resources[i]->GetDesc(), state };
+		}
+	}
+
+	void NeuralPass::LogDiagnostics() const noexcept
+	{
+		if (!diagnostics_) { return; }
+		try {
+			constexpr std::array roles{ "color", "motion", "depth", "ui", "output", "backbuffer" };
+			for (std::size_t slot = 0; slot < diagnosticSlots_.size(); ++slot) {
+				for (std::size_t pass = 0; pass < 2; ++pass) {
+					const auto& o = diagnosticSlots_[slot][pass];
+					if (!o.list) { continue; }
+					logger::info("[GPUFailure] NR recording slot={} pass={} placement={} list={} producerWait={} evaluation={} recorded={}; CPU snapshot, not GPU completion",
+						slot, pass + 1, beforeUpscaling_ ? "before" : "after", o.list, o.producerValue, o.evaluation, o.recorded);
+					for (std::size_t i = 0; i < roles.size(); ++i) {
+						const auto& r = o.resources[i];
+						logger::info("[GPUFailure] NR binding slot={} pass={} role={} available={} object={} width={} height={} format={} flags=0x{:X} expectedEvaluationState=0x{:X}",
+							slot, pass + 1, roles[i], r.object != nullptr, r.object, r.desc.Width, r.desc.Height, static_cast<unsigned>(r.desc.Format),
+							static_cast<unsigned>(r.desc.Flags), static_cast<unsigned>(r.expectedState));
+					}
+				}
+			}
+		} catch (...) {} // Diagnostics cannot change failure retention.
 	}
 
 	bool NeuralPass::Initialize(ID3D12Device* device, const NeuralOptions& options,
@@ -225,7 +268,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 	bool NeuralPass::Record(ID3D12Device* device, ID3D12GraphicsCommandList* list, std::size_t slot,
 		const NeuralOptions& options, bool reset, bool depthInverted, float scaleX, float scaleY,
 		ID3D12Resource* motion, ID3D12Resource* depth, ID3D12Resource* ui,
-		ID3D12Resource* hudless, ID3D12Resource* composed, std::uint64_t timestampFrequency)
+		ID3D12Resource* hudless, ID3D12Resource* composed, std::uint64_t timestampFrequency, bool diagnostics, std::uint64_t producerValue)
 	{
 		if (!device || !list || slot >= heaps_.size() || options.passes < 1 || options.passes > 2 || !SameSize(motion, depth) ||
 			!Texture(hudless) || (options.WorldOnly() ? (ui || composed || options.tuning.uiCorrection) :
@@ -233,7 +276,31 @@ namespace TheosRenderPipeline::SourceDLSSG
 			!std::isfinite(scaleX) || !std::isfinite(scaleY) || !scaleX || !scaleY) {
 			status_ = "NR source input contract is incomplete"; return false;
 		}
+		diagnostics_ = diagnostics;
+		diagnosticProducer_ = producerValue;
+		if (diagnostics_) { diagnosticSlots_[slot] = {}; }
 		if (!Initialize(device, options, motion, hudless, composed)) { return false; }
+		if (diagnostics_ && feature_.EvaluationsRecorded() == 0) {
+			for (const auto& [resource, name] : std::array<std::pair<ID3D12Resource*, const wchar_t*>, 15>{ {
+				{ corrected_.Get(), L"TRP NR corrected" }, { composed_.Get(), L"TRP NR composed" },
+				{ workColor_.Get(), L"TRP NR work color" }, { workOutput_.Get(), L"TRP NR work output" },
+				{ encoded_.Get(), L"TRP NR encoded" }, { residual_.Get(), L"TRP NR residual" },
+				{ packedMotion_.Get(), L"TRP NR packed motion" }, { packedDepth_.Get(), L"TRP NR packed depth" },
+				{ packedUI_.Get(), L"TRP NR packed UI" }, { secondOutput_.Get(), L"TRP NR pass 2 output" },
+				{ secondInput_.Get(), L"TRP NR pass 2 input" }, { secondRestored_.Get(), L"TRP NR pass 2 restored" },
+				{ secondMotion_.Get(), L"TRP NR pass 2 motion" }, { secondDepth_.Get(), L"TRP NR pass 2 depth" },
+				{ secondUI_.Get(), L"TRP NR pass 2 UI" }
+			} }) { if (resource) { (void)resource->SetName(name); } }
+		}
+		if (diagnostics_) {
+			wchar_t label[120]{};
+			swprintf_s(label, L"TRP NR %ls slot=%zu producer=%llu evaluation=%llu",
+				options.beforeUpscaling ? L"before" : L"after", slot,
+				static_cast<unsigned long long>(producerValue),
+				static_cast<unsigned long long>(feature_.EvaluationsRecorded() + 1));
+			DiagnosticMarker(list, true, label);
+		}
+		DiagnosticMarker(list, diagnostics_, L"TRP NR prepare inputs");
 		const int effectivePasses = options.EffectivePasses();
 		if (effectivePasses == 1) { secondHistoryInvalid_ = true; }
 		InitializeTelemetry(device, timestampFrequency);
@@ -299,6 +366,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			status_ = "NR correction background copy rejected"; return false;
 		}
 		constexpr auto read = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+		DiagnosticMarker(list, diagnostics_, L"TRP NR pass 1 input/output transitions");
 		for (auto* input : { featureMotion, featureDepth, featureUI, hudless, composed }) { Transition(list, input, D3D12_RESOURCE_STATE_COMMON, read); }
 		if (featureColor != hudless) { Transition(list, featureColor, D3D12_RESOURCE_STATE_COMMON, read); }
 		Transition(list, featureOutput, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -319,7 +387,10 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (gpuTiming) { list->EndQuery(timestampHeap_.Get(), D3D12_QUERY_TYPE_TIMESTAMP, query); }
 		const auto cpuBegin = std::chrono::steady_clock::now();
 		auto second = input;
+		CaptureEvaluation(input, slot, 0, feature_.EvaluationsRecorded() + 1);
+		DiagnosticMarker(list, diagnostics_, L"TRP NR pass 1 NGX evaluation");
 		bool evaluated = feature_.RecordEvaluation(input);
+		if (diagnostics_) { diagnosticSlots_[slot][0].recorded = evaluated; }
 		if (!evaluated) { status_ = feature_.Status(); }
 		if (evaluated && effectivePasses == 2) {
 			evaluated = RecordSecond(device, list, slot, options, input, constants, motion, depth, ui, second);
@@ -330,6 +401,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			telemetry_.RecordCPUOnly(cpuRecordNanoseconds);
 			return false;
 		}
+		DiagnosticMarker(list, diagnostics_, L"TRP NR resolve timing queries");
 		if (gpuTiming) {
 			list->EndQuery(timestampHeap_.Get(), D3D12_QUERY_TYPE_TIMESTAMP, query + 1);
 			list->ResolveQueryData(timestampHeap_.Get(), D3D12_QUERY_TYPE_TIMESTAMP, query, 2,
@@ -339,6 +411,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			telemetry_.RecordCPUOnly(cpuRecordNanoseconds);
 		}
 
+		DiagnosticMarker(list, diagnostics_, L"TRP NR restore and resolve output");
 		if (effectivePasses == 2 && !FinishSecond(device, list, slot, input, second, constants)) { return false; }
 
 		if (resolving) {
@@ -365,6 +438,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		const auto secondStatus = effectivePasses == 2 ? std::format("; pass2={}x{} preset={} linked={} intensity={:.3f}",
 			secondOutput_->GetDesc().Width, secondOutput_->GetDesc().Height, secondSettings_.preset, options.secondPass.linked, secondSettings_.tuning.intensity) : std::string{};
 		if (options.WorldOnly()) {
+			DiagnosticMarker(list, diagnostics_, L"TRP NR world output to COMMON");
 			Transition(list, corrected_.Get(), read, D3D12_RESOURCE_STATE_COMMON);
 			for (auto* texture : { featureMotion, featureDepth, hudless }) { Transition(list, texture, read, D3D12_RESOURCE_STATE_COMMON); }
 			status_ = std::format("NR {} upscaling {}x{} -> {}x{}; {} pass(es); {}; {}; world only; UI correction unused; fusion requested={} colour={} guides={}",
@@ -377,6 +451,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			return true;
 		}
 
+		DiagnosticMarker(list, diagnostics_, L"TRP NR compose native UI");
 		// Interop::Begin retired this slot before any descriptors are
 		// overwritten. NGX may bind its own heaps/root/PSO; explicitly bind ours.
 		// In peripheral mode NGX consumed a private warped UI. Composition still
@@ -404,6 +479,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (featureUI != ui) { Transition(list, ui, read, D3D12_RESOURCE_STATE_COMMON); }
 		// Preserve the HUD-less tag identity already registered with Streamline.
 		// Both its generated frames and our real-frame composition use corrected_.
+		DiagnosticMarker(list, diagnostics_, L"TRP NR copy corrected HUD-less output");
 		if (FAILED(Interop::RecordCopy(list, corrected_.Get(), hudless))) { status_ = "NR HUD-less copy rejected"; return false; }
 		status_ = std::format("source NR after DLSS {}x{} -> {}x{}; {} pass(es); {} resolve; {}; native UI after NR; NR feeds real output and HUD-less FG tag; fusion requested={} colour={} guides={}",
 			constants.workWidth, constants.workHeight, constants.sourceWidth, constants.sourceHeight,

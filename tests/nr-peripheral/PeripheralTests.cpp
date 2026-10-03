@@ -72,7 +72,7 @@ static void Kernels(GPU& gpu){
 static void Passes(GPU& gpu){
     using namespace TheosRenderPipeline::NeuralRendering;
     unsigned cases=0;
-    for(bool peripheral:{false,true})for(int route:{0,1,2,3})for(int passes:{1,2})for(float scale:{1.f,.5f}){
+    for(bool diagnostics:{false,true})for(bool peripheral:{false,true})for(int route:{0,1,2,3})for(int passes:{1,2})for(float scale:{1.f,.5f}){
         // 0=native late/UI, 1=native early, 2=CS early/producer RGB, 3=CS late.
         const bool world=route!=0,producer=route==2;
         const unsigned w=100,h=60,gw=50,gh=30;
@@ -95,7 +95,7 @@ static void Passes(GPU& gpu){
             auto scene=gpu.Texture(w,h,pixels);
             gpu.Begin();
             const bool recorded=pass.Record(gpu.device.Get(),gpu.list.Get(),frame%kCommandSlots,options,frame==0,true,float(gw),float(gh),
-                motion.Get(),depth.Get(),world?nullptr:ui.Get(),scene.Get(),world?nullptr:composed.Get());
+                motion.Get(),depth.Get(),world?nullptr:ui.Get(),scene.Get(),world?nullptr:composed.Get(),0,diagnostics);
             Require(recorded,pass.Status().c_str());gpu.End();
             Require(!pass.NeedsRecreation(options,gw,gh),"stable producer extents do not recreate packed feature");
             Require(pass.RetainedRuntimeBuild(options.runtimePath)==RuntimeBuild::Nexus3108,"initialized pass retains the exact verified request");

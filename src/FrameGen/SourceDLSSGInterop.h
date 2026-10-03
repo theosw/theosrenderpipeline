@@ -66,6 +66,13 @@ namespace TheosRenderPipeline::SourceDLSSG
 		const void* referenceFenceOwner{};
 		const void* inputFenceOwner{};
 	};
+	struct QueueSlotDiagnostics
+	{
+		const void* list{};
+		const void* fence{};
+		std::uint64_t producer{};
+		std::uint64_t submitted{};
+	};
 
 	// Snapshot of the interop operation that produced the first fault. The wait
 	// is the retirement wait's own record, not a second measurement of it.
@@ -122,6 +129,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		bool Ready() const { return ready_ && SUCCEEDED(fault_); }
 		std::uint64_t LastValue(Work a_work) const;
 		std::size_t CurrentSlot(Work a_work) const;
+		std::array<QueueSlotDiagnostics, kCommandSlots> QueueSlots(Work a_work) const noexcept;
 
 		// Both resources enter and leave COMMON.
 		static HRESULT RecordCopy(ID3D12GraphicsCommandList* a_list,
@@ -135,6 +143,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			std::array<Microsoft::WRL::ComPtr<ID3D12CommandAllocator>, kCommandSlots> allocators;
 			std::array<Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList>, kCommandSlots> lists;
 			std::array<std::uint64_t, kCommandSlots> submitted{};
+			std::array<std::uint64_t, kCommandSlots> producer{};
 			std::uint64_t value{ 0 };
 			std::size_t slot{ 0 };
 			HANDLE event{ nullptr };

@@ -148,6 +148,11 @@ tracking for subsequently created D3D12 devices in the process and can add
 overhead; leave the file absent during normal play. An absent or false setting
 leaves Windows and externally configured DRED settings unchanged. Empty DRED
 data does not exclude a GPU fault, and breadcrumbs do not identify a cause alone.
+When TRP successfully enables DRED, NR also records stage markers and names its
+private textures. A first GPU-failure report includes bounded NR binding and
+queue-slot snapshots with caller-declared evaluation states and fence values.
+These CPU recording snapshots do not establish GPU completion or validate the
+runtime's internal barriers. Marker context availability depends on DRED support.
 
 ## Build
 

@@ -139,8 +139,9 @@ int main(int argc, char** argv)
     Check(interop.Submit(Work::FrameGeneration), "submit after short stall");
     Check(interop.Drain(), "retire short stall");
 
-    // Steady progress keeps waiting beyond the no-progress limit. Timed-out
-    // slices accumulate well past the limit, so only a progress reset passes.
+    // Steady progress keeps waiting beyond the no-progress limit. Actual time
+    // can exceed nominal slices. Still cross the nominal policy's limit by a
+    // full slice so removing progress resets must fault before completion.
     interop.SetRetirementWaitPolicy({ 20, 150 });
     for (std::uint64_t gate = 4; gate <= 11; ++gate) {
         Check(interop.WaitForInputReaders(input.Get(), gate), "gate queue for slow progress");
@@ -151,7 +152,8 @@ int main(int argc, char** argv)
     Check(interop.Begin(Work::FrameGeneration, &list), "begin waits through slow progress");
     slowProgress.join();
     Require(list && interop.Ready(), "slow progress leaves interop usable");
-    Require(interop.TakeExtendedWait(wait) && wait.result == S_OK && wait.slices * 20 > 2 * 150 &&
+    Require(interop.TakeExtendedWait(wait) && wait.result == S_OK && wait.elapsedMs > 2 * 150 &&
+        wait.slices > (150 + 20 - 1) / 20 &&
         wait.completedAtEnd > wait.completedAtStart, "slow progress outlasts the no-progress limit");
     Check(interop.Submit(Work::FrameGeneration), "submit after slow progress");
     Check(interop.Drain(), "retire slow progress");
