@@ -26,8 +26,9 @@ namespace TheosRenderPipeline
         {
             if (frame == frame_) { return S_FALSE; }
             frame_ = frame;
-            guidesReady_ = sceneReady_ = encodedReady_ = consumed_ = false;
+            guidesReady_ = sceneReady_ = encodedReady_ = uiReady_ = consumed_ = false;
             sceneSource_.Reset(); encodedSource_.Reset(); uiSource_.Reset();
+            uiCaptureResult_ = E_NOTIMPL;
             render_ = renderExtent; output_ = outputExtent;
             if (!output_.width || !output_.height || render_.width > output_.width ||
                 render_.height > output_.height || !context || !motion || !depth) { return E_INVALIDARG; }
@@ -69,7 +70,7 @@ namespace TheosRenderPipeline
         // then restore all changed slots. The caller still performs the original
         // dispatch exactly once. Unrelated passes are left alone.
         HRESULT CaptureDisplayTransform(ID3D11DeviceContext* context,
-            UINT x, UINT y, UINT z, Dispatch dispatch)
+            UINT x, UINT y, UINT z, Dispatch dispatch, bool captureUIAlpha = false)
         {
             if (!sceneReady_ || consumed_ || encodedReady_ || !isolation_.Accepts(context, producerContext_) ||
                 !dispatch || !x || !y || z != 1) { return S_FALSE; }
@@ -106,6 +107,10 @@ namespace TheosRenderPipeline
                 result = device->CreateUnorderedAccessView(encoded_.Get(), nullptr, encodedUAV_.ReleaseAndGetAddressOf());
                 if (FAILED(result)) { return result; }
                 encodedUAVSource_ = encoded_;
+            }
+            if (captureUIAlpha) {
+                uiCaptureResult_ = CaptureAlpha(context, views, destination.Get(), dispatch);
+                uiReady_ = uiCaptureResult_ == S_OK;
             }
             ID3D11ShaderResourceView* cleanViews[]{sceneSRV_.Get(), nullptr};
             auto* cleanOutput = encodedUAV_.Get();
@@ -154,6 +159,15 @@ namespace TheosRenderPipeline
                 (encodedReady_ ? encoded_.Get() : scene_.Get()) : nullptr;
         }
 
+        // Only producer-authored fractional coverage is suitable for CS UI.
+        // The compositor snapshot is confirmed with the matching display copy.
+        HRESULT UICaptureResult() const { return uiCaptureResult_; }
+
+        ID3D11Texture2D* UI(const D3D11_TEXTURE2D_DESC& presentation) const
+        {
+            return uiReady_ && PresentationStatus(presentation) == PresentationState::Ready ? ui_.Get() : nullptr;
+        }
+
         bool Ready() const { return guidesReady_ && sceneReady_ && !consumed_; }
         void Consume() { consumed_ = true; }
         ID3D11Texture2D* Motion() const { return guidesReady_ ? motion_.Get() : nullptr; }
@@ -169,7 +183,9 @@ namespace TheosRenderPipeline
             motion_.Reset(); depth_.Reset(); scene_.Reset(); sceneSource_.Reset(); uiSource_.Reset();
             encoded_.Reset(); encodedSource_.Reset(); encodedUAV_.Reset(); encodedUAVSource_.Reset();
             sceneSRV_.Reset(); sceneSRVSource_.Reset();
-            guidesReady_ = sceneReady_ = encodedReady_ = consumed_ = false;
+            ui_.Reset(); uiShader_.Reset(); uiUAV_.Reset(); uiUAVSource_.Reset();
+            uiCaptureResult_ = E_NOTIMPL;
+            guidesReady_ = sceneReady_ = encodedReady_ = uiReady_ = consumed_ = false;
             frame_ = (std::numeric_limits<std::uint64_t>::max)(); render_ = output_ = {};
         }
 
@@ -183,6 +199,59 @@ namespace TheosRenderPipeline
         }
 
     private:
+        // Read the compositor's actual t1 before it can clear/reuse that UI
+        // target. Preserve subpixel/translucent coverage in R8 rather than the
+        // backbuffer's two-bit alpha. No scene pixels or colour-space guesses.
+        HRESULT CaptureAlpha(ID3D11DeviceContext* context, ID3D11ShaderResourceView* const* views,
+            ID3D11UnorderedAccessView* originalOutput, Dispatch dispatch)
+        {
+            auto source = Texture(views[1]);
+            if (!source) { return E_INVALIDARG; }
+            D3D11_TEXTURE2D_DESC desc{}; source->GetDesc(&desc);
+            if (desc.Width != output_.width || desc.Height != output_.height) { return E_INVALIDARG; }
+            auto result = Ensure(context, source.Get(), output_, DXGI_FORMAT_R8_UNORM,
+                D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS, ui_);
+            if (FAILED(result)) { return result; }
+            Microsoft::WRL::ComPtr<ID3D11Device> device; context->GetDevice(&device);
+            if (!uiShader_) {
+                constexpr char program[] = R"(
+Texture2D<float4> producerUI : register(t0);
+RWTexture2D<float> alpha : register(u0);
+[numthreads(8,8,1)] void main(uint3 p : SV_DispatchThreadID) {
+    uint w,h; alpha.GetDimensions(w,h); if(p.x>=w || p.y>=h) return;
+    alpha[p.xy] = saturate(producerUI.Load(int3(p.xy,0)).a);
+})";
+                Microsoft::WRL::ComPtr<ID3DBlob> code;
+                result = D3DCompile(program, sizeof(program)-1, "CSUIAlpha", nullptr, nullptr,
+                    "main", "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, nullptr);
+                if (FAILED(result)) { return result; }
+                result = device->CreateComputeShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, &uiShader_);
+                if (FAILED(result)) { return result; }
+            }
+            if (uiUAVSource_.Get() != ui_.Get()) {
+                result = device->CreateUnorderedAccessView(ui_.Get(), nullptr, uiUAV_.ReleaseAndGetAddressOf());
+                if (FAILED(result)) { return result; }
+                uiUAVSource_ = ui_;
+            }
+            Microsoft::WRL::ComPtr<ID3D11ComputeShader> savedShader;
+            struct Instances {
+                ID3D11ClassInstance* values[D3D11_SHADER_MAX_INTERFACES]{};
+                UINT count{D3D11_SHADER_MAX_INTERFACES};
+                ~Instances() { for (UINT i=0; i<count; ++i) { if(values[i]) { values[i]->Release(); } } }
+            } instances;
+            context->CSGetShader(&savedShader, instances.values, &instances.count);
+            ID3D11ShaderResourceView* inputs[]{views[1], nullptr};
+            context->CSSetShaderResources(0, 2, inputs);
+            context->CSSetUnorderedAccessViews(0, 1, uiUAV_.GetAddressOf(), nullptr);
+            context->CSSetShader(uiShader_.Get(), nullptr, 0);
+            // Bypass the observer entry: this is our pass, not a producer pass.
+            dispatch(context, (output_.width+7)/8, (output_.height+7)/8, 1);
+            context->CSSetShader(savedShader.Get(), instances.values, instances.count);
+            context->CSSetUnorderedAccessViews(0, 1, &originalOutput, nullptr);
+            context->CSSetShaderResources(0, 2, views);
+            return S_OK;
+        }
+
         static bool References(ID3D11View* view, ID3D11Texture2D* texture)
         {
             return D3D11FrameCopy::SameObject(Texture(view).Get(), texture);
@@ -217,9 +286,13 @@ namespace TheosRenderPipeline
         Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> sceneSRV_;
         Microsoft::WRL::ComPtr<ID3D11Texture2D> sceneSRVSource_, encodedUAVSource_;
         Microsoft::WRL::ComPtr<ID3D11UnorderedAccessView> encodedUAV_;
+        Microsoft::WRL::ComPtr<ID3D11Texture2D> ui_, uiUAVSource_;
+        Microsoft::WRL::ComPtr<ID3D11UnorderedAccessView> uiUAV_;
+        Microsoft::WRL::ComPtr<ID3D11ComputeShader> uiShader_;
+        HRESULT uiCaptureResult_{E_NOTIMPL};
         FrameExtent render_{}, output_{};
         std::uint64_t frame_{(std::numeric_limits<std::uint64_t>::max)()};
         ID3D11DeviceContext* producerContext_{};
-        bool guidesReady_{}, sceneReady_{}, encodedReady_{}, consumed_{};
+        bool guidesReady_{}, sceneReady_{}, encodedReady_{}, uiReady_{}, consumed_{};
     };
 }

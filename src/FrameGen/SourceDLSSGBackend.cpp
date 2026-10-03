@@ -338,7 +338,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 	}
 	bool Backend::Prepare(const sl::Constants& a_constants, ID3D11Texture2D* a_motion, ID3D11Texture2D* a_depth,
 		ID3D11Texture2D* a_ui, ID3D11Texture2D* a_hudless, FrameExtent a_renderExtent,
-		UINT a_width, UINT a_height, bool a_neuralEligible)
+        UINT a_width, UINT a_height, bool a_neuralEligible, bool a_uiAlphaOnly)
 	{
 		if (!Ready() || !Session::ValidConstants(a_constants) || !a_motion || !a_depth ||
 			!a_renderExtent.width || !a_renderExtent.height) { return false; }
@@ -381,10 +381,13 @@ namespace TheosRenderPipeline::SourceDLSSG
 		};
 		FrameGuides guides;
 		guides.motion = tag(motion_); guides.depth = tag(depth_);
-		if (a_ui) { guides.ui = tag(ui_); }
+        if (a_ui) {
+            if (a_uiAlphaOnly) { guides.uiAlpha = tag(ui_); }
+            else { guides.ui = tag(ui_); }
+        }
 		if (a_hudless) { guides.hudless = tag(hudless_); }
 		hdrFrameTagged_ = false;
-		if (hdrNative_ && hdrDisplay_) {
+        if (hdrNative_ && hdrDisplay_ && !a_uiAlphaOnly) {
 			// DLSS-G needs HUD-less and UI in the backbuffer's HDR10 encoding.
 			// BeforePresent writes these targets; without both layers, tag neither.
 			const bool layers = a_ui && a_hudless && HDROutputEligibleFormat(hudless_.desc.Format) &&

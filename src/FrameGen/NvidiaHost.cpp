@@ -124,8 +124,7 @@ bool NvidiaHost::PrepareCommunityFrameForPresent()
     if (FAILED(innerSwapChain_->QueryInterface(IID_PPV_ARGS(&indexed)))) { return false; }
     const auto index = indexed->GetCurrentBackBufferIndex();
     if (index >= presentation_.Buffers().size()) { return false; }
-    D3D11_TEXTURE2D_DESC desc{}; gameTargets_.GameFacing()->GetDesc(&desc);
-    const bool prepared = communityFrame_.Prepare(desc);
+    const bool prepared = communityFrame_.Prepare(gameTargets_.GameFacing());
     auto* pipeline = RenderPipeline::GetSingleton();
     SetRuntimeEnabled(TheosRenderPipeline::SourceGenerationEnabled(warmupPresentsRemaining_,
         SourceFrameGeneration::GetSingleton()->RuntimeInterpolationRequested(), prepared,

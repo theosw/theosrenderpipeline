@@ -66,7 +66,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 
 	struct FrameGuides
 	{
-		TaggedTexture motion, depth, reactive, ui, hudless;
+        TaggedTexture motion, depth, reactive, ui, hudless, uiAlpha;
 		std::uint32_t displayWidth{}, displayHeight{};
 	};
 

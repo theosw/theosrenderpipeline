@@ -49,6 +49,11 @@ generation and Reflex; CS retains its shading, upscaling, UI and HDR output.
 Keep SSE ReShade Helper disabled when using TRP's ReShade integration. Use one shading
 setup per profile and disable competing upscaler/frame-generation injectors.
 
+With CS HDR, UI recomposition uses the compositor's separate UI alpha, retaining
+fractional opacity for translucent UI. CS continues to draw and compose its own
+menus. Recomposition is unavailable when CS draws UI directly into the scene;
+ordinary frame generation continues. Game validation of UI recomposition is pending.
+
 ## ReShade tested scope
 
 ReShade 6.8 was tested with Universal on Skyrim 1.6.1170, Cabbage ENB and

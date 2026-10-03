@@ -119,7 +119,8 @@ namespace TheosRenderPipeline
         UINT x, UINT y, UINT z, CommunityShaderFrame::Dispatch dispatch)
     {
         if (!worldCompleted_) { return S_FALSE; }
-        return resources_.CaptureDisplayTransform(context, x, y, z, dispatch);
+        return resources_.CaptureDisplayTransform(context, x, y, z, dispatch,
+            SourceDLSSG::Backend::Get().UIRecompositionConfiguration());
     }
 
     bool CommunityShaderAdapter::ConfirmPresentationCopy(ID3D11Resource* source)
@@ -127,9 +128,11 @@ namespace TheosRenderPipeline
         return worldCompleted_ && resources_.ConfirmPresentationCopy(source);
     }
 
-    bool CommunityShaderAdapter::Prepare(const D3D11_TEXTURE2D_DESC& presentation)
+    bool CommunityShaderAdapter::Prepare(ID3D11Texture2D* presentationTexture)
     {
         if (prepared_) { return false; }
+        if (!presentationTexture) { return false; }
+        D3D11_TEXTURE2D_DESC presentation{}; presentationTexture->GetDesc(&presentation);
         if (!Ready()) { return false; } // Keep the failed world-stage diagnostic.
         if (!cameraValid_) { status_ = "Waiting for CS camera data"; return false; }
         auto* hudless = resources_.Hudless(presentation);
@@ -144,11 +147,26 @@ namespace TheosRenderPipeline
             }
             return false;
         }
+        auto& backend = SourceDLSSG::Backend::Get();
+        ID3D11Texture2D* ui = nullptr;
+        if (backend.UIRecompositionConfiguration()) {
+            const auto result = resources_.UICaptureResult();
+            ui = resources_.UI(presentation);
+            if (ui && (!uiCaptureReported_ || uiCaptureFailed_)) {
+                logger::info("[CS Adapter] producer UI alpha captured extent={}x{} format=R8_UNORM",
+                    presentation.Width, presentation.Height);
+                uiCaptureReported_ = true;
+            } else if (!ui && !uiCaptureFailed_) {
+                logger::warn("[CS Adapter] UI capture unavailable result=0x{:08X}; continuing without UI recomposition",
+                    static_cast<std::uint32_t>(result));
+            }
+            uiCaptureFailed_ = !ui;
+        }
         D3D11ContextIsolation::Scope scope{resources_.Isolation(), context_.Get()};
         if (!scope) { status_ = "CS context unavailable at submission"; return false; }
         const auto render = resources_.RenderExtent(), output = resources_.OutputExtent();
-        prepared_ = SourceDLSSG::Backend::Get().Prepare(camera_, resources_.Motion(), resources_.Depth(),
-            nullptr, hudless, render, output.width, output.height, eligible_);
+        prepared_ = backend.Prepare(camera_, resources_.Motion(), resources_.Depth(),
+            ui, hudless, render, output.width, output.height, eligible_, true);
         status_ = prepared_ ? "CS frame submitted to NVIDIA" : "CS frame preparation failed";
         return prepared_;
     }
@@ -169,6 +187,7 @@ namespace TheosRenderPipeline
         history_.Reset(); candidate_.Reset();
         worldBegun_ = upscalingCompleted_ = worldCompleted_ = prepared_ = cameraValid_ = false;
         neuralBoundaryReported_ = extendedScene_ = false;
+        uiCaptureReported_ = uiCaptureFailed_ = false;
         status_ = "Waiting for a CS world frame";
     }
 }

@@ -11,8 +11,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 
 	namespace
 	{
-		constexpr std::array<sl::BufferType, 5> guideTypes{ sl::kBufferTypeMotionVectors, sl::kBufferTypeDepth,
-			sl::kBufferTypeReactiveMaskHint, sl::kBufferTypeUIColorAndAlpha, sl::kBufferTypeHUDLessColor };
+        constexpr std::array<sl::BufferType, 6> guideTypes{ sl::kBufferTypeMotionVectors, sl::kBufferTypeDepth,
+            sl::kBufferTypeReactiveMaskHint, sl::kBufferTypeUIColorAndAlpha, sl::kBufferTypeHUDLessColor, sl::kBufferTypeUIAlpha };
 		bool Valid(float a_value) { return std::isfinite(a_value) && a_value != sl::INVALID_FLOAT; }
 		bool Valid(sl::Boolean a_value) { return a_value == sl::eFalse || a_value == sl::eTrue; }
 		bool Valid(const sl::float3& a_value) { return Valid(a_value.x) && Valid(a_value.y) && Valid(a_value.z); }
@@ -183,8 +183,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 	bool Session::ValidGuides(const FrameGuides& g)
 	{
 		if (!g.displayWidth || !g.displayHeight || !Valid(g.motion, true) || !Valid(g.depth, true) ||
-			!Valid(g.reactive, false) || !Valid(g.ui, false) || !Valid(g.hudless, false)) { return false; }
-		for (const auto* texture : { &g.ui, &g.hudless }) {
+            !Valid(g.reactive, false) || !Valid(g.ui, false) || !Valid(g.hudless, false) || !Valid(g.uiAlpha, false)) { return false; }
+        for (const auto* texture : { &g.ui, &g.hudless, &g.uiAlpha }) {
 			if (texture->resource.native && (texture->extent.width != g.displayWidth ||
 				texture->extent.height != g.displayHeight)) { return false; }
 		}
@@ -204,8 +204,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 			!Mark(sl::PCLMarker::eRenderSubmitStart, "RenderSubmitStart") ||
 			!Check(api_.setConstants(constants, *token_, viewport_), "common constants")) { return false; }
 		guides_ = a_guides;
-		std::array<sl::ResourceTag, 5> tags;
-		std::array<TaggedTexture*, 5> textures{ &guides_.motion, &guides_.depth, &guides_.reactive, &guides_.ui, &guides_.hudless };
+        std::array<sl::ResourceTag, guideTypes.size()> tags;
+        std::array<TaggedTexture*, guideTypes.size()> textures{ &guides_.motion, &guides_.depth, &guides_.reactive, &guides_.ui, &guides_.hudless, &guides_.uiAlpha };
 		for (std::size_t i = 0; i < tags.size(); ++i) {
 			// Null optional tags explicitly clear the previous frame's identity.
 			tags[i] = sl::ResourceTag(textures[i]->resource.native ? &textures[i]->resource : nullptr,
@@ -285,7 +285,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// Recomposition needs both layers. Retain the last choice while generation
 		// is off so a transient untagged frame does not reallocate its codepath.
 		if (enable) {
-			const bool layers = guides_.ui.resource.native && guides_.hudless.resource.native;
+            const bool layers = (guides_.ui.resource.native || guides_.uiAlpha.resource.native) && guides_.hudless.resource.native;
 			snapshot_.options.enableUserInterfaceRecomposition =
 				snapshot_.uiRecompositionRequested && layers ? sl::eTrue : sl::eFalse;
 		}

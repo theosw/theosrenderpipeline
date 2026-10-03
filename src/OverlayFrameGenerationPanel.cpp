@@ -1,3 +1,4 @@
+#include "CommunityShaderIntegration.h"
 #include "OverlayUI.h"
 #include "OverlayUIStyle.h"
 #include "OverlayFrameView.h"
@@ -159,6 +160,8 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& v
             ImGui::Checkbox("UI recomposition##sourceDLSSG", &settingsDraft.sourceDLSSG.uiRecomposition);
             DrawSettingsHelp("Generates the scene and HUD separately to reduce HUD ghosting in motion. "
                              "Small GPU and VRAM cost. Apply to compare live.");
+            if (TheosRenderPipeline::CommunityShaders::Active())
+                ImGui::TextDisabled("Uses CS's separate UI alpha; unavailable when UI draws directly into the scene.");
             if (frameGenerationRuntimeActive && sourceState.uiRecompositionRequested)
             {
                 if (sourceState.options.enableUserInterfaceRecomposition == sl::eTrue)
