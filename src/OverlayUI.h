@@ -66,6 +66,7 @@ private:
 	void BuildUI();
     void UpdateUIScale();
     void DrawMenuSizeControl();
+    void DrawMenuKeyControl();
     void DrawZoomButtons();
 	void UpdateFrameStats();
 	void HandleHotkey();
@@ -101,6 +102,9 @@ private:
     bool menuSizeEditing{false};
 	std::string actionMessage;
 	bool actionMessageIsError{ false };
+    std::string menuKeyError;
+    // Capture is cancelled on any frame that does not draw the menu key control.
+    bool menuKeyControlDrawn{ false };
 
 	bool controlsSuppressed{ false };
 	bool fightingWasEnabled{ true };

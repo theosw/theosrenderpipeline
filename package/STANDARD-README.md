@@ -58,6 +58,13 @@ process the native resolution, so placement alone does not reduce inference cost
 
 Apply changes this session. Save as default also saves settings and window
 layout. Discard drops unapplied edits. DLSS/DLAA mode and render scale need a restart.
+
+To change the menu key, open **Advanced**, click the **Menu key** button and
+press a new key, then Apply or Save as default. Escape cancels; **Reset to End**
+restores the default. Pick a key your other mods and Skyrim controls don't use.
+End, function keys, Insert, Page Up/Down, Pause and Scroll Lock also close the
+menu while you type in a field; with other keys, click outside the field first.
+
 If the NR DLL is removed, its controls become unavailable until it is restored
 and Skyrim restarted; DLSS/frame generation remain available.
 
@@ -77,7 +84,8 @@ inference cost. See [preset files and weather/time controls](APPEARANCE-PROFILES
 Keep CS upscaling enabled. Disable CS frame generation and CS Reflex: TRP supplies
 both. CS controls upscaling, render scale, sharpening and colour; TRP controls FG
 and NR. Assign CS a separate menu key, such as F8, to avoid End conflicts with
-TRP or KreatE. Do not use F8 if it is already assigned to ReShade or a capture tool.
+TRP or KreatE, or change TRP's key under Advanced > Menu key. Do not use F8 if
+it is already assigned to ReShade or a capture tool.
 
 Standard 0.1.4 was tested with Bottle's CS build/Effects 11 on Skyrim 1.6.1170
 and an RTX 4080 SUPER, with native x2 and both NR placements. Other CS builds
@@ -147,9 +155,8 @@ Universal after Standard. The keyboard fallback from PR #33 is included from
 Disable competing ENB Anti-Aliasing and ENB Frame Generation components,
 including their dedicated settings overrides where installed. Keep the base
 SSE Display Tweaks, ENB and ReShade preset; disable SSE ReShade Helper.
-End can conflict with STB Active Effects. With Skyrim closed, set
-`ToggleOverlay=0x79` under `[Hotkeys]` in the winning TRP INI for F10, if free.
-Click outside an active text field before closing with F10.
+End can conflict with STB Active Effects. Change the menu key under
+**Advanced > Menu key**, for example to F10 if free, then Save as default.
 
 The candidate has positive F10 input, x5, both NR placements and Wheeler
 feedback on Nolvus Awakening 6.0.20 / Skyrim 1.5.97 with Universal, RTX 4080

@@ -4,6 +4,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <initializer_list>
+#include <map>
+#include <string>
 
 using namespace TheosRenderPipeline::Overlay;
 namespace
@@ -48,6 +50,150 @@ namespace
         focused = window;
         Require(keys.Install(window, toggle, Observer, Foreground) == ERROR_SUCCESS, "install production hook");
         Pump();
+    }
+
+    void ExpectCapture(CaptureStatus status, UINT key, const char* message)
+    {
+        const auto capture = keys.TakeCapture();
+        Require(capture.status == status && capture.key == key, message);
+    }
+
+    struct IniFixture
+    {
+        std::map<std::string, long> values;
+        bool hex{};
+        long GetLongValue(const char* section, const char* key, long fallback) const
+        {
+            const auto found = values.find(std::string(section) + "/" + key);
+            return found == values.end() ? fallback : found->second;
+        }
+        void SetLongValue(const char* section, const char* key, long value, const char*, bool useHex)
+        {
+            values[std::string(section) + "/" + key] = value;
+            hex = useHex;
+        }
+    };
+
+    void Capture()
+    {
+        Reset();
+        keys.BeginCapture();
+        Post(VK_F10);
+        Expect({}, "a captured key does not queue a hotkey action");
+        ExpectCapture(CaptureStatus::Accepted, VK_F10, "window route selects the key");
+        ExpectCapture(CaptureStatus::Idle, 0, "the result is taken once");
+        keys.ObserveGameKeys({VK_F10});
+        Expect({}, "Skyrim's copy of the selected key cannot toggle after capture ends");
+        keys.ObserveGameKeys({});
+        Post(VK_F10);
+        Expect({VK_F10}, "hotkeys resume after capture");
+
+        Reset();
+        keys.BeginCapture();
+        keys.ObserveGameKeys({VK_F10});
+        ExpectCapture(CaptureStatus::Accepted, VK_F10, "game route selects under exclusive input");
+        Post(VK_F10);
+        Expect({}, "the Windows copy of the selected key cannot toggle after capture ends");
+
+        Reset();
+        keys.BeginCapture();
+        Post(VK_F6); Post(VK_F10); keys.ObserveGameKeys({VK_F6, VK_F10});
+        ExpectCapture(CaptureStatus::Accepted, VK_F6, "the first press wins");
+        Expect({}, "presses after the selection stay inside capture");
+
+        Reset();
+        keys.BeginCapture();
+        Post(VK_SHIFT); keys.ObserveGameKeys({VK_LSHIFT, VK_LCONTROL, VK_F8});
+        ExpectCapture(CaptureStatus::Accepted, VK_F8, "modifiers are skipped so Shift+F8 selects F8");
+
+        Reset();
+        keys.BeginCapture();
+        Post(0, WM_LBUTTONDOWN);
+        Post(VK_F7, WM_KEYDOWN, LPARAM(1ULL << 30) | 1);
+        Require(keys.IsCapturing(), "clicks and auto-repeat leave capture waiting");
+        ExpectCapture(CaptureStatus::Waiting, 0, "clicks and auto-repeat select nothing");
+        Post(VK_ESCAPE);
+        ExpectCapture(CaptureStatus::Cancelled, VK_ESCAPE, "Escape cancels");
+        Require(!keys.IsCapturing(), "cancel ends capture");
+
+        Reset();
+        keys.BeginCapture();
+        Post(VK_LWIN);
+        ExpectCapture(CaptureStatus::Rejected, VK_LWIN, "Windows key rejected");
+        Require(keys.IsCapturing(), "rejection keeps waiting for another key");
+        keys.ObserveGameKeys({VK_LWIN});
+        ExpectCapture(CaptureStatus::Waiting, 0, "the rejected key's second copy is not reported twice");
+        keys.ObserveGameKeys({VK_F9});
+        ExpectCapture(CaptureStatus::Accepted, VK_F9, "a valid key after rejection is selected");
+
+        Reset();
+        keys.BeginCapture();
+        focused = nullptr;
+        ExpectCapture(CaptureStatus::Cancelled, 0, "focus loss cancels capture");
+        focused = window;
+        keys.BeginCapture();
+        focused = nullptr;
+        Post(VK_F9);
+        focused = window;
+        ExpectCapture(CaptureStatus::Cancelled, 0, "a press without focus cancels rather than selects");
+
+        Reset();
+        Post(VK_F10);
+        keys.BeginCapture();
+        keys.CancelCapture();
+        Expect({}, "starting capture discards an undrained hotkey");
+        Post(VK_F10);
+        Expect({VK_F10}, "a cancelled capture restores hotkeys");
+
+        Reset();
+        Post(VK_F10);
+        keys.SetToggleKey(VK_F7);
+        Expect({}, "rebinding discards a press of the old key");
+        Post(VK_F10); keys.ObserveGameKeys({VK_F10});
+        Expect({}, "the old key no longer toggles");
+        Post(VK_F7); keys.ObserveGameKeys({VK_F7});
+        Expect({VK_F7}, "the new key toggles on both routes without reinstalling the hook");
+    }
+
+    void Policy()
+    {
+        for (UINT key : {UINT(VK_F10), UINT(VK_F24), UINT(VK_END), UINT(VK_INSERT), UINT('A'), UINT('7'),
+                         UINT(VK_NUMPAD1), UINT(VK_OEM_4), UINT(VK_OEM_3), UINT(VK_OEM_102), UINT(VK_PAUSE)}) {
+            Require(IsBindableKeyboardKey(key), "keyboard key can be picked");
+        }
+        for (UINT key : {UINT(VK_ESCAPE), UINT(VK_LWIN), UINT(VK_APPS), UINT(VK_CAPITAL), UINT(VK_SNAPSHOT),
+                         UINT(VK_LBUTTON), UINT(VK_XBUTTON1), UINT(VK_SHIFT), UINT(VK_RMENU), UINT(VK_VOLUME_UP)}) {
+            Require(!IsBindableKeyboardKey(key), "escape, system, modifier, mouse and media keys cannot be picked");
+        }
+        for (UINT key : {UINT(VK_END), UINT(VK_F1), UINT(VK_F10), UINT(VK_INSERT), UINT(VK_PRIOR), UINT(VK_PAUSE)}) {
+            Require(CanToggleWhileEditing(key) && ActionsForHotkey(key, key, true, false).toggle,
+                "non-editing keys close the menu during text editing");
+        }
+        for (UINT key : {UINT('2'), UINT('A'), UINT(VK_HOME), UINT(VK_DELETE), UINT(VK_BACK), UINT(VK_SPACE), UINT(VK_OEM_4)}) {
+            Require(!CanToggleWhileEditing(key) && !ActionsForHotkey(key, key, true, false).toggle,
+                "typing and editing keys keep editing the active field");
+        }
+#if !defined(TRP_NO_NEURAL_RENDERING)
+        Require(ReservedForNRHotkeys(VK_OEM_4, true) && ReservedForNRHotkeys(VK_OEM_6, true), "enabled NR shortcuts reserve brackets");
+#endif
+        Require(!ReservedForNRHotkeys(VK_OEM_4, false) && !ReservedForNRHotkeys(VK_F10, true), "brackets are free when NR shortcuts are off");
+
+        Require(HotkeyName(VK_F10) == "F10" && HotkeyName(VK_F24) == "F24", "function key names");
+        Require(HotkeyName(VK_XBUTTON1) == "Mouse 4", "existing mouse binding name");
+        Require(HotkeyName(VK_END) != HotkeyName(VK_NUMPAD1), "End is not shown as Num 1");
+        Require(HotkeyName(VK_END).rfind("Key 0x", 0) != 0 && HotkeyName(VK_NEXT) != HotkeyName(VK_NUMPAD3),
+            "navigation keys have layout names");
+
+        IniFixture ini;
+        Require(LoadMenuHotkey(ini) == VK_END, "missing ToggleOverlay defaults to End");
+        for (long invalid : {0L, -1L, 0xFFL, 0x1FFL}) {
+            ini.values["Hotkeys/ToggleOverlay"] = invalid;
+            Require(LoadMenuHotkey(ini) == VK_END, "invalid ToggleOverlay falls back to End");
+        }
+        ini.values["Hotkeys/ToggleOverlay"] = VK_XBUTTON1;
+        Require(LoadMenuHotkey(ini) == VK_XBUTTON1, "existing INI mouse binding preserved");
+        StoreMenuHotkey(ini, VK_F10);
+        Require(ini.hex && LoadMenuHotkey(ini) == VK_F10, "saved key round trips as hex");
     }
 
     struct EventFixture
@@ -166,6 +312,9 @@ int main()
     Post(MAKEWPARAM(0, XBUTTON1), WM_XBUTTONDOWN);
     Expect({VK_XBUTTON1}, "existing mouse binding preserved");
 
+    Capture();
+    Policy();
+
     Require(VirtualKeyFromGameScanCode(0x44) == VK_F10, "F10 scan code");
     Require(VirtualKeyFromGameScanCode(0xCF) == VK_END, "extended End is not keypad 1");
     Require(VirtualKeyFromGameScanCode(0xD1) == VK_NEXT, "Page Down is not End");
@@ -176,6 +325,7 @@ int main()
     Require(VirtualKeyFromGameScanCode(256) == 0, "mouse IDs cannot become keyboard keys");
     for (bool enabled : {false, true}) {
         Require(ActionsForHotkey(VK_END, VK_END, true, enabled).toggle, "End still closes during editing");
+        Require(ActionsForHotkey(VK_F10, VK_F10, true, enabled).toggle, "F10 closes during editing");
         Require(!ActionsForHotkey('2', '2', true, enabled).toggle, "numeric binding remains typing during editing");
         Require(ActionsForHotkey(VK_OEM_4, VK_F10, true, enabled).neuralState == -1, "editing protects NR off");
         Require(ActionsForHotkey(VK_OEM_6, VK_F10, true, enabled).neuralState == -1, "editing protects NR on");
@@ -194,5 +344,5 @@ int main()
     Expect({}, "uninstalled observer rejects game input");
     UnhookWindowsHookEx(next);
     DestroyWindow(window);
-    std::puts("PASS production hotkey routes, batch matching, focus, scan codes and editing policy");
+    std::puts("PASS production hotkey routes, batch matching, capture, rebinding, focus, scan codes and editing policy");
 }

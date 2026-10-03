@@ -55,6 +55,19 @@ void Generation()
         Require(CountRendererSettingsChanges(draft, current) == 1, "UI recomposition participates in Apply/Discard");
     }
 }
+void MenuKey()
+{
+    RendererSettingsDraft current; current.valid = true;
+    Require(current.menuHotkey == 0x23, "draft defaults to End");
+    auto draft = current; draft.menuHotkey = 0x79;
+    Require(CountRendererSettingsChanges(draft, current) == 1, "menu key participates in Apply/Discard");
+    RendererSettingsCapabilities host{true, true, true, false};
+    Require(ValidateRendererSettings(draft, host, &current) == nullptr, "picked key validates");
+    for (const int invalid : {0, -1, 0xFF}) {
+        draft.menuHotkey = invalid;
+        Require(ValidateRendererSettings(draft, host, &current) != nullptr, "invalid menu key rejected");
+    }
+}
 void Neural()
 {
     RendererSettingsDraft current; current.valid = true; current.sourceDLSSG.neuralEnabled = true;
@@ -87,6 +100,6 @@ void Neural()
 }
 int main()
 {
-    try { Feedback(); Generation(); Neural(); std::cout << "PASS: visible/logged rejection, generation round trips and NR capability loss\n"; return 0; }
+    try { Feedback(); Generation(); MenuKey(); Neural(); std::cout << "PASS: visible/logged rejection, generation round trips, menu key and NR capability loss\n"; return 0; }
     catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }

@@ -108,17 +108,24 @@ void OverlayUI::PollInput()
 			keys[vk] = (::GetAsyncKeyState(static_cast<int>(vk)) & 0x8000) != 0;
 		}
 	}
-	const auto keyboardLayout = ::GetKeyboardLayout(::GetWindowThreadProcessId(hwnd, nullptr));
-	numericInput.Update(io, keys, focused, [&](unsigned vk, const auto& down, auto&& emit) {
-		BYTE state[256]{};
-		for (unsigned i = 0; i < 256; ++i) { state[i] = down[i] ? 0x80 : 0; }
-		if (::GetKeyState(VK_CAPITAL) & 1) { state[VK_CAPITAL] |= 1; }
-		wchar_t text[8]{};
-		// Flag 4 leaves the thread's dead-key state untouched; dead keys type nothing.
-		const int count = ::ToUnicodeEx(vk, ::MapVirtualKeyExW(vk, MAPVK_VK_TO_VSC, keyboardLayout), state, text, 8, 4, keyboardLayout);
-		for (int i = 0; i < count; ++i) { emit(text[i]); }
-	});
-	SetTextInputCapture(focused && io.WantTextInput);
+	const bool capturingHotkey = hotkeys.IsCapturing();
+	if (capturingHotkey) {
+		// The key being picked must not type or edit.
+		numericInput.Suspend(io, focused);
+	} else {
+		const auto keyboardLayout = ::GetKeyboardLayout(::GetWindowThreadProcessId(hwnd, nullptr));
+		numericInput.Update(io, keys, focused, [&](unsigned vk, const auto& down, auto&& emit) {
+			BYTE state[256]{};
+			for (unsigned i = 0; i < 256; ++i) { state[i] = down[i] ? 0x80 : 0; }
+			if (::GetKeyState(VK_CAPITAL) & 1) { state[VK_CAPITAL] |= 1; }
+			wchar_t text[8]{};
+			// Flag 4 leaves the thread's dead-key state untouched; dead keys type nothing.
+			const int count = ::ToUnicodeEx(vk, ::MapVirtualKeyExW(vk, MAPVK_VK_TO_VSC, keyboardLayout), state, text, 8, 4, keyboardLayout);
+			for (int i = 0; i < count; ++i) { emit(text[i]); }
+		});
+	}
+	// Skyrim must not act on the key being picked, such as Tab or Escape.
+	SetTextInputCapture(focused && (io.WantTextInput || capturingHotkey));
 }
 
 void OverlayUI::SetTextInputCapture(bool a_capture)
@@ -144,6 +151,8 @@ void OverlayUI::SetVisible(bool a_visible)
 		auto& io = ImGui::GetIO();
 		io.MouseDrawCursor = visible;
 		if (!visible) {
+			hotkeys.CancelCapture();
+			menuKeyError.clear();
 			numericInput.Update(io, {}, false);
 			// Hidden overlays do not run another ImGui frame, so a queued focus-loss
 			// event would never clear the active InputInt. Reset it synchronously or
@@ -208,6 +217,23 @@ LRESULT CALLBACK OverlayUI::WindowMessage(int code, WPARAM wParam, LPARAM lParam
 
 void OverlayUI::HandleHotkey()
 {
+	const auto capture = hotkeys.TakeCapture();
+	if (capture.status != CaptureStatus::Idle && capture.status != CaptureStatus::Waiting) {
+		// Capture can finish between two Presents; keep the selected key from
+		// typing into a field if it is still held when editing resumes.
+		numericInput.Release(ImGui::GetIO());
+		if (capture.status == CaptureStatus::Accepted &&
+			ReservedForNRHotkeys(capture.key, RenderPipeline::GetSingleton()->mEnableNRHotkeys)) {
+			menuKeyError = "[ and ] are NR shortcuts while EnableNRHotkeys is on. Choose another key.";
+		} else if (capture.status == CaptureStatus::Accepted) {
+			settingsDraft.menuHotkey = static_cast<int>(capture.key);
+			menuKeyError.clear();
+		} else if (capture.status == CaptureStatus::Rejected) {
+			menuKeyError = "That key cannot open the menu. Choose another key.";
+		} else {
+			menuKeyError.clear();
+		}
+	}
 	const auto toggleKey = static_cast<UINT>(RenderPipeline::GetSingleton()->mToggleOverlayHotkey);
 	for (const auto key : hotkeys.TakePending()) {
 		const auto actions = ActionsForHotkey(key, toggleKey, visible && ImGui::GetIO().WantTextInput,
@@ -294,6 +320,8 @@ void OverlayUI::RefreshNeuralRuntimeAvailability()
 
 void OverlayUI::CaptureSettingsDraft()
 {
+    hotkeys.CancelCapture();
+    menuKeyError.clear();
     RefreshNeuralRuntimeAvailability();
     settingsDraft = TheosRenderPipeline::RendererSettingsController::Current().Capture(nrRuntimePresent);
 }
@@ -305,7 +333,7 @@ int OverlayUI::CountStagedChanges() const
 
 void OverlayUI::ApplySettingsDraft(bool save)
 {
-    if (!settingsDraft.valid)
+    if (!settingsDraft.valid || hotkeys.IsCapturing())
     {
         return;
     }
@@ -315,6 +343,7 @@ void OverlayUI::ApplySettingsDraft(bool save)
     actionMessageIsError = result.error;
     if (result.applied)
     {
+        hotkeys.SetToggleKey(static_cast<UINT>(RenderPipeline::GetSingleton()->mToggleOverlayHotkey));
         CaptureSettingsDraft();
     }
 }
@@ -508,7 +537,9 @@ void OverlayUI::OnPresent(ID3D11Texture2D* producerUI)
 	UpdateUIScale();
 	ImGui::NewFrame();
 
+	menuKeyControlDrawn = false;
 	BuildUI();
+	if (!menuKeyControlDrawn) { hotkeys.CancelCapture(); }
 
 	ImGui::Render();
 	ID3D11RenderTargetView* overlayTarget = nullptr;
@@ -568,7 +599,8 @@ void OverlayUI::DrawSettingsActions()
             status.kind == StatusKind::Pending ? kAmber : kSage, "%s", status.text.c_str()); }
         ImGui::PopTextWrapPos();
         ImGui::TableNextColumn();
-        ImGui::BeginDisabled(stagedChanges == 0);
+        const bool capturingHotkey = hotkeys.IsCapturing();
+        ImGui::BeginDisabled(stagedChanges == 0 && !capturingHotkey);
         if (ImGui::Button("Discard", ImVec2(Px(110.0f), 0.0f)))
         {
             CaptureSettingsDraft();
@@ -580,7 +612,9 @@ void OverlayUI::DrawSettingsActions()
             ImGui::SetTooltip(
                 "Discard edits you have not applied. Applied settings and saved defaults stay as they are.");
         }
+        ImGui::EndDisabled();
         ImGui::SameLine();
+        ImGui::BeginDisabled(stagedChanges == 0 || capturingHotkey);
         if (ImGui::Button("Apply", ImVec2(Px(100.0f), 0.0f)))
         {
             ApplySettingsDraft(false);
@@ -596,10 +630,12 @@ void OverlayUI::DrawSettingsActions()
         ImGui::PushStyleColor(ImGuiCol_Button, kAmber);
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, kOchre);
         ImGui::PushStyleColor(ImGuiCol_ButtonActive, kAmberDim);
+        ImGui::BeginDisabled(capturingHotkey);
         if (ImGui::Button("Save as default", ImVec2(Px(200.0f), 0.0f)))
         {
             ApplySettingsDraft(true);
         }
+        ImGui::EndDisabled();
         ImGui::PopStyleColor(4);
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
         {

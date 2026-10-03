@@ -13,6 +13,7 @@ namespace TheosRenderPipeline
 struct RendererSettingsDraft
 {
     bool valid{false};
+    int menuHotkey{0x23}; // Win32 virtual key; End
     int upscaleType{DLSS};
     int qualityLevel{2};
     int dlssPreset{11};
@@ -47,7 +48,7 @@ inline int CountRendererSettingsChanges(const RendererSettingsDraft& draft, cons
                                &RendererSettingsDraft::directDLSSOutput, &RendererSettingsDraft::requestLoadingArtwork,
                                &RendererSettingsDraft::reShadeBeforeUpscaling};
     constexpr std::array choices{&RendererSettingsDraft::upscaleType, &RendererSettingsDraft::qualityLevel,
-                                 &RendererSettingsDraft::dlssPreset};
+                                 &RendererSettingsDraft::dlssPreset, &RendererSettingsDraft::menuHotkey};
     int count = 0;
     for (auto field : flags)
     {
@@ -106,6 +107,10 @@ inline const char* ValidateRendererSettings(const RendererSettingsDraft& draft,
     if (!capabilities.sourceHost)
     {
         return "NVIDIA host is unavailable; settings were not applied.";
+    }
+    if (draft.menuHotkey <= 0 || draft.menuHotkey > 0xFE)
+    {
+        return "Choose a valid menu key.";
     }
     if (draft.upscaleType != DLSS && draft.upscaleType != DLAA)
     {
