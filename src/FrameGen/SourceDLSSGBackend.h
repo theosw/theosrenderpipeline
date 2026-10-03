@@ -68,7 +68,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			outputFPSLimit_.store(a_fps, std::memory_order_relaxed);
 			return true;
 		}
-		// Enabled is read once at swapchain creation; calibration applies live.
+		// Applied at the next present boundary (UpdateHDRRequest); calibration applies live.
 		void ConfigureHDROutput(const HDROutput::Settings& a_settings)
 		{
 			std::scoped_lock lock(hdrMutex_); hdrSettings_ = HDROutput::Sanitize(a_settings);
@@ -83,6 +83,13 @@ namespace TheosRenderPipeline::SourceDLSSG
 		}
 		bool HDRNative() const { return hdrNative_; }
 		void ApplyNativeColorSpace();
+		// Render thread, between frames. Applies a changed HDR output setting and
+		// returns true when the native swapchain must first be reallocated as
+		// RGB10A2 (SwapChain::StartHDROutput). Turning HDR off keeps that format.
+		bool UpdateHDRRequest(DXGI_FORMAT a_gameFormat);
+		void SetHDRNative(bool a_native) { hdrNative_ = a_native; }
+		void FinishHDRStart(HRESULT a_reallocated, bool a_generation);
+		bool Enabled() const { return enabled_; }
 		void SetEnabled(bool a_enabled) { enabled_ = a_enabled; }
 		void SetTransitionBlocked(bool a_blocked);
 		bool TransitionBlocked() const { return transitionBlocked_.load(std::memory_order_acquire); }
@@ -133,6 +140,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 		void FinishScreenshot() noexcept;
 		static void StreamlineLogCallback(sl::LogType a_type, const char* a_message);
 		void PollDisplayHDR(bool a_force);
+		// PQ is signalled: RGB10A2 native buffers, HDR output on and Windows HDR on.
+		bool HDRSignalled() const { return hdrNative_ && hdrRequested_ && hdrDisplay_; }
+		const char* HDRDisplayReason(bool a_known) const;
 		void RefreshSDRWhite();
 		bool EnsureHDRTargets(UINT a_width, UINT a_height);
 		HRESULT RecordOutput(ID3D12GraphicsCommandList* a_list, ID3D12Resource* a_source, ID3D12Resource* a_destination,
@@ -192,7 +202,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		std::array<wchar_t, 32> hdrDeviceName_{}, hdrSDRDevice_{};
 		float hdrSDRWhiteNits_{};
 		std::uint32_t hdrSDRPolls_{};
-		bool hdrNative_{}, hdrDisplay_{}, hdrFrameTagged_{}, hdrColorSpaceApplied_{};
+		bool hdrNative_{}, hdrRequested_{}, hdrDisplay_{}, hdrFrameTagged_{}, hdrColorSpaceApplied_{};
 		// Replaces a ReShade screenshot of the UI-only source runtime with the
 		// final real frame. Failures keep ReShade's file and never fault rendering.
 		FinalFrameCapture screenshotCapture_;

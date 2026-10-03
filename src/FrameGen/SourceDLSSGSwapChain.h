@@ -86,7 +86,8 @@ public:
 		UINT a_size,
 		void* a_metadata) override;
 
-	HRESULT RebuildBuffers();
+	// Without game-facing buffers, only the native buffers are reacquired.
+	HRESULT RebuildBuffers(bool a_gameFacing = true);
 
 private:
 	~SwapChain();
@@ -103,6 +104,7 @@ private:
 	std::array<SharedTexture, 2> buffers_;
 	std::array<Microsoft::WRL::ComPtr<ID3D12Resource>, 2> nativeBuffers_;
 	HRESULT BeginPresent();
+	HRESULT StartHDROutput(HRESULT a_presented);
 	void ObservePresentationFeedback(HRESULT a_presentResult);
 };
 

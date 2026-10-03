@@ -256,6 +256,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 				else if (!HDROutputEligibleFormat(a_desc.BufferDesc.Format)) { reason = "producer does not finish in 8-bit SDR"; }
 				else { hdrNative_ = true; reason = "waiting for display state"; }
 			}
+			hdrRequested_ = hdr.enabled;
 			std::scoped_lock lock(hdrMutex_);
 			hdrState_.requested = hdr.enabled; hdrState_.native = hdrNative_; hdrState_.reason = reason;
 			logger::info("[HDROutput] requested={} native={} gameFormat={} {}", hdr.enabled, hdrNative_,
@@ -384,7 +385,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (a_ui) { guides.ui = tag(ui_); }
 		if (a_hudless) { guides.hudless = tag(hudless_); }
 		hdrFrameTagged_ = false;
-		if (hdrNative_ && hdrDisplay_) {
+		if (HDRSignalled()) {
 			// DLSS-G needs HUD-less and UI in the backbuffer's HDR10 encoding.
 			// BeforePresent writes these targets; without both layers, tag neither.
 			const bool layers = a_ui && a_hudless && HDROutputEligibleFormat(hudless_.desc.Format) &&
@@ -762,16 +763,62 @@ namespace TheosRenderPipeline::SourceDLSSG
 			}
 			hdrState_.display = hdrDisplay_; hdrState_.displayKnown = display.known;
 			hdrState_.displayMaxNits = display.maxLuminance;
-			hdrState_.reason = hdrDisplay_ ? "HDR10 output" : display.known ?
-				"Windows HDR is off for this display; SDR output" : "display HDR state unavailable; SDR output";
+			hdrState_.reason = HDRDisplayReason(display.known);
 		}
 		if (HDROutputConfiguration().matchWindowsSDR) { RefreshSDRWhite(); }
 		if (changed) {
 			ApplyNativeColorSpace();
 			logger::info("[HDROutput] display known={} hdr={} maxLuminance={:.0f} colourSpace={} factory=0x{:08X}",
-				display.known, hdrDisplay_, display.maxLuminance, hdrDisplay_ ? "PQ BT.2020" : "sRGB BT.709",
+				display.known, hdrDisplay_, display.maxLuminance, HDRSignalled() ? "PQ BT.2020" : "sRGB BT.709",
 				static_cast<std::uint32_t>(created));
 		}
+	}
+	const char* Backend::HDRDisplayReason(bool a_known) const
+	{
+		if (!hdrRequested_) { return "off; RGB10A2 swapchain kept until restart"; }
+		return hdrDisplay_ ? "HDR10 output" : a_known ?
+			"Windows HDR is off for this display; SDR output" : "display HDR state unavailable; SDR output";
+	}
+	bool Backend::UpdateHDRRequest(DXGI_FORMAT a_gameFormat)
+	{
+		const bool requested = HDROutputConfiguration().enabled;
+		if (requested == hdrRequested_ || !Ready()) { return false; }
+		const char* refused = !requested || hdrNative_ ? nullptr :
+			CommunityShaders::Active() ? "Community Shaders owns HDR on this route" :
+			!HDROutputEligibleFormat(a_gameFormat) ? "producer does not finish in 8-bit SDR" : nullptr;
+		if (requested && !hdrNative_ && !refused) { return true; } // FinishHDRStart publishes the result.
+		hdrRequested_ = requested;
+		logger::info("[HDROutput] live requested={} native={} {}", requested, hdrNative_,
+			refused ? refused : hdrNative_ ? "colour space follows the display" : "not requested");
+		if (hdrNative_) {
+			{ std::scoped_lock lock(hdrMutex_); hdrState_.requested = requested; }
+			hdrColorSpaceApplied_ = false;
+			PollDisplayHDR(true); // Signals the colour space for the next frame and publishes the reason.
+			return false;
+		}
+		std::scoped_lock lock(hdrMutex_);
+		hdrState_.requested = requested; hdrState_.reason = refused ? refused : "not requested";
+		return false;
+	}
+	void Backend::FinishHDRStart(HRESULT a_reallocated, bool a_generation)
+	{
+		hdrRequested_ = true;
+		if (FAILED(a_reallocated)) {
+			logger::warn("[HDROutput] RGB10A2 swapchain reallocation failed (0x{:08X}); SDR output continues",
+				static_cast<std::uint32_t>(a_reallocated));
+			std::scoped_lock lock(hdrMutex_);
+			hdrState_.requested = true; hdrState_.native = false;
+			hdrState_.reason = "swapchain could not be reallocated for HDR; SDR output";
+		} else {
+			logger::info("[HDROutput] native swapchain reallocated as RGB10A2 without a restart");
+			{ std::scoped_lock lock(hdrMutex_); hdrState_.requested = true; hdrState_.native = true; }
+			hdrColorSpaceApplied_ = false;
+			PollDisplayHDR(true);
+		}
+		// Quiesce stopped generation without the host knowing; resume it after
+		// the same real-frame warm-up as a transition.
+		enabled_ = a_generation;
+		if (!TransitionBlocked()) { transitionWarmupPresents_.store(TransitionWarmupPresents, std::memory_order_release); }
 	}
 	void Backend::RefreshSDRWhite()
 	{
@@ -800,12 +847,12 @@ namespace TheosRenderPipeline::SourceDLSSG
 		hdrColorSpaceApplied_ = false;
 		ComPtr<IDXGISwapChain3> chain;
 		if (!hdrNative_ || !retainedNative_ || FAILED(retainedNative_.As(&chain))) { return; }
-		auto space = hdrDisplay_ ? DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020 : DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709;
+		auto space = HDRSignalled() ? DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020 : DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709;
 		UINT support{};
 		HRESULT result = chain->CheckColorSpaceSupport(space, &support);
 		if (SUCCEEDED(result) && (support & DXGI_SWAP_CHAIN_COLOR_SPACE_SUPPORT_FLAG_PRESENT)) { result = chain->SetColorSpace1(space); }
 		else if (SUCCEEDED(result)) { result = DXGI_ERROR_UNSUPPORTED; }
-		if (FAILED(result) && hdrDisplay_) {
+		if (FAILED(result) && HDRSignalled()) {
 			logger::warn("[HDROutput] HDR10 colour space rejected (0x{:08X}); SDR output", static_cast<std::uint32_t>(result));
 			hdrDisplay_ = false;
 			space = DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709;
@@ -839,7 +886,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// Display state changes only between frames (AfterPresent), so tags,
 		// encoding and colour space agree within a frame.
 		const bool compose = a_prepared && hdrFrameTagged_;
-		const bool hdr = compose || hdrDisplay_;
+		const bool hdr = compose || HDRSignalled();
 		// A prepared world frame without both layers (for example native UI off)
 		// still expands; menus and loading without generation stay at UI brightness.
 		const bool expandWholeFrame = hdr && !compose && a_prepared;
