@@ -129,7 +129,10 @@ namespace TheosRenderPipeline
         xefg_swapchain_d3d12_init_params_t init{};
         init.maxInterpolatedFrames = 1;
         // AUTO selects per frame from the tagged layers: HUD-less plus the UI
-        // texture when the host has one, otherwise back-buffer extraction.
+        // texture when the host has one, otherwise back-buffer extraction. Keep
+        // AUTO for HDR10 too: the refinement mode Intel suggests for 2-bit UI alpha
+        // requires a UI texture on every frame, and one frame without it fails
+        // Present with E_FAIL ("UI mode requirements ... not met").
         init.uiMode = XEFG_SWAPCHAIN_UI_MODE_AUTO;
         init.initFlags = inverted ? XEFG_SWAPCHAIN_INIT_FLAG_INVERTED_DEPTH : 0;
         Microsoft::WRL::ComPtr<IDXGIFactory2> factory2;
@@ -165,6 +168,7 @@ namespace TheosRenderPipeline
             std::chrono::duration<float, std::milli>(now - lastFrameBegin_).count();
         lastFrameBegin_ = now;
         auto hr = LL(xellSleep_(ll_, snapshot_.frameId), "sleep");
+        snapshot_.sleepMs = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - now).count();
         if (FAILED(hr) || FAILED(hr = LL(xellAddMarkerData_(ll_, snapshot_.frameId, XELL_SIMULATION_START), "simulation start"))) { return hr; }
         frameBegun_ = true; return S_OK;
     }

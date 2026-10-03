@@ -30,6 +30,13 @@ endif()
 enable_testing()
 add_test(NAME XeFGProductionInterop COMMAND TRPXeFGInteropTests)
 set_tests_properties(XeFGProductionInterop PROPERTIES TIMEOUT 60)
+add_executable(TRPXeFGInputReuseTests XeFGInputReuseTests.cpp "${TRP_ROOT}/src/FrameGen/SourceDLSSGInterop.cpp")
+target_compile_features(TRPXeFGInputReuseTests PRIVATE cxx_std_23)
+target_compile_definitions(TRPXeFGInputReuseTests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+target_include_directories(TRPXeFGInputReuseTests PRIVATE "${TRP_ROOT}/src")
+target_link_libraries(TRPXeFGInputReuseTests PRIVATE d3d11 d3d12 dxgi)
+add_test(NAME XeFGInputReuse COMMAND TRPXeFGInputReuseTests)
+set_tests_properties(XeFGInputReuse PROPERTIES TIMEOUT 30)
 # SDK execution is explicit: no automatic DLL acquisition or game deployment.
 set(STREAMLINE_INCLUDE "${TRP_DEPENDENCIES}/Streamline/include" CACHE PATH "Streamline public headers")
 add_executable(TRPXeFGPresenterTests XeFGPresenterTests.cpp "${TRP_ROOT}/src/FrameGen/XeFGPresenter.cpp"

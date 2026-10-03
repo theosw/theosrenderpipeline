@@ -21,6 +21,7 @@ namespace TheosRenderPipeline
         bool onlyGenerated{}, tagGenerated{};
         std::uint32_t frameLimitUs{};
         float frameTimeMs{}; // Last frameRenderTime sent; 0 lets Intel estimate.
+        float sleepMs{}; // CPU time in the last XeLL sleep.
     };
 
     // One Intel-owned presenter and XeLL owner. DLLs remain process-resident.

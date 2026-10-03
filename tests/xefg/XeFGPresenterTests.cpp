@@ -40,13 +40,16 @@ int wmain(int argc, wchar_t** argv) {
     Require(window!=nullptr,"window"); ShowWindow(window,SW_SHOW);
     SetWindowPos(window, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
     DXGI_SWAP_CHAIN_DESC desc{}; desc.BufferDesc.Width=640; desc.BufferDesc.Height=360;
-    desc.BufferDesc.Format=DXGI_FORMAT_R8G8B8A8_UNORM; desc.SampleDesc.Count=1; desc.BufferUsage=DXGI_USAGE_RENDER_TARGET_OUTPUT;
+    // HDR10 layers: AUTO must also cover 2-bit-alpha UI and frames without a UI layer.
+    const bool hdr10=GetEnvironmentVariableW(L"TRP_XEFG_HDR10",nullptr,0)!=0;
+    const DXGI_FORMAT colorFormat=hdr10?DXGI_FORMAT_R10G10B10A2_UNORM:DXGI_FORMAT_R8G8B8A8_UNORM;
+    desc.BufferDesc.Format=colorFormat; desc.SampleDesc.Count=1; desc.BufferUsage=DXGI_USAGE_RENDER_TARGET_OUTPUT;
     desc.BufferCount=2; desc.OutputWindow=window; desc.Windowed=TRUE;
     desc.SwapEffect=DXGI_SWAP_EFFECT_FLIP_DISCARD; desc.Flags=DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
     TheosRenderPipeline::XeFGPresenter presenter;
     presenter.SetLogger([](const char* text) { std::printf("[Owner] %s\n",text); });
     Check(presenter.Probe(d12.Get(),std::filesystem::absolute(argv[1])),"production admission");
-    Inputs input; input.Create(interop,d11.Get(),640,360); auto* stable=input.color.texture11.Get(); unsigned generated=0, uiTagged=0;
+    Inputs input; input.Create(interop,d11.Get(),640,360,colorFormat); auto* stable=input.color.texture11.Get(); unsigned generated=0, uiTagged=0, generatedWithUI=0, generatedWithoutUI=0;
     const bool nativeOnly=GetEnvironmentVariableW(L"TRP_XEFG_NATIVE_ONLY",nullptr,0)!=0;
     const bool releaseNvidia=GetEnvironmentVariableW(L"TRP_XEFG_RELEASE_NV",nullptr,0)!=0;
     wchar_t cyclesText[8]{};
@@ -55,7 +58,9 @@ int wmain(int argc, wchar_t** argv) {
         cycles=static_cast<unsigned>(std::wcstoul(cyclesText,nullptr,10));
         Require(cycles>=2 && cycles<=8,"bounded lifecycle cycle count");
     }
-    std::printf("owner cycles=%u releaseRetiredNvidia=%u\n",cycles,releaseNvidia);
+    // Production Lab A/B: queue a D3D11 GPU wait for the input copies instead of CPU drains.
+    const bool gpuInputWait=GetEnvironmentVariableW(L"TRP_XEFG_GPU_INPUT_WAIT",nullptr,0)!=0;
+    std::printf("owner cycles=%u releaseRetiredNvidia=%u inputReuse=%s\n",cycles,releaseNvidia,gpuInputWait?"gpu-fence":"cpu-drain");
     for(unsigned round=0;round<cycles;++round) {
         ComPtr<IDXGISwapChain> native; Check(presentingFactory->CreateSwapChain(queue.Get(),&desc,&native),"native before Intel");
         if(nvidia) { nvidia->Begin(presenter.Snapshot().frameId); nvidia->BeforePresent(); }
@@ -70,7 +75,8 @@ int wmain(int argc, wchar_t** argv) {
         ComPtr<IDXGISwapChain3> proxy3; Check(proxy.As(&proxy3),"proxy3");
         for(unsigned frame=0;frame<90;++frame) {
             MSG message{}; while(PeekMessageW(&message,nullptr,0,0,PM_REMOVE)) { TranslateMessage(&message); DispatchMessageW(&message); }
-            Check(interop.Drain(),"producer reuse"); input.Paint(c11.Get(),frame);
+            if(!gpuInputWait) Check(interop.Drain(),"producer reuse");
+            input.Paint(c11.Get(),frame);
             std::vector<uint16_t> motions(640*360*2,0);
             for(size_t i=0;i<motions.size();i+=2) motions[i]=DirectX::PackedVector::XMConvertFloatToHalf(-2.0f/640.0f);
             c11->UpdateSubresource(input.producerMotion.Get(),0,nullptr,motions.data(),640*4,0);
@@ -109,10 +115,11 @@ int wmain(int argc, wchar_t** argv) {
             Check(interop.Submit(Work::SwapChain),"submit SDK copies"); back.Reset();
             Check(presenter.FinalizePresent(),"markers after queue submission");
             const auto result=proxy->Present(0,0); Check(result,"Intel present"); Require(result==S_OK,"visible present");
-            Check(presenter.AfterPresent(result),"production completion"); Check(interop.Drain(),"retire ONLY_NOW copies");
+            Check(presenter.AfterPresent(result),"production completion");
+            Check(gpuInputWait?interop.WaitD3D11(Work::SwapChain):interop.Drain(),gpuInputWait?"ONLY_NOW input reuse GPU wait":"retire ONLY_NOW copies");
             const auto& state=presenter.Snapshot(); Require(state.framesPresented>=1&&state.framesPresented<=2,"x2 bounds");
             if(!enable) Require(state.framesPresented==1,"off passthrough");
-            if(enable&&state.framesPresented==2) ++generated;
+            if(enable&&state.framesPresented==2) { ++generated; ++(state.uiTexture?generatedWithUI:generatedWithoutUI); }
             if(frame!=89) Check(presenter.BeginFrame(),"next frame");
         }
         Check(presenter.Disable(),"disable"); Check(interop.Drain(),"retire shared resources");
@@ -129,6 +136,9 @@ int wmain(int argc, wchar_t** argv) {
     }
     Require(nativeOnly||generated>100,"sustained production x2 both depth conventions");
     Require(presenter.Snapshot().uiTexturePresents==uiTagged && (nativeOnly||uiTagged>0),"UI layer tag count");
+    // AUTO must keep generating on frames without a UI layer, in SDR and HDR10.
+    std::printf("generated withUI=%u withoutUI=%u hdr10=%u\n",generatedWithUI,generatedWithoutUI,hdr10);
+    Require(nativeOnly||(generatedWithUI>20&&generatedWithoutUI>20),"generation with and without a UI layer");
     for(UINT64 n=0;n<messages->GetNumStoredMessagesAllowedByRetrievalFilter();++n) {
         SIZE_T size{}; messages->GetMessage(n,nullptr,&size); std::vector<unsigned char> storage(size);
         auto* message=reinterpret_cast<D3D12_MESSAGE*>(storage.data()); messages->GetMessage(n,message,&size);

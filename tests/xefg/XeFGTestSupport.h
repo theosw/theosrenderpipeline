@@ -90,7 +90,7 @@ struct Inputs {
     SharedTexture color, hudless, depth, motion, ui;
     ComPtr<ID3D11Texture2D> producerColor, producerHudless, producerDepth, producerMotion, producerUI;
     UINT width{}, height{};
-    void Create(Interop& interop, ID3D11Device* device, UINT w, UINT h) {
+    void Create(Interop& interop, ID3D11Device* device, UINT w, UINT h, DXGI_FORMAT colorFormat=DXGI_FORMAT_R8G8B8A8_UNORM) {
         width=w; height=h;
         auto create=[&](DXGI_FORMAT format, SharedTexture& shared, ComPtr<ID3D11Texture2D>& producer) {
             D3D11_TEXTURE2D_DESC d{};
@@ -100,11 +100,11 @@ struct Inputs {
             Check(interop.CreateSharedTexture(d,shared),"production shared texture");
             Check(device->CreateTexture2D(&d,nullptr,&producer),"synthetic D3D11 producer");
         };
-        create(DXGI_FORMAT_R8G8B8A8_UNORM,color,producerColor);
-        create(DXGI_FORMAT_R8G8B8A8_UNORM,hudless,producerHudless);
+        create(colorFormat,color,producerColor);
+        create(colorFormat,hudless,producerHudless);
         create(DXGI_FORMAT_R32_FLOAT,depth,producerDepth);
         create(DXGI_FORMAT_R16G16_FLOAT,motion,producerMotion);
-        create(DXGI_FORMAT_R8G8B8A8_UNORM,ui,producerUI);
+        create(colorFormat,ui,producerUI);
     }
     void Paint(ID3D11DeviceContext* context, unsigned frame) {
         const auto pixels=static_cast<size_t>(width)*height;

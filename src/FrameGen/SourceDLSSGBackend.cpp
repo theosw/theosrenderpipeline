@@ -692,9 +692,33 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (FAILED(a_result)) { return a_result; }
 		providerSwitchPending_ = PreflightProviderSwitch();
 		if (provider_ == FrameGenerationProvider::XeFG) {
-			if (!CheckXeFG(xefg_.AfterPresent(a_result)) ||
-				!Check(interop_.Drain(), "retire Intel ONLY_NOW input copies")) { return fault_; }
+			if (!CheckXeFG(xefg_.AfterPresent(a_result))) { return fault_; }
+			// ONLY_NOW tags record Intel's input copies in the submitted SwapChain
+			// list, whose completion also covers the late output/NR readers. The
+			// Lab GPU wait queues that dependency before the next D3D11 frame writes
+			// the singleton inputs; the default drains every host lane on the CPU.
+			// Resize, recreation and teardown still drain.
+			const bool gpuInputWait = XeFGGpuInputWait();
+			if (gpuInputWait != xefgReuseWindowGpu_) {
+				xefgReuseMs_.clear(); xefgSleepMs_.clear(); xefgReuseWindowGpu_ = gpuInputWait;
+				logger::info("[XeFG] input reuse mode now {}", gpuInputWait ? "gpu-fence" : "cpu-drain");
+			}
+			const auto reuseStart = std::chrono::steady_clock::now();
+			if (!Check(gpuInputWait ? interop_.WaitD3D11(Work::SwapChain) : interop_.Drain(),
+				gpuInputWait ? "Intel ONLY_NOW input reuse GPU wait" : "retire Intel ONLY_NOW input copies")) { return fault_; }
+			xefgReuseMs_.push_back(std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - reuseStart).count());
 			const auto& intel = xefg_.Snapshot();
+			xefgSleepMs_.push_back(intel.sleepMs);
+			if (xefgReuseMs_.size() >= 600) {
+				auto percentiles = [](std::vector<float>& v) {
+					std::sort(v.begin(), v.end());
+					return std::array{ v[(v.size() - 1) / 2], v[(v.size() - 1) * 95 / 100], v.back() };
+				};
+				const auto reuse = percentiles(xefgReuseMs_), sleep = percentiles(xefgSleepMs_);
+				logger::info("[XeFG] input reuse={} cpu ms p50={:.3f} p95={:.3f} max={:.3f}; XeLL sleep ms p50={:.3f} p95={:.3f} max={:.3f} (n={})",
+					gpuInputWait ? "gpu-fence" : "cpu-drain", reuse[0], reuse[1], reuse[2], sleep[0], sleep[1], sleep[2], xefgReuseMs_.size());
+				xefgReuseMs_.clear(); xefgSleepMs_.clear();
+			}
 			if (intel.presents <= 3 || intel.presents % 600 == 0) {
 				logger::info("[XeFG] frame={} enabled={} presented={} totalOutputs={} generatedPresents={} interpolationResult={} warnings={} epoch={} uiTexture={} uiTexturePresents={} frameTimeMs={:.2f} onlyGenerated={} tagGenerated={} latency=XeLL",
 					intel.frameId, intel.enabled, intel.framesPresented, intel.totalOutputs, intel.generatedPresents,

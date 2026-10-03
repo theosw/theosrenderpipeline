@@ -75,6 +75,11 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& v
                     sourceBackend.ConfigureXeFGDebugView(onlyGenerated, tagGenerated);
                 DrawSettingsHelp("Intel debug views, not saved. Only generated frames hides every real frame; "
                                  "tagging marks generated frames with corner boxes.");
+                bool gpuInputWait = sourceBackend.XeFGGpuInputWait();
+                if (ImGui::Checkbox("Input reuse: GPU fence wait (Lab)", &gpuInputWait))
+                    sourceBackend.ConfigureXeFGGpuInputWait(gpuInputWait);
+                DrawSettingsHelp("A/B for the post-Present wait, not saved. Off drains every host lane on the CPU; "
+                                 "on queues a GPU wait for Intel's input copies. The log reports both waits every 600 frames.");
             }
         }
         if (!intel && unlock.UsesCompatibilityUnlock() && !unlock.Ready())

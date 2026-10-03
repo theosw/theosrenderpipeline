@@ -22,6 +22,7 @@
 #include "FrameGen/SourceOutputCapture.h"
 #endif
 #include <dxgi1_5.h>
+#include <vector>
 #include <filesystem>
 #include <array>
 #include <string>
@@ -85,6 +86,10 @@ namespace TheosRenderPipeline::SourceDLSSG
 			xefgTagGenerated_.store(a_tagGenerated, std::memory_order_relaxed);
 		}
 		bool XeFGOnlyGenerated() const { return xefgOnlyGenerated_.load(std::memory_order_relaxed); }
+		// Lab A/B, not saved: after Present, queue a D3D11 GPU wait for Intel's
+		// input copies instead of draining every host lane on the CPU.
+		void ConfigureXeFGGpuInputWait(bool a_enabled) { xefgGpuInputWait_.store(a_enabled, std::memory_order_relaxed); }
+		bool XeFGGpuInputWait() const { return xefgGpuInputWait_.load(std::memory_order_relaxed); }
 		bool XeFGTagGenerated() const { return xefgTagGenerated_.load(std::memory_order_relaxed); }
 		bool ConfigureOutputFPSLimit(int a_fps)
 		{
@@ -205,7 +210,10 @@ namespace TheosRenderPipeline::SourceDLSSG
 		MFGUnlock mfgUnlock_;
 		std::atomic<sl::ReflexMode> reflexMode_{ sl::ReflexMode::eLowLatency };
 		std::atomic<bool> uiRecomposition_{ true };
-		std::atomic<bool> xefgFrameTime_{ true }, xefgOnlyGenerated_{}, xefgTagGenerated_{};
+		std::atomic<bool> xefgFrameTime_{ true }, xefgOnlyGenerated_{}, xefgTagGenerated_{}, xefgGpuInputWait_{};
+		// Per-window CPU samples for the input-reuse A/B; logged and cleared every 600 presents.
+		std::vector<float> xefgReuseMs_, xefgSleepMs_;
+		bool xefgReuseWindowGpu_{};
 		std::atomic<int> outputFPSLimit_{ 0 };
 		mutable std::mutex presentationFeedbackMutex_;
 		PresentationFeedbackTracker presentationFeedback_;
