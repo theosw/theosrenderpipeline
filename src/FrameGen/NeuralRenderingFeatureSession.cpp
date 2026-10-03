@@ -9,6 +9,7 @@
 #include <nvsdk_ngx.h>
 
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <format>
 #include <limits>
@@ -25,6 +26,7 @@ namespace TheosRenderPipeline::NeuralRendering
 		constexpr const char* kTheosRenderPipelineNGXProjectId = "f1b2e5d8-9c4a-4e7b-8a36-5d2e90c47a11";
 		constexpr const char* kTheosRenderPipelineNGXEngineVersion = "0.1.0-neural-rendering-source";
 		constexpr auto kNeuralRenderingFeature = static_cast<NVSDK_NGX_Feature>(0x12);
+		std::atomic<bool> publicNGXInitialized{};
 
 		using D3D12Init = NVSDK_NGX_Result(NVSDK_CONV*)(
 			unsigned long long,
@@ -218,6 +220,7 @@ namespace TheosRenderPipeline::NeuralRendering
 				"public NGX initialization failed (0x{:08X})", state.lastInitResult);
 			return false;
 		}
+		publicNGXInitialized.store(true, std::memory_order_release);
 		// XeSS startup has no Streamline/DLSS bootstrap. The public NGX init
 		// above must establish NR's loader independently before we resolve the
 		// path used by the feature's scoped module-path hook.
@@ -450,5 +453,10 @@ namespace TheosRenderPipeline::NeuralRendering
 	const std::string& FeatureSession::Status() const
 	{
 		return state_->status;
+	}
+
+	bool PublicNGXInitializedInProcess()
+	{
+		return publicNGXInitialized.load(std::memory_order_acquire);
 	}
 }

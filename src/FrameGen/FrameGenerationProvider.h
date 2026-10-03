@@ -21,4 +21,12 @@ namespace TheosRenderPipeline
         // DLSS startup bridge stays NVIDIA until world inputs admit a switch.
         return {requested, xeSS ? requested : FrameGenerationProvider::NVIDIA};
     }
+    // A live switch to NVIDIA initializes Streamline. In an XeSS-started session
+    // NR may already have initialized NGX through the driver loader; Streamline's
+    // DLSS-G plugin then never loads nvngx_dlssg.dll, and the MFG verification
+    // that follows is fatal. Refuse that switch until restart.
+    constexpr bool NvidiaSwitchNeedsRestart(bool streamlineInitialized, bool ngxInitializedByNR)
+    {
+        return !streamlineInitialized && ngxInitializedByNR;
+    }
 }

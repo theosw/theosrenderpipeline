@@ -10,6 +10,9 @@
 #include "SourceFrameGeneration.h"
 #include <d3dcompiler.h>
 #include <chrono>
+#if !defined(TRP_NO_NEURAL_RENDERING)
+#include "NeuralRenderingFeatureSession.h"
+#endif
 
 namespace TheosRenderPipeline::SourceDLSSG
 {
@@ -1062,6 +1065,15 @@ namespace TheosRenderPipeline::SourceDLSSG
             providerStatus_ = "NVIDIA frame generation requires NVIDIA hardware; Intel presenter retained";
             RequestProvider(provider_); return false;
         }
+#if !defined(TRP_NO_NEURAL_RENDERING)
+        if (request == FrameGenerationProvider::NVIDIA &&
+            NvidiaSwitchNeedsRestart(nvidiaInitialized_, NeuralRendering::PublicNGXInitializedInProcess())) {
+            providerStatus_ = "NVIDIA frame generation needs a restart: NR started NVIDIA NGX before Streamline in this "
+                "XeSS session. Intel presenter retained; save NVIDIA and restart, or switch before enabling NR.";
+            logger::warn("[FrameGeneration] {}", providerStatus_);
+            RequestProvider(provider_); return false;
+        }
+#endif
         if (request == FrameGenerationProvider::XeFG) {
             const bool compatible = XeFGPresenter::SupportsFormat(presenterDesc_.BufferDesc.Format) &&
 				hudless_.texture12 && XeFGPresenter::SupportsFormat(hudless_.desc.Format);

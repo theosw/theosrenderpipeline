@@ -80,5 +80,9 @@ int main()
         Require(amd.requested == FrameGenerationProvider::XeFG && amd.presenter == FrameGenerationProvider::XeFG, "non-NVIDIA XeSS startup never requires NVIDIA provider");
     }
     Require(SelectProviderStartup(true, true, static_cast<FrameGenerationProvider>(42)).requested == FrameGenerationProvider::NVIDIA, "invalid provider keeps configured default policy");
+    // 2026-10-03: XeSS start, NR on, then Intel -> NVIDIA failed MFG verification fatally.
+    Require(NvidiaSwitchNeedsRestart(false, true), "NR-initialized NGX before Streamline refuses the live NVIDIA switch");
+    Require(!NvidiaSwitchNeedsRestart(false, false), "XeSS start without NR still switches to NVIDIA live");
+    Require(!NvidiaSwitchNeedsRestart(true, true), "Streamline initialized before NR keeps live switching");
     std::puts("PASS host failure retention, resize/destruction ordering and saved provider startup");
 }
