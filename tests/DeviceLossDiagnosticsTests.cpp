@@ -122,7 +122,7 @@ static void Contracts(std::ostringstream& log)
     node.BreadcrumbCount = 80;
     completed = 68;
     ring[68] = D3D12_AUTO_BREADCRUMB_OP_RESOLVEQUERYDATA;
-    ring[69] = D3D12_AUTO_BREADCRUMB_OP_BEGINCOMMANDLIST;
+    ring[69] = static_cast<D3D12_AUTO_BREADCRUMB_OP>(46);
     ring[70] = D3D12_AUTO_BREADCRUMB_OP_SETMARKER;
     const auto beforeContexts = log.str().size();
     DeviceLossDiagnostics::LogBreadcrumbs({&node});

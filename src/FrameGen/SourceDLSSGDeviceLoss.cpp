@@ -53,7 +53,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 		{
 			switch (a_operation) {
 			case D3D12_AUTO_BREADCRUMB_OP_SETMARKER: return "SetMarker";
-			case D3D12_AUTO_BREADCRUMB_OP_BEGINCOMMANDLIST: return "BeginCommandList";
+			// Newer DRED runtimes emit this even with older build SDK headers.
+			case static_cast<D3D12_AUTO_BREADCRUMB_OP>(46): return "BeginCommandList";
 			case D3D12_AUTO_BREADCRUMB_OP_RESOLVEQUERYDATA: return "ResolveQueryData";
 			case D3D12_AUTO_BREADCRUMB_OP_DRAWINSTANCED: return "DrawInstanced";
 			case D3D12_AUTO_BREADCRUMB_OP_DRAWINDEXEDINSTANCED: return "DrawIndexedInstanced";
