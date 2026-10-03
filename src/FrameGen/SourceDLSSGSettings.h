@@ -17,6 +17,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		bool uiRecomposition{ true };
 		GenerationRequest generation{};
 		bool neuralEnabled{ false };
+        bool neuralAsync{ false };
 		bool neuralBeforeUpscaling{ true };
 		int neuralPasses{ 1 };
 		NeuralRendering::CombatSettings neuralCombat{};
@@ -55,6 +56,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		value.generation.dynamicTargetFPS = static_cast<std::uint32_t>(ini.GetLongValue(section, "DynamicTargetFPS", 0));
 		value.uiRecomposition = ini.GetBoolValue(section, "UIRecomposition", true);
 		value.neuralEnabled = ini.GetBoolValue(section, "NeuralRenderingEnabled", false);
+        value.neuralAsync = ini.GetBoolValue(section, "NRAsync", false);
 		value.neuralBeforeUpscaling = ini.GetBoolValue(section, "NRBeforeUpscaling", value.neuralBeforeUpscaling);
 		value.neuralPasses = static_cast<int>(ini.GetLongValue(section, "NRPasses", 1));
 		value.neuralCombat.inCombat = ini.GetBoolValue(section, "NROnePassInCombat", false);
@@ -86,6 +88,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		ini.SetLongValue(section, "DynamicTargetFPS", value.generation.dynamicTargetFPS);
 		ini.SetBoolValue(section, "UIRecomposition", value.uiRecomposition);
 		ini.SetBoolValue(section, "NeuralRenderingEnabled", value.neuralEnabled);
+        ini.SetBoolValue(section, "NRAsync", value.neuralAsync);
 		ini.SetBoolValue(section, "NRBeforeUpscaling", value.neuralBeforeUpscaling);
 		ini.SetLongValue(section, "NRPasses", value.neuralPasses);
 		ini.SetBoolValue(section, "NROnePassInCombat", value.neuralCombat.inCombat);

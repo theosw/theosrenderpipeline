@@ -24,6 +24,16 @@ changes the session; **Save as default** persists settings and window layout;
 shortcuts are opt-in. HDR is experimental, through Community Shaders or TRP's own
 HDR output; see [HDR](#hdr-experimental).
 
+The experimental **Neural Rendering > Execution** selector switches between
+**Regular** (default) and **Async** using Apply; Save as default remembers it.
+Async evaluates older scene snapshots on a worker queue and transfers completed
+corrections onto current frames. It uses extra VRAM and can temporarily lose
+correction during motion, cuts or lighting changes. Both pass controls remain
+available. Insufficient memory or unsupported scene inputs show a regular-NR
+fallback. Native after-upscale UI composition currently uses regular NR; CS's
+world-only inputs support either placement. Game quality and MFG coexistence are
+still experimental.
+
 With two NR passes selected, optional **One pass in combat** and **One pass while
 weapons/spells are drawn** controls temporarily skip the second pass. The return
 delay defaults to five seconds after all selected conditions clear and pauses

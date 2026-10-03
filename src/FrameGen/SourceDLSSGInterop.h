@@ -121,6 +121,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		const InteropFailureDiagnostics& LastFailure() const { return failure_; }
 		bool Ready() const { return ready_ && SUCCEEDED(fault_); }
 		std::uint64_t LastValue(Work a_work) const;
+        ID3D12Fence* SubmissionFence(Work work) const { const auto i=static_cast<std::size_t>(work); return i<work_.size()?work_[i].fence12.Get():nullptr; }
 		std::size_t CurrentSlot(Work a_work) const;
 
 		// Both resources enter and leave COMMON.

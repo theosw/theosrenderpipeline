@@ -42,12 +42,13 @@ namespace TheosRenderPipeline::SourceDLSSG
 	{
 		std::scoped_lock lock(neuralMutex_); return neuralSnapshot_;
 	}
-    bool Backend::RecreateNeuralIfNeeded(const NeuralOptions& options)
+    bool Backend::RecreateNeuralIfNeeded(const NeuralOptions& options, ID3D12Resource* scene)
     {
-        if (!neuralPass_ || !neuralPass_->NeedsRecreation(options, motion_.desc.Width, motion_.desc.Height)) { return true; }
+        if (!neuralPass_ || !neuralPass_->NeedsRecreation(options, motion_.desc.Width, motion_.desc.Height, scene, motion_.desc.Format)) { return true; }
         // Private outputs are copied into stable shared textures. Only our
         // queues read the feature, and no command list may be open here.
         if (!Check(interop_.Drain(), "retire NR before placement/reconstruction change")) { return false; }
+        if (!Check(neuralPass_->RetireAsync() ? S_OK : E_FAIL, "retire async NR worker")) { return false; }
         neuralPass_->RetireTelemetry();
         {
             std::scoped_lock lock(neuralMutex_);
@@ -114,20 +115,22 @@ namespace TheosRenderPipeline::SourceDLSSG
             !EnsureGuide(motion, motion_, DXGI_FORMAT_UNKNOWN, renderExtent) ||
             !EnsureGuide(depth, depth_, DXGI_FORMAT_R32_FLOAT, renderExtent) ||
             !EnsureGuide(color, earlyNeuralColor_, DXGI_FORMAT_UNKNOWN, colorExtent) ||
-            !RecreateNeuralIfNeeded(frameNeuralOptions_)) { return false; }
+            !RecreateNeuralIfNeeded(frameNeuralOptions_, earlyNeuralColor_.texture12.Get())) { return false; }
         if (!CopyDepth(depth) || !Check(interop_.CopyInputRegion(motion, motion_, renderExtent), "early NR motion copy") ||
             !Check(interop_.CopyInputRegion(color, earlyNeuralColor_, colorExtent), "early NR world copy") ||
             !Check(interop_.SignalD3D11(Work::Upscaling), "early NR inputs ready")) { return false; }
         ID3D12GraphicsCommandList* list = nullptr;
         if (!Check(interop_.Begin(Work::Upscaling, &list, measure ? &allocatorWait : nullptr), "begin NR before DLSS")) { return false; }
-        if (!neuralPass_) { neuralPass_ = std::make_unique<NeuralPass>(); }
+        if (!neuralPass_) { neuralPass_ = std::make_unique<NeuralExecution>(); }
         if (!neuralPass_->Record(device12_.Get(), list, interop_.CurrentSlot(Work::Upscaling), frameNeuralOptions_,
             frameNeuralReset_, camera->depthInverted == sl::eTrue,
             camera->mvecScale.x * motion_.desc.Width, camera->mvecScale.y * motion_.desc.Height,
             motion_.texture12.Get(), depth_.texture12.Get(), nullptr, earlyNeuralColor_.texture12.Get(), nullptr,
             neuralTimestampFrequency_)) { return FailNeuralRecording(); }
-        if (!Check(Interop::RecordCopy(list, neuralPass_->Corrected(), earlyNeuralColor_.texture12.Get()), "early NR result copy") ||
+        if ((neuralPass_->Corrected() != earlyNeuralColor_.texture12.Get() &&
+            !Check(Interop::RecordCopy(list, neuralPass_->Corrected(), earlyNeuralColor_.texture12.Get()), "early NR result copy")) ||
             !Check(interop_.Submit(Work::Upscaling), "submit NR before DLSS") ||
+            !Check(neuralPass_->Submitted(interop_.SubmissionFence(Work::Upscaling), interop_.LastValue(Work::Upscaling)), "publish async NR capture") ||
             !Check(interop_.WaitD3D11(Work::Upscaling), "DLSS waits for NR")) { return false; }
         // This copy and the subsequent NGX D3D11 call follow the GPU wait on
         // the same immediate context. No CPU-wide flush/drain on each frame.
