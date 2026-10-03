@@ -159,6 +159,8 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& v
             ImGui::Checkbox("UI recomposition##sourceDLSSG", &settingsDraft.sourceDLSSG.uiRecomposition);
             DrawSettingsHelp("Generates the scene and HUD separately to reduce HUD ghosting in motion. "
                              "Small GPU and VRAM cost. Apply to compare live.");
+            if (TheosRenderPipeline::CommunityShaders::Active())
+                ImGui::TextDisabled("HUD-less detection; translucent UI retains its blended background.");
             if (frameGenerationRuntimeActive && sourceState.uiRecompositionRequested)
             {
                 if (sourceState.options.enableUserInterfaceRecomposition == sl::eTrue)

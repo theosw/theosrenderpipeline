@@ -34,7 +34,7 @@ namespace TheosRenderPipeline
             CommunityShaderFrame::Dispatch dispatch);
         bool ConfirmPresentationCopy(ID3D11Resource* source);
         void SetUIBoundary(ID3D11Texture2D* texture) { resources_.SetUIBoundary(texture); }
-        bool Prepare(const D3D11_TEXTURE2D_DESC& presentation);
+        bool Prepare(ID3D11Texture2D* presentation);
         void PresentCompleted(bool succeeded);
         void ResetAfterRetirement();
         bool Ready() const { return worldCompleted_ && resources_.Ready(); }
@@ -52,6 +52,7 @@ namespace TheosRenderPipeline
         bool neuralBoundaryReported_{};
         // Last completed scene was CS HDR Display's extended-range FP16 target.
         bool extendedScene_{};
+        bool uiCaptureReported_{}, uiCaptureFailed_{};
         const char* status_{"Waiting for a CS world frame"};
     };
 }
