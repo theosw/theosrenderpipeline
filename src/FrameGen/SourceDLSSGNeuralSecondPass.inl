@@ -6,6 +6,7 @@ bool NeuralPass::RecordSecond(ID3D12Device* device, ID3D12GraphicsCommandList* l
 	NeuralRendering::FeatureSession::EvaluationInput& second)
 {
 	constexpr auto read = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+	DiagnosticMarker(list, diagnostics_, L"TRP NR prepare pass 2 inputs");
 	constexpr auto common = D3D12_RESOURCE_STATE_COMMON;
 	constexpr auto write = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
 	auto constants = originalConstants;
@@ -57,7 +58,11 @@ bool NeuralPass::RecordSecond(ID3D12Device* device, ID3D12GraphicsCommandList* l
 	Transition(list, second.color, common, read);
 	Transition(list, second.output, common, write);
 	second.backbuffer = NeuralRendering::UsesReconstructionContract(secondFeature_.Build()) ? second.output : first.backbuffer;
-	if (!secondFeature_.RecordEvaluation(second)) { status_ = "NR second pass: " + secondFeature_.Status(); return false; }
+	CaptureEvaluation(second, slot, 1, secondFeature_.EvaluationsRecorded() + 1);
+	DiagnosticMarker(list, diagnostics_, L"TRP NR pass 2 NGX evaluation");
+	const bool evaluated = secondFeature_.RecordEvaluation(second);
+	if (diagnostics_) { diagnosticSlots_[slot][1].recorded = evaluated; }
+	if (!evaluated) { status_ = "NR second pass: " + secondFeature_.Status(); return false; }
 	secondHistoryInvalid_ = false;
 	return true;
 }

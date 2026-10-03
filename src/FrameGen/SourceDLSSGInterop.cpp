@@ -353,6 +353,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		observation_.stage = "command list Reset";
 		if (FAILED(hr = work->lists[work->slot]->Reset(work->allocators[work->slot].Get(), nullptr))) { return Check(hr); }
 		work->recording = true;
+		work->producer[work->slot] = work->value;
 		*a_list = work->lists[work->slot].Get();
 		return S_OK;
 	}
@@ -399,6 +400,18 @@ namespace TheosRenderPipeline::SourceDLSSG
 	{
 		const auto index = static_cast<std::size_t>(a_work);
 		return index < work_.size() ? work_[index].slot : kCommandSlots;
+	}
+
+	std::array<QueueSlotDiagnostics, kCommandSlots> Interop::QueueSlots(Work a_work) const noexcept
+	{
+		std::array<QueueSlotDiagnostics, kCommandSlots> slots{};
+		const auto index = static_cast<std::size_t>(a_work);
+		if (index >= work_.size()) { return slots; }
+		const auto& work = work_[index];
+		for (std::size_t slot = 0; slot < slots.size(); ++slot) {
+			slots[slot] = { work.lists[slot].Get(), work.fence12.Get(), work.producer[slot], work.submitted[slot] };
+		}
+		return slots;
 	}
 
 	HRESULT Interop::RecordCopy(ID3D12GraphicsCommandList* a_list,
