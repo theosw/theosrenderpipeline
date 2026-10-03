@@ -115,7 +115,8 @@ float NvidiaHost::OptimalMipmapBias() const
     {
         return 0.0f;
     }
-    if (xeSSActive_) { return std::log2(static_cast<float>(renderWidth_) / outputWidth_) - 1.0f; }
+    // XeSS-SR guide: log2(render / display), without DLSS's additional -1.
+    if (xeSSActive_) { return std::log2(static_cast<float>(renderWidth_) / outputWidth_); }
     return DLSSBackend::GetSingleton()->GetOptimalMipLodBias();
 }
 
