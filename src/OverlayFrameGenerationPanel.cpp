@@ -47,17 +47,20 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& v
                           sourceState.frameLimitSubmittedUs
                               ? std::format("{:.1f} FPS", 1000000.0 / sourceState.frameLimitSubmittedUs).c_str()
                               : "Off");
-        DrawSettingsValue("Path", intel ? (sourceBackend.XeFGState().unlockReady ? "Experimental XeFG MFG" : "Intel XeFG x2") : unlock.UsesTuringUnlock() ? "Turing MFG (experimental)"
+        const char* intelPath = sourceBackend.XeFGState().unlockReady ? "Experimental XeFG MFG" : "Intel XeFG x2";
+        DrawSettingsValue("Path", intel                       ? intelPath
+                                  : unlock.UsesTuringUnlock() ? "Turing MFG (experimental)"
                                   : unlock.UsesAmpereUnlock() ? "Ampere MFG (experimental)"
-                                  : unlock.UsesAdaUnlock()  ? "Ada MFG"
-                                                            : "Native NVIDIA");
-        const auto availableMaximum=intel?sourceBackend.XeFGState().maxGeneratedFrames:usableMaximum;
+                                  : unlock.UsesAdaUnlock()    ? "Ada MFG"
+                                                              : "Native NVIDIA");
+        const auto availableMaximum = intel ? sourceBackend.XeFGState().maxGeneratedFrames : usableMaximum;
         if (availableMaximum > 1)
             ImGui::Text("Available: x2 to x%u", availableMaximum + 1);
         else
             ImGui::TextUnformatted(availableMaximum == 1 ? "Available: x2" : "Availability: waiting");
         ImGui::TextWrapped("%s", sourceBackend.ProviderStatus().c_str());
-        if (intel) {
+        if (intel)
+        {
             const auto& state = sourceBackend.XeFGState();
             ImGui::Text("Runtime outputs: %u | generated presents: %llu", state.framesPresented,
                 static_cast<unsigned long long>(state.generatedPresents));
@@ -82,7 +85,7 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& v
                 DrawSettingsHelp("A/B for the post-Present wait, not saved. Off drains every host lane on the CPU; "
                                  "on queues a GPU wait for Intel's input copies. The log reports both waits every 600 frames.");
             }
-            ImGui::TextWrapped("%s",sourceBackend.XeFGUnlockStatus().c_str());
+            ImGui::TextWrapped("%s", sourceBackend.XeFGUnlockStatus().c_str());
         }
         if (!intel && unlock.UsesCompatibilityUnlock() && !unlock.Ready())
             ImGui::TextWrapped("%s", unlock.status);
@@ -159,22 +162,24 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& v
         }
         if (sourceDLSSGActive)
         {
-            if(editIntel) {
+            if (editIntel)
+            {
                 ImGui::Checkbox("Experimental XeFG x3-x6", &settingsDraft.sourceDLSSG.xefg.experimentalMFG);
-                DrawSettingsHelp("Apply recreates the Intel presenter safely. Off restores x2. AMD and game validation are pending.");
+                DrawSettingsHelp("Apply recreates the Intel presenter safely. Off restores x2. x3-x6 are not yet validated in game.");
             }
             ImGui::TextUnformatted("Multiplier");
             auto& request = settingsDraft.sourceDLSSG.generation;
-            auto& requestedCount=editIntel?settingsDraft.sourceDLSSG.xefg.generatedFrames:request.generatedFrames;
+            auto& requestedCount = editIntel ? settingsDraft.sourceDLSSG.xefg.generatedFrames : request.generatedFrames;
             const char* multipliers[]{"x2", "x3", "x4", "x5", "x6"};
-            static_assert(TheosRenderPipeline::XeFGMaxGeneratedFrames <= sizeof(multipliers)/sizeof(*multipliers));
-            const auto listedMaximum=editIntel?TheosRenderPipeline::XeFGMaxGeneratedFrames:5u;
-            const auto shownCount=editIntel&&!settingsDraft.sourceDLSSG.xefg.experimentalMFG?1u:requestedCount;
+            static_assert(TheosRenderPipeline::XeFGMaxGeneratedFrames <= std::size(multipliers));
+            const auto listedMaximum = editIntel ? TheosRenderPipeline::XeFGMaxGeneratedFrames : 5u;
+            const bool intelFixed = editIntel && !settingsDraft.sourceDLSSG.xefg.experimentalMFG;
+            const auto shownCount = intelFixed ? 1u : requestedCount;
             ImGui::SetNextItemWidth(-1.0f);
-            ImGui::BeginDisabled(editIntel&&!settingsDraft.sourceDLSSG.xefg.experimentalMFG);
+            ImGui::BeginDisabled(intelFixed);
             if (ImGui::BeginCombo("##sourceMultiplier", multipliers[std::clamp(shownCount, 1u, listedMaximum) - 1]))
             {
-                for (unsigned count = 1; count <= (listedMaximum); ++count)
+                for (unsigned count = 1; count <= listedMaximum; ++count)
                 {
                     ImGui::BeginDisabled(count > usableMaximum);
                     if (ImGui::Selectable(multipliers[count - 1], requestedCount == count))
@@ -186,40 +191,41 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& v
                 ImGui::EndCombo();
             }
             ImGui::EndDisabled();
-            if(!editIntel) {
-            if (supportsDynamic)
+            if (!editIntel)
             {
-                ImGui::Checkbox("Dynamic multiplier##sourceMFG", &request.dynamic);
-            }
-            else if (request.dynamic)
-            {
-                ImGui::TextColored(kOchre, "A saved dynamic request is unsupported by this NVIDIA runtime.");
-                if (ImGui::Button("Use fixed multiplier##sourceMFG"))
+                if (supportsDynamic)
                 {
-                    request.dynamic = false;
+                    ImGui::Checkbox("Dynamic multiplier##sourceMFG", &request.dynamic);
                 }
-            }
-            if (request.dynamic)
-            {
-                int target = static_cast<int>(request.dynamicTargetFPS);
-                ImGui::TextUnformatted("Target output FPS");
-                if (TheosRenderPipeline::Overlay::FPSInput("##sourceMFGTarget", target))
+                else if (request.dynamic)
                 {
-                    // Keep intermediate digits while typing 120, rather than
-                    // replacing 1 and 12 with zero. Validate on Apply.
-                    request.dynamicTargetFPS = static_cast<unsigned>(std::clamp(target, 0, 1000));
+                    ImGui::TextColored(kOchre, "A saved dynamic request is unsupported by this NVIDIA runtime.");
+                    if (ImGui::Button("Use fixed multiplier##sourceMFG"))
+                    {
+                        request.dynamic = false;
+                    }
                 }
-                ImGui::TextDisabled("0 = display refresh rate; explicit targets must exceed 60 FPS.");
-            }
-            if (request.generatedFrames > sourceState.state.numFramesToGenerateMax || sourceState.generationLimited)
-            {
-                ImGui::TextColored(kOchre, "NVIDIA runtime maximum: x%u", sourceState.state.numFramesToGenerateMax + 1);
-            }
-            if (sourceState.generationLimited)
-            {
-                ImGui::TextWrapped("Saved/requested MFG is unsupported here. The runtime uses the supported count; "
-                                   "your requested preference is retained.");
-            }
+                if (request.dynamic)
+                {
+                    int target = static_cast<int>(request.dynamicTargetFPS);
+                    ImGui::TextUnformatted("Target output FPS");
+                    if (TheosRenderPipeline::Overlay::FPSInput("##sourceMFGTarget", target))
+                    {
+                        // Keep intermediate digits while typing 120, rather than
+                        // replacing 1 and 12 with zero. Validate on Apply.
+                        request.dynamicTargetFPS = static_cast<unsigned>(std::clamp(target, 0, 1000));
+                    }
+                    ImGui::TextDisabled("0 = display refresh rate; explicit targets must exceed 60 FPS.");
+                }
+                if (request.generatedFrames > sourceState.state.numFramesToGenerateMax || sourceState.generationLimited)
+                {
+                    ImGui::TextColored(kOchre, "NVIDIA runtime maximum: x%u", sourceState.state.numFramesToGenerateMax + 1);
+                }
+                if (sourceState.generationLimited)
+                {
+                    ImGui::TextWrapped("Saved/requested MFG is unsupported here. The runtime uses the supported count; "
+                                       "your requested preference is retained.");
+                }
             }
             ImGui::Checkbox("UI recomposition##sourceDLSSG", &settingsDraft.sourceDLSSG.uiRecomposition);
             DrawSettingsHelp("Generates the scene and HUD separately to reduce HUD ghosting in motion. "
