@@ -152,9 +152,11 @@ int main()
         Require(s.Snapshot().stage == SessionStage::Stopped && r.waits == waits + 1,
             "input readers retire before presenter replacement");
         Require(r.submitted.mode == sl::DLSSGMode::eOff && s.Snapshot().reflexSubmitted == sl::ReflexMode::eOff &&
-            std::find(r.calls.begin(),r.calls.end(),"reflex-off") != r.calls.end(), "NVIDIA generation and latency disabled");
-        Require(std::count(r.calls.begin(),r.calls.end(),"sleep") == sleeps &&
-            std::count(r.calls.begin(),r.calls.end(),"token") == tokens, "no next-frame NVIDIA sleep when suspending");
+                std::find(r.calls.begin(), r.calls.end(), "reflex-off") != r.calls.end(),
+            "NVIDIA generation and latency disabled");
+        Require(std::count(r.calls.begin(), r.calls.end(), "sleep") == sleeps &&
+                std::count(r.calls.begin(), r.calls.end(), "token") == tokens,
+            "no next-frame NVIDIA sleep when suspending");
         const auto frame = s.Snapshot().frameIndex;
         const auto resumeCall = r.calls.size();
         Require(s.ResumeAfterResize(frame + 100) && s.Snapshot().frameIndex == frame + 101, "resume after the other provider's application frames");

@@ -110,17 +110,24 @@ namespace TheosRenderPipeline
         *swapchain = nullptr;
         if (!apiReady_ || initialized_ || fg_ || ll_ || !device || !queue || !factory || !SupportsFormat(desc.BufferDesc.Format)) { return E_INVALIDARG; }
         options = SanitizeXeFG(options);
-        snapshot_.experimentalMFG=options.experimentalMFG; snapshot_.unlockReady=false;
-        snapshot_.maxGeneratedFrames=1; snapshot_.generatedFrames=1;
+        snapshot_.experimentalMFG = options.experimentalMFG;
+        snapshot_.unlockReady = false;
+        snapshot_.maxGeneratedFrames = 1;
+        snapshot_.generatedFrames = 1;
         unlockStatus_="Experimental MFG off; official x2";
-        if(options.experimentalMFG) {
+        if (options.experimentalMFG) {
             std::string reason;
-            const auto patched=XeFGUnlock::EnsureInstalled(fgModule_,reason);
-            unlockStatus_=std::string(patched==XeFGUnlock::PatchResult::Applied?"Experimental MFG ready: ":"Experimental MFG refused: ")+reason;
-            if(log_) log_(unlockStatus_.c_str());
-            if(patched==XeFGUnlock::PatchResult::Unsafe) { status_="Unsafe XeFG patch state; provider stopped; restart required: "+reason; return E_UNEXPECTED; }
-            snapshot_.unlockReady=patched==XeFGUnlock::PatchResult::Applied;
-            if(!snapshot_.unlockReady) unlockStatus_+="; official x2 retained";
+            const auto patched = XeFGUnlock::EnsureInstalled(fgModule_, reason);
+            unlockStatus_ = std::string(patched == XeFGUnlock::PatchResult::Applied ? "Experimental MFG ready: "
+                                                                                    : "Experimental MFG refused: ") +
+                reason;
+            if (log_) log_(unlockStatus_.c_str());
+            if (patched == XeFGUnlock::PatchResult::Unsafe) {
+                status_ = "Unsafe XeFG patch state; provider stopped; restart required: " + reason;
+                return E_UNEXPECTED;
+            }
+            snapshot_.unlockReady = patched == XeFGUnlock::PatchResult::Applied;
+            if (!snapshot_.unlockReady) unlockStatus_ += "; official x2 retained";
         }
         XeFGUnlock::NewContextEpoch(); // Previous SDK context must already have retired.
         Trace("create latency context");
@@ -131,10 +138,14 @@ namespace TheosRenderPipeline
             FAILED(hr = FG(xefgSwapChainD3D12CreateContext_(device, &fg_), "create presenter")) ||
             FAILED(hr = FG(xefgSwapChainSetLatencyReduction_(fg_, ll_), "connect latency"))) { return hr; }
         xefg_swapchain_properties_t capabilities{};
-        if(FAILED(hr=FG(xefgSwapChainGetProperties_(fg_,&capabilities),"initialized capabilities"))) return hr;
-        if(capabilities.maxSupportedInterpolations<1) {status_="XeFG x2 unavailable";return DXGI_ERROR_UNSUPPORTED;}
-        snapshot_.maxGeneratedFrames=snapshot_.unlockReady?std::min(XeFGMaxGeneratedFrames,capabilities.maxSupportedInterpolations):1u;
-        snapshot_.generatedFrames=XeFGCount(options,snapshot_.maxGeneratedFrames);
+        if (FAILED(hr = FG(xefgSwapChainGetProperties_(fg_, &capabilities), "initialized capabilities"))) return hr;
+        if (capabilities.maxSupportedInterpolations < 1) {
+            status_ = "XeFG x2 unavailable";
+            return DXGI_ERROR_UNSUPPORTED;
+        }
+        snapshot_.maxGeneratedFrames =
+            snapshot_.unlockReady ? std::min(XeFGMaxGeneratedFrames, capabilities.maxSupportedInterpolations) : 1u;
+        snapshot_.generatedFrames = XeFGCount(options, snapshot_.maxGeneratedFrames);
         Trace("connect logging");
         if (FAILED(hr = FG(xefgSwapChainSetLoggingCallback_(fg_, XEFG_SWAPCHAIN_LOGGING_LEVEL_WARNING,
             [](const char* message, xefg_swapchain_logging_level_t, void* context) {
@@ -216,11 +227,11 @@ namespace TheosRenderPipeline
         // do not advance a second camera history for the other provider.
         const float direction = c.cameraViewToClip[2].w > 0 ? 1.0f : -1.0f;
         const sl::float3 z{c.cameraFwd.x * direction, c.cameraFwd.y * direction, c.cameraFwd.z * direction};
-        const float v[]{c.cameraRight.x,c.cameraUp.x,z.x,0,
-            c.cameraRight.y,c.cameraUp.y,z.y,0,c.cameraRight.z,c.cameraUp.z,z.z,0,
-            -(c.cameraPos.x*c.cameraRight.x+c.cameraPos.y*c.cameraRight.y+c.cameraPos.z*c.cameraRight.z),
-            -(c.cameraPos.x*c.cameraUp.x+c.cameraPos.y*c.cameraUp.y+c.cameraPos.z*c.cameraUp.z),
-            -(c.cameraPos.x*z.x+c.cameraPos.y*z.y+c.cameraPos.z*z.z),1};
+        const float v[]{c.cameraRight.x, c.cameraUp.x, z.x, 0, c.cameraRight.y, c.cameraUp.y, z.y, 0, c.cameraRight.z,
+            c.cameraUp.z, z.z, 0,
+            -(c.cameraPos.x * c.cameraRight.x + c.cameraPos.y * c.cameraRight.y + c.cameraPos.z * c.cameraRight.z),
+            -(c.cameraPos.x * c.cameraUp.x + c.cameraPos.y * c.cameraUp.y + c.cameraPos.z * c.cameraUp.z),
+            -(c.cameraPos.x * z.x + c.cameraPos.y * z.y + c.cameraPos.z * z.z), 1};
         constants_ = {};
         std::memcpy(constants_.viewMatrix, v, sizeof(v));
         std::memcpy(constants_.projectionMatrix, &c.cameraViewToClip, sizeof(constants_.projectionMatrix));
@@ -245,11 +256,11 @@ namespace TheosRenderPipeline
             if (u.Format != h.Format || u.Width != h.Width || u.Height != h.Height) { ui = nullptr; }
         }
         const bool tagUI = generate && uiComposition && ui;
-        const auto count=XeFGCount({snapshot_.experimentalMFG,generatedFrames},snapshot_.maxGeneratedFrames);
-        if(count!=snapshot_.generatedFrames) {
-            const auto result=FG(xefgSwapChainSetNumInterpolatedFrames_(fg_,count),"live multiplier");
-            if(FAILED(result)) return result;
-            snapshot_.generatedFrames=count;
+        const auto count = XeFGCount({snapshot_.experimentalMFG, generatedFrames}, snapshot_.maxGeneratedFrames);
+        if (count != snapshot_.generatedFrames) {
+            const auto result = FG(xefgSwapChainSetNumInterpolatedFrames_(fg_, count), "live multiplier");
+            if (FAILED(result)) return result;
+            snapshot_.generatedFrames = count;
         }
         auto hr = LL(xellAddMarkerData_(ll_, snapshot_.frameId, XELL_SIMULATION_END), "simulation end");
         if (FAILED(hr) || FAILED(hr = LL(xellAddMarkerData_(ll_, snapshot_.frameId, XELL_RENDERSUBMIT_START), "render start"))) { return hr; }
@@ -309,8 +320,8 @@ namespace TheosRenderPipeline
         ++snapshot_.presents; snapshot_.totalOutputs += status.framesPresented;
         if (status.framesPresented > 1) { ++snapshot_.generatedPresents; }
         status_ = snapshot_.enabled ? "XeFG x"+std::to_string(snapshot_.generatedFrames+1)+" active" : "XeFG passthrough";
-        if(log_ && (snapshot_.presents<=3 || snapshot_.presents%600==0)) {
-            const auto pacing=XeFGUnlock::Snapshot();
+        if (log_ && (snapshot_.presents <= 3 || snapshot_.presents % 600 == 0)) {
+            const auto pacing = XeFGUnlock::Snapshot();
             const auto text="present frame="+std::to_string(snapshot_.frameId)+" outputs="+std::to_string(snapshot_.framesPresented)+
                 " requestedMultiplier="+std::to_string(snapshot_.generatedFrames+1)+" capacity="+std::to_string(snapshot_.maxGeneratedFrames+1)+
                 " intervalUs="+std::to_string(snapshot_.frameLimitUs)+" processPacingCounters: presents="+std::to_string(pacing.presents)+

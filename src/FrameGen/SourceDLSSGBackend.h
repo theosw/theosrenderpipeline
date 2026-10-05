@@ -42,9 +42,17 @@ namespace TheosRenderPipeline::SourceDLSSG
 		FrameGenerationProvider Provider() const { return provider_; }
 		FrameGenerationProvider RequestedProvider() const { return requestedProvider_.load(); }
 		const XeFGSnapshot& XeFGState() const { return xefg_.Snapshot(); }
-        const std::string& XeFGUnlockStatus() const { return xefg_.UnlockStatus(); }
-        void ConfigureXeFG(XeFGOptions options) {options=SanitizeXeFG(options);xefgOptions_.store(options.generatedFrames|(options.experimentalMFG?0x100u:0u));}
-        XeFGOptions XeFGConfiguration() const {const auto value=xefgOptions_.load();return {(value&0x100u)!=0,value&0xffu};}
+		const std::string& XeFGUnlockStatus() const { return xefg_.UnlockStatus(); }
+		void ConfigureXeFG(XeFGOptions options)
+		{
+			options = SanitizeXeFG(options);
+			xefgOptions_.store(options.generatedFrames | (options.experimentalMFG ? 0x100u : 0u));
+		}
+		XeFGOptions XeFGConfiguration() const
+		{
+			const auto value = xefgOptions_.load();
+			return {(value & 0x100u) != 0, value & 0xffu};
+		}
 		const std::string& ProviderStatus() const { return providerStatus_; }
 		bool GenerationActive() const { return Ready() && (provider_ == FrameGenerationProvider::XeFG ? xefg_.Snapshot().enabled : session_.Snapshot().GenerationActive()); }
 		unsigned EffectiveMultiplier() const { return provider_ == FrameGenerationProvider::XeFG ? xefg_.Snapshot().generatedFrames+1 : session_.Snapshot().options.numFramesToGenerate + 1; }
@@ -144,8 +152,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 		ID3D11Device* Device11() const { return device11_.Get(); }
 		ID3D12CommandQueue* Queue() const { return queue_.Get(); }
 		Interop& Transport() { return interop_; }
-        XeSSUpscaler& XeSS() { return xess_; }
-        const XeSSUpscaler& XeSS() const { return xess_; }
+		XeSSUpscaler& XeSS() { return xess_; }
+		const XeSSUpscaler& XeSS() const { return xess_; }
 		ID3D12Device* Device12() const { return device12_.Get(); }
 		bool NvidiaAdapter() const { return adapterVendor_ == 0x10DE; }
 		HRESULT BeforePresent(ID3D12Resource* a_source, ID3D12Resource* a_destination, DXGI_COLOR_SPACE_TYPE a_colorSpace);
@@ -199,7 +207,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		SessionAPI api_{};
 		Session session_;
 		XeFGPresenter xefg_;
-        std::atomic<std::uint32_t> xefgOptions_{1};
+		std::atomic<std::uint32_t> xefgOptions_{1};
 		XeSSUpscaler xess_;
 		UINT adapterVendor_{};
 		bool nvidiaInitialized_{}, nvidiaSessionStarted_{};
