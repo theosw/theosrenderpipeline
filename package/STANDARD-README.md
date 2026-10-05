@@ -52,12 +52,16 @@ fix for saved 78% Ultra Quality DLSS is retained.
 
 Use matching SKSE64 and Address Library for Steam Skyrim 1.5.97, 1.6.640,
 1.6.1170 or 1.7.104, the x64 Microsoft Visual C++ runtime and a compatible
-NVIDIA GPU/driver. Standard requires native DLSS-G hardware support even with
-frame generation off. RTX 40-series uses x2; higher multipliers require native
-hardware/runtime support. RTX 30 requires Universal installed after Standard,
-even with frame generation off; Standard alone cannot initialize its host there.
-AMD/Intel are not supported. ENB is optional. Community Shaders and optional
-ReShade setup are described below.
+NVIDIA GPU/driver. In DLSS/DLAA modes, Standard requires native DLSS-G hardware
+support even with frame generation off. RTX 40-series uses x2; higher
+multipliers require native hardware/runtime support. RTX 30 requires Universal
+installed after Standard, even with frame generation off; Standard alone cannot
+initialize its host there. AMD and other non-NVIDIA GPUs can use experimental
+XeSS with Intel XeFG: before the first launch, set `UpscaleType=4` under
+`[Settings]` in `TheosRenderPipeline.ini`, and keep AMD Fluid Motion Frames,
+Anti-Lag and other frame-generation or upscaler mods off. NR requires NVIDIA RTX
+hardware. ENB is optional. Community Shaders and optional ReShade setup are
+described below.
 
 ## Settings
 

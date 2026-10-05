@@ -54,6 +54,12 @@ runtimes retain the license files accompanying their downloads.
 - **NVAPI** — NVIDIA, MIT; minimal public architecture-query ABI declarations,
   revision 87dca625e83fd89a983e19b904e5f3a580da90d2.
   https://github.com/NVIDIA/nvapi
+- **OptiScalerDp4aUnlock** — Coldwood1026, GPL-3.0. The opt-in XeFG x3-x6
+  unlock and pacing in `src/FrameGen/XeFGUnlock.cpp` adapt its patch facts and
+  pacing algorithms from commit 9eea95bba9fda7121f214d2eba358423be598d7e. Those
+  adapted portions remain GPL-3.0 without TRP's additional exceptions. Both
+  editions include this code; experimental XeFG MFG is off by default.
+  https://github.com/Coldwood1026/OptiScalerDp4aUnlock/tree/9eea95bba9fda7121f214d2eba358423be598d7e
 
 ## Libraries and SDKs
 
@@ -89,6 +95,16 @@ source code provided by NVIDIA Corporation.
 DLSS, DLSS-G, Streamline/Reflex and Neural Rendering runtime DLLs are supplied
 separately by the user. NVIDIA SDK and runtime components retain their own
 terms and are not relicensed under the project's GPL license.
+
+The XeSS and XeFG integration compiles against headers from the Intel XeSS SDK,
+commit `de0fb9c1c510661c571164e1418ceca8101dab69` (XeSS SR, XeFG 1.3 and
+XeLL 1.3). The XeSS SR and XeLL headers are MIT (Copyright (c) 2026 Intel
+Corporation). The XeFG headers are Intel copyrighted materials under the SDK's
+Intel Simplified Software License. No Intel headers or runtime binaries are
+stored in this repository. Packages that include Intel's `libxess.dll`,
+`libxess_fg.dll` and `libxell.dll` reproduce that license in
+`licenses/Intel-XeSS-LICENSE.txt`; the runtimes are not relicensed under the
+project's GPL license.
 
 ## Notices
 
@@ -778,15 +794,6 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-## Intel XeFG and XeLL test integration
-
-The public API headers are from Intel XeSS SDK commit
-`de0fb9c1c510661c571164e1418ceca8101dab69` (XeSS SR / XeFG 1.3 / XeLL 1.3).
-Header license: MIT; Copyright (c) 2026 Intel Corporation.
-The independently supplied runtime binaries have their own Intel Simplified
-Software License. Candidate packages reproduce it in `licenses/Intel-XeSS-LICENSE.txt`.
-No Intel runtime binaries are stored in this repository.
-
 ## ReShade public API license
 
 Copyright 2014 Patrick Mours. All rights reserved.
@@ -798,11 +805,3 @@ Redistribution and use in source and binary forms, with or without modification,
   * Neither the name of the copyright holder nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
 
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-# Experimental XeFG compatibility
-
-The opt-in unlock/pacing implementation in `src/FrameGen/XeFGUnlock.cpp`
-adapts patch facts and pacing algorithms from Coldwood1026's
-[OptiScalerDp4aUnlock](https://github.com/Coldwood1026/OptiScalerDp4aUnlock),
-commit `9eea95bba9fda7121f214d2eba358423be598d7e`, under GPL-3.0.
-Those adapted portions retain GPL-3.0 without applying TRP's additional
-exceptions. The candidate includes this implementation in both editions, with experimental MFG off by default.
