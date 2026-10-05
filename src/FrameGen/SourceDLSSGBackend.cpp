@@ -31,7 +31,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		static auto* backend = new Backend;
 		return *backend;
 	}
-	bool Backend::Check(HRESULT a_result, const char* a_operation)
+	bool Backend::Check(HRESULT a_result, const char* a_operation, const char* a_source)
 	{
 		// Interop Begin/Drain results are checked immediately, so a pending
 		// extended wait belongs to this operation. A crawling fence is a slow
@@ -41,15 +41,15 @@ namespace TheosRenderPipeline::SourceDLSSG
 		const bool extendedWait = interop_.TakeExtendedWait(wait);
 		const auto routing = RouteCheck(a_result, fault_, failure, extendedWait ? &wait : nullptr);
 		if (routing.logExtendedWait) {
-			logger::warn("[SourceDLSSG] {} waited {} ms ({} slices) for {} retirement target={} completed={}->{} result=0x{:08X}",
-				a_operation, wait.elapsedMs, wait.slices, WorkName(wait.work),
+			logger::warn("[{}] {} waited {} ms ({} slices) for {} retirement target={} completed={}->{} result=0x{:08X}",
+				a_source, a_operation, wait.elapsedMs, wait.slices, WorkName(wait.work),
 				wait.target, wait.completedAtStart, wait.completedAtEnd, static_cast<std::uint32_t>(wait.result));
 		}
 		if (SUCCEEDED(a_result)) { return true; }
 		if (routing.latch) {
 			fault_ = a_result;
 			status_ = std::format("{} failed HRESULT=0x{:08X}", a_operation, static_cast<std::uint32_t>(a_result));
-			logger::error("[SourceDLSSG] {}", status_);
+			logger::error("[{}] {}", a_source, status_);
 			deviceLoss_.Report(a_result, a_operation, FrameIndex(),
 				device11_.Get(), device12_.Get(), failure);
 		}
@@ -65,7 +65,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 	{
 		// Read the diagnostic only after the SDK operation has finished. Taking
 		// c_str() in another argument can precede a mutation of that string.
-		return Check(result, xefg_.Status().c_str());
+		return Check(result, xefg_.Status().c_str(), "XeFG");
 	}
 	bool Backend::CheckSession(bool a_result)
 	{
@@ -315,11 +315,10 @@ namespace TheosRenderPipeline::SourceDLSSG
 
 		// Upscaling and presentation are independent. XeSS also needs its SR
 		// context when the saved presenter is NVIDIA.
-		if (xeSSStartup && !Check(xess_.Open(device12_.Get(),
-			PluginPaths::Directory() / L"TheosRenderPipeline" / L"Intel"), "XeSS context")) { return fault_; }
+		if (xeSSStartup &&
+			!Check(xess_.Open(device12_.Get(), PluginPaths::IntelDirectory()), "XeSS context", "XeSS")) { return fault_; }
 		if (intelStartup) {
-			const auto intelDirectory = PluginPaths::Directory() / L"TheosRenderPipeline" / L"Intel";
-			if (!CheckXeFG(xefg_.Probe(device12_.Get(), intelDirectory)) ||
+			if (!CheckXeFG(xefg_.Probe(device12_.Get(), PluginPaths::IntelDirectory())) ||
 				!CheckXeFG(xefg_.Create(device12_.Get(), queue_.Get(), nativeFactory_.Get(), desc, true, &native, 0,
 					XeFGConfiguration()))) { return fault_; }
 			providerStatus_ = "Intel XeFG presenter; latency owner=XeLL";
@@ -1079,8 +1078,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (request == FrameGenerationProvider::XeFG) {
 			const bool compatible = XeFGPresenter::SupportsFormat(presenterDesc_.BufferDesc.Format) &&
 				hudless_.texture12 && XeFGPresenter::SupportsFormat(hudless_.desc.Format);
-			const auto result = compatible ? xefg_.Probe(device12_.Get(),
-				PluginPaths::Directory() / L"TheosRenderPipeline" / L"Intel") : DXGI_ERROR_UNSUPPORTED;
+			const auto result = compatible ? xefg_.Probe(device12_.Get(), PluginPaths::IntelDirectory()) : DXGI_ERROR_UNSUPPORTED;
 			if (FAILED(result)) {
 				providerStatus_ = std::format("XeFG unavailable: {} (0x{:08X}); current presenter retained",
 					compatible ? xefg_.Status() : "requires compatible SDR/HDR10 inputs", static_cast<unsigned>(result));

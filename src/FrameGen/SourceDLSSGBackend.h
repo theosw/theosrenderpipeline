@@ -172,7 +172,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 		bool PreflightProviderSwitch();
 		HRESULT CreatePresenter(FrameGenerationProvider provider, IDXGISwapChain** result);
 		bool Check(sl::Result a_result, const char* a_operation);
-		bool Check(HRESULT a_result, const char* a_operation);
+		// a_source tags the log line; Intel SDK failures use XeFG or XeSS.
+		bool Check(HRESULT a_result, const char* a_operation, const char* a_source = "SourceDLSSG");
 		bool CheckSession(bool a_result);
 		bool CheckXeFG(HRESULT result);
 		bool EnsureGuide(ID3D11Texture2D* a_source, SharedTexture& a_pair,

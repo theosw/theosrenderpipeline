@@ -156,8 +156,8 @@ bool NvidiaHost::CreateGameFacingResources(IDXGISwapChain* a_swapChain)
             auto& backend = TheosRenderPipeline::SourceDLSSG::Backend::Get();
             auto& sr = backend.XeSS();
             TheosRenderPipeline::FrameExtent size{};
-            const auto directory = TheosRenderPipeline::PluginPaths::Directory() / L"TheosRenderPipeline" / L"Intel";
-            if (FAILED(sr.Open(backend.Device12(), directory)) || FAILED(sr.QuerySize(width, height, quality, size))) {
+            if (FAILED(sr.Open(backend.Device12(), TheosRenderPipeline::PluginPaths::IntelDirectory())) ||
+                FAILED(sr.QuerySize(width, height, quality, size))) {
                 logger::error("[XeSS] {}", sr.Status()); return false;
             }
             *renderWidth = static_cast<int>(size.width); *renderHeight = static_cast<int>(size.height); return true;
