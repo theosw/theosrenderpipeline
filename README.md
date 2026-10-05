@@ -49,11 +49,11 @@ On a GPU other than NVIDIA, XeSS starts XeFG directly without loading NVIDIA's
 runtimes. DLSS, DLAA, DLSS-G and NR require NVIDIA RTX hardware; on NVIDIA, NR
 also works with XeSS.
 
-XeFG uses Intel's official x2 by default. **Experimental XeFG x3-x6** enables
-higher multipliers by patching `libxess_fg.dll` 1.3.1.78 in memory; no file is
-changed on disk. Apply recreates the Intel presenter without a restart, and
-turning the option off returns to x2. Another runtime version, or a patch the
-check refuses, stays at x2. If the patch state is uncertain, XeFG stops until
+XeFG uses Intel's official x2 by default. The multiplier list also offers x3-x6,
+marked experimental, which patch `libxess_fg.dll` 1.3.1.78 in memory; no file
+is changed on disk. Apply recreates the Intel presenter without a restart when
+moving between x2 and x3-x6. Another runtime version, or a patch the check
+refuses, stays at x2. If the patch state is uncertain, XeFG stops until
 the game restarts. **Send frame time to XeFG** (on by default) gives Intel's
 pacing the measured frame time, which it uses as a check on non-Intel GPUs.
 
@@ -61,8 +61,9 @@ XeFG accepts SDR and HDR10 output, including TRP HDR output. FP16/scRGB output
 is not supported; the current presenter is kept instead.
 
 Evidence is one volunteer RX 7900 XT run at 2560x1440 with XeSS and XeFG x2
-(88 rendered, 176 output FPS) on an earlier development build. x3-x6 have
-standalone tests only. Intel Arc GPUs and physical frame cadence are untested.
+(88 rendered, 176 output FPS) on an earlier development build. x3-x6 have run
+in game only on one RTX 4080 SUPER. Intel Arc GPUs and physical frame cadence
+are untested.
 
 ## Install
 

@@ -20,6 +20,14 @@ int main()
 	empty.generation.generatedFrames = 5;
 	StorePreferences(ini, empty);
 	Require(LoadPreferences(ini) == empty, "XeFG x6 opt-in round trips without replacing NVIDIA x6");
+	Require(!ini.GetValue("FrameGeneration", "XeFGExperimentalMFG"), "the separate opt-in key is retired");
+	Require(SanitizePreferences(Preferences{.xefg = {false, 3}}).xefg.experimentalMFG &&
+		!SanitizePreferences(Preferences{.xefg = {true, 1}}).xefg.experimentalMFG, "x3-x6 alone request the unlock");
+	ini.SetBoolValue("FrameGeneration", "XeFGExperimentalMFG", false);
+	Require(LoadPreferences(ini).xefg == XeFGOptions{false, 1}, "a development INI with the opt-in off stays x2");
+	ini.SetBoolValue("FrameGeneration", "XeFGExperimentalMFG", true);
+	Require(LoadPreferences(ini).xefg == XeFGOptions{true, 5}, "a development INI with the opt-in on keeps x6");
+	ini.Delete("FrameGeneration", "XeFGExperimentalMFG");
 	Require(XeFGCount({false, 3}, 3) == 1 && XeFGCount({true, 3}, 1) == 1, "disabled or refused MFG retains x2");
 	Require(XeFGCount({true, 3}, 3) == 3 && XeFGCount({true, 2}, 3) == 2, "separate XeFG x3/x4 counts");
 	Require(XeFGCount({true, 5}, 5) == 5 && XeFGCount({true, 5}, 3) == 3, "x6 respects admitted capacity");

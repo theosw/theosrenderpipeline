@@ -26,7 +26,7 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& v
         const bool intel = sourceBackend.Provider() == TheosRenderPipeline::FrameGenerationProvider::XeFG;
         const bool editIntel = settingsDraft.sourceDLSSG.provider == TheosRenderPipeline::FrameGenerationProvider::XeFG;
         const auto& unlock = sourceBackend.MFGState();
-        const auto usableMaximum = editIntel ? (settingsDraft.sourceDLSSG.xefg.experimentalMFG ? TheosRenderPipeline::XeFGMaxGeneratedFrames : 1u) : TheosRenderPipeline::SourceDLSSG::MFGContract::Maximum(
+        const auto usableMaximum = editIntel ? TheosRenderPipeline::XeFGMaxGeneratedFrames : TheosRenderPipeline::SourceDLSSG::MFGContract::Maximum(
             unlock.UsesCompatibilityUnlock(), unlock.Ready(), sourceState.state.numFramesToGenerateMax);
         const bool supportsDynamic = !editIntel && TheosRenderPipeline::SourceDLSSG::MFGContract::Dynamic(
                                          unlock.UsesCompatibilityUnlock(), unlock.Ready(),
@@ -83,7 +83,8 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& v
                 if (ImGui::Checkbox("Input reuse: GPU fence wait (Lab)", &gpuInputWait))
                     sourceBackend.ConfigureXeFGGpuInputWait(gpuInputWait);
                 DrawSettingsHelp("A/B for the post-Present wait, not saved. Off drains every host lane on the CPU; "
-                                 "on queues a GPU wait for Intel's input copies. The log reports both waits every 600 frames.");
+                                 "on queues a GPU wait for Intel's input copies. The log reports both waits every 600 frames. "
+                                 "With heavy NR, on can make rendered frames alternate long and short.");
             }
             ImGui::TextWrapped("%s", sourceBackend.XeFGUnlockStatus().c_str());
         }
@@ -162,35 +163,36 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& v
         }
         if (sourceDLSSGActive)
         {
-            if (editIntel)
-            {
-                ImGui::Checkbox("Experimental XeFG x3-x6", &settingsDraft.sourceDLSSG.xefg.experimentalMFG);
-                DrawSettingsHelp("Apply recreates the Intel presenter safely. Off restores x2. x3-x6 are not yet validated in game.");
-            }
             ImGui::TextUnformatted("Multiplier");
             auto& request = settingsDraft.sourceDLSSG.generation;
             auto& requestedCount = editIntel ? settingsDraft.sourceDLSSG.xefg.generatedFrames : request.generatedFrames;
             const char* multipliers[]{"x2", "x3", "x4", "x5", "x6"};
-            static_assert(TheosRenderPipeline::XeFGMaxGeneratedFrames <= std::size(multipliers));
+            const char* intelMultipliers[]{"x2", "x3 (experimental)", "x4 (experimental)", "x5 (experimental)",
+                                           "x6 (experimental)"};
+            static_assert(TheosRenderPipeline::XeFGMaxGeneratedFrames <= std::size(intelMultipliers));
+            const auto& labels = editIntel ? intelMultipliers : multipliers;
             const auto listedMaximum = editIntel ? TheosRenderPipeline::XeFGMaxGeneratedFrames : 5u;
-            const bool intelFixed = editIntel && !settingsDraft.sourceDLSSG.xefg.experimentalMFG;
-            const auto shownCount = intelFixed ? 1u : requestedCount;
             ImGui::SetNextItemWidth(-1.0f);
-            ImGui::BeginDisabled(intelFixed);
-            if (ImGui::BeginCombo("##sourceMultiplier", multipliers[std::clamp(shownCount, 1u, listedMaximum) - 1]))
+            if (ImGui::BeginCombo("##sourceMultiplier", labels[std::clamp(requestedCount, 1u, listedMaximum) - 1]))
             {
                 for (unsigned count = 1; count <= listedMaximum; ++count)
                 {
                     ImGui::BeginDisabled(count > usableMaximum);
-                    if (ImGui::Selectable(multipliers[count - 1], requestedCount == count))
+                    if (ImGui::Selectable(labels[count - 1], requestedCount == count))
                     {
                         requestedCount = count;
+                        if (editIntel)
+                            settingsDraft.sourceDLSSG.xefg.experimentalMFG = count > 1;
                     }
                     ImGui::EndDisabled();
                 }
                 ImGui::EndCombo();
             }
-            ImGui::EndDisabled();
+            if (editIntel)
+            {
+                DrawSettingsHelp("x2 is Intel's official mode. x3-x6 patch Intel's runtime in memory and are experimental; "
+                                 "Apply recreates the Intel presenter when switching between x2 and x3-x6.");
+            }
             if (!editIntel)
             {
                 if (supportsDynamic)

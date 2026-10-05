@@ -1,8 +1,8 @@
 # Isolated XeFG x2–x6 experiment
 
 The fixture and the opt-in renderer now share `src/FrameGen/XeFGUnlock.cpp`.
-The renderer defaults to official x2; its experimental checkbox enables x3-x6
-after checked admission and presenter recreation. Fixture-only pixel capture,
+The renderer defaults to official x2; choosing x3-x6 in its multiplier list
+enables the unlock after checked admission and presenter recreation. Fixture-only pixel capture,
 event storage and fault injection are compiled out of the renderer. Building
 or running these fixtures does not deploy anything or change a runtime file.
 
