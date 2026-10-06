@@ -14,17 +14,44 @@ int main()
 	using namespace TheosRenderPipeline;
 	using namespace SourceDLSSG;
 	CSimpleIniA ini;
+	auto empty = LoadPreferences(ini);
+	Require(!empty.xefg.experimentalMFG && empty.xefg.generatedFrames == 1, "old INIs retain official XeFG x2");
+	empty.xefg = {true, 5};
+	empty.generation.generatedFrames = 5;
+	StorePreferences(ini, empty);
+	Require(LoadPreferences(ini) == empty, "XeFG x6 opt-in round trips without replacing NVIDIA x6");
+	Require(!ini.GetValue("FrameGeneration", "XeFGExperimentalMFG"), "the separate opt-in key is retired");
+	Require(SanitizePreferences(Preferences{.xefg = {false, 3}}).xefg.experimentalMFG &&
+		!SanitizePreferences(Preferences{.xefg = {true, 1}}).xefg.experimentalMFG, "x3-x6 alone request the unlock");
+	ini.SetBoolValue("FrameGeneration", "XeFGExperimentalMFG", false);
+	Require(LoadPreferences(ini).xefg == XeFGOptions{false, 1}, "a development INI with the opt-in off stays x2");
+	ini.SetBoolValue("FrameGeneration", "XeFGExperimentalMFG", true);
+	Require(LoadPreferences(ini).xefg == XeFGOptions{true, 5}, "a development INI with the opt-in on keeps x6");
+	ini.Delete("FrameGeneration", "XeFGExperimentalMFG");
+	Require(XeFGCount({false, 3}, 3) == 1 && XeFGCount({true, 3}, 1) == 1, "disabled or refused MFG retains x2");
+	Require(XeFGCount({true, 3}, 3) == 3 && XeFGCount({true, 2}, 3) == 2, "separate XeFG x3/x4 counts");
+	Require(XeFGCount({true, 5}, 5) == 5 && XeFGCount({true, 5}, 3) == 3, "x6 respects admitted capacity");
+	Require(XeFGCount({false, 5}, 5) == 1 && XeFGCount({true, 5}, 0) == 1,
+		"resident unlock does not defeat disable or absent capacity");
+	Require(SanitizeXeFG({true, 99}).generatedFrames == 5 && SanitizeXeFG({true, 0}).generatedFrames == 1,
+		"bounded experimental counts");
+	ini.SetLongValue("FrameGeneration", "XeFGMultiplier", 99);
+	Require(LoadPreferences(ini).xefg.generatedFrames == 5, "excess INI multiplier clamps to x6");
+	ini.SetLongValue("FrameGeneration", "XeFGMultiplier", 0);
+	Require(LoadPreferences(ini).xefg.generatedFrames == 1, "invalid low INI multiplier clamps to x2");
+	Require(XeFGOutputInterval(60) == 16667 && XeFGOutputInterval(0) == 0, "output cap does not scale with multiplier");
+	ini.Reset();
 	Require(ini.LoadData("[SourceDLSSG]\nNRPasses=2\nNRInputScale=0.75\nNRPreset=1\nNRIntensity=0.4\n") >= 0, "old INI");
 	auto old = LoadPreferences(ini);
-    Require(old.provider == FrameGenerationProvider::NVIDIA, "missing provider preserves NVIDIA startup");
-    old.provider = FrameGenerationProvider::XeFG;
-    old.generation.generatedFrames = 3;
-    old.reflexMode = 2;
-    StorePreferences(ini, old);
-    Require(LoadPreferences(ini) == old, "XeFG selection retains NVIDIA multiplier/latency and all NR settings");
-    ini.SetLongValue("FrameGeneration", "Provider", 42);
-    Require(LoadPreferences(ini).provider == FrameGenerationProvider::NVIDIA, "unknown provider safely defaults to NVIDIA");
-    StorePreferences(ini, old);
+	Require(old.provider == FrameGenerationProvider::NVIDIA, "missing provider preserves NVIDIA startup");
+	old.provider = FrameGenerationProvider::XeFG;
+	old.generation.generatedFrames = 3;
+	old.reflexMode = 2;
+	StorePreferences(ini, old);
+	Require(LoadPreferences(ini) == old, "XeFG selection retains NVIDIA multiplier/latency and all NR settings");
+	ini.SetLongValue("FrameGeneration", "Provider", 42);
+	Require(LoadPreferences(ini).provider == FrameGenerationProvider::NVIDIA, "unknown provider safely defaults to NVIDIA");
+	StorePreferences(ini, old);
 	Require(!old.neuralCombat.Enabled() && old.neuralCombat.recoverySeconds == 5, "old INI keeps combat policy off");
 	old.neuralCombat = {true, true, 7.5f};
 	Require(old.neuralSecondPass.linked && old.neuralSecondPass.inputScale == .75f && old.neuralSecondPass.preset == 1 &&

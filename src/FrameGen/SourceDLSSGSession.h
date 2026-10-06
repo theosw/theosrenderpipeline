@@ -123,7 +123,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		Session() = default;
 		Session(const Session&) = delete;
 		Session& operator=(const Session&) = delete;
-        bool Start(const SessionAPI& a_api, std::uint32_t a_viewport, std::uint32_t firstApplicationFrame = 0);
+		bool Start(const SessionAPI& a_api, std::uint32_t a_viewport, std::uint32_t firstApplicationFrame = 0);
 		bool Prepare(const sl::Constants& a_constants, const FrameGuides& a_guides,
 			sl::CommandBuffer* a_commandList);
 		bool CompleteInputWrites();
@@ -154,7 +154,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// before destroying tagged textures. Resume the SAME session after rebuild
 		// so frame tokens remain monotonic across resizes.
 		bool Stop();
-        bool ResumeAfterResize(std::uint32_t lastApplicationFrame = 0);
+		bool ResumeAfterResize(std::uint32_t lastApplicationFrame = 0);
 		const SessionSnapshot& Snapshot() const { return snapshot_; }
 		ReflexTelemetrySnapshot ReflexTelemetry() const { return reflexTelemetry_.Snapshot(); }
 		OutputBatchSnapshot OutputBatches() const { return outputBatches_.Snapshot(); }

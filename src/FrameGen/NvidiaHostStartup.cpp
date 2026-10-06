@@ -51,6 +51,7 @@ HRESULT NvidiaHost::CreateSwapChain(IDXGIFactory* a_factory, ID3D11Device* a_dev
     backend.ConfigureXeFGFrameTime(settings.sourceDLSSG.xefgFrameTime);
     backend.ConfigureOutputFPSLimit(settings.sourceDLSSG.outputFPSLimit);
     backend.ConfigureGeneration(settings.sourceDLSSG.generation);
+    backend.ConfigureXeFG(settings.sourceDLSSG.xefg);
     backend.ConfigureMFGUnlock(settings.sourceDLSSGMFGUnlock);
     backend.ConfigureHDROutput(settings.sourceDLSSG.hdrOutput);
     TheosRenderPipeline::SourceDLSSG::NeuralOptions options;
@@ -155,8 +156,8 @@ bool NvidiaHost::CreateGameFacingResources(IDXGISwapChain* a_swapChain)
             auto& backend = TheosRenderPipeline::SourceDLSSG::Backend::Get();
             auto& sr = backend.XeSS();
             TheosRenderPipeline::FrameExtent size{};
-            const auto directory = TheosRenderPipeline::PluginPaths::Directory() / L"TheosRenderPipeline" / L"Intel";
-            if (FAILED(sr.Open(backend.Device12(), directory)) || FAILED(sr.QuerySize(width, height, quality, size))) {
+            if (FAILED(sr.Open(backend.Device12(), TheosRenderPipeline::PluginPaths::IntelDirectory())) ||
+                FAILED(sr.QuerySize(width, height, quality, size))) {
                 logger::error("[XeSS] {}", sr.Status()); return false;
             }
             *renderWidth = static_cast<int>(size.width); *renderHeight = static_cast<int>(size.height); return true;

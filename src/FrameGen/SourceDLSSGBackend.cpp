@@ -31,7 +31,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		static auto* backend = new Backend;
 		return *backend;
 	}
-	bool Backend::Check(HRESULT a_result, const char* a_operation)
+	bool Backend::Check(HRESULT a_result, const char* a_operation, const char* a_source)
 	{
 		// Interop Begin/Drain results are checked immediately, so a pending
 		// extended wait belongs to this operation. A crawling fence is a slow
@@ -41,15 +41,15 @@ namespace TheosRenderPipeline::SourceDLSSG
 		const bool extendedWait = interop_.TakeExtendedWait(wait);
 		const auto routing = RouteCheck(a_result, fault_, failure, extendedWait ? &wait : nullptr);
 		if (routing.logExtendedWait) {
-			logger::warn("[SourceDLSSG] {} waited {} ms ({} slices) for {} retirement target={} completed={}->{} result=0x{:08X}",
-				a_operation, wait.elapsedMs, wait.slices, WorkName(wait.work),
+			logger::warn("[{}] {} waited {} ms ({} slices) for {} retirement target={} completed={}->{} result=0x{:08X}",
+				a_source, a_operation, wait.elapsedMs, wait.slices, WorkName(wait.work),
 				wait.target, wait.completedAtStart, wait.completedAtEnd, static_cast<std::uint32_t>(wait.result));
 		}
 		if (SUCCEEDED(a_result)) { return true; }
 		if (routing.latch) {
 			fault_ = a_result;
 			status_ = std::format("{} failed HRESULT=0x{:08X}", a_operation, static_cast<std::uint32_t>(a_result));
-			logger::error("[SourceDLSSG] {}", status_);
+			logger::error("[{}] {}", a_source, status_);
 			deviceLoss_.Report(a_result, a_operation, FrameIndex(),
 				device11_.Get(), device12_.Get(), failure);
 		}
@@ -65,7 +65,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 	{
 		// Read the diagnostic only after the SDK operation has finished. Taking
 		// c_str() in another argument can precede a mutation of that string.
-		return Check(result, xefg_.Status().c_str());
+		return Check(result, xefg_.Status().c_str(), "XeFG");
 	}
 	bool Backend::CheckSession(bool a_result)
 	{
@@ -260,21 +260,21 @@ namespace TheosRenderPipeline::SourceDLSSG
 		}
 		logger::info("[ReShade] {}", ReShadeIntegration::Get().Status());
 		adapterVendor_ = adapterDesc.VendorId;
-        nativeFactory_ = a_factory;
-        const bool xeSSStartup = RenderPipeline::GetSingleton()->mUpscaleType == ::XeSS;
-        const auto startup = SelectProviderStartup(xeSSStartup, NvidiaAdapter(), RequestedProvider());
-        RequestProvider(startup.requested);
-        provider_ = startup.presenter;
-        const bool intelStartup = provider_ == FrameGenerationProvider::XeFG;
-        // Keep the compatibility startup scope through swapchain creation and
-        // the initial NVIDIA session, as on the accepted NVIDIA path.
-        std::unique_ptr<MFGUnlock::StartupScope> nvidiaStartup;
-        if (!intelStartup) { nvidiaStartup = std::make_unique<MFGUnlock::StartupScope>(mfgUnlock_); }
-        if (intelStartup) {
-            logger::info("[FrameGeneration] XeSS startup uses Intel XeFG/XeLL; NVIDIA runtimes are not initialized");
-        } else if (!InitializeNvidia(a_directory)) { return fault_; }
-        logger::info("[FrameGeneration] startup upscaler={} requested={} presenter={}",
-            xeSSStartup ? "XeSS" : "DLSS/DLAA", ProviderName(startup.requested), ProviderName(startup.presenter));
+		nativeFactory_ = a_factory;
+		const bool xeSSStartup = RenderPipeline::GetSingleton()->mUpscaleType == ::XeSS;
+		const auto startup = SelectProviderStartup(xeSSStartup, NvidiaAdapter(), RequestedProvider());
+		RequestProvider(startup.requested);
+		provider_ = startup.presenter;
+		const bool intelStartup = provider_ == FrameGenerationProvider::XeFG;
+		// Keep the compatibility startup scope through swapchain creation and
+		// the initial NVIDIA session, as on the accepted NVIDIA path.
+		std::unique_ptr<MFGUnlock::StartupScope> nvidiaStartup;
+		if (!intelStartup) { nvidiaStartup = std::make_unique<MFGUnlock::StartupScope>(mfgUnlock_); }
+		if (intelStartup) {
+			logger::info("[FrameGeneration] XeSS startup uses Intel XeFG/XeLL; NVIDIA runtimes are not initialized");
+		} else if (!InitializeNvidia(a_directory)) { return fault_; }
+		logger::info("[FrameGeneration] startup upscaler={} requested={} presenter={}",
+			xeSSStartup ? "XeSS" : "DLSS/DLAA", ProviderName(startup.requested), ProviderName(startup.presenter));
 		D3D12_COMMAND_QUEUE_DESC queueDesc{};
 		queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
 		if (!Check(device12_->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&queue_)), "presenting queue") ||
@@ -286,7 +286,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			logger::warn("[DLSSNR Source] presenting queue does not expose GPU timestamp frequency; CPU boundary timing remains available");
 		}
 #endif
-        if (!intelStartup && !UpgradeNvidiaFactory()) { return fault_; }
+		if (!intelStartup && !UpgradeNvidiaFactory()) { return fault_; }
 		auto desc = a_desc;
 		window_ = a_desc.OutputWindow;
 		{
@@ -313,16 +313,16 @@ namespace TheosRenderPipeline::SourceDLSSG
 		presenterDesc_ = desc;
 		ComPtr<IDXGISwapChain> native;
 
-        // Upscaling and presentation are independent. XeSS also needs its SR
-        // context when the saved presenter is NVIDIA.
-        if (xeSSStartup && !Check(xess_.Open(device12_.Get(),
-            PluginPaths::Directory() / L"TheosRenderPipeline" / L"Intel"), "XeSS context")) { return fault_; }
+		// Upscaling and presentation are independent. XeSS also needs its SR
+		// context when the saved presenter is NVIDIA.
+		if (xeSSStartup &&
+			!Check(xess_.Open(device12_.Get(), PluginPaths::IntelDirectory()), "XeSS context", "XeSS")) { return fault_; }
 		if (intelStartup) {
-            const auto intelDirectory = PluginPaths::Directory() / L"TheosRenderPipeline" / L"Intel";
-            if (!CheckXeFG(xefg_.Probe(device12_.Get(), intelDirectory)) ||
-                !CheckXeFG(xefg_.Create(device12_.Get(), queue_.Get(), nativeFactory_.Get(), desc, true, &native))) { return fault_; }
-            providerStatus_ = "Intel XeFG presenter; latency owner=XeLL";
-        } else if (!Check(streamlineFactory_->CreateSwapChain(queue_.Get(), &desc, &native), "Streamline swapchain")) { return fault_; }
+			if (!CheckXeFG(xefg_.Probe(device12_.Get(), PluginPaths::IntelDirectory())) ||
+				!CheckXeFG(xefg_.Create(device12_.Get(), queue_.Get(), nativeFactory_.Get(), desc, true, &native, 0,
+					XeFGConfiguration()))) { return fault_; }
+			providerStatus_ = "Intel XeFG presenter; latency owner=XeLL";
+		} else if (!Check(streamlineFactory_->CreateSwapChain(queue_.Get(), &desc, &native), "Streamline swapchain")) { return fault_; }
 		retainedNative_ = native;
 		PollDisplayHDR(true);
 		api_.context = this;
@@ -339,12 +339,12 @@ namespace TheosRenderPipeline::SourceDLSSG
 		session_.RequestReflexMode(ReflexConfiguration());
 		session_.RequestUIRecomposition(UIRecompositionConfiguration());
 		session_.RequestOutputFPSLimit(outputFPSLimit_.load(std::memory_order_relaxed));
-        if (!intelStartup) {
-            if (!CheckSession(session_.Start(api_, 1))) { return fault_; }
-            nvidiaSessionStarted_ = true;
-            mfgUnlock_.Tick();
-            session_.SetMFGUnlockState(mfgUnlock_.Snapshot().UsesCompatibilityUnlock(), mfgUnlock_.Snapshot().Ready());
-        }
+		if (!intelStartup) {
+			if (!CheckSession(session_.Start(api_, 1))) { return fault_; }
+			nvidiaSessionStarted_ = true;
+			mfgUnlock_.Tick();
+			session_.SetMFGUnlockState(mfgUnlock_.Snapshot().UsesCompatibilityUnlock(), mfgUnlock_.Snapshot().Ready());
+		}
 		session_.RequestGeneration(GenerationConfiguration());
 		auto* wrapper = new (std::nothrow) SwapChain(native.Get(), *this, a_desc.BufferDesc.Format);
 		if (!wrapper) { return E_OUTOFMEMORY; }
@@ -467,7 +467,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (nvidiaNeedsPresent_) { return true; } // Establish the new native presenter before Reflex markers.
 		if (provider_ == FrameGenerationProvider::XeFG) {
 			if (!CheckXeFG(xefg_.Prepare(frameConstants_, XeFGFrameTimeConfiguration()))) { return false; }
-			recreateXeFG_ = xefg_.Snapshot().invertedDepth != (frameConstants_.depthInverted == sl::eTrue);
+			recreateXeFG_ = xefg_.Snapshot().invertedDepth != (frameConstants_.depthInverted == sl::eTrue) ||
+				xefg_.Snapshot().experimentalMFG != XeFGConfiguration().experimentalMFG;
 			return true; // Intel copies the final HUD-less image after late NR, at Present.
 		}
 		if (!Check(interop_.SignalD3D11(Work::FrameGeneration), "D3D11 guides ready")) { return false; }
@@ -628,7 +629,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			if (!CheckXeFG(xefg_.SetDebugView(XeFGOnlyGenerated(), XeFGTagGenerated()))) { return fault_; }
 			if (!CheckXeFG(xefg_.BeforePresent(list, motion_.texture12.Get(), depth_.texture12.Get(), intelHudless, intelUI,
 				generationAllowed && prepared && compatible, UIRecompositionConfiguration(),
-				outputFPSLimit_.load()))) { return fault_; }
+				outputFPSLimit_.load(), XeFGConfiguration().generatedFrames))) { return fault_; }
 		}
 		if (!Check(outputResult, "record native output copy/conversion") ||
 			!Check(interop_.Submit(Work::SwapChain), "submit native output copy")) { return fault_; }
@@ -642,9 +643,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 				return S_OK;
 			});
 		}
-        if (provider_ == FrameGenerationProvider::NVIDIA && !nvidiaNeedsPresent_ && ((prepared && !CheckSession(session_.CompleteInputWrites())) ||
-            !CheckSession(session_.BeforePresent(generationAllowed)))) { return fault_; }
-        if (provider_ == FrameGenerationProvider::XeFG && !CheckXeFG(xefg_.FinalizePresent())) { return fault_; }
+		if (provider_ == FrameGenerationProvider::NVIDIA && !nvidiaNeedsPresent_ && ((prepared && !CheckSession(session_.CompleteInputWrites())) ||
+			!CheckSession(session_.BeforePresent(generationAllowed)))) { return fault_; }
+		if (provider_ == FrameGenerationProvider::XeFG && !CheckXeFG(xefg_.FinalizePresent())) { return fault_; }
 		if (oldReflexRequest != session_.Snapshot().reflexRequested ||
 			oldReflexSubmitted != session_.Snapshot().reflexSubmitted || oldFrameLimit != session_.Snapshot().frameLimitSubmittedUs) {
 			logger::info("[SourceDLSSG] Reflex frame={} requested={} submitted={} generation={} outputLimitUs={}",
@@ -733,13 +734,13 @@ namespace TheosRenderPipeline::SourceDLSSG
 			// immediately after CreateSwapChain reproducibly faults in NVAPI.
 			// Use the next normal host output, never an extra/uninitialized Present.
 			if (a_result != S_OK) { return a_result; }
-            const auto resumeFrame = FrameIndex();
-            if (!nvidiaSessionStarted_) {
-                if (!CheckSession(session_.Start(api_, 1, resumeFrame))) { return fault_; }
-                nvidiaSessionStarted_ = true;
-                mfgUnlock_.Tick();
-                session_.SetMFGUnlockState(mfgUnlock_.Snapshot().UsesCompatibilityUnlock(), mfgUnlock_.Snapshot().Ready());
-            } else if (!CheckSession(session_.ResumeAfterResize(resumeFrame))) { return fault_; }
+			const auto resumeFrame = FrameIndex();
+			if (!nvidiaSessionStarted_) {
+				if (!CheckSession(session_.Start(api_, 1, resumeFrame))) { return fault_; }
+				nvidiaSessionStarted_ = true;
+				mfgUnlock_.Tick();
+				session_.SetMFGUnlockState(mfgUnlock_.Snapshot().UsesCompatibilityUnlock(), mfgUnlock_.Snapshot().Ready());
+			} else if (!CheckSession(session_.ResumeAfterResize(resumeFrame))) { return fault_; }
 			nvidiaNeedsPresent_ = false;
 			providerStatus_ = "NVIDIA presenter; latency owner=Reflex";
 			logger::info("[FrameGeneration] NVIDIA replacement presented; Reflex resumed frame={}", FrameIndex());
@@ -1061,24 +1062,23 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (nvidiaNeedsPresent_) { return false; }
 		const auto request = RequestedProvider();
 		if ((request == provider_ && !recreateXeFG_) || !cameraAvailable_ || TransitionBlocked()) { return false; }
-        if (request == FrameGenerationProvider::NVIDIA && !NvidiaAdapter()) {
-            providerStatus_ = "NVIDIA frame generation requires NVIDIA hardware; Intel presenter retained";
-            RequestProvider(provider_); return false;
-        }
+		if (request == FrameGenerationProvider::NVIDIA && !NvidiaAdapter()) {
+			providerStatus_ = "NVIDIA frame generation requires NVIDIA hardware; Intel presenter retained";
+			RequestProvider(provider_); return false;
+		}
 #if !defined(TRP_NO_NEURAL_RENDERING)
-        if (request == FrameGenerationProvider::NVIDIA &&
-            NvidiaSwitchNeedsRestart(nvidiaInitialized_, NeuralRendering::PublicNGXInitializedInProcess())) {
-            providerStatus_ = "NVIDIA frame generation needs a restart: NR started NVIDIA NGX before Streamline in this "
-                "XeSS session. Intel presenter retained; save NVIDIA and restart, or switch before enabling NR.";
-            logger::warn("[FrameGeneration] {}", providerStatus_);
-            RequestProvider(provider_); return false;
-        }
+		if (request == FrameGenerationProvider::NVIDIA &&
+			NvidiaSwitchNeedsRestart(nvidiaInitialized_, NeuralRendering::PublicNGXInitializedInProcess())) {
+			providerStatus_ = "NVIDIA frame generation needs a restart: NR started NVIDIA NGX before Streamline in this "
+				"XeSS session. Intel presenter retained; save NVIDIA and restart, or switch before enabling NR.";
+			logger::warn("[FrameGeneration] {}", providerStatus_);
+			RequestProvider(provider_); return false;
+		}
 #endif
-        if (request == FrameGenerationProvider::XeFG) {
-            const bool compatible = XeFGPresenter::SupportsFormat(presenterDesc_.BufferDesc.Format) &&
+		if (request == FrameGenerationProvider::XeFG) {
+			const bool compatible = XeFGPresenter::SupportsFormat(presenterDesc_.BufferDesc.Format) &&
 				hudless_.texture12 && XeFGPresenter::SupportsFormat(hudless_.desc.Format);
-			const auto result = compatible ? xefg_.Probe(device12_.Get(),
-				PluginPaths::Directory() / L"TheosRenderPipeline" / L"Intel") : DXGI_ERROR_UNSUPPORTED;
+			const auto result = compatible ? xefg_.Probe(device12_.Get(), PluginPaths::IntelDirectory()) : DXGI_ERROR_UNSUPPORTED;
 			if (FAILED(result)) {
 				providerStatus_ = std::format("XeFG unavailable: {} (0x{:08X}); current presenter retained",
 					compatible ? xefg_.Status() : "requires compatible SDR/HDR10 inputs", static_cast<unsigned>(result));
@@ -1091,15 +1091,15 @@ namespace TheosRenderPipeline::SourceDLSSG
 	}
 	HRESULT Backend::CreatePresenter(FrameGenerationProvider provider, IDXGISwapChain** result)
 	{
-        std::unique_ptr<MFGUnlock::StartupScope> nvidiaStartup;
-        if (provider == FrameGenerationProvider::NVIDIA) {
-            nvidiaStartup = std::make_unique<MFGUnlock::StartupScope>(mfgUnlock_);
-            if (!InitializeNvidia(SourceFrameGeneration::GetSingleton()->settings.sourceDLSSGStreamlineDirectory) ||
-                !UpgradeNvidiaFactory()) { return fault_; }
-        }
-        return provider == FrameGenerationProvider::XeFG ?
+		std::unique_ptr<MFGUnlock::StartupScope> nvidiaStartup;
+		if (provider == FrameGenerationProvider::NVIDIA) {
+			nvidiaStartup = std::make_unique<MFGUnlock::StartupScope>(mfgUnlock_);
+			if (!InitializeNvidia(SourceFrameGeneration::GetSingleton()->settings.sourceDLSSGStreamlineDirectory) ||
+				!UpgradeNvidiaFactory()) { return fault_; }
+		}
+		return provider == FrameGenerationProvider::XeFG ?
 			xefg_.Create(device12_.Get(), queue_.Get(), nativeFactory_.Get(), presenterDesc_,
-				frameConstants_.depthInverted == sl::eTrue, result, session_.Snapshot().frameIndex) :
+				frameConstants_.depthInverted == sl::eTrue, result, session_.Snapshot().frameIndex, XeFGConfiguration()) :
 			streamlineFactory_->CreateSwapChain(queue_.Get(), &presenterDesc_, result);
 	}
 	bool Backend::ApplyProviderSwitch(SwapChain& wrapper)

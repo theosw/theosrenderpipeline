@@ -54,6 +54,12 @@ runtimes retain the license files accompanying their downloads.
 - **NVAPI** — NVIDIA, MIT; minimal public architecture-query ABI declarations,
   revision 87dca625e83fd89a983e19b904e5f3a580da90d2.
   https://github.com/NVIDIA/nvapi
+- **OptiScalerDp4aUnlock** — Coldwood1026, GPL-3.0. The opt-in XeFG x3-x6
+  unlock and pacing in `src/FrameGen/XeFGUnlock.cpp` adapt its patch facts and
+  pacing algorithms from commit 9eea95bba9fda7121f214d2eba358423be598d7e. Those
+  adapted portions remain GPL-3.0 without TRP's additional exceptions. Both
+  editions include this code; experimental XeFG MFG is off by default.
+  https://github.com/Coldwood1026/OptiScalerDp4aUnlock/tree/9eea95bba9fda7121f214d2eba358423be598d7e
 
 ## Libraries and SDKs
 
@@ -89,6 +95,16 @@ source code provided by NVIDIA Corporation.
 DLSS, DLSS-G, Streamline/Reflex and Neural Rendering runtime DLLs are supplied
 separately by the user. NVIDIA SDK and runtime components retain their own
 terms and are not relicensed under the project's GPL license.
+
+The XeSS and XeFG integration compiles against headers from the Intel XeSS SDK,
+commit `de0fb9c1c510661c571164e1418ceca8101dab69` (XeSS SR, XeFG 1.3 and
+XeLL 1.3). The XeSS SR and XeLL headers are MIT (Copyright (c) 2026 Intel
+Corporation). The XeFG headers are Intel copyrighted materials under the SDK's
+Intel Simplified Software License. No Intel headers or runtime binaries are
+stored in this repository. Packages that include Intel's `libxess.dll`,
+`libxess_fg.dll` and `libxell.dll` reproduce that license in
+`licenses/Intel-XeSS-LICENSE.txt`; the runtimes are not relicensed under the
+project's GPL license.
 
 ## Notices
 
@@ -777,15 +793,6 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
-## Intel XeFG and XeLL test integration
-
-The public API headers are from Intel XeSS SDK commit
-`de0fb9c1c510661c571164e1418ceca8101dab69` (XeSS SR / XeFG 1.3 / XeLL 1.3).
-Header license: MIT; Copyright (c) 2026 Intel Corporation.
-The independently supplied runtime binaries have their own Intel Simplified
-Software License. Candidate packages reproduce it in `licenses/Intel-XeSS-LICENSE.txt`.
-No Intel runtime binaries are stored in this repository.
 
 ## ReShade public API license
 

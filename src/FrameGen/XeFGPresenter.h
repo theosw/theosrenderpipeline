@@ -9,6 +9,7 @@
 #include <chrono>
 #include <filesystem>
 #include <string>
+#include "XeFGOptions.h"
 
 namespace TheosRenderPipeline
 {
@@ -22,6 +23,8 @@ namespace TheosRenderPipeline
         std::uint32_t frameLimitUs{};
         float frameTimeMs{}; // Last frameRenderTime sent; 0 lets Intel estimate.
         float sleepMs{}; // CPU time in the last XeLL sleep.
+        std::uint32_t maxGeneratedFrames{1}, generatedFrames{1};
+        bool experimentalMFG{}, unlockReady{};
     };
 
     // One Intel-owned presenter and XeLL owner. DLLs remain process-resident.
@@ -35,7 +38,7 @@ namespace TheosRenderPipeline
         void SetLogger(void (*callback)(const char*)) { log_ = callback; }
         HRESULT Create(ID3D12Device* device, ID3D12CommandQueue* queue, IDXGIFactory* factory,
             const DXGI_SWAP_CHAIN_DESC& desc, bool inverted, IDXGISwapChain** swapchain,
-            std::uint32_t lastApplicationFrame = 0);
+            std::uint32_t lastApplicationFrame = 0, XeFGOptions options = {});
         HRESULT BeginFrame();
         // frameTime sends the measured interval between application frames as
         // frameRenderTime; otherwise Intel uses its own estimate.
@@ -47,7 +50,7 @@ namespace TheosRenderPipeline
         // extracts the UI from the back buffer.
         HRESULT BeforePresent(ID3D12GraphicsCommandList* list, ID3D12Resource* motion,
             ID3D12Resource* depth, ID3D12Resource* hudless, ID3D12Resource* ui, bool enabled, bool uiComposition,
-            int outputFPSLimit);
+            int outputFPSLimit, std::uint32_t generatedFrames = 1);
         HRESULT AfterPresent(HRESULT result);
         HRESULT FinalizePresent(); // After the host submits the input-copy command list.
         HRESULT Disable();
@@ -58,6 +61,7 @@ namespace TheosRenderPipeline
         void ResetHistory() { needsReset_ = true; snapshot_.prepared = false; }
         const XeFGSnapshot& Snapshot() const { return snapshot_; }
         const std::string& Status() const { return status_; }
+        const std::string& UnlockStatus() const { return unlockStatus_; }
         static bool SupportsFormat(DXGI_FORMAT format);
     private:
         HRESULT FG(xefg_swapchain_result_t result, const char* operation);
@@ -99,6 +103,7 @@ namespace TheosRenderPipeline
         xefg_swapchain_frame_constant_data_t constants_{};
         XeFGSnapshot snapshot_;
         std::string status_{"not initialized"};
+        std::string unlockStatus_{"Experimental MFG off; official x2"};
         int lastWarning_{};
         std::string lastWarningOperation_;
         bool initialized_{}, frameBegun_{}, presentPending_{}, needsReset_{true};

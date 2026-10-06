@@ -141,7 +141,13 @@ the packaged configuration; `RCAS.hlsl` is the runtime sharpening shader.
 The same renderer DLL targets Skyrim 1.6.1170 and experimental 1.5.97/1.6.640/1.7.104.
 Install SKSE64 and Address Library matching your game, the x64 Microsoft
 Visual C++ runtime and a compatible NVIDIA GPU/driver. DLSS-G-compatible hardware
-is required even with frame generation switched off. AMD/Intel are not supported.
+is required in DLSS/DLAA modes even with frame generation switched off.
+
+AMD and other non-NVIDIA GPUs can use experimental XeSS with Intel XeFG. Before
+the first launch, set `UpscaleType=4` under `[Settings]` in
+`TheosRenderPipeline.ini`. Keep AMD Fluid Motion Frames, Anti-Lag, Radeon Chill,
+Radeon Boost and other frame-generation or upscaler mods off. NR requires NVIDIA
+RTX hardware.
 
 ENB is optional. With Community Shaders, keep CS upscaling enabled and disable
 CS frame generation and CS Reflex. TRP provides FG/Reflex/NR while CS retains
