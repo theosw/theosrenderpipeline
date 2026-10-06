@@ -12,7 +12,7 @@
 
 bool NvidiaHost::EvaluateFrame(IDXGISwapChain* a_swapChain, bool a_nativeUIHandoff)
 {
-    if (FAILED(FailureResult()) || !proxyActive_ || a_swapChain != outerSwapChain_ || !splitSourceDLSSActive_ || !upscalerReady_ || !gameTargets_.GameFacing() ||
+    if (FAILED(FailureResult()) || !proxyActive_ || a_swapChain != outerSwapChain_ || !SplitSourceDLSSActive() || !upscalerReady_ || !gameTargets_.GameFacing() ||
         !gameTargets_.UpscaleInput() || !gameTargets_.UpscaleOutput() || !context_ || presentation_.Buffers().empty())
     {
         return false;
@@ -90,8 +90,9 @@ bool NvidiaHost::EvaluateFrame(IDXGISwapChain* a_swapChain, bool a_nativeUIHando
     evaluationFailureLogged_ = false;
     if (StartupConfigured())
     {
-        status_ = std::format("TheosRenderPipeline source DLSS + Streamline DLSS-G; camera/input "
+        status_ = std::format("TheosRenderPipeline {} + {}; camera/input "
                               "valid={} warm-up={}",
+                              xeSSActive_ ? "XeSS" : "DLSS", TheosRenderPipeline::ProviderName(TheosRenderPipeline::SourceDLSSG::Backend::Get().Provider()),
                               !splitSourceRuntimeFailureLogged_, warmupPresentsRemaining_);
     }
     if (evaluationCount_ <= 3 || evaluationCount_ % 600 == 0)
@@ -102,7 +103,7 @@ bool NvidiaHost::EvaluateFrame(IDXGISwapChain* a_swapChain, bool a_nativeUIHando
         }
         logger::info("[NvidiaHost] evaluation={} sourceOwner={} entry={} upscale={} "
                      "generation={} render={}x{} output={}x{} slot={} reset={}",
-                     evaluationCount_, "TheosRenderPipeline-DLSS", "SourceNvidiaFrameEvaluator", upscaleEvaluationCount_, evaluationCount_,
+                     evaluationCount_, xeSSActive_ ? "TheosRenderPipeline-XeSS" : "TheosRenderPipeline-DLSS", "SourceNvidiaFrameEvaluator", upscaleEvaluationCount_, evaluationCount_,
                      renderWidth_, renderHeight_, outputWidth_, outputHeight_, currentIndex, resetHistory);
     }
     return true;
@@ -114,6 +115,8 @@ float NvidiaHost::OptimalMipmapBias() const
     {
         return 0.0f;
     }
+    // XeSS-SR guide: log2(render / display), without DLSS's additional -1.
+    if (xeSSActive_) { return std::log2(static_cast<float>(renderWidth_) / outputWidth_); }
     return DLSSBackend::GetSingleton()->GetOptimalMipLodBias();
 }
 

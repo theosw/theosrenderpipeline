@@ -76,6 +76,7 @@ struct RendererSettingsCapabilities
 {
     bool sourceHost{}, neuralRuntime{}, dedicatedUI{}, externalWorld{};
     bool neuralOperational{true};
+    bool nvidiaAdapter{true};
 };
 
 inline bool CanEditNeuralEnabled(bool enabled, bool available) { return enabled || available; }
@@ -89,6 +90,7 @@ inline bool SameNeuralPreferences(const SourceDLSSG::Preferences& a, const Sourc
 
 inline const char* NeuralSettingsUnavailable(int mode, RendererSettingsCapabilities capabilities)
 {
+    if (!capabilities.nvidiaAdapter) { return "Neural Rendering requires NVIDIA RTX hardware; XeSS and XeFG remain available."; }
     if (!capabilities.neuralRuntime) {
         return "NR runtime DLL not found. Install nvngx_dlssnr.dll at the configured path and restart Skyrim.";
     }
@@ -112,9 +114,12 @@ inline const char* ValidateRendererSettings(const RendererSettingsDraft& draft,
     {
         return "Choose a valid menu key.";
     }
-    if (draft.upscaleType != DLSS && draft.upscaleType != DLAA)
+    if (draft.upscaleType != DLSS && draft.upscaleType != DLAA && draft.upscaleType != XeSS)
     {
-        return "Choose DLSS or DLAA.";
+        return "Choose DLSS, DLAA or XeSS.";
+    }
+    if (!capabilities.nvidiaAdapter && !capabilities.externalWorld && draft.upscaleType != XeSS) {
+        return "DLSS/DLAA require NVIDIA RTX hardware. Select XeSS for this GPU.";
     }
     if (!Appearance::ValidHours(draft.appearance.hours)) {
         return "Preset times must increase from Night to Dusk and stay between 0 and 24 hours.";
@@ -122,6 +127,9 @@ inline const char* ValidateRendererSettings(const RendererSettingsDraft& draft,
     if (!TheosRenderPipeline::SourceDLSSG::ValidGenerationRequest(draft.sourceDLSSG.generation))
     {
         return "Dynamic target output FPS must be 0 or between 61 and 1000.";
+    }
+    if (!TheosRenderPipeline::ValidProvider(static_cast<int>(draft.sourceDLSSG.provider))) {
+        return "Choose NVIDIA DLSS-G or Intel XeFG.";
     }
 #if !defined(TRP_NO_NEURAL_RENDERING)
     if (draft.sourceDLSSG.neuralEnabled)

@@ -4,6 +4,7 @@
 #include "PerformanceTuning.h"
 #include "FrameTrace.h"
 #include "CommunityShaderIntegration.h"
+#include "FrameGen/NvidiaHost.h"
 #include <cstdio>
 #include <PCH.h>
 
@@ -93,7 +94,7 @@ void OverlayUI::DrawStageMeasurements(SettingsPage page)
     {
         if (!TheosRenderPipeline::CommunityShaders::Active())
         {
-            row("DLSS", Stage::kDLSS);
+            row(NvidiaHost::GetSingleton()->XeSSActive() ? "XeSS + transfers/sharpening" : "DLSS", Stage::kDLSS);
             row("Sharpening", Stage::kRCAS);
         }
 

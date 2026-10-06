@@ -43,10 +43,11 @@ OverlayUI::FrameView OverlayUI::CaptureFrameView()
     auto* nvidiaHost = NvidiaHost::GetSingleton();
     view.nvidiaHostActive = nvidiaHost->ProxyActive();
     view.sourceDLSSGActive = view.nvidiaHostActive && nvidiaHost->StartupConfigured();
-    const bool dlssgEnabled = view.sourceDLSSGActive && TheosRenderPipeline::SourceDLSSG::Backend::Get().Snapshot().GenerationActive();
+    const auto& presentation = TheosRenderPipeline::SourceDLSSG::Backend::Get();
+    const bool dlssgEnabled = view.sourceDLSSGActive && presentation.GenerationActive();
     view.frameGenerationRuntimeActive = dlssgEnabled;
     view.activeDisplayMultiplier = view.frameGenerationRuntimeActive && view.sourceDLSSGActive
-                                       ? TheosRenderPipeline::SourceDLSSG::Backend::Get().Snapshot().options.numFramesToGenerate + 1u
+                                       ? presentation.EffectiveMultiplier()
                                        : 1u;
     view.sourceNeural = view.sourceDLSSGActive ? TheosRenderPipeline::SourceDLSSG::Backend::Get().NeuralState()
                                                : TheosRenderPipeline::SourceDLSSG::NeuralSnapshot{};
@@ -109,6 +110,7 @@ OverlayUI::FrameView OverlayUI::CaptureFrameView()
     {
         std::snprintf(view.upscaleDetail, sizeof(view.upscaleDetail), "Unavailable | Preset %s", presetShort);
     }
+    if (effective.mode == XeSS) { std::snprintf(view.upscaleDetail, sizeof(view.upscaleDetail), "%.0f%%", view.proxyScale * 100.0f); }
     std::snprintf(view.nativeDetail, sizeof(view.nativeDetail), "%d x %d", view.nativeWidth, view.nativeHeight);
     if (TheosRenderPipeline::CommunityShaders::Active()) {
         view.upscaleTitle = "CS upscaling";
@@ -124,28 +126,29 @@ OverlayUI::FrameView OverlayUI::CaptureFrameView()
     else if (!view.sourceNeural.active)
     {
         std::snprintf(view.neuralDetail, sizeof(view.neuralDetail), "%s %s | waiting",
-                      neural.beforeUpscaling ? "Before" : "After", TheosRenderPipeline::CommunityShaders::Active() ? "CS" : "DLSS");
+                      neural.beforeUpscaling ? "Before" : "After", TheosRenderPipeline::CommunityShaders::Active() ? "CS" : ModeName(effective.mode));
     }
     else
     {
         std::snprintf(view.neuralDetail, sizeof(view.neuralDetail), "%s %s | %d %s",
-                      neural.beforeUpscaling ? "Before" : "After", TheosRenderPipeline::CommunityShaders::Active() ? "CS" : "DLSS", view.sourceNeural.effectivePasses,
+                      neural.beforeUpscaling ? "Before" : "After", TheosRenderPipeline::CommunityShaders::Active() ? "CS" : ModeName(effective.mode), view.sourceNeural.effectivePasses,
                       view.sourceNeural.effectivePasses == 1 ? "pass" : "passes");
     }
     if (view.frameGenerationRuntimeActive)
     {
-        std::snprintf(view.generationTitle, sizeof(view.generationTitle), "DLSS-G x%u", view.activeDisplayMultiplier);
+        std::snprintf(view.generationTitle, sizeof(view.generationTitle), "%s x%u", TheosRenderPipeline::ProviderName(presentation.Provider()), view.activeDisplayMultiplier);
     }
     else
     {
         std::snprintf(view.generationTitle, sizeof(view.generationTitle), "%s",
-                      view.nvidiaHostActive ? "DLSS-G off" : "Generation unavailable");
+                      view.nvidiaHostActive ? (presentation.Provider() == TheosRenderPipeline::FrameGenerationProvider::XeFG ? "XeFG off" : "DLSS-G off") : "Generation unavailable");
     }
     const auto& output = outputRate.Rate();
     view.outputText = output.available ? std::format("{:.1f} FPS", output.fps) : std::string("unavailable");
     view.outputLabel = "Runtime output";
     view.activeUpscaleStage = view.sourceDLSSGActive ? (view.sourceNeural.active ? "TRP DLSS NR" : "TRP DLSS")
                                                      : "NVIDIA host unavailable";
+    if (effective.mode == XeSS) { view.activeUpscaleStage = view.sourceNeural.active ? "TRP XeSS + NR" : "TRP XeSS"; }
     if (TheosRenderPipeline::CommunityShaders::Active()) {
         view.activeUpscaleStage = view.sourceNeural.active ? "CS upscaling + TRP NR" : "CS upscaling";
     }
@@ -167,7 +170,7 @@ void OverlayUI::DrawPipelineSummary(const FrameView& view)
 #endif
           {view.upscaleTitle, view.upscaleDetail,
            TheosRenderPipeline::CommunityShaders::Active() ? "Upscaling is controlled in the Community Shaders menu.\nClick to open Image status." :
-           "DLSS reconstruction or native-resolution DLAA.\nClick to open Image settings.", SettingsPage::Image},
+           "DLSS or XeSS reconstruction, or native-resolution DLAA.\nClick to open Image settings.", SettingsPage::Image},
           {"Frame generation", view.generationTitle,
            "Adds generated frames between game-rendered frames.\nClick to open Frame generation settings.",
            SettingsPage::FrameGeneration, !view.frameGenerationRuntimeActive},

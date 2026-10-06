@@ -152,6 +152,8 @@ public:
 	bool IsEnabled();
 
 	void GetJitters(float* a_outX, float* a_outY);
+	// Jitter sequence length for the active upscaler (XeSS or DLSS formula).
+	int JitterPhaseCount() const;
 	void SetJitterOffsets(float a_x, float a_y);
 
 	void SetupDepth(ID3D11Texture2D* a_depthBuffer);

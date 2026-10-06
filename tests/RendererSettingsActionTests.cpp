@@ -54,6 +54,16 @@ void Generation()
         auto draft = current; draft.sourceDLSSG.uiRecomposition = false;
         Require(CountRendererSettingsChanges(draft, current) == 1, "UI recomposition participates in Apply/Discard");
     }
+    {
+        CSimpleIniA ini;
+        Require(LoadPreferences(ini).xefgFrameTime, "existing INIs without the key send XeFG the frame time");
+        Preferences preferences; preferences.xefgFrameTime = false;
+        StorePreferences(ini, preferences);
+        Require(!LoadPreferences(ini).xefgFrameTime, "a saved XeFG frame-time opt-out round trips");
+        RendererSettingsDraft current; current.valid = true;
+        auto draft = current; draft.sourceDLSSG.xefgFrameTime = false;
+        Require(CountRendererSettingsChanges(draft, current) == 1, "XeFG frame time participates in Apply/Discard");
+    }
 }
 void MenuKey()
 {
@@ -70,6 +80,15 @@ void MenuKey()
 }
 void Neural()
 {
+    {
+        RendererSettingsDraft draft; draft.valid = true; draft.upscaleType = XeSS;
+        RendererSettingsCapabilities amd{true, true, true, false}; amd.nvidiaAdapter = false;
+        Require(!ValidateRendererSettings(draft, amd), "XeSS settings can apply without NVIDIA hardware");
+        draft.sourceDLSSG.neuralEnabled = true;
+        Require(ValidateRendererSettings(draft, amd), "NVIDIA NR cannot be enabled on a non-NVIDIA GPU");
+        draft.sourceDLSSG.neuralEnabled = false; draft.upscaleType = DLSS;
+        Require(ValidateRendererSettings(draft, amd), "unsupported DLSS startup cannot be saved on a non-NVIDIA GPU");
+    }
     RendererSettingsDraft current; current.valid = true; current.sourceDLSSG.neuralEnabled = true;
     auto draft = current; draft.upscaleType = DLAA; draft.qualityLevel = 4;
     RendererSettingsCapabilities lostUI{true,true,false,false};

@@ -7,7 +7,7 @@
 
 namespace TheosRenderPipeline::Telemetry
 {
-	enum class OutputSource { Unavailable, DXGI, Streamline };
+	enum class OutputSource { Unavailable, DXGI, Streamline, XeFG };
 
 	struct OutputCounter
 	{

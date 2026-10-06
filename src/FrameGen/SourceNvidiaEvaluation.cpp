@@ -66,7 +66,18 @@ struct NvidiaHost::SourceNvidiaEvaluationOperations
                 }
             }
         } else {
-            evaluated = DLSSBackend::GetSingleton()->Evaluate(frame.input, frame.motion, frame.depth,
+            if (host.XeSSActive()) {
+                ScopedD3D11PerformanceStage timer{host.context_.Get(), PerformanceTuning::D3D11Stage::kDLSS};
+                auto& backend = TheosRenderPipeline::SourceDLSSG::Backend::Get();
+                sl::Constants preview{};
+                const bool camera = TheosRenderPipeline::SourceDLSSG::CaptureCameraConstants(upscaler.mGraphicsState,
+                    frame.renderWidth, frame.renderHeight, frame.jitterX, frame.jitterY, frame.reset, frame.jitterEnabled, preview, false);
+                const auto hr = backend.XeSS().Evaluate(host.context_.Get(), frame.input, frame.motion, frame.depth,
+                    frame.output, frame.jitterX, frame.jitterY, frame.reset, camera ? preview.depthInverted == sl::eTrue : true, frame.sharpness);
+                evaluated = SUCCEEDED(hr);
+                if (!evaluated) { logger::error("[XeSS] evaluation failed {} hr=0x{:08X}", backend.XeSS().Status(), static_cast<unsigned>(hr)); }
+                if (evaluated && backend.XeSS().Frames() % 600 == 0) { logger::info("[XeSS] evaluatedFrames={} historyReset={} render={}x{}", backend.XeSS().Frames(), frame.reset, frame.renderWidth, frame.renderHeight); }
+            } else evaluated = DLSSBackend::GetSingleton()->Evaluate(frame.input, frame.motion, frame.depth,
                 frame.output, static_cast<int>(frame.renderWidth), static_cast<int>(frame.renderHeight),
                 frame.sharpness, frame.jitterX, frame.jitterY, frame.motionScaleX, frame.motionScaleY,
                 frame.reset);
@@ -156,6 +167,7 @@ bool NvidiaHost::EvaluateSourceNvidiaFrame(bool nativeUIHandoff, bool resetHisto
                 static_cast<std::uint32_t>(loadingScreenResult_));
         } else {
             status_ = !backend.Ready() ? backend.Status() :
+                xeSSActive_ ? std::format("XeSS evaluation failed: {}; generation held off", backend.XeSS().Status()) :
                 std::format("TheosRenderPipeline direct DLSS evaluation failed (0x{:08X}); generation held off",
                     DLSSBackend::GetSingleton()->LastEvalResult());
         }

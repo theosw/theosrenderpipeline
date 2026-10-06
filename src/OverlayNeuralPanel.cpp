@@ -59,6 +59,7 @@ void DrawNRAppliedPasses(const TheosRenderPipeline::SourceDLSSG::NeuralOptions& 
 const char* NeuralUnavailableReason(int upscaleType, bool nrRuntimePresent)
 {
     auto& backend = TheosRenderPipeline::SourceDLSSG::Backend::Get();
+    if (backend.Ready() && !backend.NvidiaAdapter()) { return "Neural Rendering requires NVIDIA RTX hardware. XeSS upscaling and XeFG remain available."; }
     const auto* frameGen = SourceFrameGeneration::GetSingleton();
     if (frameGen->settings.neuralRenderingRuntimePath.empty())
     {

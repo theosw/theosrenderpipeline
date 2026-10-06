@@ -13,6 +13,16 @@ static void Require(bool value, const char* reason)
 int main()
 {
     using namespace TheosRenderPipeline;
+    {
+        Upscaler::Configuration configuration;
+        configuration.Initialize({0, 2, 11, true, true});
+        configuration.Request({4, 0, 11, true, true});
+        Require(configuration.NeedsRestart() && configuration.LiveCandidate().mode == 0,
+            "XeSS selection leaves the running NVIDIA allocation intact until restart");
+        configuration.Saved(); configuration.Initialize(configuration.Persisted());
+        Require(configuration.Startup().mode == 4 && configuration.Startup().quality == 0 && !configuration.NeedsRestart(),
+            "XeSS mode and quality survive save/restart without being sanitized into DLSS");
+    }
     constexpr int outputs[][2]{{5120,1440}, {1920,1080}, {2560,1440}, {3840,2160}, {1919,1079}};
     constexpr int expected[][2]{{2560,720}, {2970,835}, {3413,960}, {1707,480}, {3982,1120}, {5120,1440}};
     constexpr NVSDK_NGX_PerfQuality_Value modes[]{

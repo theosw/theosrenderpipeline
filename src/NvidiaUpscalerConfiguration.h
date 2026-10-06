@@ -16,7 +16,7 @@ namespace TheosRenderPipeline::Upscaler
 
     inline Creation Sanitize(Creation value)
     {
-        value.mode = value.mode == 3 ? 3 : 0;
+        value.mode = value.mode == 3 || value.mode == 4 ? value.mode : 0;
         value.quality = std::clamp(value.quality, 0, 4);
         value.preset = TheosRenderPipeline::DLSSPreset::Sanitize(value.preset);
         return value;

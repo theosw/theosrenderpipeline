@@ -3,25 +3,33 @@
 #include <nvsdk_ngx.h>
 
 int wmain(int argc,wchar_t** argv){
-    Require(argc==5,"usage: benchmark absolute-NR-DLL native|uniform|peripheral|passes width height");
+    Require(argc==5,"usage: benchmark absolute-NR-DLL native|uniform|peripheral|passes|coldpasses width height");
     SetErrorMode(SEM_FAILCRITICALERRORS|SEM_NOGPFAULTERRORBOX|SEM_NOOPENFILEERRORBOX);
     const std::wstring mode=argv[2];
-    Require(mode==L"native" || mode==L"uniform" || mode==L"peripheral" || mode==L"passes","benchmark mode");
+    const bool coldStart=mode==L"coldpasses";
+    const bool twoPassCases=mode==L"passes" || coldStart;
+    Require(mode==L"native" || mode==L"uniform" || mode==L"peripheral" || twoPassCases,"benchmark mode");
     const auto w=static_cast<unsigned>(std::stoul(argv[3])),h=static_cast<unsigned>(std::stoul(argv[4]));
     Require(w>=64 && h>=64 && w<=5120 && h<=2880,"bounded benchmark dimensions");
     GPU gpu(true);
-    // The real host initializes the normal NGX loader before constructing NR.
+    // The legacy benchmark supplies a warm loader. coldpasses exercises the
+    // production NR bootstrap without a prior DLSS/Streamline initialization.
     const auto cache=std::filesystem::absolute("out/diagnostics/ngx-cache");std::filesystem::create_directories(cache);
+    if(coldStart){
+        Require(!GetModuleHandleW(L"nvngx.dll") && !GetModuleHandleW(L"_nvngx.dll"),"cold NR starts without normal NGX loader");
+        Require(!GetModuleHandleW(L"sl.interposer.dll") && !GetModuleHandleW(L"nvngx_dlss.dll"),"cold NR starts without Streamline or DLSS");
+    }else{
     const auto init=NVSDK_NGX_D3D12_Init_with_ProjectID("f1b2e5d8-9c4a-4e7b-8a36-5d2e90c47a11",NVSDK_NGX_ENGINE_TYPE_CUSTOM,
         "nr-peripheral-benchmark",cache.c_str(),gpu.device.Get(),nullptr,NVSDK_NGX_Version_API);
     Require(NVSDK_NGX_SUCCEED(init)||init==NVSDK_NGX_Result_FAIL_FeatureAlreadyExists,"normal NGX bootstrap");
+    }
     NeuralOptions options;options.enabled=true;options.runtimePath=argv[1];options.beforeUpscaling=true;
     options.tuning.uiCorrection=false;options.reconstruction.inputScale=mode==L"uniform"?.9f:1.f;
     options.reconstruction.peripheralCompression=mode==L"peripheral";
     std::vector<Pixel> pixels(size_t(w)*h);
     for(unsigned y=0;y<h;++y)for(unsigned x=0;x<w;++x)
         pixels[y*w+x]={.1f+.6f*x/w,.1f+.6f*y/h,.2f+.3f*((x/8+y/8)%2),1};
-    const auto format=mode==L"passes"?DXGI_FORMAT_R8G8B8A8_UNORM:DXGI_FORMAT_R16G16B16A16_FLOAT;
+    const auto format=twoPassCases?DXGI_FORMAT_R8G8B8A8_UNORM:DXGI_FORMAT_R16G16B16A16_FLOAT;
     auto original=gpu.Texture(w,h,pixels,format);
     auto scene=gpu.Texture(w,h,{},format);
     auto composed=gpu.Texture(w,h,pixels,format);
@@ -35,7 +43,7 @@ int wmain(int argc,wchar_t** argv){
     {
     auto pass=std::make_unique<NeuralPass>();std::vector<double> total,inference;
     for(unsigned frame=0;frame<50;++frame){
-        const bool recreate=(mode==L"passes") && frame%10==0;
+        const bool recreate=twoPassCases && frame%10==0;
         if(recreate){
             options.beforeUpscaling=(frame/10)%2==0;
             options.passes=2;options.reconstruction.inputScale=frame==20?.5f:.75f;
@@ -54,6 +62,10 @@ int wmain(int argc,wchar_t** argv){
         const bool recorded=pass->Record(gpu.device.Get(),gpu.list.Get(),frame%kCommandSlots,options,frame==0 || recreate,true,float(w),float(h),
             motion.Get(),depth.Get(),options.beforeUpscaling?nullptr:ui.Get(),scene.Get(),options.beforeUpscaling?nullptr:composed.Get(),frequency);
         Require(recorded,pass->Status().c_str());
+        if(coldStart){
+            Require(GetModuleHandleW(L"nvngx.dll") || GetModuleHandleW(L"_nvngx.dll"),"production NR established normal NGX loader");
+            Require(!GetModuleHandleW(L"sl.interposer.dll") && !GetModuleHandleW(L"nvngx_dlss.dll"),"NR bootstrap remains independent of Streamline and DLSS");
+        }
         gpu.list->EndQuery(query.Get(),D3D12_QUERY_TYPE_TIMESTAMP,1);
         gpu.list->ResolveQueryData(query.Get(),D3D12_QUERY_TYPE_TIMESTAMP,0,2,timestamps.Get(),0);gpu.End();
         if(recreate)std::printf("CASE frame=%u %s\n",frame,pass->Status().c_str());

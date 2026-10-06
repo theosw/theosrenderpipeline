@@ -297,12 +297,18 @@ void OverlayUI::UpdateFrameStats()
 		if (NvidiaHost::GetSingleton()->StartupConfigured()) {
 			const auto& source = TheosRenderPipeline::SourceDLSSG::Backend::Get();
 			const auto& session = source.Snapshot();
+			if (source.Provider() == TheosRenderPipeline::FrameGenerationProvider::XeFG) {
+				const auto& intel = source.XeFGState();
+				output = {TheosRenderPipeline::Telemetry::OutputSource::XeFG, intel.epoch, intel.presents,
+					intel.totalOutputs, source.Ready() && intel.presents > 0};
+			} else {
 			output = { TheosRenderPipeline::Telemetry::OutputSource::Streamline,
 				session.presentationEpoch, session.stateQueries, session.runtimePresentedFrames,
 				source.Ready() && session.stateQueries > 0 &&
 					session.stage != TheosRenderPipeline::SourceDLSSG::SessionStage::Stopped &&
 					session.stage != TheosRenderPipeline::SourceDLSSG::SessionStage::Faulted &&
 					session.state.status == sl::DLSSGStatus::eOk };
+			}
 		}
 
 	outputRate.Update(now.QuadPart * qpcToMs, output, timelineDiscontinuity);

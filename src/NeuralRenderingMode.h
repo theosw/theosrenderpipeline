@@ -8,6 +8,6 @@ namespace TheosRenderPipeline
 // CS supplies its own world boundary independently of the saved TRP mode.
 inline constexpr bool SupportsNeuralRenderingMode(int mode, bool externalWorld)
 {
-    return externalWorld || mode == DLSS || mode == DLAA;
+    return externalWorld || mode == DLSS || mode == DLAA || mode == XeSS;
 }
 }

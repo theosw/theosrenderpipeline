@@ -5,16 +5,22 @@
 #include "NeuralCombatPolicy.h"
 #include "SourceDLSSGGeneration.h"
 #include "HDROutput.h"
+#include "FrameGenerationProvider.h"
 
 namespace TheosRenderPipeline::SourceDLSSG
 {
-	// Runtime preferences only. Backend selection and DLL paths stay startup-owned.
+	// Live runtime preferences. Presenter changes commit after Present; DLL paths
+	// remain startup-owned and the NVIDIA test host still supplies DLSS and NR.
 	struct Preferences
 	{
+		FrameGenerationProvider provider{FrameGenerationProvider::NVIDIA};
 		int reflexMode{ 1 };
 		int outputFPSLimit{ 0 };
 		// Interpolate the HUD-less scene and UI layer separately. Live toggle.
 		bool uiRecomposition{ true };
+		// Give Intel XeFG the measured application frame time; on non-Intel GPUs
+		// its software pacing uses this as a sanity check. Live toggle.
+		bool xefgFrameTime{ true };
 		GenerationRequest generation{};
 		bool neuralEnabled{ false };
 		bool neuralBeforeUpscaling{ true };
@@ -29,6 +35,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 
 	inline Preferences SanitizePreferences(Preferences value)
 	{
+		if (!ValidProvider(static_cast<int>(value.provider))) { value.provider = FrameGenerationProvider::NVIDIA; }
 		if (value.reflexMode < 0 || value.reflexMode > 2) { value.reflexMode = 1; }
 		value.outputFPSLimit = std::clamp(value.outputFPSLimit, 0, 1000);
 		value.generation = SanitizeGenerationRequest(value.generation);
@@ -45,6 +52,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 	{
 		constexpr auto section = "SourceDLSSG";
 		Preferences value;
+		value.provider = static_cast<FrameGenerationProvider>(ini.GetLongValue("FrameGeneration", "Provider", 0));
+		value.xefgFrameTime = ini.GetBoolValue("FrameGeneration", "XeFGFrameTime", true);
 		value.reflexMode = static_cast<int>(ini.GetLongValue(section, "ReflexMode", 1));
 		// The original label said raster FPS, but the pinned runtime caps total
 		// output. Preserve the old numeric value; never silently multiply it.
@@ -78,6 +87,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 	{
 		value = SanitizePreferences(value);
 		constexpr auto section = "SourceDLSSG";
+		ini.SetLongValue("FrameGeneration", "Provider", static_cast<int>(value.provider));
+		ini.SetBoolValue("FrameGeneration", "XeFGFrameTime", value.xefgFrameTime);
 		ini.SetLongValue(section, "ReflexMode", value.reflexMode);
 		ini.SetLongValue(section, "OutputFPSLimit", value.outputFPSLimit);
 		ini.Delete(section, "RasterFPSLimit");

@@ -22,7 +22,7 @@ void OverlayUI::DrawImageMeasurements(const FrameView& view)
                     view.upscaleHealth);
     DrawSettingsValue("Render", std::format("{} x {}", host->RenderWidth(), host->RenderHeight()).c_str());
     DrawSettingsValue("Output", std::format("{} x {}", view.nativeWidth, view.nativeHeight).c_str());
-    if (!cs)
+    if (!cs && !host->XeSSActive())
         DrawSettingsValue("Preset request", TheosRenderPipeline::DLSSPreset::ShortName(
                                                 host->SourceUpscalerSettings().Effective().preset));
     ImGui::Separator();
@@ -70,7 +70,7 @@ void OverlayUI::DrawImageMeasurements(const FrameView& view)
         if (!TheosRenderPipeline::CommunityShaders::Active())
         {
             ImGui::Text("Jitter: (%.4f, %.4f) | phases: %d", upscaler->mJitterOffsets[0], upscaler->mJitterOffsets[1],
-                        backend->GetJitterPhaseCount());
+                        upscaler->JitterPhaseCount());
             ImGui::Text("Mip LOD bias: %.3f", upscaler->mMipLodBias);
             ImGui::Text("NGX evals ok/failed: %llu / %llu | last 0x%08X",
                         static_cast<unsigned long long>(backend->EvalSuccessCount()),

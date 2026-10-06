@@ -87,6 +87,7 @@ RendererSettingsResult RendererSettingsController::Apply(const RendererSettingsD
     bool actionMessageIsError = false;
     const bool sourceUpscaler = host_.StartupConfigured();
     RendererSettingsCapabilities capabilities{sourceUpscaler, false, host_.DedicatedUITextureMode(), CommunityShaders::Active()};
+    capabilities.nvidiaAdapter = SourceDLSSG::Backend::Get().NvidiaAdapter();
 #if !defined(TRP_NO_NEURAL_RENDERING)
     capabilities.neuralRuntime =
         TheosRenderPipeline::SourceDLSSG::NeuralRuntimePresent(frameGen_.settings.neuralRenderingRuntimePath);
@@ -135,8 +136,10 @@ RendererSettingsResult RendererSettingsController::Apply(const RendererSettingsD
     if (host_.StartupConfigured())
     {
         auto& source = TheosRenderPipeline::SourceDLSSG::Backend::Get();
+        source.RequestProvider(frameGen_.settings.sourceDLSSG.provider);
         source.ConfigureReflex(static_cast<sl::ReflexMode>(frameGen_.settings.sourceDLSSG.reflexMode));
         source.ConfigureUIRecomposition(frameGen_.settings.sourceDLSSG.uiRecomposition);
+        source.ConfigureXeFGFrameTime(frameGen_.settings.sourceDLSSG.xefgFrameTime);
         source.ConfigureOutputFPSLimit(frameGen_.settings.sourceDLSSG.outputFPSLimit);
         source.ConfigureGeneration(frameGen_.settings.sourceDLSSG.generation);
         // The backend applies Enabled at the next present boundary.

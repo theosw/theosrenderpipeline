@@ -16,6 +16,15 @@ int main()
 	CSimpleIniA ini;
 	Require(ini.LoadData("[SourceDLSSG]\nNRPasses=2\nNRInputScale=0.75\nNRPreset=1\nNRIntensity=0.4\n") >= 0, "old INI");
 	auto old = LoadPreferences(ini);
+    Require(old.provider == FrameGenerationProvider::NVIDIA, "missing provider preserves NVIDIA startup");
+    old.provider = FrameGenerationProvider::XeFG;
+    old.generation.generatedFrames = 3;
+    old.reflexMode = 2;
+    StorePreferences(ini, old);
+    Require(LoadPreferences(ini) == old, "XeFG selection retains NVIDIA multiplier/latency and all NR settings");
+    ini.SetLongValue("FrameGeneration", "Provider", 42);
+    Require(LoadPreferences(ini).provider == FrameGenerationProvider::NVIDIA, "unknown provider safely defaults to NVIDIA");
+    StorePreferences(ini, old);
 	Require(!old.neuralCombat.Enabled() && old.neuralCombat.recoverySeconds == 5, "old INI keeps combat policy off");
 	old.neuralCombat = {true, true, 7.5f};
 	Require(old.neuralSecondPass.linked && old.neuralSecondPass.inputScale == .75f && old.neuralSecondPass.preset == 1 &&

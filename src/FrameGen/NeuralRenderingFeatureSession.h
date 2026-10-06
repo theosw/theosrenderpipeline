@@ -72,4 +72,8 @@ namespace TheosRenderPipeline::NeuralRendering
 		};
 		std::unique_ptr<State, StateDeleter> state_;
 	};
+
+	// True once NR's public NGX initialization succeeded in this process. Stays
+	// true: the driver loader and NGX state remain resident for the process.
+	bool PublicNGXInitializedInProcess();
 }

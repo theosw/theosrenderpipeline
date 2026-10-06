@@ -23,6 +23,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 	const char* Backend::NeuralUnavailableReason(const NeuralOptions& options)
 	{
 		std::scoped_lock lock(neuralMutex_);
+		if (!NvidiaAdapter() && options.enabled) { return "Neural Rendering requires an NVIDIA RTX GPU; XeSS and XeFG remain available"; }
 		const auto retainedBuild = neuralPass_ ? neuralPass_->RetainedRuntimeBuild(options.runtimePath) :
 			NeuralRendering::RuntimeBuild::Unknown;
 		const auto reason = neuralAvailability_.UnavailableReason(options, [](const std::filesystem::path& path) {

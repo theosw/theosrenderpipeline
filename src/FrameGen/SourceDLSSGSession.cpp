@@ -1,6 +1,8 @@
 #include "SourceDLSSGSession.h"
 
 #include <array>
+#include <algorithm>
+#include <limits>
 #include <cmath>
 
 namespace TheosRenderPipeline::SourceDLSSG
@@ -62,13 +64,14 @@ namespace TheosRenderPipeline::SourceDLSSG
 		return token_ && Check(api_.marker(a_marker, *token_), a_operation);
 	}
 
-	bool Session::Start(const SessionAPI& a_api, std::uint32_t a_viewport)
+    bool Session::Start(const SessionAPI& a_api, std::uint32_t a_viewport, std::uint32_t firstApplicationFrame)
 	{
 		if (started_ || snapshot_.stage != SessionStage::Stopped) { return Fail(SessionFailure::InvalidSequence, "Start"); }
 		if (!a_api.Complete()) { return Fail(SessionFailure::InvalidAPI, "Start"); }
 		started_ = true;
 		api_ = a_api;
-		viewport_ = sl::ViewportHandle(a_viewport);
+        viewport_ = sl::ViewportHandle(a_viewport);
+        snapshot_.frameIndex = firstApplicationFrame;
 		snapshot_.options.flags = sl::DLSSGFlags::eRetainResourcesWhenOff;
 		snapshot_.options.queueParallelismMode = sl::DLSSGQueueParallelismMode::eBlockPresentingClientQueue;
 		snapshot_.options.numFramesToGenerate = 1;
@@ -118,7 +121,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		return true;
 	}
 
-	bool Session::BeginFrame(bool a_afterPresent)
+	bool Session::BeginFrame(bool a_afterPresent, bool a_suspend)
 	{
 		// Query once at startup and once after each real Present, before D3D11
 		// can reuse the shared input textures.
@@ -148,6 +151,18 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (!api_.waitForInputReaders(api_.context, state.inputsProcessingCompletionFence,
 			state.lastPresentInputsProcessingCompletionFenceValue)) {
 			return Fail(SessionFailure::InputRetirement, "input reader fence");
+		}
+		if (a_suspend) {
+			snapshot_.options.mode = sl::DLSSGMode::eOff;
+			if (!SubmitOptions("disable for provider change") || !ClearTags()) { return false; }
+			sl::ReflexOptions off{}; off.mode = sl::ReflexMode::eOff;
+			if (!Check(api_.setReflexOptions(off), "retire Reflex for provider change")) { return false; }
+			snapshot_.reflexSubmitted = sl::ReflexMode::eOff;
+			snapshot_.frameLimitSubmittedUs = 0;
+			snapshot_.stage = SessionStage::Stopped;
+			++snapshot_.presentationEpoch; outputBatches_.BeginEpoch();
+			snapshot_.operation = "retire presenter before provider change";
+			return true; // No next-frame Reflex sleep or simulation marker.
 		}
 		token_ = nullptr;
 		if (!Check(api_.newFrameToken(token_, &snapshot_.frameIndex), "frame token")) { return false; }
@@ -296,7 +311,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		return true;
 	}
 
-	bool Session::AfterPresent(bool a_presentSucceeded, bool a_testOnly)
+	bool Session::AfterPresent(bool a_presentSucceeded, bool a_testOnly, bool a_suspend)
 	{
 		if (a_testOnly) { return true; }
 		if (snapshot_.stage != SessionStage::PresentPending) { return Fail(SessionFailure::InvalidSequence, "AfterPresent"); }
@@ -305,7 +320,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (!Mark(sl::PCLMarker::ePresentEnd, "PresentEnd")) { return false; }
 		if (!prepared_ || !writesComplete_) { needsReset_ = true; }
 		++snapshot_.frameIndex;
-		return BeginFrame(true);
+		return BeginFrame(true, a_suspend);
 	}
 
 	bool Session::Stop()
@@ -326,10 +341,23 @@ namespace TheosRenderPipeline::SourceDLSSG
 		return true;
 	}
 
-	bool Session::ResumeAfterResize()
+	bool Session::ResumeAfterResize(std::uint32_t lastApplicationFrame)
 	{
 		if (!started_ || snapshot_.stage != SessionStage::Stopped) { return Fail(SessionFailure::InvalidSequence, "ResumeAfterResize"); }
-		++snapshot_.frameIndex;
+		// A provider handoff retires Reflex completely while XeLL owns latency.
+		// Restore the NVIDIA mode before its first sleep/marker, rather than waiting
+		// until BeforePresent after SimulationStart has already been submitted.
+		sl::ReflexOptions reflex{};
+		reflex.mode = snapshot_.reflexRequested;
+		reflex.frameLimitUs = snapshot_.frameLimitRequestedUs;
+		if (!Check(api_.setReflexOptions(reflex), "resume Reflex options")) { return false; }
+		snapshot_.reflexSubmitted = reflex.mode;
+		snapshot_.frameLimitSubmittedUs = reflex.frameLimitUs;
+		// Latency markers belong to one application timeline, including frames
+		// submitted through another provider while this session was suspended.
+		const auto last = (std::max)(snapshot_.frameIndex, lastApplicationFrame);
+		if (last == (std::numeric_limits<std::uint32_t>::max)()) { return Fail(SessionFailure::InvalidSequence, "frame identity exhausted"); }
+		snapshot_.frameIndex = last + 1;
 		needsReset_ = true;
 		return BeginFrame();
 	}
