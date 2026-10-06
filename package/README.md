@@ -1,4 +1,16 @@
-# Theo's Render Pipeline — Universal, 0.3.5
+# Theo's Render Pipeline — Universal, 0.3.7
+
+Version 0.3.7 adds menu-key rebinding under Advanced > Menu key and live
+experimental HDR output switching with Apply. The first HDR activation briefly
+pauses frame generation; later switches are immediate. Save as default remembers
+the menu key and HDR setting. Both editions retain NR and their existing
+frame-generation routes, with unchanged NVIDIA runtime DLLs and feature defaults.
+
+Version 0.3.6 adds automatic menu scaling and title-bar Zoom controls, with
+an embedded font; no separate font installation is required. Save as default
+remembers zoom, window geometry and the divider. GPU failure diagnostics retain
+the first fault and support optional DRED evidence (off by default). Both editions
+retain NR and existing compatibility routes; NVIDIA runtime DLLs are unchanged.
 
 Version 0.3.5 enables DLSS-G UI recomposition by default to reduce HUD
 ghosting; toggle it live under Frame generation. GPU retirement waits now
@@ -36,7 +48,7 @@ This package includes the full renderer, configuration and sharpening shader.
 It requires no other Theo's Render Pipeline package. NVIDIA DLLs are supplied
 separately: download the SR/FG files below, and the NR runtime if you want NR.
 Alternatively, install Standard first and Universal after it in MO2; Standard
-0.3.5 supplies the runtime bundle (0.2.5 retains the same DLLs). The NR-enabled
+0.3.7 supplies the runtime bundle (0.2.5 retains the same DLLs). The NR-enabled
 Standard download supplies all eight runtimes, including NR. In that setup,
 skip the runtime downloads below.
 
@@ -165,6 +177,12 @@ Other RTX 30 configurations, native RTX 50 operation and other CS builds need
 further testing. NR can be expensive on RTX 30: start with it off, then try one
 pass before upscaling and reduce NR input resolution if needed.
 
+Bottled's new experimental NR implementation is not yet validated alongside
+TRP NR. Its runtime can remain loaded even with its NR checkbox off, preventing
+TRP NR from starting. Do not switch between the two NR implementations in the
+same launch; a restart and isolated runtime ownership are required. This release
+does not resolve that conflict.
+
 ## ReShade (optional)
 
 ReShade 6.8 was tested with Universal on Skyrim 1.6.1170, Cabbage ENB and
@@ -172,7 +190,7 @@ an RTX 4080 SUPER: ordinary 6.8.0.2158 and full add-on 6.8.0.2155, with
 early NR and x4. Sky Reflection Fix's ReShade registration was excluded;
 Rumble passed a separate initial test. ReGrade+, combined third-party add-ons,
 Standard gameplay and CS with ReShade remain unverified. These were earlier
-development builds; the exact 0.3.5 package still needs its final game test.
+development builds; the exact 0.3.7 package still needs its final game test.
 
 Keep your existing ReShade installation, preset and hotkeys. **Disable SSE
 ReShade Helper.** TRP supplies the effects and overlay stages. Effects run after
