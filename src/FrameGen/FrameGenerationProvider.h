@@ -13,10 +13,13 @@ namespace TheosRenderPipeline
         FrameGenerationProvider requested;
         FrameGenerationProvider presenter;
     };
+    // xeSS: TRP runs the XeSS upscaler. It is false on the Community Shaders
+    // route, where CS upscales whatever TRP's UpscaleType says.
     constexpr ProviderStartup SelectProviderStartup(bool xeSS, bool nvidiaAdapter, FrameGenerationProvider requested)
     {
         if (!ValidProvider(static_cast<int>(requested))) { requested = FrameGenerationProvider::NVIDIA; }
-        if (!nvidiaAdapter) { requested = FrameGenerationProvider::XeFG; }
+        // Without an NVIDIA adapter only XeFG can present, whoever upscales.
+        if (!nvidiaAdapter) { return {FrameGenerationProvider::XeFG, FrameGenerationProvider::XeFG}; }
         // XeSS can start either provider directly on NVIDIA. The existing
         // DLSS startup bridge stays NVIDIA until world inputs admit a switch.
         return {requested, xeSS ? requested : FrameGenerationProvider::NVIDIA};

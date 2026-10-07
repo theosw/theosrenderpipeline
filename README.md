@@ -45,9 +45,11 @@ Shaders, CS upscales.
 **Frame generation > Provider** chooses NVIDIA DLSS-G or Intel XeFG. **Apply**
 switches after the next completed world frame and keeps the upscaling and NR
 settings. While XeFG is active, Intel XeLL handles latency instead of Reflex.
-On a GPU other than NVIDIA, XeSS starts XeFG directly without loading NVIDIA's
-runtimes. DLSS, DLAA, DLSS-G and NR require NVIDIA RTX hardware; on NVIDIA, NR
-also works with XeSS.
+On a GPU other than NVIDIA, TRP starts XeFG directly without loading NVIDIA's
+runtimes, with XeSS or with Community Shaders' upscaling (FSR on AMD). There,
+a saved DLSS mode runs as XeSS at the same quality and DLAA as XeSS Ultra
+Quality; **Save as default** then stores XeSS. DLSS, DLAA, DLSS-G and NR
+require NVIDIA RTX hardware; on NVIDIA, NR also works with XeSS.
 
 XeFG uses Intel's official x2 by default. The multiplier list also offers x3-x6,
 marked experimental, which patch `libxess_fg.dll` 1.3.1.78 in memory; no file

@@ -56,12 +56,11 @@ NVIDIA GPU/driver. In DLSS/DLAA modes, Standard requires native DLSS-G hardware
 support even with frame generation off. RTX 40-series uses x2; higher
 multipliers require native hardware/runtime support. RTX 30 requires Universal
 installed after Standard, even with frame generation off; Standard alone cannot
-initialize its host there. AMD and other non-NVIDIA GPUs can use experimental
-XeSS with Intel XeFG: before the first launch, set `UpscaleType=4` under
-`[Settings]` in `TheosRenderPipeline.ini`, and keep AMD Fluid Motion Frames,
-Anti-Lag and other frame-generation or upscaler mods off. NR requires NVIDIA RTX
-hardware. ENB is optional. Community Shaders and optional ReShade setup are
-described below.
+initialize its host there. AMD and other non-NVIDIA GPUs use experimental XeSS
+with Intel XeFG, selected automatically (with Community Shaders, CS upscales
+with FSR on AMD and TRP adds XeFG). Keep AMD Fluid Motion Frames, Anti-Lag and
+other frame-generation or upscaler mods off. NR requires NVIDIA RTX hardware. ENB is optional. Community Shaders and optional ReShade
+setup are described below.
 
 ## Settings
 

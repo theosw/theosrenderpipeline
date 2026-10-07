@@ -22,6 +22,17 @@ namespace TheosRenderPipeline::Upscaler
         return value;
     }
 
+    // DLSS and DLAA need an NVIDIA GPU. Elsewhere XeSS runs for the session,
+    // keeping the quality index (same order); DLAA takes Ultra Quality.
+    inline Creation ForAdapter(Creation value, bool nvidiaAdapter)
+    {
+        value = Sanitize(value);
+        if (nvidiaAdapter || value.mode == 4) { return value; }
+        if (value.mode == 3) { value.quality = 4; }
+        value.mode = 4;
+        return value;
+    }
+
     class Configuration
     {
     public:

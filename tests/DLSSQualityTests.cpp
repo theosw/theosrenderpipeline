@@ -23,6 +23,24 @@ int main()
         Require(configuration.Startup().mode == 4 && configuration.Startup().quality == 0 && !configuration.NeedsRestart(),
             "XeSS mode and quality survive save/restart without being sanitized into DLSS");
     }
+    for (int quality = 0; quality < 5; ++quality) {
+        const Upscaler::Creation dlss{0, quality, 11, true, true};
+        const auto other = Upscaler::ForAdapter(dlss, false);
+        Require(other.mode == 4 && other.quality == quality, "DLSS on another GPU runs XeSS at the same quality index");
+        Require(Upscaler::ForAdapter(dlss, true) == Upscaler::Sanitize(dlss), "NVIDIA keeps DLSS unchanged");
+        const Upscaler::Creation xess{4, quality, 11, true, true};
+        Require(Upscaler::ForAdapter(xess, false) == xess && Upscaler::ForAdapter(xess, true) == xess, "saved XeSS is unchanged on any GPU");
+    }
+    {
+        const auto dlaa = Upscaler::ForAdapter({3, 2, 11, true, true}, false);
+        Require(dlaa.mode == 4 && dlaa.quality == 4, "DLAA on another GPU runs XeSS Ultra Quality");
+        Require(Upscaler::ForAdapter({3, 2, 11, true, true}, true).mode == 3, "NVIDIA keeps DLAA");
+        Require(Upscaler::ForAdapter({7, 9, 11, true, true}, false).mode == 4, "an invalid saved mode on another GPU still runs XeSS");
+        Upscaler::Configuration configuration;
+        configuration.Initialize(dlaa);
+        Require(configuration.Startup().AllocationQuality() == 4 && !configuration.Unsaved(),
+            "the substituted XeSS allocates Ultra Quality and is not reported as an unsaved edit");
+    }
     constexpr int outputs[][2]{{5120,1440}, {1920,1080}, {2560,1440}, {3840,2160}, {1919,1079}};
     constexpr int expected[][2]{{2560,720}, {2970,835}, {3413,960}, {1707,480}, {3982,1120}, {5120,1440}};
     constexpr NVSDK_NGX_PerfQuality_Value modes[]{
