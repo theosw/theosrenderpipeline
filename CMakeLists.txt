@@ -278,6 +278,9 @@ if(TRP_BUILD_COMPATIBILITY_TESTS)
     target_include_directories(TRPStartupPreferencesTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
         "${TRP_SIMPLEINI_INCLUDE_DIR}")
     add_test(NAME StartupPreferences COMMAND TRPStartupPreferencesTests "${CMAKE_CURRENT_SOURCE_DIR}/package/SKSE/Plugins/TheosRenderPipeline.ini")
+    add_test(NAME CommunityShadersOverride COMMAND "${CMAKE_COMMAND}"
+        "-DOVERRIDE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/package/SKSE/Plugins/CommunityShaders/Overrides/TheosRenderPipeline_Upscaling.json"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/CommunityShadersOverrideTest.cmake")
     add_executable(TRPRendererSettingsActionTests tests/RendererSettingsActionTests.cpp)
     target_compile_features(TRPRendererSettingsActionTests PRIVATE cxx_std_23)
     target_compile_definitions(TRPRendererSettingsActionTests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)

@@ -44,8 +44,10 @@ supplied matching runtimes. Both editions retain NR. Enable only one winning
 renderer DLL. The NVIDIA host is required even when interpolation is off.
 
 The DLL selects Community Shaders integration when CommunityShaders.dll is loaded;
-otherwise TRP owns upscaling, with optional ENB. With CS, disable its frame
-generation and Reflex; CS retains its shading, upscaling, UI and HDR output.
+otherwise TRP owns upscaling, with optional ENB. With CS, both editions include a
+CS settings override that keeps CS frame generation and Reflex off; CS retains
+its shading, upscaling, UI and HDR output. CS builds without an Overrides tab
+need both turned off by hand.
 Keep SSE ReShade Helper disabled when using TRP's ReShade integration. Use one shading
 setup per profile and disable competing upscaler/frame-generation injectors.
 

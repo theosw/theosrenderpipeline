@@ -81,9 +81,13 @@ inference cost. See [preset files and weather/time controls](APPEARANCE-PROFILES
 
 ## Community Shaders
 
-Keep CS upscaling enabled. Disable CS frame generation and CS Reflex: TRP supplies
-both. CS controls upscaling, render scale, sharpening and colour; TRP controls FG
-and NR. Assign CS a separate menu key, such as F8, to avoid End conflicts with
+Keep CS upscaling enabled. TRP supplies frame generation and Reflex, so this
+package includes a CS settings override that turns CS frame generation and CS
+Reflex off at startup, even if your saved CS settings enable them. It appears in
+CS's Overrides tab as Theo's Render Pipeline. If your CS has no Overrides tab, or
+you disable the override there, turn CS frame generation and CS Reflex off
+yourself. CS controls upscaling, render scale, sharpening and colour; TRP controls
+FG and NR. Assign CS a separate menu key, such as F8, to avoid End conflicts with
 TRP or KreatE, or change TRP's key under Advanced > Menu key. Do not use F8 if
 it is already assigned to ReShade or a capture tool.
 
