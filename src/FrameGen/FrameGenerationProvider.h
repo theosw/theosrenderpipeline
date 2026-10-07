@@ -24,8 +24,6 @@ namespace TheosRenderPipeline
         // DLSS startup bridge stays NVIDIA until world inputs admit a switch.
         return {requested, xeSS ? requested : FrameGenerationProvider::NVIDIA};
     }
-    // TRP's own DLSS/DLAA upscaler needs NVIDIA hardware; XeSS and the CS route do not.
-    constexpr bool UpscalerNeedsNvidia(bool communityShaders, bool xeSS) { return !communityShaders && !xeSS; }
     // A live switch to NVIDIA initializes Streamline. In an XeSS-started session
     // NR may already have initialized NGX through the driver loader; Streamline's
     // DLSS-G plugin then never loads nvngx_dlssg.dll, and the MFG verification

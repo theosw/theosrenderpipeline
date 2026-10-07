@@ -19,10 +19,27 @@ HRESULT NvidiaHost::CreateSwapChain(IDXGIFactory* a_factory, ID3D11Device* a_dev
         status_ = "NVIDIA DLSS-G swapchain inputs are incomplete";
         return E_INVALIDARG;
     }
-    const auto* upscalerSettings = RenderPipeline::GetSingleton();
-    sourceUpscalerSettings_.Initialize(
-        {upscalerSettings->mUpscaleType, upscalerSettings->mQualityLevel, upscalerSettings->mDLSSPreset,
-         upscalerSettings->mSharpening, upscalerSettings->mAutoExposure});
+    auto* upscalerSettings = RenderPipeline::GetSingleton();
+    TheosRenderPipeline::Upscaler::Creation creation{upscalerSettings->mUpscaleType, upscalerSettings->mQualityLevel,
+        upscalerSettings->mDLSSPreset, upscalerSettings->mSharpening, upscalerSettings->mAutoExposure};
+    if (!TheosRenderPipeline::CommunityShaders::Active()) {
+        // The device's adapter is the GPU the game renders on, also with an integrated GPU present.
+        Microsoft::WRL::ComPtr<IDXGIDevice> dxgiDevice;
+        Microsoft::WRL::ComPtr<IDXGIAdapter> adapter;
+        DXGI_ADAPTER_DESC adapterDesc{};
+        if (SUCCEEDED(a_device->QueryInterface(IID_PPV_ARGS(&dxgiDevice))) && SUCCEEDED(dxgiDevice->GetAdapter(&adapter)) &&
+            SUCCEEDED(adapter->GetDesc(&adapterDesc))) {
+            const auto selected = TheosRenderPipeline::Upscaler::ForAdapter(creation, adapterDesc.VendorId == 0x10DE);
+            if (selected.mode != TheosRenderPipeline::Upscaler::Sanitize(creation).mode) {
+                logger::info("[SourceUpscaler] vendor=0x{:04X} cannot run UpscaleType={}; using XeSS quality={} this session",
+                             adapterDesc.VendorId, creation.mode, selected.quality);
+                upscalerSettings->mUpscaleType = selected.mode;
+                upscalerSettings->mQualityLevel = selected.quality;
+                creation = selected;
+            }
+        }
+    }
+    sourceUpscalerSettings_.Initialize(creation);
     logger::info("[SourceUpscaler] startup size authority=QualityLevel mode={} "
                  "quality={}",
                  upscalerSettings->mUpscaleType, upscalerSettings->mQualityLevel);

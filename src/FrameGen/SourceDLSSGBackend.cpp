@@ -263,11 +263,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 		nativeFactory_ = a_factory;
 		// With Community Shaders, CS upscales; UpscaleType only selects TRP's own upscaler.
 		const bool communityShaders = CommunityShaders::Active();
+		// The host has already replaced DLSS/DLAA with XeSS on other GPUs.
 		const bool xeSSStartup = !communityShaders && RenderPipeline::GetSingleton()->mUpscaleType == ::XeSS;
-		if (!NvidiaAdapter() && UpscalerNeedsNvidia(communityShaders, xeSSStartup)) {
-			Check(DXGI_ERROR_UNSUPPORTED, "DLSS and DLAA need an NVIDIA GPU; set UpscaleType=4 (XeSS) in TheosRenderPipeline.ini");
-			return fault_;
-		}
 		const auto startup = SelectProviderStartup(xeSSStartup, NvidiaAdapter(), RequestedProvider());
 		RequestProvider(startup.requested);
 		provider_ = startup.presenter;
