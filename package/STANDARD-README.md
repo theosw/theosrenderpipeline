@@ -58,10 +58,11 @@ multipliers require native hardware/runtime support. RTX 30 requires Universal
 installed after Standard, even with frame generation off; Standard alone cannot
 initialize its host there. AMD and other non-NVIDIA GPUs can use experimental
 XeSS with Intel XeFG: before the first launch, set `UpscaleType=4` under
-`[Settings]` in `TheosRenderPipeline.ini`, and keep AMD Fluid Motion Frames,
-Anti-Lag and other frame-generation or upscaler mods off. NR requires NVIDIA RTX
-hardware. ENB is optional. Community Shaders and optional ReShade setup are
-described below.
+`[Settings]` in `TheosRenderPipeline.ini` (not needed with Community Shaders,
+which upscales with FSR on AMD while TRP starts XeFG), and keep AMD Fluid Motion
+Frames, Anti-Lag and other frame-generation or upscaler mods off. NR requires
+NVIDIA RTX hardware. ENB is optional. Community Shaders and optional ReShade
+setup are described below.
 
 ## Settings
 

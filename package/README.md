@@ -145,9 +145,10 @@ is required in DLSS/DLAA modes even with frame generation switched off.
 
 AMD and other non-NVIDIA GPUs can use experimental XeSS with Intel XeFG. Before
 the first launch, set `UpscaleType=4` under `[Settings]` in
-`TheosRenderPipeline.ini`. Keep AMD Fluid Motion Frames, Anti-Lag, Radeon Chill,
-Radeon Boost and other frame-generation or upscaler mods off. NR requires NVIDIA
-RTX hardware.
+`TheosRenderPipeline.ini`. With Community Shaders, CS upscales instead (FSR on
+AMD), TRP starts XeFG on its own and this setting is not needed. Keep AMD Fluid
+Motion Frames, Anti-Lag, Radeon Chill, Radeon Boost and other frame-generation
+or upscaler mods off. NR requires NVIDIA RTX hardware.
 
 ENB is optional. With Community Shaders, keep CS upscaling enabled and disable
 CS frame generation and CS Reflex. TRP provides FG/Reflex/NR while CS retains

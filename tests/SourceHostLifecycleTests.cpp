@@ -78,8 +78,15 @@ int main()
         Require(dlss.requested == provider && dlss.presenter == FrameGenerationProvider::NVIDIA, "existing DLSS startup bridge preserves requested provider");
         const auto amd = SelectProviderStartup(true, false, saved.provider);
         Require(amd.requested == FrameGenerationProvider::XeFG && amd.presenter == FrameGenerationProvider::XeFG, "non-NVIDIA XeSS startup never requires NVIDIA provider");
+        // Community Shaders upscales on its route, so TRP's XeSS is off there.
+        const auto amdCS = SelectProviderStartup(false, false, saved.provider);
+        Require(amdCS.requested == FrameGenerationProvider::XeFG && amdCS.presenter == FrameGenerationProvider::XeFG, "non-NVIDIA startup without TRP XeSS starts XeFG directly");
     }
+    Require(SelectProviderStartup(false, false, static_cast<FrameGenerationProvider>(42)).presenter == FrameGenerationProvider::XeFG, "invalid provider on non-NVIDIA still starts XeFG");
     Require(SelectProviderStartup(true, true, static_cast<FrameGenerationProvider>(42)).requested == FrameGenerationProvider::NVIDIA, "invalid provider keeps configured default policy");
+    Require(UpscalerNeedsNvidia(false, false), "TRP DLSS/DLAA upscaling needs NVIDIA hardware");
+    Require(!UpscalerNeedsNvidia(false, true), "TRP XeSS upscaling runs without NVIDIA hardware");
+    Require(!UpscalerNeedsNvidia(true, false), "the Community Shaders route leaves upscaling to CS");
     // 2026-10-03: XeSS start, NR on, then Intel -> NVIDIA failed MFG verification fatally.
     Require(NvidiaSwitchNeedsRestart(false, true), "NR-initialized NGX before Streamline refuses the live NVIDIA switch");
     Require(!NvidiaSwitchNeedsRestart(false, false), "XeSS start without NR still switches to NVIDIA live");
