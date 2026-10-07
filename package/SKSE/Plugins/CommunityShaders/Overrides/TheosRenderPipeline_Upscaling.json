@@ -1,0 +1,12 @@
+{
+    "frameGenerationMode": 0,
+    "frameGenerationForceEnable": 0,
+    "reflexLowLatencyMode": false,
+    "reflexLowLatencyBoost": false,
+    "_metadata": {
+        "modName": "Theo's Render Pipeline",
+        "version": "1.0.0",
+        "description": "Theo's Render Pipeline supplies frame generation and Reflex, so CS frame generation and CS Reflex stay off. CS upscaling is unchanged.",
+        "enabled": true
+    }
+}
