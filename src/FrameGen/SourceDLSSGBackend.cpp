@@ -474,7 +474,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (provider_ == FrameGenerationProvider::XeFG) {
 			if (!CheckXeFG(xefg_.Prepare(frameConstants_, XeFGFrameTimeConfiguration()))) { return false; }
 			recreateXeFG_ = xefg_.Snapshot().invertedDepth != (frameConstants_.depthInverted == sl::eTrue) ||
-				xefg_.Snapshot().experimentalMFG != XeFGConfiguration().experimentalMFG;
+				XeFGNeedsRecreation(xefg_.Snapshot().experimentalMFG, XeFGConfiguration());
 			return true; // Intel copies the final HUD-less image after late NR, at Present.
 		}
 		if (!Check(interop_.SignalD3D11(Work::FrameGeneration), "D3D11 guides ready")) { return false; }

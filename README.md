@@ -53,8 +53,9 @@ require NVIDIA RTX hardware; on NVIDIA, NR also works with XeSS.
 
 XeFG uses Intel's official x2 by default. The multiplier list also offers x3-x6,
 marked experimental, which patch `libxess_fg.dll` 1.3.1.78 in memory; no file
-is changed on disk. Apply recreates the Intel presenter without a restart when
-moving between x2 and x3-x6. Another runtime version, or a patch the check
+is changed on disk. The first Apply to x3-x6 recreates the Intel presenter
+without a restart; later changes, including back to x2, apply live. Another
+runtime version, or a patch the check
 refuses, stays at x2. If the patch state is uncertain, XeFG stops until
 the game restarts. **Send frame time to XeFG** (on by default) gives Intel's
 pacing the measured frame time, which it uses as a check on non-Intel GPUs.

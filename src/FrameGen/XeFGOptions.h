@@ -21,6 +21,14 @@ namespace TheosRenderPipeline
             ? std::clamp(value.generatedFrames, 1u, std::clamp(capacity, 1u, XeFGMaxGeneratedFrames))
             : 1u;
     }
+    // The unlock stays installed for the process once applied, and a presenter
+    // that tried it serves x2-x6 live: x2 bursts pass the pacing hooks untouched.
+    // Only a presenter created without trying it is rebuilt for x3-x6; a refused
+    // unlock keeps official x2 until restart rather than retrying every frame.
+    inline bool XeFGNeedsRecreation(bool unlockTried, XeFGOptions requested)
+    {
+        return requested.experimentalMFG && !unlockTried;
+    }
     inline std::uint32_t XeFGOutputInterval(int fps)
     {
         return fps > 0 ? static_cast<std::uint32_t>((1000000u + fps / 2) / fps) : 0u;
