@@ -60,6 +60,13 @@ refuses, stays at x2. If the patch state is uncertain, XeFG stops until
 the game restarts. **Send frame time to XeFG** (on by default) gives Intel's
 pacing the measured frame time, which it uses as a check on non-Intel GPUs.
 
+Switching provider pauses for under a second. On NVIDIA cards XeFG runs as
+general GPU work and costs noticeably more than DLSS-G, lowering the rendered
+frame rate; DLSS-G remains the better choice there. TRP caches Intel's compiled
+shaders in `%LOCALAPPDATA%\TheosRenderPipeline\PipelineCache`; the first
+generation after installing or a driver update can stutter briefly while they
+compile.
+
 XeFG accepts SDR and HDR10 output, including TRP HDR output. FP16/scRGB output
 is not supported; the current presenter is kept instead.
 

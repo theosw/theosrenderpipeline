@@ -143,7 +143,9 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& v
             }
             ImGui::EndCombo();
         }
-        DrawSettingsHelp("Apply switches after a completed world frame. Upscaling and NR keep their settings. NVIDIA DLSS-G requires NVIDIA hardware; XeFG uses XeLL latency reduction.");
+        DrawSettingsHelp("Apply switches after a completed world frame, with a pause of under a second. Upscaling and NR keep "
+                         "their settings. NVIDIA DLSS-G requires NVIDIA hardware; XeFG uses XeLL latency reduction. On NVIDIA "
+                         "cards XeFG costs noticeably more GPU time than DLSS-G; it is meant for other GPUs.");
         if (sourceBackend.RequestedProvider() != sourceBackend.Provider()) {
             ImGui::TextDisabled("Provider change pending; waiting for world inputs...");
         }
