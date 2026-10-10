@@ -2,6 +2,8 @@
 
 #include "SourceDLSSGBackend.h"
 
+#include <chrono>
+
 namespace TheosRenderPipeline::SourceDLSSG {
 
 SwapChain::SwapChain(
@@ -90,14 +92,27 @@ HRESULT STDMETHODCALLTYPE SwapChain::GetDevice(REFIID a_iid, void** a_device)
 	return backend_.Device11()->QueryInterface(a_iid, a_device);
 }
 
+// Times each host Present in three phases so a hitch names its stage.
+template<class InnerPresent> HRESULT SwapChain::PresentThrough(InnerPresent&& a_present)
+{
+	using Clock = std::chrono::steady_clock;
+	const auto ms = [](Clock::time_point a, Clock::time_point b) { return std::chrono::duration<double, std::milli>(b - a).count(); };
+	const auto start = Clock::now();
+	const auto prepared = BeginPresent();
+	if (FAILED(prepared)) { return prepared; }
+	const auto submitted = Clock::now();
+	const auto presented = a_present();
+	ObservePresentationFeedback(presented);
+	const auto returned = Clock::now();
+	const auto result = FinishPresent(presented);
+	backend_.ObservePresentTiming(ms(start, submitted), ms(submitted, returned), ms(returned, Clock::now()));
+	return result;
+}
+
 HRESULT STDMETHODCALLTYPE SwapChain::Present(UINT a_syncInterval, UINT a_flags)
 {
 	if (a_flags & DXGI_PRESENT_TEST) { return inner_ ? inner_->Present(a_syncInterval, a_flags) : E_UNEXPECTED; }
-	const auto prepared = BeginPresent();
-	if (FAILED(prepared)) { return prepared; }
-	const auto presented = inner_->Present(a_syncInterval, a_flags);
-	ObservePresentationFeedback(presented);
-	return FinishPresent(presented);
+	return PresentThrough([&] { return inner_->Present(a_syncInterval, a_flags); });
 }
 
 HRESULT STDMETHODCALLTYPE SwapChain::GetBuffer(UINT a_buffer, REFIID a_iid, void** a_surface)
@@ -198,11 +213,7 @@ HRESULT STDMETHODCALLTYPE SwapChain::Present1(
 {
 	if (!inner1_) { return E_NOINTERFACE; }
 	if (a_flags & DXGI_PRESENT_TEST) { return inner1_->Present1(a_syncInterval, a_flags, a_parameters); }
-	const auto prepared = BeginPresent();
-	if (FAILED(prepared)) { return prepared; }
-	const auto presented = inner1_->Present1(a_syncInterval, a_flags, a_parameters);
-	ObservePresentationFeedback(presented);
-	return FinishPresent(presented);
+	return PresentThrough([&] { return inner1_->Present1(a_syncInterval, a_flags, a_parameters); });
 }
 
 BOOL STDMETHODCALLTYPE SwapChain::IsTemporaryMonoSupported()

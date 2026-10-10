@@ -260,6 +260,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 		}
 		logger::info("[ReShade] {}", ReShadeIntegration::Get().Status());
 		adapterVendor_ = adapterDesc.VendorId;
+		adapterDevice_ = adapterDesc.DeviceId;
+		if (FAILED(adapter->CheckInterfaceSupport(__uuidof(IDXGIDevice), &adapterDriver_))) { adapterDriver_ = {}; }
 		nativeFactory_ = a_factory;
 		// With Community Shaders, CS upscales; UpscaleType only selects TRP's own upscaler.
 		const bool communityShaders = CommunityShaders::Active();
@@ -324,7 +326,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (intelStartup) {
 			if (!CheckXeFG(xefg_.Probe(device12_.Get(), PluginPaths::IntelDirectory())) ||
 				!CheckXeFG(xefg_.Create(device12_.Get(), queue_.Get(), nativeFactory_.Get(), desc, true, &native, 0,
-					XeFGConfiguration()))) { return fault_; }
+					XeFGConfiguration(), IntelPipelines(xefgPipelines_, "xefg", xefg_.RuntimeModule())))) { return fault_; }
 			providerStatus_ = "Intel XeFG presenter; latency owner=XeLL";
 		} else if (!Check(streamlineFactory_->CreateSwapChain(queue_.Get(), &desc, &native), "Streamline swapchain")) { return fault_; }
 		retainedNative_ = native;
@@ -472,7 +474,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (provider_ == FrameGenerationProvider::XeFG) {
 			if (!CheckXeFG(xefg_.Prepare(frameConstants_, XeFGFrameTimeConfiguration()))) { return false; }
 			recreateXeFG_ = xefg_.Snapshot().invertedDepth != (frameConstants_.depthInverted == sl::eTrue) ||
-				xefg_.Snapshot().experimentalMFG != XeFGConfiguration().experimentalMFG;
+				XeFGNeedsRecreation(xefg_.Snapshot().experimentalMFG, XeFGConfiguration());
 			return true; // Intel copies the final HUD-less image after late NR, at Present.
 		}
 		if (!Check(interop_.SignalD3D11(Work::FrameGeneration), "D3D11 guides ready")) { return false; }
@@ -1103,7 +1105,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 		}
 		return provider == FrameGenerationProvider::XeFG ?
 			xefg_.Create(device12_.Get(), queue_.Get(), nativeFactory_.Get(), presenterDesc_,
-				frameConstants_.depthInverted == sl::eTrue, result, session_.Snapshot().frameIndex, XeFGConfiguration()) :
+				frameConstants_.depthInverted == sl::eTrue, result, session_.Snapshot().frameIndex, XeFGConfiguration(),
+				IntelPipelines(xefgPipelines_, "xefg", xefg_.RuntimeModule())) :
 			streamlineFactory_->CreateSwapChain(queue_.Get(), &presenterDesc_, result);
 	}
 	bool Backend::ApplyProviderSwitch(SwapChain& wrapper)
@@ -1128,6 +1131,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		retainedNative_ = replacement;
 		if (!Check(wrapper.AttachInner(replacement.Get()), "attach replacement presenter")) { return false; }
 		provider_ = next; recreateXeFG_ = providerSwitchPending_ = false;
+		presenterPresents_ = 0; presenterReplaced_ = true;
 		ResetPresentationFeedback();
 		transitionWarmupPresents_.store(TransitionWarmupPresents);
 		neuralHistory_.Invalidate();
@@ -1137,5 +1141,38 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (nvidiaNeedsPresent_) { providerStatus_ = "NVIDIA replacement waiting for first Present; Reflex suspended"; }
 		logger::info("[FrameGeneration] provider change complete {}; shared DLSS/NR resources retained", providerStatus_);
 		return true;
+	}
+	ID3D12PipelineLibrary* Backend::IntelPipelines(PipelineCache& cache, const char* name, HMODULE runtime)
+	{
+		if (!cache.Opened()) {
+			cache.Open(device12_.Get(), PipelineCacheFile(name, adapterVendor_, adapterDevice_, adapterDriver_, runtime));
+			logger::info("[PipelineCache] {} {}", name, cache.Status());
+		}
+		return cache.Library();
+	}
+	void Backend::ObservePresentTiming(double a_prepareMs, double a_presentMs, double a_finishMs)
+	{
+		++presenterPresents_;
+		// Intel stores pipelines as it first uses them; persist what has grown.
+		if (presenterPresents_ % 600 == 0) {
+			for (auto* cache : {&xefgPipelines_, &xessPipelines_}) {
+				const auto before = cache->Status();
+				cache->SaveIfGrown();
+				if (cache->Status() != before) { logger::info("[PipelineCache] {} {}", cache == &xefgPipelines_ ? "xefg" : "xess", cache->Status()); }
+			}
+		}
+		const bool replaced = std::exchange(presenterReplaced_, false);
+		const double total = a_prepareMs + a_presentMs + a_finishMs;
+		const auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
+			std::chrono::steady_clock::now().time_since_epoch()).count();
+		if (!slowPresent_.Admit(total, now)) { return; }
+		const bool intel = provider_ == FrameGenerationProvider::XeFG;
+		const auto& state = xefg_.Snapshot();
+		logger::warn("[Present] slow host Present total={:.1f} ms prepare={:.1f} present={:.1f} finish={:.1f} provider={} "
+			"presenterEpoch={} presentsSinceCreation={} presenterReplaced={} generation={} multiplier=x{} xellSleepMs={:.1f} "
+			"suppressedSinceLast={}",
+			total, a_prepareMs, a_presentMs, a_finishMs, ProviderName(provider_),
+			intel ? state.epoch : session_.Snapshot().presentationEpoch, presenterPresents_, replaced,
+			GenerationActive(), EffectiveMultiplier(), intel ? state.sleepMs : 0.0f, slowPresent_.TakeSuppressed());
 	}
 }

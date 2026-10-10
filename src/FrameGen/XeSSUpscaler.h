@@ -19,13 +19,15 @@ namespace TheosRenderPipeline
         HRESULT Open(ID3D12Device* device, const std::filesystem::path& directory);
         HRESULT QuerySize(UINT width, UINT height, int quality, FrameExtent& input);
         HRESULT Initialize(SourceDLSSG::Interop& transport, ID3D11Device* device,
-            FrameExtent output, int quality, DXGI_FORMAT format, bool invertedDepth = true);
+            FrameExtent output, int quality, DXGI_FORMAT format, bool invertedDepth = true,
+            ID3D12PipelineLibrary* pipelines = nullptr);
         HRESULT Evaluate(ID3D11DeviceContext* context, ID3D11Texture2D* color,
             ID3D11Texture2D* motion, ID3D11Texture2D* depth, ID3D11Texture2D* destination,
             float jitterX, float jitterY, bool reset, bool invertedDepth, float sharpness);
         HRESULT ReleaseAfterRetirement();
         FrameExtent InputSize() const { return input_; }
         bool Ready() const { return initialized_; }
+        HMODULE Module() const { return module_; }
         const std::string& Status() const { return status_; }
         std::uint64_t Frames() const { return frames_; }
         static xess_quality_settings_t Quality(int quality);
@@ -45,6 +47,7 @@ namespace TheosRenderPipeline
         XESS_FUNCTION(xessDestroyContext)
 #undef XESS_FUNCTION
         SourceDLSSG::Interop* transport_{};
+        ID3D12PipelineLibrary* pipelines_{}; // Owned by the backend for the process lifetime.
         Microsoft::WRL::ComPtr<ID3D11Device> device_;
         SourceDLSSG::SharedTexture color_, motion_, depth_, output_;
         D3D11FrameCopy::Depth depthCopy_;

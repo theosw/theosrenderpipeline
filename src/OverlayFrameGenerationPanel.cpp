@@ -47,7 +47,8 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& v
                           sourceState.frameLimitSubmittedUs
                               ? std::format("{:.1f} FPS", 1000000.0 / sourceState.frameLimitSubmittedUs).c_str()
                               : "Off");
-        const char* intelPath = sourceBackend.XeFGState().unlockReady ? "Experimental XeFG MFG" : "Intel XeFG x2";
+        const char* intelPath = sourceBackend.XeFGState().unlockReady && sourceBackend.XeFGState().generatedFrames > 1
+            ? "Experimental XeFG MFG" : "Intel XeFG x2";
         DrawSettingsValue("Path", intel                       ? intelPath
                                   : unlock.UsesTuringUnlock() ? "Turing MFG (experimental)"
                                   : unlock.UsesAmpereUnlock() ? "Ampere MFG (experimental)"
@@ -142,7 +143,9 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& v
             }
             ImGui::EndCombo();
         }
-        DrawSettingsHelp("Apply switches after a completed world frame. Upscaling and NR keep their settings. NVIDIA DLSS-G requires NVIDIA hardware; XeFG uses XeLL latency reduction.");
+        DrawSettingsHelp("Apply switches after a completed world frame, with a pause of under a second. Upscaling and NR keep "
+                         "their settings. NVIDIA DLSS-G requires NVIDIA hardware; XeFG uses XeLL latency reduction. On NVIDIA "
+                         "cards XeFG costs noticeably more GPU time than DLSS-G; it is meant for other GPUs.");
         if (sourceBackend.RequestedProvider() != sourceBackend.Provider()) {
             ImGui::TextDisabled("Provider change pending; waiting for world inputs...");
         }
@@ -190,8 +193,8 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& v
             }
             if (editIntel)
             {
-                DrawSettingsHelp("x2 is Intel's official mode. x3-x6 patch Intel's runtime in memory and are experimental; "
-                                 "Apply recreates the Intel presenter when switching between x2 and x3-x6.");
+                DrawSettingsHelp("x2 is Intel's official mode. x3-x6 patch Intel's runtime in memory and are experimental. "
+                                 "The first Apply to x3-x6 recreates the Intel presenter; later multiplier changes apply live.");
             }
             if (!editIntel)
             {

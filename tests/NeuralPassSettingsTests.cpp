@@ -31,6 +31,10 @@ int main()
 	Require(XeFGCount({false, 3}, 3) == 1 && XeFGCount({true, 3}, 1) == 1, "disabled or refused MFG retains x2");
 	Require(XeFGCount({true, 3}, 3) == 3 && XeFGCount({true, 2}, 3) == 2, "separate XeFG x3/x4 counts");
 	Require(XeFGCount({true, 5}, 5) == 5 && XeFGCount({true, 5}, 3) == 3, "x6 respects admitted capacity");
+	Require(XeFGNeedsRecreation(false, {true, 3}), "x3-x6 on a presenter created without the unlock recreates it");
+	Require(!XeFGNeedsRecreation(true, {false, 1}) && !XeFGNeedsRecreation(true, {true, 3}),
+		"a presenter that tried the unlock serves x2-x6 live, including a refused unlock at x2");
+	Require(!XeFGNeedsRecreation(false, {false, 1}), "official x2 never recreates");
 	Require(XeFGCount({false, 5}, 5) == 1 && XeFGCount({true, 5}, 0) == 1,
 		"resident unlock does not defeat disable or absent capacity");
 	Require(SanitizeXeFG({true, 99}).generatedFrames == 5 && SanitizeXeFG({true, 0}).generatedFrames == 1,

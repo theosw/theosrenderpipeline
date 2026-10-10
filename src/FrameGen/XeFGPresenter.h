@@ -38,7 +38,7 @@ namespace TheosRenderPipeline
         void SetLogger(void (*callback)(const char*)) { log_ = callback; }
         HRESULT Create(ID3D12Device* device, ID3D12CommandQueue* queue, IDXGIFactory* factory,
             const DXGI_SWAP_CHAIN_DESC& desc, bool inverted, IDXGISwapChain** swapchain,
-            std::uint32_t lastApplicationFrame = 0, XeFGOptions options = {});
+            std::uint32_t lastApplicationFrame = 0, XeFGOptions options = {}, ID3D12PipelineLibrary* pipelines = nullptr);
         HRESULT BeginFrame();
         // frameTime sends the measured interval between application frames as
         // frameRenderTime; otherwise Intel uses its own estimate.
@@ -58,6 +58,7 @@ namespace TheosRenderPipeline
         // retires. A failure leaves context handles retained and stops replacement.
         HRESULT Destroy();
         bool Initialized() const { return initialized_; }
+        HMODULE RuntimeModule() const { return fgModule_; }
         void ResetHistory() { needsReset_ = true; snapshot_.prepared = false; }
         const XeFGSnapshot& Snapshot() const { return snapshot_; }
         const std::string& Status() const { return status_; }
@@ -72,6 +73,7 @@ namespace TheosRenderPipeline
         bool apiReady_{};
         HMODULE fgModule_{}, llModule_{};
         std::filesystem::path directory_;
+        ID3D12Device* admittedDevice_{}; // Identity only; the backend owns the device.
 #define TRP_FG_FUNCTION(name) decltype(&::name) name##_{};
 #define TRP_LL_FUNCTION(name) decltype(&::name) name##_{};
         TRP_FG_FUNCTION(xefgSwapChainGetVersion)

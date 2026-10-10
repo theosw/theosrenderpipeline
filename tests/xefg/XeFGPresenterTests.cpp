@@ -190,7 +190,10 @@ int wmain(int argc, wchar_t** argv)
                 // rejected; later rounds provide none, leaving AUTO to extract from the frame.
                 auto* ui = round == 0 ? (frame < 45 ? input.ui.texture12.Get() : input.depth.texture12.Get()) : nullptr;
                 const bool uiExpected = enable && round == 0 && frame < 45;
-                const unsigned count = experimental ? std::min(1u + frame / 24u, maximum) : 1u;
+                // Round 0 also drops back to x2 and up to x4 on the same unlocked presenter,
+                // as the backend does after the first unlock instead of recreating it.
+                const unsigned rising = std::min(1u + frame / 18u, maximum);
+                const unsigned count = !experimental ? 1u : round == 0 && frame >= 80 ? (frame < 96 ? 1u : 3u) : rising;
                 Check(presenter.BeforePresent(list, input.motion.texture12.Get(), input.depth.texture12.Get(),
                           input.hudless.texture12.Get(), ui, enable, true, profile ? 0 : 60, count),
                     "production preparation");
@@ -225,6 +228,9 @@ int wmain(int argc, wchar_t** argv)
                     "opt-in capacity, including disable after resident unlock");
                 if (expectRefusal)
                     Require(!state.unlockReady && state.generatedFrames == 1, "refused unlock retains official x2");
+                if (experimental && !expectRefusal && round == 0 && (frame == 90 || frame == 105))
+                    Require(state.maxGeneratedFrames == maximum && state.generatedFrames == (frame == 90 ? 1u : 3u),
+                        "unlocked presenter returns to x2 and back up live, keeping its capacity");
                 if (enable && state.framesPresented == state.generatedFrames + 1) {
                     ++generated;
                     ++generatedCounts[state.generatedFrames];

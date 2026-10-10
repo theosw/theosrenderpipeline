@@ -18,6 +18,8 @@
 #include "FrameGenerationProvider.h"
 #include "XeFGPresenter.h"
 #include "XeSSUpscaler.h"
+#include "SlowPresentGate.h"
+#include "PipelineCache.h"
 #if defined(ARP_DEVELOPER_DIAGNOSTICS)
 #include "FrameGen/SourceOutputCapture.h"
 #endif
@@ -58,6 +60,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 		unsigned EffectiveMultiplier() const { return provider_ == FrameGenerationProvider::XeFG ? xefg_.Snapshot().generatedFrames+1 : session_.Snapshot().options.numFramesToGenerate + 1; }
 		std::uint32_t FrameIndex() const { return provider_ == FrameGenerationProvider::XeFG ? xefg_.Snapshot().frameId : nvidiaNeedsPresent_ ? xefg_.Snapshot().frameId + 1 : session_.Snapshot().frameIndex; }
 		bool ApplyProviderSwitch(SwapChain& wrapper);
+		// CPU time of one host Present split into its phases: input/output
+		// recording, the presenter's own Present, and retirement/replacement.
+		void ObservePresentTiming(double prepareMs, double presentMs, double finishMs);
 		// After AfterPresent: a switch will replace the presenter at this boundary.
 		bool ProviderSwitchPending() const { return providerSwitchPending_; }
 		void ConfigureMFGUnlock(bool requested) { if (!attempted_) { mfgUnlock_.Configure(requested); } }
@@ -153,6 +158,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 		ID3D12CommandQueue* Queue() const { return queue_.Get(); }
 		Interop& Transport() { return interop_; }
 		XeSSUpscaler& XeSS() { return xess_; }
+		// Session pipeline library for XeSS initialization, opened on first use.
+		ID3D12PipelineLibrary* XeSSPipelines() { return IntelPipelines(xessPipelines_, "xess", xess_.Module()); }
 		const XeSSUpscaler& XeSS() const { return xess_; }
 		ID3D12Device* Device12() const { return device12_.Get(); }
 		bool NvidiaAdapter() const { return adapterVendor_ == 0x10DE; }
@@ -227,6 +234,13 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// Per-window CPU samples for the input-reuse A/B; logged and cleared every 600 presents.
 		std::vector<float> xefgReuseMs_, xefgSleepMs_;
 		bool xefgReuseWindowGpu_{};
+		SlowPresentGate slowPresent_;
+		ID3D12PipelineLibrary* IntelPipelines(PipelineCache& cache, const char* name, HMODULE runtime);
+		PipelineCache xefgPipelines_, xessPipelines_;
+		UINT adapterDevice_{};
+		LARGE_INTEGER adapterDriver_{};
+		std::uint64_t presenterPresents_{}; // Since the current presenter was created.
+		bool presenterReplaced_{}; // ApplyProviderSwitch replaced it during this Present.
 		std::atomic<int> outputFPSLimit_{ 0 };
 		mutable std::mutex presentationFeedbackMutex_;
 		PresentationFeedbackTracker presentationFeedback_;

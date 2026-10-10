@@ -111,6 +111,7 @@ set(ARP_BASELINE_SOURCES
     src/FrameGen/SourceDLSSGNeuralSecondPass.inl
     src/FrameGen/NeuralRenderingTuning.h
     src/FrameGen/SourceDLSSGBackend.cpp
+    src/FrameGen/PipelineCache.cpp
     src/FrameGen/XeFGPresenter.cpp
     src/FrameGen/XeFGUnlock.cpp
     src/FrameGen/XeSSUpscaler.cpp
