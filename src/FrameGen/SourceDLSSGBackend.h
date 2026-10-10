@@ -19,6 +19,7 @@
 #include "XeFGPresenter.h"
 #include "XeSSUpscaler.h"
 #include "SlowPresentGate.h"
+#include "PipelineCache.h"
 #if defined(ARP_DEVELOPER_DIAGNOSTICS)
 #include "FrameGen/SourceOutputCapture.h"
 #endif
@@ -157,6 +158,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 		ID3D12CommandQueue* Queue() const { return queue_.Get(); }
 		Interop& Transport() { return interop_; }
 		XeSSUpscaler& XeSS() { return xess_; }
+		// Session pipeline library for XeSS initialization, opened on first use.
+		ID3D12PipelineLibrary* XeSSPipelines() { return IntelPipelines(xessPipelines_, "xess", xess_.Module()); }
 		const XeSSUpscaler& XeSS() const { return xess_; }
 		ID3D12Device* Device12() const { return device12_.Get(); }
 		bool NvidiaAdapter() const { return adapterVendor_ == 0x10DE; }
@@ -232,6 +235,10 @@ namespace TheosRenderPipeline::SourceDLSSG
 		std::vector<float> xefgReuseMs_, xefgSleepMs_;
 		bool xefgReuseWindowGpu_{};
 		SlowPresentGate slowPresent_;
+		ID3D12PipelineLibrary* IntelPipelines(PipelineCache& cache, const char* name, HMODULE runtime);
+		PipelineCache xefgPipelines_, xessPipelines_;
+		UINT adapterDevice_{};
+		LARGE_INTEGER adapterDriver_{};
 		std::uint64_t presenterPresents_{}; // Since the current presenter was created.
 		bool presenterReplaced_{}; // ApplyProviderSwitch replaced it during this Present.
 		std::atomic<int> outputFPSLimit_{ 0 };

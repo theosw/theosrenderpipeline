@@ -52,7 +52,7 @@ namespace TheosRenderPipeline
         input = {render.x, render.y}; return S_OK;
     }
     HRESULT XeSSUpscaler::Initialize(SourceDLSSG::Interop& transport, ID3D11Device* device,
-        FrameExtent output, int quality, DXGI_FORMAT format, bool invertedDepth)
+        FrameExtent output, int quality, DXGI_FORMAT format, bool invertedDepth, ID3D12PipelineLibrary* pipelines)
     {
         if (!context_ || !device || initialized_) { return E_UNEXPECTED; }
         // Skyrim's SDR source is RGBA8. HDR output remains a later, separate stage.
@@ -61,10 +61,12 @@ namespace TheosRenderPipeline
             status_ = "XeSS requires RGBA8 or RGBA16F producer"; return DXGI_ERROR_UNSUPPORTED;
         }
         transport_ = &transport; device_ = device; outputSize_ = output; quality_ = quality; invertedDepth_ = invertedDepth;
+        pipelines_ = pipelines;
         auto hr = QuerySize(output.width, output.height, quality, input_);
         if (FAILED(hr)) { return hr; }
         xess_d3d12_init_params_t init{};
         init.outputResolution = {output.width, output.height}; init.qualitySetting = Quality(quality);
+        init.pPipelineLibrary = pipelines_;
         init.initFlags = (invertedDepth ? XESS_INIT_FLAG_INVERTED_DEPTH : 0) |
             (format == DXGI_FORMAT_R8G8B8A8_UNORM ? XESS_INIT_FLAG_LDR_INPUT_COLOR : 0);
         if (FAILED(hr = Result(xessD3D12Init_(context_, &init), "initialize")) ||
@@ -114,6 +116,7 @@ namespace TheosRenderPipeline
             auto hr = transport_->SignalD3D11(SourceDLSSG::Work::Upscaling);
             if (FAILED(hr) || FAILED(hr = transport_->Drain())) { return hr; }
             xess_d3d12_init_params_t init{}; init.outputResolution = {outputSize_.width, outputSize_.height};
+            init.pPipelineLibrary = pipelines_;
             init.qualitySetting = Quality(quality_); init.initFlags = (invertedDepth ? XESS_INIT_FLAG_INVERTED_DEPTH : 0) |
                 (output_.desc.Format == DXGI_FORMAT_R8G8B8A8_UNORM ? XESS_INIT_FLAG_LDR_INPUT_COLOR : 0);
             if (FAILED(hr = Result(xessD3D12Init_(context_, &init), "depth convention reinit"))) { return hr; }

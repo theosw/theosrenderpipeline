@@ -328,7 +328,7 @@ bool NvidiaHost::InitializeSourceUpscaler(const D3D11_TEXTURE2D_DESC& a_outputDe
         auto& backend = TheosRenderPipeline::SourceDLSSG::Backend::Get();
         const auto creation = sourceUpscalerSettings_.BeginSubmission();
         const auto hr = backend.XeSS().Initialize(backend.Transport(), device_.Get(),
-            {outputWidth_, outputHeight_}, creation.AllocationQuality(), a_outputDesc.Format);
+            {outputWidth_, outputHeight_}, creation.AllocationQuality(), a_outputDesc.Format, true, backend.XeSSPipelines());
         sourceUpscalerSettings_.Completed(SUCCEEDED(hr));
         if (FAILED(hr)) { status_ = std::format("XeSS initialization failed: {} (0x{:08X})", backend.XeSS().Status(), static_cast<unsigned>(hr)); return false; }
         xeSSActive_ = upscalerReady_ = true;

@@ -104,7 +104,8 @@ namespace TheosRenderPipeline
         return hr;
     }
     HRESULT XeFGPresenter::Create(ID3D12Device* device, ID3D12CommandQueue* queue, IDXGIFactory* factory,
-        const DXGI_SWAP_CHAIN_DESC& desc, bool inverted, IDXGISwapChain** swapchain, std::uint32_t lastApplicationFrame, XeFGOptions options)
+        const DXGI_SWAP_CHAIN_DESC& desc, bool inverted, IDXGISwapChain** swapchain, std::uint32_t lastApplicationFrame, XeFGOptions options,
+        ID3D12PipelineLibrary* pipelines)
     {
         if (!swapchain) { return E_POINTER; }
         *swapchain = nullptr;
@@ -166,6 +167,9 @@ namespace TheosRenderPipeline
         // Present with E_FAIL ("UI mode requirements ... not met").
         init.uiMode = XEFG_SWAPCHAIN_UI_MODE_AUTO;
         init.initFlags = inverted ? XEFG_SWAPCHAIN_INIT_FLAG_INVERTED_DEPTH : 0;
+        // Shared across this session's presenters: a recreated one loads the
+        // pipelines an earlier one stored instead of compiling them again.
+        init.pPipelineLibrary = pipelines;
         Microsoft::WRL::ComPtr<IDXGIFactory2> factory2;
         if (FAILED(hr = factory->QueryInterface(IID_PPV_ARGS(&factory2)))) { return hr; }
         Trace("initialize native swapchain from descriptor");
