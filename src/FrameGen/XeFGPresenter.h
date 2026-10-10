@@ -73,6 +73,7 @@ namespace TheosRenderPipeline
         bool apiReady_{};
         HMODULE fgModule_{}, llModule_{};
         std::filesystem::path directory_;
+        ID3D12Device* admittedDevice_{}; // Identity only; the backend owns the device.
 #define TRP_FG_FUNCTION(name) decltype(&::name) name##_{};
 #define TRP_LL_FUNCTION(name) decltype(&::name) name##_{};
         TRP_FG_FUNCTION(xefgSwapChainGetVersion)

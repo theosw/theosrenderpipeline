@@ -90,6 +90,8 @@ namespace TheosRenderPipeline
     {
         auto hr = Load(directory);
         if (FAILED(hr) || !device) { return FAILED(hr) ? hr : E_POINTER; }
+        // Admission does not change within a session; skip another SDK context.
+        if (device == admittedDevice_) { return S_OK; }
         D3D12_FEATURE_DATA_SHADER_MODEL sm{D3D_SHADER_MODEL_6_4};
         hr = device->CheckFeatureSupport(D3D12_FEATURE_SHADER_MODEL, &sm, sizeof(sm));
         if (FAILED(hr) || sm.HighestShaderModel < D3D_SHADER_MODEL_6_4) { status_ = "SM6.4 unavailable"; return DXGI_ERROR_UNSUPPORTED; }
@@ -101,6 +103,7 @@ namespace TheosRenderPipeline
         const auto destroyed = FG(xefgSwapChainDestroy_(fg_), "destroy probe");
         if (FAILED(destroyed)) { return destroyed; } // Retain handle on failure.
         fg_ = nullptr;
+        if (SUCCEEDED(hr)) { admittedDevice_ = device; }
         return hr;
     }
     HRESULT XeFGPresenter::Create(ID3D12Device* device, ID3D12CommandQueue* queue, IDXGIFactory* factory,
