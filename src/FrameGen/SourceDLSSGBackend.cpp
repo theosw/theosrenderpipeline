@@ -1128,6 +1128,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		retainedNative_ = replacement;
 		if (!Check(wrapper.AttachInner(replacement.Get()), "attach replacement presenter")) { return false; }
 		provider_ = next; recreateXeFG_ = providerSwitchPending_ = false;
+		presenterPresents_ = 0; presenterReplaced_ = true;
 		ResetPresentationFeedback();
 		transitionWarmupPresents_.store(TransitionWarmupPresents);
 		neuralHistory_.Invalidate();
@@ -1137,5 +1138,22 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (nvidiaNeedsPresent_) { providerStatus_ = "NVIDIA replacement waiting for first Present; Reflex suspended"; }
 		logger::info("[FrameGeneration] provider change complete {}; shared DLSS/NR resources retained", providerStatus_);
 		return true;
+	}
+	void Backend::ObservePresentTiming(double a_prepareMs, double a_presentMs, double a_finishMs)
+	{
+		++presenterPresents_;
+		const bool replaced = std::exchange(presenterReplaced_, false);
+		const double total = a_prepareMs + a_presentMs + a_finishMs;
+		const auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
+			std::chrono::steady_clock::now().time_since_epoch()).count();
+		if (!slowPresent_.Admit(total, now)) { return; }
+		const bool intel = provider_ == FrameGenerationProvider::XeFG;
+		const auto& state = xefg_.Snapshot();
+		logger::warn("[Present] slow host Present total={:.1f} ms prepare={:.1f} present={:.1f} finish={:.1f} provider={} "
+			"presenterEpoch={} presentsSinceCreation={} presenterReplaced={} generation={} multiplier=x{} xellSleepMs={:.1f} "
+			"suppressedSinceLast={}",
+			total, a_prepareMs, a_presentMs, a_finishMs, ProviderName(provider_),
+			intel ? state.epoch : session_.Snapshot().presentationEpoch, presenterPresents_, replaced,
+			GenerationActive(), EffectiveMultiplier(), intel ? state.sleepMs : 0.0f, slowPresent_.TakeSuppressed());
 	}
 }

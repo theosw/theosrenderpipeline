@@ -107,6 +107,7 @@ private:
 	std::array<SharedTexture, 2> buffers_;
 	std::array<Microsoft::WRL::ComPtr<ID3D12Resource>, 2> nativeBuffers_;
 	HRESULT BeginPresent();
+	template<class InnerPresent> HRESULT PresentThrough(InnerPresent&& a_present);
 	HRESULT FinishPresent(HRESULT a_presented);
 	HRESULT StartHDROutput(HRESULT a_presented);
 	void ObservePresentationFeedback(HRESULT a_presentResult);

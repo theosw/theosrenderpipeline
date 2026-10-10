@@ -1,5 +1,6 @@
 #include "FrameGen/SourceHostLifecycle.h"
 #include "FrameGen/SourceDLSSGSettings.h"
+#include "FrameGen/SlowPresentGate.h"
 #include <SimpleIni.h>
 #include <cstdio>
 #include <cstdlib>
@@ -87,5 +88,14 @@ int main()
     Require(NvidiaSwitchNeedsRestart(false, true), "NR-initialized NGX before Streamline refuses the live NVIDIA switch");
     Require(!NvidiaSwitchNeedsRestart(false, false), "XeSS start without NR still switches to NVIDIA live");
     Require(!NvidiaSwitchNeedsRestart(true, true), "Streamline initialized before NR keeps live switching");
-    std::puts("PASS host failure retention, resize/destruction ordering and saved provider startup");
+    {
+        SlowPresentGate gate;
+        Require(!gate.Admit(99.9, 0), "a Present under 100 ms is not reported");
+        Require(gate.Admit(100.0, 1000), "the first slow Present is reported");
+        Require(!gate.Admit(250.0, 1200) && !gate.Admit(300.0, 1499), "slow Presents within 500 ms are counted, not logged");
+        Require(!gate.Admit(50.0, 1450), "fast Presents are neither logged nor counted");
+        Require(gate.Admit(120.0, 1500) && gate.TakeSuppressed() == 2, "the next line reports the slow Presents it skipped");
+        Require(gate.TakeSuppressed() == 0, "the skipped count resets once reported");
+    }
+    std::puts("PASS host failure retention, resize/destruction ordering, saved provider startup and slow Present reporting");
 }
