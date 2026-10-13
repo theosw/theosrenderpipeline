@@ -1,5 +1,6 @@
 #include "ReShadeIntegration.h"
 #include "SourceDLSSGBackend.h"
+#include "XeFGLayerSelection.h"
 #include <PCH.h>
 #include "CommunityShaderIntegration.h"
 #include "SourceDLSSGSwapChain.h"
@@ -673,12 +674,15 @@ namespace TheosRenderPipeline::SourceDLSSG
 		}
 		const bool generationAllowed = enabled_ && !transitionBlocked && transitionWarmup == 0 && xefgSettled;
 		if (provider_ == FrameGenerationProvider::XeFG) {
-			const bool hdrLayers = hdrNative_ && hdrDisplay_ && hdrOutputPass_;
-			auto* intelHudless = hdrLayers ? hdrOutputPass_->HudlessTarget() : hudless_.texture12.Get();
-			// The same premultiplied UI layer DLSS-G recomposes. HDR output wrote
-			// its HDR10 copy only when both layers were composed this frame.
-			auto* intelUI = hdrLayers ? (hdrLayersComposed ? hdrOutputPass_->UITarget() : nullptr) :
-				(uiSource_ ? ui_.texture12.Get() : nullptr);
+			// The same premultiplied UI layer DLSS-G recomposes. The HDR targets are
+			// current only when HDR output composed this prepared frame; otherwise
+			// XeFG holds generation rather than interpolate an older world image.
+			const auto layers = SelectXeFGLayers(HDRSignalled(), hdrOutputPass_ != nullptr, prepared && hdrLayersComposed, uiSource_ != nullptr);
+			auto pick = [&](XeFGLayer layer, ID3D12Resource* hdr, ID3D12Resource* standard) {
+				return layer == XeFGLayer::HDR ? hdr : layer == XeFGLayer::Standard ? standard : nullptr;
+			};
+			auto* intelHudless = pick(layers.hudless, hdrOutputPass_ ? hdrOutputPass_->HudlessTarget() : nullptr, hudless_.texture12.Get());
+			auto* intelUI = pick(layers.ui, hdrOutputPass_ ? hdrOutputPass_->UITarget() : nullptr, ui_.texture12.Get());
 			// No FP16/scRGB reinterpretation. XeFG copies matching native-format layers.
 			const auto destination = a_destination->GetDesc();
 			const bool compatible = intelHudless && intelHudless->GetDesc().Format == destination.Format;

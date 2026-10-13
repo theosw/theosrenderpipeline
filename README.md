@@ -3,7 +3,7 @@
 Rendering integration for Skyrim: NVIDIA DLSS/DLAA and frame generation,
 experimental Intel XeSS upscaling and XeFG frame generation, optional Neural
 Rendering (NR), and native-resolution menus and HUD. Current version:
-**0.4.1**. See [CHANGELOG.md](CHANGELOG.md) for release changes.
+**0.4.2**. See [CHANGELOG.md](CHANGELOG.md) for release changes.
 
 An opt-in native camera reprojection research build is documented in
 [FRAMEWARP-EXPERIMENT.md](FRAMEWARP-EXPERIMENT.md). It is disabled by default.

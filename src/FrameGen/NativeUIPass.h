@@ -61,8 +61,11 @@ namespace TheosRenderPipeline
                 const float transparent[4]{};
                 context->ClearRenderTargetView(target.color, transparent);
             }
+            // Active before the bind: the render-target hook then gives the
+            // already-bound producer blend state its coverage correction.
+            active_ = true;
             BindTarget(context, target);
-            active_ = targetBound_ = true;
+            targetBound_ = true;
             frame_.EnteredUI();
             internalBind_ = false;
             return true;

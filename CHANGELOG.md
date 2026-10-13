@@ -1,3 +1,19 @@
+# 0.4.2
+
+- Fix an offset copy of the scene, and ghosting of bright lights while moving,
+  in generated frames while the camera is underwater. Skyrim writes no real
+  motion there; when nearly the whole frame disagrees with the camera's own
+  motion, frame generation and NR now use the camera's motion instead. This is
+  on by default on the vanilla and ENB routes. With **Advanced → Lab mode** on,
+  **Frame generation → Repair missing motion** turns it off until restart.
+  Community Shaders is unchanged.
+- Lab mode adds two Frame generation views: **Show only generated frames** for
+  DLSS-G (XeFG already had it), and **Show frame generation inputs**, which
+  displays the motion vectors, depth and camera-motion disagreement that frame
+  generation receives.
+
+Settings files, vendor runtimes and packaged defaults are unchanged from 0.4.1.
+
 # 0.4.1
 
 - Keep experimental Intel XeFG x3-x6 in Universal only. Standard retains XeSS

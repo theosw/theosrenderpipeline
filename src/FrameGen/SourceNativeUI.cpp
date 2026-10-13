@@ -89,7 +89,7 @@ void NvidiaHost::LogNativeUIState(const char* stage, bool mainOrLoading)
     logger::info("[NativeUIRoute] frame={} guides motion={} depth={} input={} reconstructed={} render={}x{} output={}x{} jitter=({:.4f},{:.4f}) pendingHistoryResets={}",
         presentCount_, static_cast<void*>(upscaler->mMotionVectors.mImage), static_cast<void*>(upscaler->mDepthBuffer.mImage),
         static_cast<void*>(gameTargets_.GameFacing()), static_cast<void*>(gameTargets_.UpscaleOutput()), renderWidth_, renderHeight_, outputWidth_, outputHeight_,
-        upscaler->mJitterOffsets[0], upscaler->mJitterOffsets[1], upscaler->mPendingHistoryResets);
+        upscaler->mJitterOffsets[0], upscaler->mJitterOffsets[1], upscaler->mPendingHistoryResets.load());
     const auto describe = [&](const char* role, UINT slot, ID3D11View* view) {
         if (!view) { return; }
         Microsoft::WRL::ComPtr<ID3D11Resource> resource;

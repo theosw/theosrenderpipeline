@@ -5,6 +5,7 @@
 #include "HookInstallation.h"
 #include "UpscalerSamplerHooks.h"
 #include "RenderPipeline.h"
+#include <atomic>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -14,6 +15,12 @@ static float mipLodBias = 0;
 static std::unordered_set<ID3D11SamplerState*> passThroughSamplers;
 static std::unordered_set<ID3D11SamplerState*> retainedPassThroughSamplers;
 static std::unordered_map<ID3D11SamplerState*, ID3D11SamplerState*> mappedSamplers;
+// The game's immediate context, as returned at device creation (ENB's wrapper
+// under ENB). The hooks patch a vtable every context of the driver shares; other
+// devices' contexts and TRP's own passes must never enter the caches above or
+// receive a sampler created on the game's device. Set once at install.
+static std::atomic<ID3D11DeviceContext*> gameContext{ nullptr };
+static bool GameContext(ID3D11DeviceContext* context) { return context && context == gameContext.load(std::memory_order_acquire); }
 
 decltype(&ID3D11DeviceContext::PSSetSamplers) ptrPSSetSamplers;
 decltype(&ID3D11DeviceContext::VSSetSamplers) ptrVSSetSamplers;
@@ -113,7 +120,7 @@ void WINAPI hk_ID3D11DeviceContext_PSSetSamplers(ID3D11DeviceContext* This, UINT
 {
     ID3D11SamplerState* samplers[D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT];
     (This->*ptrPSSetSamplers)(StartSlot, NumSamplers,
-                              SetMipLodBias(samplers, NumSamplers, ppSamplers) ? samplers : ppSamplers);
+                              GameContext(This) && SetMipLodBias(samplers, NumSamplers, ppSamplers) ? samplers : ppSamplers);
 }
 
 void WINAPI hk_ID3D11DeviceContext_VSSetSamplers(ID3D11DeviceContext* This, UINT StartSlot, UINT NumSamplers,
@@ -121,7 +128,7 @@ void WINAPI hk_ID3D11DeviceContext_VSSetSamplers(ID3D11DeviceContext* This, UINT
 {
     ID3D11SamplerState* samplers[D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT];
     (This->*ptrVSSetSamplers)(StartSlot, NumSamplers,
-                              SetMipLodBias(samplers, NumSamplers, ppSamplers) ? samplers : ppSamplers);
+                              GameContext(This) && SetMipLodBias(samplers, NumSamplers, ppSamplers) ? samplers : ppSamplers);
 }
 
 void WINAPI hk_ID3D11DeviceContext_GSSetSamplers(ID3D11DeviceContext* This, UINT StartSlot, UINT NumSamplers,
@@ -129,7 +136,7 @@ void WINAPI hk_ID3D11DeviceContext_GSSetSamplers(ID3D11DeviceContext* This, UINT
 {
     ID3D11SamplerState* samplers[D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT];
     (This->*ptrGSSetSamplers)(StartSlot, NumSamplers,
-                              SetMipLodBias(samplers, NumSamplers, ppSamplers) ? samplers : ppSamplers);
+                              GameContext(This) && SetMipLodBias(samplers, NumSamplers, ppSamplers) ? samplers : ppSamplers);
 }
 
 void WINAPI hk_ID3D11DeviceContext_HSSetSamplers(ID3D11DeviceContext* This, UINT StartSlot, UINT NumSamplers,
@@ -137,7 +144,7 @@ void WINAPI hk_ID3D11DeviceContext_HSSetSamplers(ID3D11DeviceContext* This, UINT
 {
     ID3D11SamplerState* samplers[D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT];
     (This->*ptrHSSetSamplers)(StartSlot, NumSamplers,
-                              SetMipLodBias(samplers, NumSamplers, ppSamplers) ? samplers : ppSamplers);
+                              GameContext(This) && SetMipLodBias(samplers, NumSamplers, ppSamplers) ? samplers : ppSamplers);
 }
 
 void WINAPI hk_ID3D11DeviceContext_DSSetSamplers(ID3D11DeviceContext* This, UINT StartSlot, UINT NumSamplers,
@@ -145,7 +152,7 @@ void WINAPI hk_ID3D11DeviceContext_DSSetSamplers(ID3D11DeviceContext* This, UINT
 {
     ID3D11SamplerState* samplers[D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT];
     (This->*ptrDSSetSamplers)(StartSlot, NumSamplers,
-                              SetMipLodBias(samplers, NumSamplers, ppSamplers) ? samplers : ppSamplers);
+                              GameContext(This) && SetMipLodBias(samplers, NumSamplers, ppSamplers) ? samplers : ppSamplers);
 }
 
 void WINAPI hk_ID3D11DeviceContext_CSSetSamplers(ID3D11DeviceContext* This, UINT StartSlot, UINT NumSamplers,
@@ -153,7 +160,7 @@ void WINAPI hk_ID3D11DeviceContext_CSSetSamplers(ID3D11DeviceContext* This, UINT
 {
     ID3D11SamplerState* samplers[D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT];
     (This->*ptrCSSetSamplers)(StartSlot, NumSamplers,
-                              SetMipLodBias(samplers, NumSamplers, ppSamplers) ? samplers : ppSamplers);
+                              GameContext(This) && SetMipLodBias(samplers, NumSamplers, ppSamplers) ? samplers : ppSamplers);
 }
 
 } // namespace
@@ -162,6 +169,7 @@ namespace TheosRenderPipeline
 {
 void InstallPixelSamplerHook(ID3D11DeviceContext* deviceContext)
 {
+    gameContext.store(deviceContext, std::memory_order_release);
     TheosRenderPipeline::InstallVTableHook(deviceContext, 10, &hk_ID3D11DeviceContext_PSSetSamplers, ptrPSSetSamplers);
 }
 

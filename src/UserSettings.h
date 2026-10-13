@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <io.h>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -136,12 +137,34 @@ inline SI_Error Load(CSimpleIniA& ini, const Paths& paths = GamePaths(), SI_Erro
     return result;
 }
 
+// Writes a same-directory temporary file, then replaces the target with it, so a
+// failed or interrupted save never leaves a truncated settings file and a failed
+// first-time migration leaves no file to block the next attempt. `write` is
+// fwrite-shaped; tests substitute a failing writer.
+template <class Write>
+bool WriteTextWith(const std::filesystem::path& path, const std::string& text, Write&& write)
+{
+    auto temporary = path;
+    temporary += L".saving";
+    std::error_code error;
+    FILE* file = nullptr;
+    if (_wfopen_s(&file, temporary.c_str(), L"wb") != 0 || !file) { return false; }
+    bool written = write(text.data(), 1, text.size(), file) == text.size() && std::fflush(file) == 0 &&
+        _commit(_fileno(file)) == 0;
+    written = std::fclose(file) == 0 && written;
+    if (written) { std::filesystem::rename(temporary, path, error); }
+    if (!written || error) {
+        std::filesystem::remove(temporary, error);
+        return false;
+    }
+    return true;
+}
+
 inline bool WriteText(const std::filesystem::path& path, const std::string& text)
 {
-    FILE* file = nullptr;
-    if (_wfopen_s(&file, path.c_str(), L"wb") != 0 || !file) { return false; }
-    const std::unique_ptr<FILE, decltype(&std::fclose)> output(file, &std::fclose);
-    return std::fwrite(text.data(), 1, text.size(), file) == text.size() && std::fflush(file) == 0;
+    return WriteTextWith(path, text, [](const void* data, std::size_t size, std::size_t count, FILE* file) {
+        return std::fwrite(data, size, count, file);
+    });
 }
 
 inline constexpr std::string_view Header =

@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.21)
 
 project(
 	TheosRenderPipeline
-	VERSION 0.4.1
+	VERSION 0.4.2
 	LANGUAGES C CXX
 )
 
@@ -449,6 +449,10 @@ if(TRP_BUILD_COMPATIBILITY_TESTS)
     target_include_directories(TRPFGMotionRepairTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
     target_link_libraries(TRPFGMotionRepairTests PRIVATE d3d11 d3dcompiler)
     add_test(NAME FGMotionRepair COMMAND TRPFGMotionRepairTests)
+    add_executable(TRPXeFGLayerSelectionTests tests/XeFGLayerSelectionTests.cpp)
+    target_compile_features(TRPXeFGLayerSelectionTests PRIVATE cxx_std_23)
+    target_include_directories(TRPXeFGLayerSelectionTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    add_test(NAME XeFGLayerSelection COMMAND TRPXeFGLayerSelectionTests)
     add_executable(TRPNeuralRatioColorTests tests/NeuralRatioColorTests.cpp)
     target_compile_features(TRPNeuralRatioColorTests PRIVATE cxx_std_23)
     target_compile_definitions(TRPNeuralRatioColorTests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)

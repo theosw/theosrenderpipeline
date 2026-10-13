@@ -108,6 +108,9 @@ namespace TheosRenderPipeline
             if (wanted != current.Get()) { setBlend(wanted, factors, mask); }
             correctedBound_ = wanted != producer_.Get();
         }
+        // Whether a render-target change must re-check the blend state: during the
+        // UI pass, including its entry bind, or while a corrected state is bound.
+        bool NeedsSync(bool uiPassActive) const { return uiPassActive || correctedBound_; }
         // A corrected state is bound, so a render-target change must re-check it.
         bool CorrectedBound() const { return correctedBound_; }
         std::size_t CorrectedCount() const

@@ -1,5 +1,6 @@
 #include "FrameGen/NativeUIBlend.h"
 #include "FrameGen/NativeUIBlendCoverage.h"
+#include "FrameGen/NativeUIPass.h"
 #include <d3d11sdklayers.h>
 #include <d3dcompiler.h>
 #include <array>
@@ -27,6 +28,23 @@ static const auto kSquared = Blend(D3D11_BLEND_SRC_ALPHA, D3D11_BLEND_INV_SRC_AL
 static const auto kImGui = Blend(D3D11_BLEND_SRC_ALPHA, D3D11_BLEND_INV_SRC_ALPHA, D3D11_BLEND_INV_SRC_ALPHA, D3D11_BLEND_ZERO);
 static const auto kCoverage = Blend(D3D11_BLEND_SRC_ALPHA, D3D11_BLEND_INV_SRC_ALPHA, D3D11_BLEND_ONE, D3D11_BLEND_INV_SRC_ALPHA);
 static const auto kAdditive = Blend(D3D11_BLEND_SRC_ALPHA, D3D11_BLEND_ONE, D3D11_BLEND_SRC_ALPHA, D3D11_BLEND_ONE);
+
+// UI pass entry through the production render-target gate: OMSetRenderTargets
+// is replaced in this context's vtable by the same check UpscalerHooks makes.
+namespace EntryHook
+{
+    using Setter = void(STDMETHODCALLTYPE*)(ID3D11DeviceContext*, UINT, ID3D11RenderTargetView* const*, ID3D11DepthStencilView*);
+    Setter original{};
+    NativeUIPass* pass{};
+    NativeUIBlendCoverage* coverage{};
+    ID3D11RenderTargetView* layer{};
+    void STDMETHODCALLTYPE SetTargets(ID3D11DeviceContext* c, UINT n, ID3D11RenderTargetView* const* t, ID3D11DepthStencilView* d)
+    {
+        original(c, n, t, d);
+        if (!coverage->NeedsSync(pass->Active())) { return; }
+        coverage->Sync(c, layer, [c](ID3D11BlendState* s, const FLOAT* f, UINT m) { c->OMSetBlendState(s, f, m); });
+    }
+}
 
 static void RuleCases()
 {
@@ -169,11 +187,37 @@ float4 PS(float4 p : SV_Position) : SV_Target { return colour; }
     c->ClearState(); coverage.Sync(c.Get(), layerRTV.Get(), setRaw);
     Require(!bound() && !coverage.CorrectedBound(), "ClearState is adopted, nothing is re-bound");
 
+    {
+        // A producer state bound before the UI pass, with no later setter (Skyrim's
+        // state cache skips redundant calls): entry binds its correction, and
+        // leaving the pass restores the producer's own state.
+        c->ClearState(); coverage.Reset();
+        auto producer = state(kSquared);
+        targets[0] = otherRTV.Get(); c->OMSetRenderTargets(1, targets, nullptr);
+        coverage.Producer(d.Get(), producer.Get(), false); c->OMSetBlendState(producer.Get(), nullptr, ~0u);
+        NativeUIPass pass;
+        EntryHook::pass = &pass; EntryHook::coverage = &coverage; EntryHook::layer = layerRTV.Get();
+        constexpr std::size_t kOMSetRenderTargets = 33;
+        auto** object = reinterpret_cast<void***>(c.Get()); void** saved = *object;
+        std::array<void*, 115> table{}; std::copy_n(saved, table.size(), table.begin()); // ID3D11DeviceContext methods
+        EntryHook::original = reinterpret_cast<EntryHook::Setter>(table[kOMSetRenderTargets]);
+        table[kOMSetRenderTargets] = reinterpret_cast<void*>(&EntryHook::SetTargets); *object = table.data();
+        const bool entered = pass.Enter(c.Get(), {layerRTV.Get(), nullptr, W, H, true});
+        const auto atEntry = bound();
+        pass.End(c.Get());
+        const auto afterEnd = bound();
+        *object = saved;
+        D3D11_BLEND_DESC desc{}; if (atEntry) { atEntry->GetDesc(&desc); }
+        Require(entered && atEntry && atEntry.Get() != producer.Get() && desc.RenderTarget[0].SrcBlendAlpha == D3D11_BLEND_ONE,
+            "UI pass entry corrects a blend state bound before it");
+        Require(afterEnd.Get() == producer.Get(), "leaving the UI pass restores the producer's state");
+    }
+
     c->ClearState(); c->Flush();
     for (UINT64 i = 0; i < info->GetNumStoredMessages(); ++i) {
         SIZE_T size{}; info->GetMessage(i, nullptr, &size); std::vector<char> bytes(size);
         auto* message = reinterpret_cast<D3D11_MESSAGE*>(bytes.data()); info->GetMessage(i, message, &size);
         Require(message->Severity > D3D11_MESSAGE_SEVERITY_ERROR, message->pDescription);
     }
-    std::puts("UI layer blend coverage rule/source-over a*a/ImGui a*(1-a)/additive/binding lifetime PASS");
+    std::puts("UI layer blend coverage rule/source-over a*a/ImGui a*(1-a)/additive/binding lifetime/pass entry PASS");
 }

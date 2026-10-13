@@ -36,6 +36,7 @@ set(ARP_BASELINE_SOURCES
     src/FrameGen/NativeUIComposition.h
     src/FrameGen/NativeUIBlend.h
     src/FrameGen/NativeUIBlend.cpp
+    src/FrameGen/XeFGLayerSelection.h
     src/FrameGen/FGInputDebugView.h
     src/FrameGen/FGInputDebugView.cpp
     src/FrameGen/FGMotionRepair.h

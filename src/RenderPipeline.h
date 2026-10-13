@@ -117,9 +117,10 @@ public:
 	// flush after loading screens, where stale accumulation looks wrong).
 	// Window is wide because the fader can close while the loading screen is
 	// still evaluating, burning reset frames before the world is visible.
-	int mPendingHistoryResets{ 0 };
+	// Set by menu events and SKSE messages, counted down by frame evaluation.
+	std::atomic<int> mPendingHistoryResets{ 0 };
 
-	void RequestHistoryReset() { mPendingHistoryResets = 15; }
+	void RequestHistoryReset() { mPendingHistoryResets.store(15, std::memory_order_relaxed); }
 	void SetFrameGenerationTransitionBlocked(bool a_blocked);
 	bool FrameGenerationTransitionBlocked() const
 	{

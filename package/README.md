@@ -1,4 +1,8 @@
-# Theo's Render Pipeline — Universal, 0.4.1
+# Theo's Render Pipeline — Universal, 0.4.2
+
+Version 0.4.2 fixes an offset copy and ghosting in generated frames while the
+camera is underwater, most visible in first person near lights. It applies to
+the vanilla and ENB routes; Community Shaders is unchanged.
 
 Version 0.4.1 saves user settings separately so updates preserve them, corrects
 UI alpha coverage, and adds startup troubleshooting hints. Experimental XeFG
@@ -58,7 +62,7 @@ This package includes the full renderer, configuration and sharpening shader.
 It requires no other Theo's Render Pipeline package. NVIDIA DLLs are supplied
 separately: download the SR/FG files below, and the NR runtime if you want NR.
 Alternatively, install Standard first and Universal after it in MO2; Standard
-0.4.1 supplies the runtime bundle (0.2.5 retains the same NVIDIA DLLs). The NR-enabled
+0.4.2 supplies the runtime bundle (0.2.5 retains the same NVIDIA DLLs). The NR-enabled
 Standard download supplies all eight runtimes, including NR. In that setup,
 skip the runtime downloads below.
 
@@ -221,7 +225,7 @@ an RTX 4080 SUPER: ordinary 6.8.0.2158 and full add-on 6.8.0.2155, with
 early NR and x4. Sky Reflection Fix's ReShade registration was excluded;
 Rumble passed a separate initial test. ReGrade+, combined third-party add-ons,
 Standard gameplay and CS with ReShade remain unverified. These were earlier
-development builds; the exact 0.4.1 package still needs its final game test.
+development builds; the exact 0.4.2 package still needs its final game test.
 
 Keep your existing ReShade installation, preset and hotkeys. **Disable SSE
 ReShade Helper.** TRP supplies the effects and overlay stages. Effects run after

@@ -128,14 +128,20 @@ namespace TheosRenderPipeline::NeuralRendering
 
 		~State()
 		{
+			bool released = true;
 			if (feature && releaseFeature) {
-				releaseFeature(feature);
+				const auto result = releaseFeature(feature);
+				released = NVSDK_NGX_SUCCEED(result);
+				if (!released) { logger::error("[DLSSNR Source] ReleaseFeature failed (0x{:08X}); keeping the runtime module loaded", static_cast<std::uint32_t>(result)); }
 			}
 			if (parameters && destroyParameters) {
-				destroyParameters(parameters);
+				const auto result = destroyParameters(parameters);
+				if (NVSDK_NGX_FAILED(result)) { logger::warn("[DLSSNR Source] DestroyParameters failed (0x{:08X})", static_cast<std::uint32_t>(result)); }
 			}
 			modulePathHook.reset();
-			if (module && ownsModule) {
+			// Unloading the runtime while a feature it failed to release may still
+			// run would leave its code unmapped; keep it for the process lifetime.
+			if (module && ownsModule && released) {
 				::FreeLibrary(module);
 			}
 		}

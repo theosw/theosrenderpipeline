@@ -202,7 +202,13 @@ bool DLSSBackend::IsDLSSAvailable()
 void DLSSBackend::ReleaseFeature()
 {
 	// Startup, resize and live replacement all enter after host retirement.
-	if (dlssHandle) { NVSDK_NGX_D3D11_ReleaseFeature(dlssHandle); }
+	if (dlssHandle) {
+		// The handle is not reused after a failed release; record the failure.
+		const auto released = NVSDK_NGX_D3D11_ReleaseFeature(dlssHandle);
+		if (!NGXSucceeded(released)) {
+			logger::error("[DLSSBackend] NGX ReleaseFeature failed (0x{:08X}); the feature may not have been freed", static_cast<std::uint32_t>(released));
+		}
+	}
 	ReleaseDirectDestinationUAV();
 	if (outputSRV) { outputSRV->Release(); }
 	if (sharpenUAV) { sharpenUAV->Release(); }

@@ -3,6 +3,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <format>
+#include <process.h>
 #include <fstream>
 #include <sstream>
 
@@ -27,7 +29,7 @@ static constexpr const char* Defaults =
 int main(int argc, char** argv)
 {
     Require(argc == 2, "packaged INI path");
-    const auto root = std::filesystem::temp_directory_path() / L"TRPUserSettingsTests";
+    const auto root = std::filesystem::temp_directory_path() / std::format(L"TRPUserSettingsTests-{}", _getpid());
     std::error_code error;
     std::filesystem::remove_all(root, error);
     std::filesystem::create_directories(root);
@@ -131,6 +133,25 @@ int main(int argc, char** argv)
         Require(UserSettings::Migrate(UserSettings::PackagedDefaults, fresh) == UserSettings::Migration::NotNeeded &&
             !UserSettings::Exists(fresh.user), "the shipped INI needs no migration");
     }
+    {   // A failed write keeps the previous file intact and leaves nothing behind.
+        const auto target = root / L"Durable.User.ini";
+        const auto temporary = root / L"Durable.User.ini.saving";
+        const std::string previous = "[Settings]\nQualityLevel=4\nUpscaleType=4\n";
+        Write(target, previous.c_str());
+        auto shortWrite = [](const void* data, std::size_t size, std::size_t count, FILE* file) {
+            return std::fwrite(data, size, count / 2, file);
+        };
+        Require(!UserSettings::WriteTextWith(target, "[Settings]\nQualityLevel=1\nUpscaleType=0\n", shortWrite),
+            "a short write reports failure");
+        Require(Read(target) == previous && !std::filesystem::exists(temporary),
+            "a short write keeps the previous settings byte for byte and removes its temporary file");
+        const auto fresh = root / L"Unwritten.User.ini";
+        Require(!UserSettings::WriteTextWith(fresh, "[Settings]\nQualityLevel=1\n", shortWrite) && !UserSettings::Exists(fresh),
+            "a failed first write creates no file, so a failed migration can retry");
+        const std::string next = "[Settings]\nQualityLevel=1\n";
+        Require(UserSettings::WriteText(target, next) && Read(target) == next && !std::filesystem::exists(temporary),
+            "a complete write replaces the file");
+    }
     std::filesystem::remove_all(root, error);
-    std::puts("PASS user settings merge order, fallback, save differences and one-time migration");
+    std::puts("PASS user settings merge order, fallback, save differences, one-time migration and failed-write durability");
 }

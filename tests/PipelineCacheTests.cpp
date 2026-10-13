@@ -7,6 +7,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <format>
+#include <process.h>
 #include <fstream>
 
 using Microsoft::WRL::ComPtr;
@@ -28,7 +30,7 @@ int main()
         Require(SUCCEEDED(factory->EnumWarpAdapter(IID_PPV_ARGS(&warp))), "WARP adapter");
         Require(SUCCEEDED(D3D12CreateDevice(warp.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device))), "WARP device");
     }
-    const auto root = std::filesystem::temp_directory_path() / L"TRPPipelineCacheTests";
+    const auto root = std::filesystem::temp_directory_path() / std::format(L"TRPPipelineCacheTests-{}", _getpid());
     std::error_code error;
     std::filesystem::remove_all(root, error);
     const auto file = root / L"nested" / L"xefg-test.bin";

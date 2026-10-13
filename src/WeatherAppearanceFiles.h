@@ -1,5 +1,6 @@
 #pragma once
 
+#include "UserSettings.h"
 #include "WeatherAppearanceINI.h"
 #include <SimpleIni.h>
 #include <filesystem>
@@ -90,7 +91,9 @@ inline PresetSave SavePresetFiles(Settings settings, const std::filesystem::path
         CSimpleIniA file;
         file.SetUnicode();
         StorePresetFile(file, preset);
-        if (file.SaveFile(path.c_str()) < 0) {
+        // Replaced atomically like the user settings: a failed write keeps the old preset.
+        std::string text;
+        if (file.Save(text) < 0 || !UserSettings::WriteText(path, text)) {
             result.written = false;
             result.errors.push_back(std::format("could not write preset file {}", name));
             continue;

@@ -3,6 +3,7 @@
 // Dynamic resolution control derived from PureDark's MIT-licensed
 // Skyrim-Upscaler (https://github.com/PureDark/Skyrim-Upscaler).
 
+#include <atomic>
 #include <PCH.h>
 
 #include <RE/BSGraphics.h>
@@ -35,7 +36,8 @@ public:
 	void         GetGameSettings();
 
 	// Menus that suspend temporal jitter and require a history reset.
-	bool reset = false;
+	// Written by menu events, read by every frame.
+	std::atomic_bool reset{ false };
 
 	void SetDRS(BSGraphics::State* a_state);
 

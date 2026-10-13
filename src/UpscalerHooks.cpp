@@ -603,7 +603,7 @@ void WINAPI hk_ID3D11DeviceContext_OMSetBlendState(ID3D11DeviceContext* This, ID
 static void SyncUIBlend(NvidiaHost* host, ID3D11DeviceContext* context)
 {
     auto& coverage = host->UIBlendCoverage();
-    if (!host->NativeUIPassActive() && !coverage.CorrectedBound()) { return; }
+    if (!coverage.NeedsSync(host->NativeUIPassActive())) { return; }
     coverage.Sync(context, host->CoverageUITarget(), [context](ID3D11BlendState* state, const FLOAT* factors, UINT mask) {
         (context->*ptrOMSetBlendState)(state, factors, mask);
     });
