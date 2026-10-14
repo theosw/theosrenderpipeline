@@ -8,6 +8,9 @@
 #include "../ScreenshotFile.h"
 #include "../RenderPipeline.h"
 #include "SourceFrameGeneration.h"
+#if defined(TRP_ENABLE_FRAMEWARP_EXPERIMENT)
+#include "../OverlayUI.h"
+#endif
 #include <d3dcompiler.h>
 #include <chrono>
 #if !defined(TRP_NO_NEURAL_RENDERING)
@@ -46,6 +49,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 				wait.target, wait.completedAtStart, wait.completedAtEnd, static_cast<std::uint32_t>(wait.result));
 		}
 		if (SUCCEEDED(a_result)) { return true; }
+#if defined(TRP_ENABLE_FRAMEWARP_EXPERIMENT)
+        frameWarp_.Suspend("native host operation failed"); frameWarpPrepared_ = false;
+#endif
 		if (routing.latch) {
 			fault_ = a_result;
 			status_ = std::format("{} failed HRESULT=0x{:08X}", a_operation, static_cast<std::uint32_t>(a_result));
@@ -417,6 +423,10 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (a_ui && !EnsureGuide(a_ui, ui_)) { return false; }
 		uiSource_ = a_ui;
 		frameConstants_ = a_constants;
+#if defined(TRP_ENABLE_FRAMEWARP_EXPERIMENT)
+        frameWarpPrepared_ = a_neuralEligible && a_hudless && a_ui && !TransitionBlocked();
+        frameWarpCameraQpc_ = fw::qpc_now();
+#endif
 		cameraAvailable_ = true;
 		const bool eligible = a_neuralEligible && !TransitionBlocked() && a_hudless &&
 			(a_ui || (neuralEvaluatedEarly_ && frameNeuralOptions_.worldOnly));
@@ -617,6 +627,36 @@ namespace TheosRenderPipeline::SourceDLSSG
 			if (rendererHDR) { RecordScreenshot(list, realSource, DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709); }
 			else { RecordScreenshot(list, a_destination, outputColorSpace); }
 		}
+#if defined(TRP_ENABLE_FRAMEWARP_EXPERIMENT)
+        auto* gameUI = RE::UI::GetSingleton();
+        const bool warpEligible = SUCCEEDED(outputResult) && prepared && frameWarpPrepared_ && cameraAvailable_ &&
+            !rendererHDR && !hdrEncoded && !hdrNative_ && outputColorSpace == DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709 &&
+            !SourceFrameGeneration::GetSingleton()->RuntimeInterpolationRequested() && !TransitionBlocked() &&
+            gameUI && !gameUI->GameIsPaused() && !OverlayUI::GetSingleton()->IsVisible();
+        fw::Camera warpCamera{};
+        static_assert(sizeof(warpCamera.view_to_clip) == sizeof(frameConstants_.cameraViewToClip));
+        std::memcpy(warpCamera.view_to_clip, &frameConstants_.cameraViewToClip, sizeof(warpCamera.view_to_clip));
+        std::memcpy(warpCamera.clip_to_view, &frameConstants_.clipToCameraView, sizeof(warpCamera.clip_to_view));
+        std::memcpy(warpCamera.clip_to_prev_clip, &frameConstants_.clipToPrevClip, sizeof(warpCamera.clip_to_prev_clip));
+        const auto vector = [](float* dst, const sl::float3& v) { dst[0] = v.x; dst[1] = v.y; dst[2] = v.z; };
+        vector(warpCamera.pos, frameConstants_.cameraPos); vector(warpCamera.up, frameConstants_.cameraUp);
+        vector(warpCamera.right, frameConstants_.cameraRight); vector(warpCamera.fwd, frameConstants_.cameraFwd);
+        warpCamera.near_plane = frameConstants_.cameraNear; warpCamera.far_plane = frameConstants_.cameraFar;
+        warpCamera.fov = frameConstants_.cameraFOV; warpCamera.aspect = frameConstants_.cameraAspectRatio;
+        warpCamera.jitter[0] = frameConstants_.jitterOffset.x; warpCamera.jitter[1] = frameConstants_.jitterOffset.y;
+        warpCamera.mvec_scale[0] = frameConstants_.mvecScale.x; warpCamera.mvec_scale[1] = frameConstants_.mvecScale.y;
+        warpCamera.depth_inverted = frameConstants_.depthInverted == sl::eTrue;
+        warpCamera.reset = frameConstants_.reset == sl::eTrue; warpCamera.valid = cameraAvailable_;
+        try {
+            // The stable HUD-less target now contains late NR, and the UI copy
+            // contains this frame's complete UI. No eager Streamline interception.
+            frameWarp_.Record(device12_.Get(), list, window_,
+                {a_destination, hudless_.texture12.Get(), ui_.texture12.Get(), depth_.texture12.Get(), motion_.texture12.Get()},
+                warpCamera, frameWarpCameraQpc_, warpEligible,
+                PluginPaths::Directory() / L"TheosRenderPipeline" / L"FrameWarp" / L"TRPFrameWarpPresenter.exe");
+        } catch (...) { frameWarp_.Suspend("FrameWarp preparation failed; normal presentation continues"); }
+        frameWarpPrepared_ = false; // one camera/guide bundle belongs to one completed frame
+#endif
 		const bool transitionBlocked = TransitionBlocked();
 		const auto transitionWarmup = transitionWarmupPresents_.load(std::memory_order_acquire);
 		// XeFG starts generating only once frames have settled after a new
@@ -653,6 +693,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 		}
 		if (!Check(outputResult, "record native output copy/conversion") ||
 			!Check(interop_.Submit(Work::SwapChain), "submit native output copy")) { return fault_; }
+#if defined(TRP_ENABLE_FRAMEWARP_EXPERIMENT)
+        frameWarp_.Submitted(queue_.Get());
+#endif
 		if (screenshotRecorded_) {
 			screenshotRecorded_ = false;
 			ScreenshotBoundary([&] {
@@ -712,7 +755,12 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// Preserve DXGI's actual failure before the session records its generic
 		// Present fault. Logs and subsequent calls must not replace device loss
 		// (or another native error) with an unexplained E_FAIL.
-		if (FAILED(a_result)) { Check(a_result, "native Present"); }
+		if (FAILED(a_result)) {
+#if defined(TRP_ENABLE_FRAMEWARP_EXPERIMENT)
+            frameWarp_.Suspend("native Present failed");
+#endif
+            Check(a_result, "native Present");
+        }
 		if (FAILED(a_result)) { return a_result; }
 		providerSwitchPending_ = PreflightProviderSwitch();
 		if (provider_ == FrameGenerationProvider::XeFG) {
@@ -858,6 +906,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 	bool Backend::Quiesce()
 	{
 		enabled_ = false;
+#if defined(TRP_ENABLE_FRAMEWARP_EXPERIMENT)
+        frameWarp_.Suspend("host quiescing"); frameWarpPrepared_ = false;
+#endif
 		ResetPresentationFeedback();
 		if (FAILED(fault_)) { return false; } // Never destroy a failed, unsubmitted NR recording.
 		if (!ready_) { return SUCCEEDED(interop_.Drain()); }
@@ -866,6 +917,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 		} else if (session_.Snapshot().stage != SessionStage::Stopped && !CheckSession(session_.Stop())) { return false; }
 		if (!Check(interop_.SignalD3D11(Work::SwapChain), "last D3D11 work before resize") ||
 			!Check(interop_.Drain(), "retire before resize")) { return false; }
+#if defined(TRP_ENABLE_FRAMEWARP_EXPERIMENT)
+        frameWarp_.Reset(true); // successful host drain covers every recorded capture copy
+#endif
 		ReleaseGuides();
 #if !defined(TRP_NO_NEURAL_RENDERING)
 		if (neuralPass_) {

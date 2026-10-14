@@ -109,6 +109,28 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& v
         }
         if (showDeveloperControls)
         {
+#if defined(TRP_ENABLE_FRAMEWARP_EXPERIMENT)
+            auto& warp = sourceBackend.ExperimentalFrameWarp();
+            bool warpEnabled = warp.Requested();
+            if (ImGui::Checkbox("Experimental camera reprojection (Lab)", &warpEnabled)) warp.Enable(warpEnabled);
+            DrawSettingsHelp("Session only. Requires frame generation off, SDR, and dedicated native UI. "
+                             "Uses XPAR's own presenter without ReShade. Pauses while settings or a paused menu are open. "
+                             "Close settings to start; disable here to return to native presentation. Game acceptance is pending.");
+            bool original = warp.Original();
+            if (ImGui::Checkbox("FrameWarp A/B: original image", &original)) warp.Original(original);
+            const auto ws = warp.Snapshot();
+            ImGui::TextWrapped("FrameWarp: %s", ws.message.c_str());
+            ImGui::Text("Sources %llu | skipped %llu | source %.1f / output %.1f fps",
+                static_cast<unsigned long long>(ws.published), static_cast<unsigned long long>(ws.dropped), ws.sourceFPS, ws.outputFPS);
+            ImGui::Text("Warp GPU %.2f ms | source age %.2f ms | mouse fit %s/%s",
+                ws.warpGPUMs, ws.sourceAgeMs, ws.calibratedX ? "ready" : "learning", ws.calibratedY ? "ready" : "learning");
+            if (ws.copyGPUSamples)
+                ImGui::Text("Native capture GPU %.3f ms average | %.3f ms max (%llu samples)",
+                    ws.copyGPUAverageMs, ws.copyGPUMaxMs, static_cast<unsigned long long>(ws.copyGPUSamples));
+            else ImGui::TextUnformatted("Native capture GPU timing: pending or unavailable");
+            DrawSettingsHelp("Presenter telemetry is available only after the helper runs. Source age and learned mouse timing "
+                             "are estimates; they do not measure physical input-to-photon latency. A capture fault requires host retirement or restart.");
+#endif
             auto& repair = TheosRenderPipeline::FGMotionRepair::Get();
             bool repairMotion = repair.Enabled();
             if (ImGui::Checkbox("Repair missing motion (Lab)", &repairMotion))
