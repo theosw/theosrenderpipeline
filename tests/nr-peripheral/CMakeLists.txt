@@ -49,7 +49,7 @@ if(TRP_NR_VENDOR_BENCHMARK)
     if(TRP_NR_ADA_KERNELS)
         set(nr_ada_sources ../../src/FrameGen/NeuralRuntimeKernels.cpp ../../src/FrameGen/NeuralRuntimeKernelPlan.cpp)
     endif()
-    add_executable(TRPNeuralPeripheralBenchmark VendorBenchmark.cpp
+    add_executable(TRPNeuralPeripheralBenchmark VendorBenchmark.cpp KernelProfiler.cpp
         ../../src/FrameGen/SourceDLSSGNeuralRendering.cpp
         ../../src/FrameGen/SourceDLSSGNeuralResolve.cpp
     ../../src/FrameGen/NeuralObjectBlend.cpp

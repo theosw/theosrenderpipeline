@@ -1,4 +1,6 @@
 #include "GPU.h"
+#include "KernelProfiler.h"
+#include <map>
 #include <numeric>
 #include <fstream>
 #include <nvsdk_ngx.h>
@@ -11,6 +13,9 @@ int wmain(int argc,wchar_t** argv){
     const bool twoPassCases = mode == L"passes" || coldStart;
     Require(mode == L"native" || mode == L"uniform" || mode == L"peripheral" || twoPassCases, "benchmark mode");
     const auto w=static_cast<unsigned>(std::stoul(argv[3])),h=static_cast<unsigned>(std::stoul(argv[4]));
+    const bool profileKernels=KernelProfiler::Install();
+    struct KernelTotal{double ms{},maxMs{};unsigned count{};std::uint32_t grid[3]{},block[3]{},shared{};};
+    std::map<std::string,KernelTotal> kernelTotals;unsigned profiledFrames=0;
     Require(w>=64 && h>=64 && w<=5120 && h<=2880,"bounded benchmark dimensions");
     GPU gpu(true);
     // The legacy benchmark supplies a warm loader. coldpasses exercises the
@@ -69,6 +74,7 @@ int wmain(int argc,wchar_t** argv){
             pass=std::make_unique<NeuralPass>(); // Last GPU.End completed every submission.
         }
         gpu.Begin();Check(Interop::RecordCopy(gpu.list.Get(),original.Get(),scene.Get()),"fresh scene");
+        if(profileKernels && frame>=10)KernelProfiler::BeginFrame();
         gpu.list->EndQuery(query.Get(),D3D12_QUERY_TYPE_TIMESTAMP,0);
         const bool recorded=pass->Record(gpu.device.Get(),gpu.list.Get(),frame%kCommandSlots,options,frame==0 || recreate,true,float(w),float(h),
             motion.Get(),depth.Get(),options.beforeUpscaling?nullptr:ui.Get(),scene.Get(),options.beforeUpscaling?nullptr:composed.Get(),frequency);
@@ -82,6 +88,13 @@ int wmain(int argc,wchar_t** argv){
         }
         gpu.list->EndQuery(query.Get(),D3D12_QUERY_TYPE_TIMESTAMP,1);
         gpu.list->ResolveQueryData(query.Get(),D3D12_QUERY_TYPE_TIMESTAMP,0,2,timestamps.Get(),0);gpu.End();
+        if(profileKernels && frame>=10){
+            ++profiledFrames;
+            for(const auto& s:KernelProfiler::EndFrame(frequency)){
+                auto& t=kernelTotals[s.name];t.ms+=s.ms;t.maxMs=(std::max)(t.maxMs,s.ms);++t.count;
+                std::copy_n(s.grid,3,t.grid);std::copy_n(s.block,3,t.block);t.shared=s.sharedBytes;
+            }
+        }
         if(recreate)std::printf("CASE frame=%u %s\n",frame,pass->Status().c_str());
         pass->RetireTelemetry();
         if(frame>=10){
@@ -118,6 +131,17 @@ int wmain(int argc,wchar_t** argv){
         TheosRenderPipeline::NeuralRendering::ModelExtent(w,options.reconstruction),TheosRenderPipeline::NeuralRendering::ModelExtent(h,options.reconstruction),
         total.size(),mean(total),mean(inference),changed);
     std::printf("STATE %s\n",pass->Status().c_str());
+    if(profileKernels){
+        std::printf("KERNELHOOK %s\n",KernelProfiler::Diagnostics().c_str());
+        std::vector<std::pair<std::string,KernelTotal>> sorted(kernelTotals.begin(),kernelTotals.end());
+        std::sort(sorted.begin(),sorted.end(),[](const auto& a,const auto& b){return a.second.ms>b.second.ms;});
+        double all=0;for(const auto& [n,t]:sorted)all+=t.ms;
+        std::printf("KERNELS frames=%u kernels=%zu sum_ms_per_frame=%.4f\n",profiledFrames,sorted.size(),profiledFrames?all/profiledFrames:0.0);
+        for(const auto& [n,t]:sorted)
+            std::printf("KERNEL %8.4f ms/frame %5.1f%% calls/frame=%.1f max=%.4f grid=%ux%ux%u block=%ux%ux%u shared=%u %s\n",
+                t.ms/profiledFrames,all>0?100.0*t.ms/all:0.0,double(t.count)/profiledFrames,t.maxMs,
+                t.grid[0],t.grid[1],t.grid[2],t.block[0],t.block[1],t.block[2],t.shared,n.c_str());
+    }
     for(size_t i=0;i<total.size();++i)std::printf("SAMPLE %zu %.6f %.6f\n",i,total[i],inference[i]);
     std::puts("CLEANUP begin: all frame work retired, releasing NeuralPass");
     std::fflush(stdout);
