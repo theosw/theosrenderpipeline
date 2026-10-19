@@ -25,6 +25,9 @@
 #if defined(ARP_DEVELOPER_DIAGNOSTICS)
 #include "FrameGen/SourceOutputCapture.h"
 #endif
+#if defined(TRP_ENABLE_FRAMEWARP_EXPERIMENT)
+#include "FrameWarpCapture.h"
+#endif
 #include <dxgi1_5.h>
 #include <vector>
 #include <filesystem>
@@ -165,6 +168,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 		}
 		bool Ready() const { return ready_ && SUCCEEDED(fault_); }
 		bool Quiesce();
+#if defined(TRP_ENABLE_FRAMEWARP_EXPERIMENT)
+        FrameWarp::Capture& ExperimentalFrameWarp() { return frameWarp_; }
+#endif
 		const SessionSnapshot& Snapshot() const { return session_.Snapshot(); }
 		PresentationFeedbackSnapshot PresentationFeedback() const;
 		RuntimeDiagnosticsSnapshot RuntimeDiagnosticState() const { return runtimeDiagnostics_.Snapshot(); }
@@ -273,6 +279,11 @@ namespace TheosRenderPipeline::SourceDLSSG
 		mutable std::mutex generationMutex_;
 		GenerationRequest generationRequest_;
 		Interop interop_;
+#if defined(TRP_ENABLE_FRAMEWARP_EXPERIMENT)
+        FrameWarp::Capture frameWarp_;
+        bool frameWarpPrepared_{};
+        std::int64_t frameWarpCameraQpc_{};
+#endif
 		DeviceLossDiagnostics deviceLoss_;
 #if defined(ARP_DEVELOPER_DIAGNOSTICS)
 		TheosRenderPipeline::SourceOutputCapture outputCapture_;

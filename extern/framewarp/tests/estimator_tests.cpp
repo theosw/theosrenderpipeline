@@ -1,0 +1,353 @@
+// CameraEstimator: recovers per-frame rotation and the field of view from motion vectors alone, and
+// its synthesized clipToPrevClip maps each pixel to where its motion vector says it came from.
+#include "presenter/camera_estimator.hpp"
+#include <windows.h>
+#include <cstdio>
+#include <cstdlib>
+#include <random>
+
+using namespace fw;
+static int failures = 0;
+#define EXPECT(cond, ...) do { if (!(cond)) { ++failures; std::printf("FAIL %s:%d: ", __FILE__, __LINE__); std::printf(__VA_ARGS__); std::printf("\n"); } } while (0)
+
+static const double kW = 1920, kH = 1080, kPi = 3.14159265358979;
+
+// Samples on a gw x gh grid for a camera rotating by `omega` (current -> previous camera coords) with a
+// vertical field of view `fov` (`fov_prev` in the previous frame: zooming; 0 = the same); `outliers` of
+// them get random motion (moving objects).
+static std::vector<MotionSample> make(const CameraEstimator::V3& omega, double fov, double outliers, std::mt19937& rng,
+                                      const CameraEstimator::V3& T = {0, 0, 0}, double fov_prev = 0, int gw = 64, int gh = 36,
+                                      double near_max = 0.5) {
+    const double f = (kH * 0.5) / std::tan(fov * 0.5), fp = (kH * 0.5) / std::tan((fov_prev > 0 ? fov_prev : fov) * 0.5);
+    const auto R = CameraEstimator::rotation(omega);
+    std::uniform_real_distribution<double> u(0, 1), noise(-0.1, 0.1), wild(-40, 40);
+    std::vector<MotionSample> s;
+    for (int gy = 0; gy < gh; ++gy)
+        for (int gx = 0; gx < gw; ++gx) {
+            MotionSample p{};
+            p.x = float((gx + 0.5) * kW / gw); p.y = float((gy + 0.5) * kH / gh);
+            const double X = (p.x - kW * 0.5) / f, Y = -(p.y - kH * 0.5) / f;
+            // depth = 1 / distance: a mix of far scenery and near geometry (0.5 = two units away)
+            p.depth = float(u(rng) < 0.5 ? 0.001 + 0.01 * u(rng) : near_max * (0.1 + 0.9 * u(rng)));
+            const double c0 = R[0][0] * X + R[0][1] * Y + R[0][2] + T[0] * p.depth, c1 = R[1][0] * X + R[1][1] * Y + R[1][2] + T[1] * p.depth,
+                         c2 = R[2][0] * X + R[2][1] * Y + R[2][2] + T[2] * p.depth;
+            p.mx = float(kW * 0.5 + fp * c0 / c2 - p.x + noise(rng));
+            p.my = float(kH * 0.5 - fp * c1 / c2 - p.y + noise(rng));
+            if (u(rng) < outliers) { p.mx = float(wild(rng)); p.my = float(wild(rng)); }
+            p.valid = 1;
+            s.push_back(p);
+        }
+    return s;
+}
+
+int main() {
+    std::mt19937 rng(7);
+    const double fov = 60 * kPi / 180;
+    // Rotation fit with a known focal length.
+    for (const CameraEstimator::V3 omega : {CameraEstimator::V3{0, 0.02, 0}, CameraEstimator::V3{0.01, -0.03, 0.002},
+                                            CameraEstimator::V3{-0.05, 0.08, 0}}) {
+        const auto s = make(omega, fov, 0.0, rng);
+        CameraEstimator::V3 fit{};
+        CameraEstimator::fit_rotation(s, kW, kH, (kH * 0.5) / std::tan(fov * 0.5), fit);
+        double err = 0;
+        for (int k = 0; k < 3; ++k) err = std::max(err, std::fabs(fit[k] - omega[k]));
+        std::printf("rotation (%.3f %.3f %.3f) fitted (%.4f %.4f %.4f), error %.2e rad\n", omega[0], omega[1], omega[2], fit[0], fit[1], fit[2], err);
+        EXPECT(err < 2e-4, "rotation recovered (error %g)", err);
+    }
+    // Rotation + translation (strafing, walking forward, orbiting) from all samples.
+    for (const auto& case_ : {std::make_pair(CameraEstimator::V3{0, 0, 0}, CameraEstimator::V3{0.05, 0, 0}),
+                              std::make_pair(CameraEstimator::V3{0, 0.01, 0}, CameraEstimator::V3{0, 0, -0.1}),
+                              std::make_pair(CameraEstimator::V3{0.002, 0.02, 0}, CameraEstimator::V3{-0.06, 0.01, 0.02})}) {
+        const auto s = make(case_.first, fov, 0.0, rng, case_.second);
+        CameraEstimator::V3 o{}, t{};
+        CameraEstimator::fit_rotation(s, kW, kH, (kH * 0.5) / std::tan(fov * 0.5), o);
+        CameraEstimator::fit_motion(s, kW, kH, (kH * 0.5) / std::tan(fov * 0.5), o, t);
+        double eo = 0, et = 0;
+        for (int k = 0; k < 3; ++k) { eo = std::max(eo, std::fabs(o[k] - case_.first[k])); et = std::max(et, std::fabs(t[k] - case_.second[k])); }
+        std::printf("rotation+translation: T (%.3f %.3f %.3f) fitted (%.4f %.4f %.4f), rotation error %.1e, translation error %.1e\n",
+                    case_.second[0], case_.second[1], case_.second[2], t[0], t[1], t[2], eo, et);
+        EXPECT(eo < 3e-4 && et < 3e-3, "rotation and translation recovered (%g, %g)", eo, et);
+    }
+    // Motion vectors estimated from the picture: more than half of them wrong (rain, water, false matches).
+    // The plain fit gives up (the camera would stand still); told that the vectors are estimated, the
+    // estimator finds the turn and the move the rest agree on. With the game's own vectors (not told), a
+    // frame like that is still rejected, as before.
+    {
+        const CameraEstimator::V3 omega{0.004, 0.03, -0.002}, T{0.04, 0, 0.02};
+        Camera g{};
+        g.fov = float(fov);
+        g.depth_inverted = 1;
+        const auto s = make(omega, fov, 0.55, rng, T);
+        CameraEstimator strict, tolerant;
+        strict.update(s, kW, kH, g);
+        tolerant.update(s, kW, kH, g, true);
+        const auto o = tolerant.last_omega();
+        const auto t = tolerant.last_translation();
+        double eo = 0, et = 0;
+        for (int k = 0; k < 3; ++k) { eo = std::max(eo, std::fabs(o[k] - omega[k])); et = std::max(et, std::fabs(t[k] - T[k])); }
+        std::printf("55%% wrong vectors: plain fit %s; as estimated vectors %s, rotation error %.1e rad, translation error %.1e\n",
+                    strict.last_rejected() ? "rejected" : "accepted", tolerant.last_rejected() ? "rejected" : "accepted", eo, et);
+        EXPECT(strict.last_rejected(), "the plain fit rejects a frame with 55%% wrong vectors");
+        EXPECT(!tolerant.last_rejected() && eo < 5e-4 && et < 5e-3, "the turn and move most estimated vectors agree on are found (%g, %g)", eo, et);
+        // Clean estimated vectors go through the plain fit, exactly as a game's.
+        const auto clean = make(omega, fov, 0.0, rng, T);
+        CameraEstimator a, b;
+        a.update(clean, kW, kH, g);
+        b.update(clean, kW, kH, g, true);
+        double same = 0;
+        for (int k = 0; k < 3; ++k) same = std::max(same, std::fabs(a.last_omega()[k] - b.last_omega()[k]));
+        EXPECT(same == 0, "clean estimated vectors are fitted like a game's (%g)", same);
+    }
+    // First-person weapon: a fifth of the screen right in front of the camera (0.3 = 3.3x the near plane),
+    // carried with the camera (no motion on screen), with the world no nearer than 30x the near plane.
+    // It must not count as scenery in the translation fit (it would invent a camera move).
+    {
+        CameraEstimator carried;
+        Camera g{};
+        g.depth_inverted = 1;
+        g.fov = float(fov);
+        std::mt19937 r(3);
+        auto with_weapon = [&](const CameraEstimator::V3& o, const CameraEstimator::V3& t) {
+            auto s = make(o, fov, 0.0, r, t, 0, 64, 36, 0.03);
+            for (auto& p : s)
+                if (p.x > kW * 0.55 && p.y > kH * 0.6) { p.depth = 0.3f; p.mx = 0; p.my = 0; }
+            return s;
+        };
+        for (int i = 0; i < 40; ++i) carried.update(with_weapon({0, 0.02, 0}, {0, 0, 0}), kW, kH, g);
+        const auto t0 = carried.last_translation();
+        carried.update(with_weapon({0, 0.02, 0}, {0.05, 0, 0}), kW, kH, g);
+        const auto t1 = carried.last_translation();
+        std::printf("with a carried weapon: turning T (%.4f %.4f %.4f) (true 0), strafing T (%.4f %.4f %.4f) (true 0.05 0 0)\n",
+                    t0[0], t0[1], t0[2], t1[0], t1[1], t1[2]);
+        EXPECT(std::fabs(t0[0]) < 0.005 && std::fabs(t0[1]) < 0.005 && std::fabs(t0[2]) < 0.005, "a carried weapon invents no camera move");
+        EXPECT(std::fabs(t1[0] - 0.05) < 0.005 && std::fabs(t1[1]) < 0.005 && std::fabs(t1[2]) < 0.005, "strafing is still found with a carried weapon");
+        // Without a gap (near geometry at every depth up to the weapon's), nothing is left out.
+        std::vector<MotionSample> all = make({0, 0.02, 0}, fov, 0.0, r);
+        EXPECT(CameraEstimator::without_carried(all).size() == all.size(), "no samples left out without a depth gap");
+    }
+    // Full estimator: learns the field of view from turning frames with 10% outliers, then tracks.
+    CameraEstimator est;
+    Camera game{};
+    game.depth_inverted = 1;
+    std::uniform_real_distribution<double> turn(-0.03, 0.03);
+    for (int i = 0; i < 80; ++i) est.update(make({turn(rng) * 0.5, turn(rng), 0}, fov, 0.10, rng), kW, kH, game);
+    std::printf("learned vertical FOV %.2f deg (true 60), locked %d\n", est.vertical_fov() * 180 / kPi, int(est.fov_locked()));
+    EXPECT(std::fabs(est.vertical_fov() - fov) < 1.5 * kPi / 180, "field of view learned (%.2f deg)", est.vertical_fov() * 180 / kPi);
+    EXPECT(est.fov_locked(), "field of view locks");
+    const CameraEstimator::V3 omega{0.004, 0.025, 0};
+    const CameraEstimator::V3 strafe{0.04, 0, 0.02};
+    const auto s = make(omega, fov, 0.10, rng, strafe);
+    const Camera cam = est.update(s, kW, kH, game);
+    const auto got = est.last_omega();
+    double err = 0;
+    for (int k = 0; k < 3; ++k) err = std::max(err, std::fabs(got[k] - omega[k]));
+    EXPECT(err < 5e-4, "rotation with outliers (error %g)", err);
+    // clipToPrevClip must map each (inlier) pixel to where its motion vector says it came from.
+    double worst = 0;
+    for (const auto& p : make(omega, fov, 0.0, rng, strafe)) {
+        const double ndc_x = p.x / kW * 2 - 1, ndc_y = 1 - p.y / kH * 2;
+        const double clip[4] = {ndc_x, ndc_y, p.depth, 1};
+        double prev[4] = {};
+        for (int j = 0; j < 4; ++j) for (int i = 0; i < 4; ++i) prev[j] += clip[i] * cam.clip_to_prev_clip[i * 4 + j];
+        const double px = (prev[0] / prev[3] * 0.5 + 0.5) * kW, py = (0.5 - prev[1] / prev[3] * 0.5) * kH;
+        worst = std::max(worst, std::hypot(px - (p.x + p.mx), py - (p.y + p.my)));
+    }
+    std::printf("clipToPrevClip vs motion vectors: worst %.3f px\n", worst);
+    EXPECT(worst < 1.0, "clipToPrevClip agrees with the motion vectors (worst %.3f px)", worst);
+    // The same with standard depth (1 - near / distance, as some games hand FSR): the synthesized camera
+    // keeps the game's convention.
+    {
+        CameraEstimator standard;
+        Camera g = game;
+        g.depth_inverted = 0;
+        g.fov = float(fov);
+        standard.update(make({0, 0, 0}, fov, 0.0, rng), kW, kH, g);
+        const auto ss = make(omega, fov, 0.0, rng, strafe);
+        const Camera sc = standard.update(ss, kW, kH, g);
+        double worst_std = 0;
+        for (const auto& p : ss) {
+            const double clip[4] = {p.x / kW * 2 - 1, 1 - p.y / kH * 2, 1.0 - p.depth, 1};
+            double prev[4] = {};
+            for (int j = 0; j < 4; ++j) for (int i = 0; i < 4; ++i) prev[j] += clip[i] * sc.clip_to_prev_clip[i * 4 + j];
+            const double px = (prev[0] / prev[3] * 0.5 + 0.5) * kW, py = (0.5 - prev[1] / prev[3] * 0.5) * kH;
+            worst_std = std::max(worst_std, std::hypot(px - (p.x + p.mx), py - (p.y + p.my)));
+        }
+        std::printf("standard depth: clipToPrevClip worst %.3f px, depth_inverted %u\n", worst_std, sc.depth_inverted);
+        EXPECT(worst_std < 1.0 && sc.depth_inverted == 0, "standard depth convention kept (worst %.3f px)", worst_std);
+    }
+    // Turning right (+yaw of the view, i.e. the world moves left on screen) turns the basis to the right.
+    CameraEstimator yaw;
+    const auto before = yaw.update(make({0, 0, 0}, fov, 0, rng), kW, kH, game);
+    Camera after{};
+    // omega maps current -> previous camera: +yaw means the current view points to the right of the
+    // previous one (the image content moved left, motion vectors to the previous frame point right).
+    for (int i = 0; i < 10; ++i) after = yaw.update(make({0, 0.02, 0}, fov, 0, rng), kW, kH, game);
+    const double dot_right = after.fwd[0] * before.right[0] + after.fwd[1] * before.right[1] + after.fwd[2] * before.right[2];
+    std::printf("after turning: forward . old right = %.3f (positive = turned right)\n", dot_right);
+    EXPECT(dot_right > 0.1, "basis turns the way the image says");
+    // Fast turn (7 degrees in one game frame) while moving, with motion vectors 4% off: the fit is less
+    // exact at this speed but must still be used, translation included (not replaced by a still camera).
+    {
+        const CameraEstimator::V3 fast{0.01, 0.12, 0}, move{0.03, 0, 0.05};
+        auto fs = make(fast, fov, 0.05, rng, move);
+        std::normal_distribution<double> rel(0, 0.04);
+        for (auto& p : fs) { const double k = 1 + rel(rng); p.mx = float(p.mx * k); p.my = float(p.my * k); }
+        est.update(fs, kW, kH, game);
+        const auto o = est.last_omega(), t = est.last_translation();
+        std::printf("fast turn: rotation %.3f %.3f (true %.3f %.3f), translation %.3f %.3f %.3f (true %.3f %.3f %.3f), residual %.2f px\n",
+                    o[0], o[1], fast[0], fast[1], t[0], t[1], t[2], move[0], move[1], move[2], est.last_residual());
+        EXPECT(std::fabs(o[1] - fast[1]) < 0.005, "fast turn rotation kept (%g)", o[1]);
+        EXPECT(std::fabs(t[0] - move[0]) < 0.015 && std::fabs(t[2] - move[2]) < 0.015, "fast turn translation kept");
+    }
+    // The game's field of view is checked against the picture: taken as vertical, as horizontal (some games
+    // hand FSR the horizontal one), or not used when it matches neither.
+    {
+        const double true_v = 45 * kPi / 180, true_h = 2 * std::atan(std::tan(true_v * 0.5) * kW / kH);
+        const struct { double told; int mode; const char* what; } cases[] = {
+            {true_v, 1, "vertical"}, {true_h, 2, "horizontal"}, {100 * kPi / 180, 3, "wrong"}};
+        for (const auto& c : cases) {
+            CameraEstimator e;
+            Camera g = game;
+            g.fov = float(c.told);
+            for (int i = 0; i < 80; ++i) e.update(make({turn(rng) * 0.5, turn(rng), 0}, true_v, 0.10, rng), kW, kH, g);
+            e.update(make({0.002, 0.01, 0}, true_v, 0.10, rng), kW, kH, g);  // the decision applies from the next frame
+            std::printf("game tells the %s field of view: mode %d, using %.2f deg vertical (true 45)\n", c.what, e.game_fov_mode(),
+                        e.vertical_fov() * 180 / kPi);
+            EXPECT(e.game_fov_mode() == c.mode, "%s field of view recognised (mode %d)", c.what, e.game_fov_mode());
+            EXPECT(std::fabs(e.vertical_fov() - true_v) < 2 * kPi / 180, "%s field of view: right one used (%.2f deg)", c.what,
+                   e.vertical_fov() * 180 / kPi);
+        }
+    }
+    // Zooming in while standing still, with the game telling the field of view every frame (FSR): the
+    // change of field of view is not movement (no translation, no rotation), and the synthesized
+    // clipToPrevClip still lands on the motion vectors.
+    {
+        CameraEstimator zoom;
+        Camera g = game;
+        double worst_t = 0, worst_o = 0, worst_px = 0, max_res = 0;
+        double prev = 74 * kPi / 180;
+        for (int i = 0; i < 30; ++i) {
+            const double cur = (74 - 0.3 * i) * kPi / 180;
+            g.fov = float(cur);
+            const auto zs = make({0, 0, 0}, cur, 0.0, rng, {0, 0, 0}, i ? prev : 0);
+            const Camera c = zoom.update(zs, kW, kH, g);
+            prev = cur;
+            if (i < 2) continue;
+            const auto o = zoom.last_omega(), t = zoom.last_translation();
+            worst_t = std::max(worst_t, std::sqrt(t[0] * t[0] + t[1] * t[1] + t[2] * t[2]));
+            worst_o = std::max(worst_o, std::sqrt(o[0] * o[0] + o[1] * o[1] + o[2] * o[2]));
+            max_res = std::max(max_res, zoom.last_residual());
+            for (const auto& p : zs) {
+                if (p.depth > 0.02f) continue;  // far samples (no translation to resolve)
+                const float cx = 2 * p.x / float(kW) - 1, cy = 1 - 2 * p.y / float(kH);
+                const float v[4] = {cx, cy, p.depth, 1};
+                float r[4] = {};
+                for (int j = 0; j < 4; ++j) for (int k = 0; k < 4; ++k) r[j] += v[k] * c.clip_to_prev_clip[k * 4 + j];
+                const double px = (r[0] / r[3] * 0.5 + 0.5) * kW, py = (0.5 - r[1] / r[3] * 0.5) * kH;
+                worst_px = std::max(worst_px, std::hypot(px - (p.x + p.mx), py - (p.y + p.my)));
+            }
+        }
+        std::printf("zoom: worst translation %.4f, rotation %.4f, clipToPrevClip error %.2f px, residual %.2f px\n", worst_t, worst_o, worst_px, max_res);
+        EXPECT(max_res > 0 && max_res < 0.5, "zoom frames are fitted, not rejected (%.2f px)", max_res);
+        EXPECT(worst_t < 0.003 && worst_o < 0.0005, "zooming is not taken for movement");
+        EXPECT(worst_px < 1.0, "clipToPrevClip follows the zoom (%.2f px)", worst_px);
+    }
+    // CPU cost per game frame (the presenter runs this on every new frame): 80x45 samples (the presenter's
+    // grid), 10% outliers, turning and moving.
+    {
+        std::vector<std::vector<MotionSample>> frames;
+        for (int i = 0; i < 50; ++i) frames.push_back(make({turn(rng) * 0.5, turn(rng), 0}, fov, 0.10, rng, {turn(rng), 0, turn(rng)}, 0, 80, 45));
+        LARGE_INTEGER f0, a, b; QueryPerformanceFrequency(&f0); QueryPerformanceCounter(&a);
+        for (const auto& fr : frames) est.update(fr, kW, kH, game);
+        QueryPerformanceCounter(&b);
+        const double ms = double(b.QuadPart - a.QuadPart) * 1000.0 / double(f0.QuadPart) / frames.size();
+        std::printf("estimator CPU: %.3f ms per game frame\n", ms);
+        // Wall-clock budget is an explicit benchmark, not a portable numerical
+        // regression assertion. Native TRP supplies a camera and does not use
+        // the estimated-camera path. Keep the upstream 1.5 ms budget available.
+        if (GetEnvironmentVariableW(L"FW_CPU_BUDGET_TEST", nullptr, 0))
+            EXPECT(ms < 1.5, "estimator CPU budget (%.3f ms)", ms);
+    }
+    // Estimated motion vectors: a frame nothing explains (all its vectors wrong) in the middle of a steady turn
+    // keeps the turn of the frame before; three in a row: the third holds still.
+    {
+        CameraEstimator carry;
+        Camera g{}; g.fov = float(fov); g.depth_inverted = 1;
+        for (int i = 0; i < 80; ++i) carry.update(make({turn(rng) * 0.5, turn(rng), 0}, fov, 0.0, rng), kW, kH, g, true);  // (the field of view first)
+        const CameraEstimator::V3 steady{0, 0.02, 0};
+        for (int i = 0; i < 10; ++i) carry.update(make(steady, fov, 0.0, rng), kW, kH, g, true);
+        double kept[3];
+        for (int i = 0; i < 3; ++i) { carry.update(make(steady, fov, 1.0, rng), kW, kH, g, true); kept[i] = carry.last_omega()[1]; }
+        std::printf("carry: turns through three unexplained frames %.4f %.4f %.4f (steady 0.0200)\n", kept[0], kept[1], kept[2]);
+        EXPECT(std::fabs(kept[0] - 0.02) < 0.002 && std::fabs(kept[1] - 0.02) < 0.002 && kept[2] == 0.0,
+               "an unexplained frame keeps the turn before it, twice at most");
+    }
+    // Estimated motion vectors with a small bias in every frame's pitch (half a pixel): the camera put together
+    // from them stays near level instead of drifting up (it would reach the vertical within the run), and
+    // stays a proper camera (unit, perpendicular axes).
+    {
+        CameraEstimator drift;
+        Camera g{}; g.fov = float(fov); g.depth_inverted = 1;
+        for (int i = 0; i < 80; ++i) drift.update(make({turn(rng) * 0.5, turn(rng), 0}, fov, 0.0, rng), kW, kH, g, true);  // (the field of view first)
+        double worst = 0, axes = 0;
+        for (int i = 0; i < 3000; ++i) {
+            const Camera c = drift.update(make({0.0006, 0.02 * std::sin(i * 0.02), 0}, fov, 0.0, rng, {0, 0, 0}, 0, 32, 18), kW, kH, g, true);
+            worst = std::max(worst, std::fabs(std::asin(std::clamp(double(c.fwd[2]), -1.0, 1.0))) * 180 / kPi);
+            const double dot = double(c.fwd[0]) * c.right[0] + double(c.fwd[1]) * c.right[1] + double(c.fwd[2]) * c.right[2];
+            axes = std::max(axes, std::fabs(dot));
+        }
+        std::printf("pitch drift: up-down angle at most %.1f deg over 3000 frames of a biased pitch (unchecked: %.0f deg), axes off by %.1e\n",
+                    worst, 0.0006 * 3000 * 180 / kPi, axes);
+        EXPECT(worst < 12.0 && axes < 1e-6, "the picture-estimated camera stays near level (%.1f deg)", worst);
+    }
+    // Minutes of turning with a little roll in every frame's measured turn (errors of estimated motion): the
+    // camera put together from the turns stays level - its right vector perpendicular to the world's up.
+    {
+        CameraEstimator level;
+        Camera g{}; g.fov = float(fov); g.depth_inverted = 1;
+        std::uniform_real_distribution<double> roll(-0.004, 0.006);  // (biased: errors that would add up)
+        double worst = 0;
+        Camera out{};
+        for (int i = 0; i < 600; ++i) {
+            out = level.update(make({0.004 * std::sin(i * 0.05), 0.02, roll(rng)}, fov, 0.0, rng, {0, 0, 0}, 0, 32, 18), kW, kH, g);
+            worst = std::max(worst, double(std::fabs(out.right[2])));
+        }
+        std::printf("level: right vector off level by at most %.2e after %d frames of turning\n", worst, 600);
+        EXPECT(worst < 1e-6, "the estimated camera stays level (%.2e)", worst);
+    }
+    // A long way in one direction (scenery ten near planes away and further, 1 near plane per
+    // frame): the position handed on stays near the origin (single precision keeps a frame's move exact
+    // there), starting again from zero as a discontinuity; the frame's own move is never lost.
+    {
+        CameraEstimator trek;
+        Camera g{}; g.fov = float(fov); g.depth_inverted = 1;
+        const CameraEstimator::V3 move{1.0, 0, 0};
+        for (int i = 0; i < 80; ++i) trek.update(make({turn(rng) * 0.5, turn(rng), 0}, fov, 0.0, rng), kW, kH, g);  // (the field of view first)
+        double worst_pos = 0, worst_step = 0, worst_move = 0;
+        int restarts = 0, moved = 0;
+        Camera before{};
+        for (int i = 0; i < 9000; ++i) {
+            const auto s = make({0, 0, 0}, fov, 0.0, rng, move, 0, 32, 18, 0.1);
+            const Camera c = trek.update(s, kW, kH, g);
+            const auto t = trek.last_translation();
+            if (i >= 3) worst_move = std::max(worst_move, std::hypot(t[0] - move[0], t[1] - move[1], t[2] - move[2]));
+            for (int k = 0; k < 3; ++k) worst_pos = std::max(worst_pos, double(std::fabs(c.pos[k])));
+            if (i > 0 && c.position_epoch != before.position_epoch) ++restarts;
+            else if (i > 3) {
+                const double d = std::hypot(double(c.pos[0]) - before.pos[0], double(c.pos[1]) - before.pos[1], double(c.pos[2]) - before.pos[2]);
+                worst_step = std::max(worst_step, std::fabs(d - 1.0)); ++moved;
+            }
+            before = c;
+        }
+        std::printf("long way: position within %.0f, %d restarts, a frame's step off by at most %.4f, its move by %.3f\n", worst_pos, restarts, worst_step, worst_move);
+        EXPECT(worst_pos <= CameraEstimator::kFarFromOrigin + 2.0, "the position stays near the origin (%.0f)", worst_pos);
+        EXPECT(restarts >= 1 && restarts <= 3, "it starts again from zero, rarely (%d times)", restarts);
+        EXPECT(moved > 8900 && worst_step < 0.1 && worst_move < 0.1, "every frame's move is kept (step off by %.3f, move by %.3f)", worst_step, worst_move);
+        EXPECT(!CameraEstimator::plausible_move({5000, 0, 0}, 0.0) && !CameraEstimator::plausible_move({300, 0, 0}, 0.02) &&
+               CameraEstimator::plausible_move({12, 0, 0}, 0.02) && CameraEstimator::plausible_move({0, 0, 0}, 1.0),
+               "only moves no camera makes in a frame are refused");
+    }
+    if (failures) { std::printf("%d failure(s)\n", failures); return 1; }
+    std::printf("estimator tests passed\n");
+    return 0;
+}

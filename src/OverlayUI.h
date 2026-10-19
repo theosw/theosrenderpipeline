@@ -28,6 +28,7 @@ public:
 		return &overlay;
 	}
 
+	bool IsVisible() const { return visible; }
 	void Init(IDXGISwapChain* a_swapChain, ID3D11Device* a_device, ID3D11DeviceContext* a_context);
 
 	// Called from the Present hook, before the original Present executes.

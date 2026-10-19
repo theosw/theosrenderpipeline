@@ -5,6 +5,9 @@ experimental Intel XeSS upscaling and XeFG frame generation, optional Neural
 Rendering (NR), and native-resolution menus and HUD. Current version:
 **0.4.4**. See [CHANGELOG.md](CHANGELOG.md) for release changes.
 
+An opt-in native camera reprojection research build is documented in
+[FRAMEWARP-EXPERIMENT.md](FRAMEWARP-EXPERIMENT.md). It is disabled by default.
+
 ## Features
 
 - DLSS Super Resolution, DLAA, model presets and sharpening.
