@@ -81,6 +81,15 @@ namespace TheosRenderPipeline::NeuralRendering
 
 		bool PascalResearch() { return PascalResearchMode() == L'1' || PascalResearchMode() == L'2'; }
 
+		// TRP_NR_PASCAL_PACK: a research kernel pack (tools/nr-runtime/build_pascal_kernels.py)
+		// applied to NVIDIA's original 310.9.16 on any GPU, with GTX 10 admission.
+		std::filesystem::path PascalResearchPack()
+		{
+			wchar_t value[1024]{};
+			const auto length = ::GetEnvironmentVariableW(L"TRP_NR_PASCAL_PACK", value, 1024);
+			return length > 0 && length < 1024 ? std::filesystem::path(value) : std::filesystem::path();
+		}
+
 		// The driver registers its NGX core folder under NGXCore\FullPath.
 		HMODULE LoadNgxCore()
 		{
@@ -322,7 +331,17 @@ namespace TheosRenderPipeline::NeuralRendering
 			state.runtimeRefused = true;
 			return false;
 		}
-		if (identity.sha256 == kKernelRuntimeSha256 &&
+		if (const auto researchPack = PascalResearchPack(); PascalResearch() && !researchPack.empty() &&
+			identity.sha256 == kKernelRuntimeSha256) {
+			logger::info("[DLSSNR Source] research: kernel pack request={}", researchPack.string());
+			const auto result = ApplyRuntimeKernels(state.module, researchPack, !resident, true);
+			logger::info("[DLSSNR Source] research: kernels applied={} unsafe={} status={}", result.applied, result.unsafe, result.status);
+			if (!result.applied) {
+				state.status = result.status;
+				state.runtimeRefused = !result.unsafe;
+				return false;
+			}
+		} else if (identity.sha256 == kKernelRuntimeSha256 &&
 			NeedsRuntimeKernels(ComputeCapability(a_info.device->GetAdapterLuid()))) {
 			// Keep the requested Data path for siblings. MO2 can resolve the DLL
 			// to Standard's physical folder while Universal supplies the pack.

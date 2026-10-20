@@ -39,5 +39,7 @@ namespace TheosRenderPipeline::NeuralRendering
 	// newlyLoaded must be false if the image was resident before its LoadLibrary.
 	// Only a fresh module or our recorded installation is accepted. Installed
 	// modules and read-only packs stay resident for the process lifetime.
-	RuntimeKernelResult ApplyRuntimeKernels(HMODULE a_module, const std::filesystem::path& a_pack, bool newlyLoaded);
+	// research: an unpinned pack (TRP_NR_PASCAL_PACK) and GTX 10 admission.
+	RuntimeKernelResult ApplyRuntimeKernels(HMODULE a_module, const std::filesystem::path& a_pack, bool newlyLoaded,
+		bool research = false);
 }

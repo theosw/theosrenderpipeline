@@ -19,7 +19,7 @@ namespace TheosRenderPipeline::NeuralRendering
         using namespace KernelPacks;
         // Pinning the image also prevents HMODULE address reuse. The raw storage
         // intentionally has process lifetime, including failed feature retirement.
-        struct Installation { void* storage{}; std::vector<Patch> plan; RuntimeKernelResult result; };
+        struct Installation { void* storage{}; std::size_t storageBytes{}; bool research{}; std::vector<Patch> plan; RuntimeKernelResult result; };
         std::mutex installationMutex;
         std::map<HMODULE, Installation> installations;
 
@@ -176,7 +176,7 @@ namespace TheosRenderPipeline::NeuralRendering
 
         struct FreeStorage { void operator()(void* address) const { if (address) { VirtualFree(address, 0, MEM_RELEASE); } } };
         using Storage = std::unique_ptr<void, FreeStorage>;
-        Storage NearbyStorage(std::uintptr_t module)
+        Storage NearbyStorage(std::uintptr_t module, std::size_t PackSize)
         {
             SYSTEM_INFO system{};
             GetSystemInfo(&system);
@@ -210,7 +210,7 @@ namespace TheosRenderPipeline::NeuralRendering
 
     bool RuntimeKernelsSupported() { return true; }
 
-    RuntimeKernelResult ApplyRuntimeKernels(HMODULE module, const std::filesystem::path& packPath, bool newlyLoaded)
+    RuntimeKernelResult ApplyRuntimeKernels(HMODULE module, const std::filesystem::path& packPath, bool newlyLoaded, bool research)
     {
         using namespace KernelPacks;
         std::scoped_lock lock(installationMutex);
@@ -220,8 +220,8 @@ namespace TheosRenderPipeline::NeuralRendering
             if (installed.result.applied) {
                 MEMORY_BASIC_INFORMATION info{};
                 if (!Matches(memory, installed.plan, true) || !VirtualQuery(installed.storage, &info, sizeof(info)) ||
-                    info.State != MEM_COMMIT || info.Protect != PAGE_READONLY || info.RegionSize < PackSize ||
-                    !HashIs({static_cast<const std::uint8_t*>(installed.storage), PackSize}, kKernelPackSha256)) {
+                    info.State != MEM_COMMIT || info.Protect != PAGE_READONLY || info.RegionSize < installed.storageBytes ||
+                    (!installed.research && !HashIs({static_cast<const std::uint8_t*>(installed.storage), PackSize}, kKernelPackSha256))) {
                     installed.result = {false, true, "installed NR runtime or storage changed; relaunch required"};
                 }
             }
@@ -233,17 +233,23 @@ namespace TheosRenderPipeline::NeuralRendering
         if (!length || length >= filename.size()) { return {false, false, "cannot identify the loaded NR module"}; }
         filename.resize(length);
         File runtime(filename, 266424944);
-        File pack(packPath, PackSize);
+        std::error_code sizeError;
+        const auto packSize = research ? static_cast<std::size_t>(std::filesystem::file_size(packPath, sizeError)) : PackSize;
+        File pack(packPath, sizeError ? 0 : packSize);
         if (!runtime.data || !HashIs(runtime.Bytes(), kKernelRuntimeSha256)) { return {false, false, "loaded NR file is not the pinned NVIDIA 310.9.16 runtime"}; }
-        if (!pack.data || !HashIs(pack.Bytes(), kKernelPackSha256)) { return {false, false, "NR compatibility kernel pack is missing or its SHA-256 differs"}; }
+        // Research packs are unpinned; production packs must match their pinned hash.
+        if (!pack.data || (!research && !HashIs(pack.Bytes(), kKernelPackSha256))) { return {false, false, "NR compatibility kernel pack is missing or its SHA-256 differs"}; }
         if (!OriginalImage(memory, runtime.Bytes())) { return {false, false, "loaded NR image headers or original kernels differ"}; }
-        auto storage = NearbyStorage(reinterpret_cast<std::uintptr_t>(module));
+        auto storage = NearbyStorage(reinterpret_cast<std::uintptr_t>(module), packSize);
         if (!storage) { return {false, false, "no memory available within NR bundle instruction reach"}; }
-        std::memcpy(storage.get(), pack.data, PackSize);
+        std::memcpy(storage.get(), pack.data, packSize);
         DWORD old{};
-        if (!VirtualProtect(storage.get(), PackSize, PAGE_READONLY, &old)) { return {false, false, "NR compatibility kernel storage could not be made read-only"}; }
+        if (!VirtualProtect(storage.get(), packSize, PAGE_READONLY, &old)) { return {false, false, "NR compatibility kernel storage could not be made read-only"}; }
         Installation pending;
-        if (!MakePlan(pack.Bytes(), reinterpret_cast<std::uintptr_t>(module), reinterpret_cast<std::uintptr_t>(storage.get()), pending.plan, pending.result.status)) { return pending.result; }
+        pending.storageBytes = packSize;
+        pending.research = research;
+        if (!MakePlan(pack.Bytes(), reinterpret_cast<std::uintptr_t>(module), reinterpret_cast<std::uintptr_t>(storage.get()),
+                pending.plan, pending.result.status, packSize, research)) { return pending.result; }
         if (!Matches(memory, pending.plan, false)) { return {false, false, "original NR patch bytes differ"}; }
         // Allocate registry/status before publication. Pin before the first write
         // so both successful and uncertain transactions can retain all targets.
