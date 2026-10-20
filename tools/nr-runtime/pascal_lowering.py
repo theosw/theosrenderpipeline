@@ -154,3 +154,29 @@ def lower(ada_ptx, emulation_ptx):
     require(not leftover, f'unlowered sm_70+ features remain: {leftover}')
     require(re.findall(r'\.entry\s+(\w+)', s) == entries, 'kernel entries changed')
     return s, dict(counts)
+
+
+def replace_entries(module_ptx, native_ptx):
+    """Swaps NVIDIA kernels for native ones with the same name (and parameter block).
+    native_ptx: nvcc output for sm_61; everything after .address_size is appended."""
+    native = native_ptx.replace('\r', '')
+    body = native[native.index('.address_size 64') + len('.address_size 64'):]
+    names = re.findall(r'\.entry\s+(\w+)\s*\(', body)
+    require(names, 'native PTX has no kernels')
+    s = module_ptx
+    for name in names:
+        start = re.search(r'(?:\.visible\s+)?\.entry\s+' + name + r'\s*\(', s)
+        require(start, f'module has no kernel {name}')
+        native_params = re.search(r'\.entry\s+' + name + r'\s*\(([^)]*)\)', body).group(1)
+        module_params = re.search(r'\.entry\s+' + name + r'\s*\(([^)]*)\)', s).group(1)
+        size = lambda text: re.findall(r'\.align\s+(\d+)\s+\.b8\s+\w+\[(\d+)\]', text)
+        require(size(native_params) == size(module_params), f'{name}: parameter blocks differ')
+        open_brace = s.index('{', s.index(')', start.end()))
+        depth, i = 0, open_brace
+        while True:
+            depth += {'{': 1, '}': -1}.get(s[i], 0)
+            if depth == 0:
+                break
+            i += 1
+        s = s[:start.start()] + f'// PASCAL: {name} replaced by a native kernel below.\n' + s[i + 1:]
+    return s + '\n// PASCAL: native kernels (native_*.cu)\n' + body, names

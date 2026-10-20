@@ -9,7 +9,10 @@ TRP_NR_PASCAL_RESEARCH=1 and TRP_NR_PASCAL_PACK=<pack> (NeuralRenderingFeatureSe
 Same TRPNRK1 layout as build_rtx40_kernels.py. Usage:
     python -I build_pascal_kernels.py --official nvngx_dlssnr.dll --cuda13 <CUDA 13.4 root>
         --cuda12 <CUDA 12.9 root> --emulation-ptx pascal_emulation.ptx --output <pack>
+        [--native 5=native_vit.ptx]
 pascal_emulation.ptx: nvcc -arch=sm_61 -rdc=true -ptx -O3 pascal_emulation.cu (no fast math).
+native_vit.ptx: nvcc -arch=sm_61 -ptx -O3 -std=c++17 native_vit.cu; its kernels replace the
+same-named NVIDIA kernels of bundle 5 (cc_vit_1d_ffn_expand/contract, qkv).
 """
 from pathlib import Path
 import argparse
@@ -33,7 +36,7 @@ def retarget(ptx):
     return re.sub(r'\.version 9\.\d+', '.version 8.8', ptx)
 
 
-def build_bundle(cuda13, cuda12, index, original, emulation, work):
+def build_bundle(cuda13, cuda12, index, original, emulation, work, native=None):
     folder = work / f'bundle{index:02}'
     folder.mkdir()
     _, ptxs = ada.unpack(cuda13, folder / 'nvidia', 'nvidia.fatbin', original)
@@ -47,6 +50,9 @@ def build_bundle(cuda13, cuda12, index, original, emulation, work):
         pascal, counts = pascal_lowering.lower(ptx, emulation)
     else:
         pascal, counts = retarget(ptx), {}
+    if native:
+        pascal, replaced = pascal_lowering.replace_entries(pascal, native)
+        counts = dict(counts, native=replaced)
     (folder / 'pascal.ptx').write_text(pascal, encoding='ascii', newline='\n')
     for sm in (61, 89):
         ada.run(cuda12, 'ptxas', f'-arch=sm_{sm}', '-O3', 'pascal.ptx', '-o', f'pascal.sm_{sm}.cubin', cwd=folder)
@@ -57,7 +63,7 @@ def build_bundle(cuda13, cuda12, index, original, emulation, work):
     require(payload[:8] == ada.FATBIN_MAGIC, f'bundle {index}: fatbinary output is not a fatbin')
     payload = payload[:16 + struct.unpack_from('<Q', payload, 8)[0]]
     entries = re.findall(r'\.entry\s+(\w+)', ptx)
-    require(entries == re.findall(r'\.entry\s+(\w+)', pascal), f'bundle {index}: kernel entries changed')
+    require(sorted(entries) == sorted(re.findall(r'\.entry\s+(\w+)', pascal)), f'bundle {index}: kernel entries changed')
     return payload, dict(entries=len(entries), lowered=counts, bundleBytes=len(payload),
                          sm61=ada.sha256((folder / 'pascal.sm_61.cubin').read_bytes()),
                          sm89=ada.sha256((folder / 'pascal.sm_89.cubin').read_bytes()))
@@ -67,7 +73,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.split('\n')[0])
     for name in ('official', 'cuda13', 'cuda12', 'emulation_ptx', 'output'):
         parser.add_argument('--' + name.replace('_', '-'), dest=name, type=Path, required=True)
+    parser.add_argument('--native', action='append', default=[], metavar='BUNDLE=PTX',
+                        help='native sm_61 kernels replacing same-named NVIDIA kernels in a bundle')
     args = parser.parse_args()
+    native = {int(item.split('=', 1)[0]): Path(item.split('=', 1)[1]).read_text(encoding='ascii') for item in args.native}
     original = args.official.read_bytes()
     require(ada.sha256(original) == ada.OFFICIAL_SHA256, 'original runtime identity differs')
     image = ada.Image(original)
@@ -77,7 +86,7 @@ def main():
     with tempfile.TemporaryDirectory() as work:
         for index, (name, _, _, rva) in enumerate(ada.BUNDLES):
             source = ada.fatbin_at(image, rva)
-            payload, detail = build_bundle(args.cuda13, args.cuda12, index, source, emulation, Path(work))
+            payload, detail = build_bundle(args.cuda13, args.cuda12, index, source, emulation, Path(work), native.get(index))
             bundles.append((rva, len(source), payload))
             details.append(dict(name=name, **detail))
             print(f'{name}: {detail["entries"]} kernels, {len(payload)} bytes', flush=True)

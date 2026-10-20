@@ -10,6 +10,8 @@
 // list through NVAPI (CreateCuFunction, LaunchCuKernelChain). With
 // TRP_NR_KERNEL_PROFILE=1 the benchmark wraps those entry points, splits each
 // chain and brackets every kernel with timestamps on the same list.
+// TRP_NR_KERNEL_BARRIERS=1 serializes the split kernels; TRP_NR_KERNEL_CAPTURE copies one
+// launch's buffers before and after it to a file (KernelProfiler.cpp, trp_copy.cu).
 namespace KernelProfiler
 {
 	struct Sample

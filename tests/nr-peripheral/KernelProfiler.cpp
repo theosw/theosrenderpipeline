@@ -3,6 +3,7 @@
 #include <Windows.h>
 #include <wrl/client.h>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <map>
 #include <mutex>
@@ -51,6 +52,47 @@ namespace KernelProfiler
 		// TRP_NR_KERNEL_PROFILE=2 times each chain as NVIDIA submits it, keeping
 		// the overlap between chained kernels; =1 splits chains per kernel.
 		bool wholeChains{};
+		// TRP_NR_KERNEL_PARAMS=1 prints each distinct parameter block once.
+		bool dumpParams{};
+		// TRP_NR_KERNEL_BARRIERS=1 puts a UAV barrier before every split kernel, so no two
+		// kernels overlap (checks whether a result depends on the chain's flag protocol).
+		bool barriers{};
+		std::set<std::string> dumped;
+		// TRP_NR_KERNEL_CAPTURE=<kernel>,<launch>,<file>,<param offset>:<bytes>,... copies the
+		// buffers behind those parameter-block pointers just before and just after one launch
+		// of <kernel> (counted from 0 over profiled frames) and writes them to <file>. Needs
+		// TRP_NR_CAPTURE_FATBIN, a fatbin with trp_copy(source, target, count16).
+		struct Region { std::uint32_t offset; std::uint64_t bytes; };
+		struct CopyParams { std::uint64_t source, target, count; };
+		struct Capture
+		{
+			std::string kernel, file;
+			unsigned launch{}, seen{};
+			std::vector<Region> regions;
+			std::uint64_t total{};
+			std::vector<std::uint8_t> params;
+			Handle copy{};
+			ComPtr<ID3D12Resource> gpu, readback;
+			bool recorded{}, written{};
+		} capture;
+		using CreateCuModuleFn = int (__cdecl*)(ID3D12Device*, const void*, std::uint32_t, Handle*);
+		constexpr std::uint32_t kCreateCuModule = 0xad1a677d;
+
+		void DumpParams(Handle function, Dim3 grid, Dim3 block, const void* params, std::uint32_t size)
+		{
+			if (!dumpParams || !params || dumped.size() >= 4096) { return; }
+			const auto found = names.find(function);
+			std::string line = (found == names.end() ? std::string("<unnamed>") : found->second) + " grid=" +
+				std::to_string(grid.x) + "x" + std::to_string(grid.y) + "x" + std::to_string(grid.z) + " block=" +
+				std::to_string(block.x) + "x" + std::to_string(block.y) + "x" + std::to_string(block.z) + " bytes=" + std::to_string(size) + " ";
+			char hex[3];
+			for (std::uint32_t i = 0; i < size; ++i) {
+				std::snprintf(hex, sizeof(hex), "%02x", static_cast<const std::uint8_t*>(params)[i]);
+				line += hex;
+				if (i % 8 == 7 && i + 1 < size) { line += '.'; }
+			}
+			if (dumped.insert(line).second) { std::printf("PARAMS %s\n", line.c_str()); }
+		}
 
 		// Replaces one imported function in a loaded module's import table.
 		void* PatchImport(HMODULE module, const char* dll, const char* function, void* replacement)
@@ -118,6 +160,100 @@ namespace KernelProfiler
 			if (result == 0 && function && *function) { names[*function] = name ? name : "<null>"; }
 			return result;
 		}
+
+		D3D12_RESOURCE_BARRIER UavBarrier()
+		{
+			D3D12_RESOURCE_BARRIER barrier{ D3D12_RESOURCE_BARRIER_TYPE_UAV };
+			barrier.UAV.pResource = nullptr;
+			return barrier;
+		}
+
+		bool EnsureCapture(ID3D12GraphicsCommandList* list)
+		{
+			if (capture.gpu) { return true; }
+			if (!device && FAILED(list->GetDevice(IID_PPV_ARGS(&device)))) { return false; }
+			char path[MAX_PATH]{};
+			if (!GetEnvironmentVariableA("TRP_NR_CAPTURE_FATBIN", path, sizeof(path))) { return false; }
+			std::FILE* file = std::fopen(path, "rb");
+			if (!file) { return false; }
+			std::vector<std::uint8_t> blob;
+			for (int c; (c = std::fgetc(file)) != EOF;) { blob.push_back(static_cast<std::uint8_t>(c)); }
+			std::fclose(file);
+			const auto createModule = reinterpret_cast<CreateCuModuleFn>(realQuery(kCreateCuModule));
+			Handle module{};
+			if (!createModule || createModule(device.Get(), blob.data(), static_cast<std::uint32_t>(blob.size()), &module) != 0 ||
+				realCreate(device.Get(), module, "trp_copy", &capture.copy) != 0) { return false; }
+			D3D12_RESOURCE_DESC buffer{};
+			buffer.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER; buffer.Width = 2 * capture.total;
+			buffer.Height = 1; buffer.DepthOrArraySize = 1; buffer.MipLevels = 1; buffer.SampleDesc.Count = 1;
+			buffer.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+			D3D12_HEAP_PROPERTIES gpuHeap{ D3D12_HEAP_TYPE_DEFAULT }, readHeap{ D3D12_HEAP_TYPE_READBACK };
+			auto uav = buffer; uav.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+			return SUCCEEDED(device->CreateCommittedResource(&gpuHeap, D3D12_HEAP_FLAG_NONE, &uav,
+					D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr, IID_PPV_ARGS(&capture.gpu))) &&
+				SUCCEEDED(device->CreateCommittedResource(&readHeap, D3D12_HEAP_FLAG_NONE, &buffer,
+					D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&capture.readback)));
+		}
+
+		// Copies every capture region of `kernel` into the capture buffer at `base`.
+		void CopyRegions(ID3D12GraphicsCommandList* list, const Launch& kernel, std::uint64_t base)
+		{
+			const auto barrier = UavBarrier();
+			list->ResourceBarrier(1, &barrier);
+			auto at = capture.gpu->GetGPUVirtualAddress() + base;
+			for (const auto& region : capture.regions) {
+				std::uint64_t source{};
+				std::memcpy(&source, static_cast<const std::uint8_t*>(kernel.params) + region.offset, sizeof(source));
+				const CopyParams params{ source, at, region.bytes / 16 };
+				const Launch copy{ capture.copy, { 256, 1, 1 }, { 256, 1, 1 }, 0, &params, sizeof(params) };
+				if (source) { realChain(list, &copy, 1); }
+				at += region.bytes;
+			}
+			list->ResourceBarrier(1, &barrier);
+		}
+
+		template<class F> int Captured(ID3D12GraphicsCommandList* list, const Launch& kernel, F launch)
+		{
+			const auto found = names.find(kernel.function);
+			if (capture.kernel.empty() || capture.recorded || !collecting || found == names.end() || found->second != capture.kernel ||
+				capture.seen++ != capture.launch) { return launch(); }
+			if (!EnsureCapture(list)) { std::printf("CAPTURE setup failed\n"); capture.recorded = true; return launch(); }
+			const auto* bytes = static_cast<const std::uint8_t*>(kernel.params);
+			capture.params.assign(bytes, bytes + kernel.paramSize);
+			CopyRegions(list, kernel, 0);
+			const auto result = launch();
+			CopyRegions(list, kernel, capture.total);
+			D3D12_RESOURCE_BARRIER toCopy{ D3D12_RESOURCE_BARRIER_TYPE_TRANSITION };
+			toCopy.Transition = { capture.gpu.Get(), D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
+				D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE };
+			list->ResourceBarrier(1, &toCopy);
+			list->CopyBufferRegion(capture.readback.Get(), 0, capture.gpu.Get(), 0, 2 * capture.total);
+			std::swap(toCopy.Transition.StateBefore, toCopy.Transition.StateAfter);
+			list->ResourceBarrier(1, &toCopy);
+			capture.recorded = true;
+			return result;
+		}
+
+		void WriteCapture()
+		{
+			if (!capture.recorded || capture.written || !capture.readback) { return; }
+			capture.written = true;
+			void* data{};
+			D3D12_RANGE range{ 0, 2 * capture.total };
+			std::FILE* file = std::fopen(capture.file.c_str(), "wb");
+			if (!file || FAILED(capture.readback->Map(0, &range, &data))) { std::printf("CAPTURE write failed\n"); if (file) { std::fclose(file); } return; }
+			const std::uint32_t header[3]{ 0x50414354u, static_cast<std::uint32_t>(capture.regions.size()), static_cast<std::uint32_t>(capture.params.size()) };
+			std::fwrite(header, sizeof(header), 1, file);
+			std::fwrite(capture.params.data(), 1, capture.params.size(), file);
+			for (const auto& region : capture.regions) { std::fwrite(&region.offset, 4, 1, file); std::fwrite(&region.bytes, 8, 1, file); }
+			std::fwrite(data, 1, 2 * capture.total, file);
+			D3D12_RANGE none{};
+			capture.readback->Unmap(0, &none);
+			std::fclose(file);
+			std::printf("CAPTURE %s launch %u -> %s (%llu bytes per side)\n", capture.kernel.c_str(), capture.launch,
+				capture.file.c_str(), static_cast<unsigned long long>(capture.total));
+		}
+
 		int __cdecl LaunchChain(ID3D12GraphicsCommandList* list, const Launch* kernels, std::uint32_t count)
 		{
 			std::scoped_lock lock(mutex);
@@ -125,10 +261,12 @@ namespace KernelProfiler
 				return Timed(list, kernels[0].function, kernels[0].grid, kernels[0].block, kernels[0].sharedBytes,
 					[&] { return realChain(list, kernels, count); }, count);
 			}
+			for (std::uint32_t i = 0; i < count; ++i) { DumpParams(kernels[i].function, kernels[i].grid, kernels[i].block, kernels[i].params, kernels[i].paramSize); }
 			int result = 0;
 			for (std::uint32_t i = 0; i < count && result == 0; ++i) {
+				if (barriers) { const auto barrier = UavBarrier(); list->ResourceBarrier(1, &barrier); }
 				result = Timed(list, kernels[i].function, kernels[i].grid, kernels[i].block, kernels[i].sharedBytes,
-					[&] { return realChain(list, kernels + i, 1); });
+					[&] { return Captured(list, kernels[i], [&] { return realChain(list, kernels + i, 1); }); });
 			}
 			return result;
 		}
@@ -196,6 +334,31 @@ namespace KernelProfiler
 		char value[8]{};
 		if (!GetEnvironmentVariableA("TRP_NR_KERNEL_PROFILE", value, sizeof(value)) || (value[0] != '1' && value[0] != '2')) { return false; }
 		wholeChains = value[0] == '2';
+		char params[8]{};
+		dumpParams = GetEnvironmentVariableA("TRP_NR_KERNEL_PARAMS", params, sizeof(params)) && params[0] == '1';
+		barriers = GetEnvironmentVariableA("TRP_NR_KERNEL_BARRIERS", params, sizeof(params)) && params[0] == '1';
+		char spec[1024]{};
+		if (GetEnvironmentVariableA("TRP_NR_KERNEL_CAPTURE", spec, sizeof(spec))) {
+			std::vector<std::string> fields;
+			for (const char* at = spec; *at;) {
+				const char* comma = std::strchr(at, ',');
+				fields.emplace_back(at, comma ? comma : at + std::strlen(at));
+				at = comma ? comma + 1 : at + std::strlen(at);
+			}
+			if (fields.size() >= 4) {
+				capture.kernel = fields[0];
+				capture.launch = static_cast<unsigned>(std::strtoul(fields[1].c_str(), nullptr, 10));
+				capture.file = fields[2];
+				for (std::size_t i = 3; i < fields.size(); ++i) {
+					const auto colon = fields[i].find(':');
+					if (colon == std::string::npos) { continue; }
+					const Region region{ static_cast<std::uint32_t>(std::strtoul(fields[i].c_str() + (fields[i][0] == '+'), nullptr, 10)),
+						std::strtoull(fields[i].c_str() + colon + 1, nullptr, 10) & ~15ull };
+					capture.regions.push_back(region);
+					capture.total += region.bytes;
+				}
+			}
+		}
 		realGetProcAddress = &::GetProcAddress;
 		auto* original = PatchImport(GetModuleHandleW(nullptr), "KERNEL32.dll", "LoadLibraryExW", reinterpret_cast<void*>(&LoadLibraryExWHook));
 		realLoadLibraryExW = reinterpret_cast<LoadLibraryExWFn>(original);
@@ -224,6 +387,7 @@ namespace KernelProfiler
 	{
 		std::scoped_lock lock(mutex);
 		collecting = false;
+		WriteCapture();
 		std::vector<Sample> samples;
 		if (pending.empty() || !readback || !frequency) { return samples; }
 		void* data{};
