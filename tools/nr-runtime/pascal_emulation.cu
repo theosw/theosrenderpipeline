@@ -54,30 +54,62 @@ struct TrpPair { unsigned x, y; };
 // Lane (g = lane/4, t = lane%4) owns D rows g, g+8 and columns 2t, 2t+1. A row g lives in
 // a0 (k 0-15) and a2 (k 16-31) of lanes 4g..4g+3, each holding 4 consecutive k; B column n
 // lives in b0/b1 of lanes 4n..4n+3 the same way.
+//
+// Each lane already holds A rows g and g+8 for its 8 k values (k = 4t..4t+3 in a0/a1 and
+// 4t+16..4t+19 in a2/a3) and lane (n, t) holds B column n for the same k. So each lane
+// decodes its own A once, fetches B column c for its k from lane 4c+t (16 shuffles),
+// forms partial sums for all 16 outputs of its rows, and the four lanes of a row group
+// then reduce-scatter so lane t keeps columns 2t, 2t+1 (12 shuffles).
 extern "C" __device__ __noinline__ TrpPair trp_mma_e4m3(
     unsigned a0, unsigned a1, unsigned a2, unsigned a3, unsigned b0, unsigned b1, unsigned c0, unsigned c1)
 {
-    const unsigned lane = LaneId(), g = lane >> 2, t = lane & 3;
-    float d00 = LowHalf(c0), d01 = HighHalf(c0), d10 = LowHalf(c1), d11 = HighHalf(c1);
-    for (unsigned j = 0; j < 4; ++j) {
-        const unsigned sourceA = (g << 2) | j, sourceB0 = ((2 * t) << 2) | j, sourceB1 = ((2 * t + 1) << 2) | j;
-        const unsigned rowLow0 = __shfl_sync(0xFFFFFFFFu, a0, sourceA), rowLow1 = __shfl_sync(0xFFFFFFFFu, a2, sourceA);
-        const unsigned rowHigh0 = __shfl_sync(0xFFFFFFFFu, a1, sourceA), rowHigh1 = __shfl_sync(0xFFFFFFFFu, a3, sourceA);
-        const unsigned col0k0 = __shfl_sync(0xFFFFFFFFu, b0, sourceB0), col0k1 = __shfl_sync(0xFFFFFFFFu, b1, sourceB0);
-        const unsigned col1k0 = __shfl_sync(0xFFFFFFFFu, b0, sourceB1), col1k1 = __shfl_sync(0xFFFFFFFFu, b1, sourceB1);
+    const unsigned lane = LaneId(), t = lane & 3;
+    float low[8], high[8];  // A row g and g+8 at this lane's 8 k.
 #pragma unroll
-        for (unsigned q = 0; q < 32; q += 8) {
-            const float al0 = E4M3(rowLow0 >> q), al1 = E4M3(rowLow1 >> q);
-            const float ah0 = E4M3(rowHigh0 >> q), ah1 = E4M3(rowHigh1 >> q);
-            const float b00 = E4M3(col0k0 >> q), b01 = E4M3(col0k1 >> q);
-            const float b10 = E4M3(col1k0 >> q), b11 = E4M3(col1k1 >> q);
-            d00 = fmaf(al0, b00, fmaf(al1, b01, d00));
-            d01 = fmaf(al0, b10, fmaf(al1, b11, d01));
-            d10 = fmaf(ah0, b00, fmaf(ah1, b01, d10));
-            d11 = fmaf(ah0, b10, fmaf(ah1, b11, d11));
+    for (unsigned q = 0; q < 4; ++q) {
+        low[q] = E4M3(a0 >> (8 * q)); low[4 + q] = E4M3(a2 >> (8 * q));
+        high[q] = E4M3(a1 >> (8 * q)); high[4 + q] = E4M3(a3 >> (8 * q));
+    }
+    float partial[2][8];  // [row g / g+8][column 0..7], summed over this lane's k.
+#pragma unroll
+    for (unsigned c = 0; c < 8; ++c) {
+        const unsigned source = (c << 2) | t;
+        const unsigned k0 = __shfl_sync(0xFFFFFFFFu, b0, source), k1 = __shfl_sync(0xFFFFFFFFu, b1, source);
+        float sumLow = 0.0f, sumHigh = 0.0f;
+#pragma unroll
+        for (unsigned q = 0; q < 4; ++q) {
+            const float bk0 = E4M3(k0 >> (8 * q)), bk1 = E4M3(k1 >> (8 * q));
+            sumLow = fmaf(low[q], bk0, fmaf(low[4 + q], bk1, sumLow));
+            sumHigh = fmaf(high[q], bk0, fmaf(high[4 + q], bk1, sumHigh));
+        }
+        partial[0][c] = sumLow; partial[1][c] = sumHigh;
+    }
+    // Reduce-scatter over the row group's lanes: after xor 2 a lane keeps the 4 columns of
+    // owners {t, t^1}; after xor 1 it keeps its own 2 columns. Selects, not indexing, keep
+    // everything in registers.
+    const bool upper = (t & 2) != 0, odd = (t & 1) != 0;
+    float kept[2][4];
+#pragma unroll
+    for (unsigned r = 0; r < 2; ++r) {
+#pragma unroll
+        for (unsigned i = 0; i < 4; ++i) {
+            const float keep = upper ? partial[r][4 + i] : partial[r][i];
+            const float give = upper ? partial[r][i] : partial[r][4 + i];
+            kept[r][i] = keep + __shfl_xor_sync(0xFFFFFFFFu, give, 2);
         }
     }
-    return {PackHalf2(d00, d01), PackHalf2(d10, d11)};
+    float own[2][2];
+#pragma unroll
+    for (unsigned r = 0; r < 2; ++r) {
+#pragma unroll
+        for (unsigned i = 0; i < 2; ++i) {
+            const float keep = odd ? kept[r][2 + i] : kept[r][i];
+            const float give = odd ? kept[r][i] : kept[r][2 + i];
+            own[r][i] = keep + __shfl_xor_sync(0xFFFFFFFFu, give, 1);
+        }
+    }
+    return {PackHalf2(own[0][0] + LowHalf(c0), own[0][1] + HighHalf(c0)),
+            PackHalf2(own[1][0] + LowHalf(c1), own[1][1] + HighHalf(c1))};
 }
 
 // mma.sync.aligned.m16n8k16.row.col.f16.f16.f16.f16. A row g: a0 (k 2t,2t+1) and a2

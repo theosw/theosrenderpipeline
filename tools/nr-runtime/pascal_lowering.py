@@ -53,6 +53,31 @@ def call(function, arguments, results, packed_result=False):
     return '\n'.join(lines)
 
 
+def half2_binary(f32, d, a, b):
+    """f16x2 d = op(a, b) through f32, rounded to nearest even per half."""
+    return ('{\n.reg .b16 trp_h<4>;\n.reg .f32 trp_f<4>;\n'
+            f'mov.b32 {{trp_h0, trp_h1}}, {a};\nmov.b32 {{trp_h2, trp_h3}}, {b};\n'
+            'cvt.f32.f16 trp_f0, trp_h0;\ncvt.f32.f16 trp_f1, trp_h1;\ncvt.f32.f16 trp_f2, trp_h2;\ncvt.f32.f16 trp_f3, trp_h3;\n'
+            f'{f32} trp_f0, trp_f0, trp_f2;\n{f32} trp_f1, trp_f1, trp_f3;\n'
+            'cvt.rn.f16.f32 trp_h0, trp_f0;\ncvt.rn.f16.f32 trp_h1, trp_f1;\n'
+            f'mov.b32 {d}, {{trp_h0, trp_h1}};\n}}')
+
+
+def half_binary(f32, d, a, b):
+    return ('{\n.reg .f32 trp_f<2>;\n'
+            f'cvt.f32.f16 trp_f0, {a};\ncvt.f32.f16 trp_f1, {b};\n{f32} trp_f0, trp_f0, trp_f1;\n'
+            f'cvt.rn.f16.f32 {d}, trp_f0;\n}}')
+
+
+def half2_fma(d, a, b, c):
+    return ('{\n.reg .b16 trp_h<6>;\n.reg .f32 trp_f<6>;\n'
+            f'mov.b32 {{trp_h0, trp_h1}}, {a};\nmov.b32 {{trp_h2, trp_h3}}, {b};\nmov.b32 {{trp_h4, trp_h5}}, {c};\n'
+            + ''.join(f'cvt.f32.f16 trp_f{i}, trp_h{i};\n' for i in range(6)) +
+            'fma.rn.f32 trp_f0, trp_f0, trp_f2, trp_f4;\nfma.rn.f32 trp_f1, trp_f1, trp_f3, trp_f5;\n'
+            'cvt.rn.f16.f32 trp_h0, trp_f0;\ncvt.rn.f16.f32 trp_h1, trp_f1;\n'
+            f'mov.b32 {d}, {{trp_h0, trp_h1}};\n}}')
+
+
 def emulation_functions(emulation_ptx):
     """The .func definitions of pascal_emulation.ptx, made module-local."""
     body = emulation_ptx.replace('\r', '')
@@ -91,9 +116,19 @@ def lower(ada_ptx, emulation_ptx):
                       call('trp_cvt_f16x2_e4m3x2', ['trp_t'], [m[1]]) + '\n}', s)
     s = sub('movmatrix', r'movmatrix\.sync\.trans\.aligned\.m8n8\.b16\s+' + R + SEP + R + r'\s*;',
             lambda m: call('trp_movmatrix_trans', [m[2]], [m[1]]), s)
-    for op in ('min', 'max'):
-        s = sub(f'{op}.f16x2', op + r'\.f16x2\s+' + R + SEP + R + SEP + R + r'\s*;',
-                lambda m, op=op: call(f'trp_{op}_f16x2', [m[2], m[3]], [m[1]]), s)
+    # Half-precision arithmetic runs at 1/64 rate on GP10x (2 results per clock per SM).
+    # Compute in f32 and round once to f16: exact for add, sub, mul, min and max (f16
+    # products and sums of nearby f16 values fit f32); fma can differ by one f16 ulp in
+    # rare double-rounding cases.
+    for op, f32 in (('min', 'min.f32'), ('max', 'max.f32'), ('mul', 'mul.rn.f32'), ('add', 'add.rn.f32'),
+                    ('sub', 'sub.rn.f32')):
+        s = sub(f'{op}.f16x2', r'\b' + op + r'\.f16x2\s+' + R + SEP + R + SEP + R + r'\s*;',
+                lambda m, f32=f32: half2_binary(f32, m[1], m[2], m[3]), s)
+        s = sub(f'{op}.f16', r'\b' + op + r'\.f16\s+' + R + SEP + R + SEP + R + r'\s*;',
+                lambda m, f32=f32: half_binary(f32, m[1], m[2], m[3]), s)
+    s = sub('fma.f16x2', r'\bfma\.rn\.f16x2\s+' + R + SEP + R + SEP + R + SEP + R + r'\s*;',
+            lambda m: half2_fma(m[1], m[2], m[3], m[4]), s)
+    s = sub('abs.f16x2', r'\babs\.f16x2\s+' + R + SEP + R + r'\s*;', lambda m: f'and.b32 {m[1]}, {m[2]}, 0x7FFF7FFF;', s)
     s = sub('cp.async 16', r'cp\.async\.ca\.shared\.global\s+\[([^\]]+)\]' + SEP + r'\[([^\]]+)\]' + SEP + r'16\s*;',
             lambda m: ('{\n.reg .b32 trp_c<4>;\n'
                        f'ld.global.ca.v4.b32 {{trp_c0, trp_c1, trp_c2, trp_c3}}, [{m[2]}];\n'
