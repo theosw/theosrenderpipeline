@@ -18,7 +18,11 @@
 #include <format>
 #include <limits>
 #include <mutex>
+#include <string>
+#include <type_traits>
+#include <unordered_map>
 #include <utility>
+#include <variant>
 
 #include <wrl/client.h>
 
@@ -62,6 +66,95 @@ namespace TheosRenderPipeline::NeuralRendering
 			const NVSDK_NGX_Parameter*,
 			PFN_NVSDK_NGX_ProgressCallback_C);
 		using D3D12ReleaseFeature = NVSDK_NGX_Result(NVSDK_CONV*)(NVSDK_NGX_Handle*);
+
+		// Research builds only: TRP_NR_PASCAL_RESEARCH=1 lets NR start on GPUs
+		// that the driver's NGX core refuses (GTX 10); =2 also skips NGX core on
+		// supported GPUs, to test that path on an RTX card.
+		wchar_t PascalResearchMode()
+		{
+			static const wchar_t mode = [] {
+				wchar_t value[4]{};
+				return ::GetEnvironmentVariableW(L"TRP_NR_PASCAL_RESEARCH", value, 4) == 1 ? value[0] : L'\0';
+			}();
+			return mode;
+		}
+
+		bool PascalResearch() { return PascalResearchMode() == L'1' || PascalResearchMode() == L'2'; }
+
+		// The driver registers its NGX core folder under NGXCore\FullPath.
+		HMODULE LoadNgxCore()
+		{
+			wchar_t folder[MAX_PATH]{};
+			DWORD bytes = sizeof(folder);
+			if (::RegGetValueW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\NVIDIA Corporation\\Global\\NGXCore", L"FullPath",
+					RRF_RT_REG_SZ, nullptr, folder, &bytes) != ERROR_SUCCESS) {
+				return nullptr;
+			}
+			const auto path = std::filesystem::path(folder) / L"_nvngx.dll";
+			return ::LoadLibraryExW(path.c_str(), nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
+		}
+
+		// Research stand-in for NGX core's parameter map. Like the core's, Get
+		// converts between numeric types and between pointer types.
+		class ResearchParameters final : public NVSDK_NGX_Parameter
+		{
+		public:
+			void Set(const char* a_name, unsigned long long a_value) override { Put(a_name, a_value); }
+			void Set(const char* a_name, float a_value) override { Put(a_name, a_value); }
+			void Set(const char* a_name, double a_value) override { Put(a_name, a_value); }
+			void Set(const char* a_name, unsigned int a_value) override { Put(a_name, a_value); }
+			void Set(const char* a_name, int a_value) override { Put(a_name, a_value); }
+			void Set(const char* a_name, ID3D11Resource* a_value) override { Put(a_name, static_cast<void*>(a_value)); }
+			void Set(const char* a_name, ID3D12Resource* a_value) override { Put(a_name, static_cast<void*>(a_value)); }
+			void Set(const char* a_name, void* a_value) override { Put(a_name, a_value); }
+			NVSDK_NGX_Result Get(const char* a_name, unsigned long long* a_value) const override { return Number(a_name, a_value); }
+			NVSDK_NGX_Result Get(const char* a_name, float* a_value) const override { return Number(a_name, a_value); }
+			NVSDK_NGX_Result Get(const char* a_name, double* a_value) const override { return Number(a_name, a_value); }
+			NVSDK_NGX_Result Get(const char* a_name, unsigned int* a_value) const override { return Number(a_name, a_value); }
+			NVSDK_NGX_Result Get(const char* a_name, int* a_value) const override { return Number(a_name, a_value); }
+			NVSDK_NGX_Result Get(const char* a_name, ID3D11Resource** a_value) const override { return Pointer(a_name, a_value); }
+			NVSDK_NGX_Result Get(const char* a_name, ID3D12Resource** a_value) const override { return Pointer(a_name, a_value); }
+			NVSDK_NGX_Result Get(const char* a_name, void** a_value) const override { return Pointer(a_name, a_value); }
+			void Reset() override { values_.clear(); }
+			std::size_t Count() const { return values_.size(); }
+
+		private:
+			using Value = std::variant<unsigned long long, float, double, unsigned int, int, void*>;
+
+			template <class T>
+			void Put(const char* a_name, T a_value)
+			{
+				if (a_name) { values_[a_name] = a_value; }
+			}
+
+			template <class T>
+			NVSDK_NGX_Result Number(const char* a_name, T* a_value) const
+			{
+				const auto it = a_name ? values_.find(a_name) : values_.end();
+				if (it == values_.end() || !a_value || std::holds_alternative<void*>(it->second)) { return NVSDK_NGX_Result_Fail; }
+				std::visit([&](auto stored) {
+					if constexpr (!std::is_pointer_v<decltype(stored)>) { *a_value = static_cast<T>(stored); }
+				}, it->second);
+				return NVSDK_NGX_Result_Success;
+			}
+
+			template <class T>
+			NVSDK_NGX_Result Pointer(const char* a_name, T** a_value) const
+			{
+				const auto it = a_name ? values_.find(a_name) : values_.end();
+				if (it == values_.end() || !a_value || !std::holds_alternative<void*>(it->second)) { return NVSDK_NGX_Result_Fail; }
+				*a_value = static_cast<T*>(std::get<void*>(it->second));
+				return NVSDK_NGX_Result_Success;
+			}
+
+			std::unordered_map<std::string, Value> values_;
+		};
+
+		NVSDK_NGX_Result NVSDK_CONV DestroyResearchParameters(NVSDK_NGX_Parameter* a_parameters)
+		{
+			delete static_cast<ResearchParameters*>(a_parameters);
+			return NVSDK_NGX_Result_Success;
+		}
 
 		bool IsUsableInitResult(NVSDK_NGX_Result a_result)
 		{
@@ -251,7 +344,7 @@ namespace TheosRenderPipeline::NeuralRendering
 		NVSDK_NGX_FeatureCommonInfo featureInfo{};
 		featureInfo.PathListInfo.Path = &searchPath;
 		featureInfo.PathListInfo.Length = 1;
-		const auto publicInitResult = NVSDK_NGX_D3D12_Init_with_ProjectID(
+		const auto publicInitResult = PascalResearchMode() == L'2' ? NVSDK_NGX_Result_FAIL_FeatureNotSupported : NVSDK_NGX_D3D12_Init_with_ProjectID(
 			kTheosRenderPipelineNGXProjectId,
 			NVSDK_NGX_ENGINE_TYPE_CUSTOM,
 			kTheosRenderPipelineNGXEngineVersion,
@@ -263,13 +356,22 @@ namespace TheosRenderPipeline::NeuralRendering
 			state.lastInitResult = static_cast<std::uint32_t>(publicInitResult);
 			state.status = std::format(
 				"public NGX initialization failed (0x{:08X})", state.lastInitResult);
-			return false;
+			// Research: the driver's NGX core refuses GPUs older than Turing
+			// with FeatureNotSupported. NR itself only needs the loader's path.
+			if (!PascalResearch() || publicInitResult != NVSDK_NGX_Result_FAIL_FeatureNotSupported) {
+				return false;
+			}
+			logger::info("[DLSSNR Source] research: continuing after {}", state.status);
+		} else {
+			publicNGXInitialized.store(true, std::memory_order_release);
 		}
-		publicNGXInitialized.store(true, std::memory_order_release);
 		// XeSS startup has no Streamline/DLSS bootstrap. The public NGX init
 		// above must establish NR's loader independently before we resolve the
 		// path used by the feature's scoped module-path hook.
-		const auto normalLoader = FindNormalLoader();
+		auto normalLoader = FindNormalLoader();
+		if (!normalLoader && PascalResearch()) {
+			normalLoader = LoadNgxCore();
+		}
 		const auto normalLoaderPath = ModulePath(normalLoader);
 		if (!normalLoader || normalLoaderPath.empty()) {
 			state.status = "normal NGX loader is not resident after public initialization";
@@ -329,6 +431,18 @@ namespace TheosRenderPipeline::NeuralRendering
 		auto capabilityResult = NVSDK_NGX_Result_FAIL_NotInitialized;
 		if (getCapabilities && state.destroyParameters) {
 			capabilityResult = getCapabilities(&state.parameters);
+		} else if (!publicNGXInitialized.load(std::memory_order_acquire) && PascalResearch()) {
+			// Research: without NGX core, fill our own parameter map the way the
+			// core does, through the runtime's populate entry point.
+			using Populate = NVSDK_NGX_Result(NVSDK_CONV*)(NVSDK_NGX_Parameter*);
+			const auto populate = reinterpret_cast<Populate>(
+				::GetProcAddress(state.module, "NVSDK_NGX_D3D12_PopulateParameters_Impl"));
+			auto* parameters = new ResearchParameters;
+			capabilityResult = populate ? populate(parameters) : NVSDK_NGX_Result_FAIL_FeatureNotFound;
+			state.parameters = parameters;
+			state.destroyParameters = &DestroyResearchParameters;
+			logger::info("[DLSSNR Source] research: populated parameters (0x{:08X}), {} values",
+				static_cast<std::uint32_t>(capabilityResult), parameters->Count());
 		} else {
 			capabilityResult = NVSDK_NGX_D3D12_GetCapabilityParameters(&state.parameters);
 			state.destroyParameters = &NVSDK_NGX_D3D12_DestroyParameters;

@@ -25,7 +25,13 @@ int wmain(int argc,wchar_t** argv){
         const auto init =
             NVSDK_NGX_D3D12_Init_with_ProjectID("f1b2e5d8-9c4a-4e7b-8a36-5d2e90c47a11", NVSDK_NGX_ENGINE_TYPE_CUSTOM,
                 "nr-peripheral-benchmark", cache.c_str(), gpu.device.Get(), nullptr, NVSDK_NGX_Version_API);
-        Require(NVSDK_NGX_SUCCEED(init) || init == NVSDK_NGX_Result_FAIL_FeatureAlreadyExists, "normal NGX bootstrap");
+        // TRP_NR_PASCAL_RESEARCH=1: the driver's NGX core refuses GTX 10 (FeatureNotSupported);
+        // the NR session then finds the loader itself.
+        wchar_t research[4]{};
+        const bool pascalResearch = GetEnvironmentVariableW(L"TRP_NR_PASCAL_RESEARCH", research, 4) == 1 && research[0] == L'1';
+        if (!NVSDK_NGX_SUCCEED(init)) { std::printf("normal NGX bootstrap result=0x%08X\n", static_cast<unsigned>(init)); }
+        Require(NVSDK_NGX_SUCCEED(init) || init == NVSDK_NGX_Result_FAIL_FeatureAlreadyExists ||
+                (pascalResearch && init == NVSDK_NGX_Result_FAIL_FeatureNotSupported), "normal NGX bootstrap");
     }
     NeuralOptions options;options.enabled=true;options.runtimePath=argv[1];options.beforeUpscaling=true;
     options.tuning.uiCorrection=false;options.reconstruction.inputScale=mode==L"uniform"?.9f:1.f;
