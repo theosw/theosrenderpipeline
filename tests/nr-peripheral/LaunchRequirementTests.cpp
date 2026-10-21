@@ -133,10 +133,12 @@ int main()
     GetEnvironmentVariableW(L"TRP_NR_PASCAL_RESEARCH",savedMode,32768);
     GetEnvironmentVariableW(L"TRP_NR_PASCAL_PACK",savedPack,32768);
     SetEnvironmentVariableW(L"TRP_NR_PASCAL_RESEARCH",nullptr); SetEnvironmentVariableW(L"TRP_NR_PASCAL_PACK",nullptr);
-    Require(!ReadPascalConfiguration(ini,temp).mode,"research defaults off");
+    Require(!ReadPascalConfiguration(ini,temp).mode && !ReadPascalConfiguration(ini,temp).nrFriendlyRenderSize,"research and sizing default off");
     WritePrivateProfileStringW(L"NeuralRenderingResearch",L"EnablePascal",L"1",ini.c_str());
     WritePrivateProfileStringW(L"NeuralRenderingResearch",L"PascalPack",L"NVIDIA/c24.trpk",ini.c_str());
+    WritePrivateProfileStringW(L"NeuralRenderingResearch",L"NRFriendlyRenderSize",L"1",ini.c_str());
     auto config=ReadPascalConfiguration(ini,temp);
+    Require(config.nrFriendlyRenderSize,"INI enables NR-friendly sizing");
     Require(config.mode==L'1' && config.pack==temp/L"NVIDIA/c24.trpk","INI enables research and resolves relative pack");
     SetEnvironmentVariableW(L"TRP_NR_PASCAL_RESEARCH",L"0");
     SetEnvironmentVariableW(L"TRP_NR_PASCAL_PACK",L"C:/absolute/c24.trpk");

@@ -73,3 +73,11 @@ target_compile_features(TRPXeFGTensorLifetimeTests PRIVATE cxx_std_23)
 target_compile_definitions(TRPXeFGTensorLifetimeTests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
 target_include_directories(TRPXeFGTensorLifetimeTests PRIVATE "${TRP_ROOT}/src")
 target_link_libraries(TRPXeFGTensorLifetimeTests PRIVATE d3d12 dxgi bcrypt)
+
+# Manual only: hardware/runtime admission at the research NR render ladder.
+add_executable(TRPNRRenderSizeAdmissionTests NRRenderSizeAdmissionTests.cpp "${TRP_ROOT}/src/FrameGen/XeSSUpscaler.cpp"
+    "${TRP_ROOT}/src/FrameGen/SourceDLSSGInterop.cpp" "${TRP_ROOT}/src/FrameGen/D3D12StageTimer.cpp")
+target_compile_features(TRPNRRenderSizeAdmissionTests PRIVATE cxx_std_23)
+target_compile_definitions(TRPNRRenderSizeAdmissionTests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
+target_include_directories(TRPNRRenderSizeAdmissionTests PRIVATE "${TRP_ROOT}/src" "${XESS_SDK}/inc")
+target_link_libraries(TRPNRRenderSizeAdmissionTests PRIVATE d3d11 d3d12 dxgi d3dcompiler user32)

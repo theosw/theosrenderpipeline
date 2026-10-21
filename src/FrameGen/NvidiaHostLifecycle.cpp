@@ -103,6 +103,7 @@ void NvidiaHost::ResetSessionAfterRetirement()
     outputWindow_ = nullptr;
     outputWidth_ = 0;
     outputHeight_ = 0;
+    nrFriendlyRenderSizeActive_ = false;
     renderWidth_ = 0;
     renderHeight_ = 0;
     runtimeStateObservationCount_ = 0;

@@ -58,6 +58,7 @@ struct OverlayUI::FrameView
     bool nvidiaFeatures{true};
     bool nvidiaFrameGeneration{true};
     bool xessActive{};
+    bool nrFriendlyRenderSizeActive{};
     bool generationActive{};
     unsigned effectiveMultiplier{1};
     TheosRenderPipeline::FrameGenerationProvider provider{}, requestedProvider{};

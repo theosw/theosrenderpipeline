@@ -54,6 +54,7 @@ OverlayUI::FrameView OverlayUI::CaptureFrameView()
     view.outputWidth = nvidiaHost->OutputWidth();
     view.outputHeight = nvidiaHost->OutputHeight();
     view.xessActive = nvidiaHost->XeSSActive();
+    view.nrFriendlyRenderSizeActive = nvidiaHost->NRFriendlyRenderSizeActive();
     const auto& upscalerSettings = nvidiaHost->SourceUpscalerSettings();
     view.upscaler = upscalerSettings.Effective();
     view.upscalerNeedsRestart = upscalerSettings.NeedsRestart();
