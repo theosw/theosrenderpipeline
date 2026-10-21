@@ -430,6 +430,27 @@ PreviewScenario Intel()
     return scenario;
 }
 
+PreviewScenario NRFriendly()
+{
+    auto scenario = Intel();
+    scenario.name = "nr-friendly";
+    scenario.summary = "Pascal research XeSS Quality at the selected NR render extent";
+    auto& view = scenario.view;
+    view.nvidiaAdapter = true;
+    view.nvidiaFeatures = view.nvidiaFrameGeneration = false;
+    view.nrFriendlyRenderSizeActive = true;
+    view.outputWidth = view.displaySizeX = 1280;
+    view.outputHeight = view.displaySizeY = 720;
+    view.renderWidth = view.renderSizeX = 768;
+    view.renderHeight = view.renderSizeY = 432;
+    view.neuralApplied.enabled = true;
+    view.neuralApplied.beforeUpscaling = true;
+    scenario.applied.sourceDLSSG.neuralEnabled = true;
+    scenario.applied.sourceDLSSG.neuralBeforeUpscaling = true;
+    scenario.draft = scenario.applied;
+    return scenario;
+}
+
 PreviewScenario Lab()
 {
     auto scenario = Healthy();
@@ -450,5 +471,5 @@ PreviewScenario Lab()
 
 std::vector<PreviewScenario> PreviewScenarios()
 {
-    return {Healthy(), NROff(), Presets(), CommunityShaders(), HostUnavailable(), Objects(), FivePasses(), Compare(), Exposure(), Steady(), ModelRate(), ModelRateLab(), Intel(), TensorRefused(), Lab()};
+    return {Healthy(), NROff(), Presets(), CommunityShaders(), HostUnavailable(), Objects(), FivePasses(), Compare(), Exposure(), Steady(), ModelRate(), ModelRateLab(), Intel(), TensorRefused(), NRFriendly(), Lab()};
 }
