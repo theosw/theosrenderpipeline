@@ -39,6 +39,13 @@ target_link_libraries(TRPNeuralShaderBytecodeTests PRIVATE d3dcompiler)
 trp_target_neural_shaders(TRPNeuralShaderBytecodeTests)
 add_test(NAME NeuralShaderBytecode COMMAND TRPNeuralShaderBytecodeTests)
 
+
+add_executable(TRPNeuralLaunchRequirementTests LaunchRequirementTests.cpp)
+target_compile_features(TRPNeuralLaunchRequirementTests PRIVATE cxx_std_23)
+target_compile_definitions(TRPNeuralLaunchRequirementTests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+target_include_directories(TRPNeuralLaunchRequirementTests PRIVATE . ../../src)
+add_test(NAME NeuralLaunchRequirements COMMAND TRPNeuralLaunchRequirementTests)
+
 # Manual, opt-in vendor measurement. Never registered with CTest and never
 # launched by a build. No runtimes or game launch are part of this fixture.
 option(TRP_NR_VENDOR_BENCHMARK "Build the manual hardware NR benchmark" OFF)
@@ -59,6 +66,7 @@ if(TRP_NR_VENDOR_BENCHMARK)
     ../../src/FrameGen/NeuralObjectBlend.cpp
     ../../src/FrameGen/NeuralObjectControl.cpp
         ../../src/FrameGen/SourceDLSSGInterop.cpp ../../src/FrameGen/D3D12StageTimer.cpp
+        ../../src/FrameGen/NeuralLaunchHook.cpp
         ../../src/FrameGen/NeuralRenderingFeatureSession.cpp
         ../../src/FrameGen/NeuralRenderingModulePathHook.cpp
         ../../src/FrameGen/NeuralRenderingRuntimeIdentity.cpp ${nr_ada_sources})
@@ -75,6 +83,7 @@ if(TRP_NR_VENDOR_BENCHMARK)
     ../../src/FrameGen/NeuralObjectBlend.cpp
     ../../src/FrameGen/NeuralObjectControl.cpp
         ../../src/FrameGen/SourceDLSSGInterop.cpp ../../src/FrameGen/D3D12StageTimer.cpp
+        ../../src/FrameGen/NeuralLaunchHook.cpp
         ../../src/FrameGen/NeuralRenderingFeatureSession.cpp
         ../../src/FrameGen/NeuralRenderingModulePathHook.cpp
         ../../src/FrameGen/NeuralRenderingRuntimeIdentity.cpp ${nr_ada_sources})
@@ -88,6 +97,7 @@ if(TRP_NR_VENDOR_BENCHMARK)
         ../../src/FrameGen/SourceDLSSGNeuralRendering.cpp ../../src/FrameGen/SourceDLSSGNeuralResolve.cpp
         ../../src/FrameGen/NeuralObjectBlend.cpp ../../src/FrameGen/NeuralObjectControl.cpp
         ../../src/FrameGen/SourceDLSSGInterop.cpp ../../src/FrameGen/D3D12StageTimer.cpp
+        ../../src/FrameGen/NeuralLaunchHook.cpp
         ../../src/FrameGen/NeuralRenderingFeatureSession.cpp ../../src/FrameGen/NeuralRenderingModulePathHook.cpp
         ../../src/FrameGen/NeuralRenderingRuntimeIdentity.cpp ${nr_ada_sources})
     target_compile_features(TRPNeuralObjectVendorProbe PRIVATE cxx_std_23)

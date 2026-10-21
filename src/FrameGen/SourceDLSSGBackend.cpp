@@ -23,6 +23,8 @@
 #include <thread>
 #if !defined(TRP_NO_NEURAL_RENDERING)
 #include "NeuralRenderingFeatureSession.h"
+#include "NeuralResearch.h"
+#include "NeuralRenderingRuntimeIdentity.h"
 #endif
 
 namespace TheosRenderPipeline::SourceDLSSG
@@ -198,7 +200,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 	bool Backend::InitializeNvidia(const std::filesystem::path& directory)
 	{
 		if (nvidiaInitialized_) { return true; }
-		if (!NvidiaAdapter()) { return Check(DXGI_ERROR_UNSUPPORTED, "NVIDIA provider requires NVIDIA hardware"); }
+		if (!NvidiaFeaturesAvailable()) { return Check(DXGI_ERROR_UNSUPPORTED, "NVIDIA provider requires RTX hardware"); }
 		MFGUnlock::StartupScope startupScope(mfgUnlock_);
 		if (!Load(directory)) { return false; }
 		void* upgraded = device12_.Get();
@@ -340,6 +342,11 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (ReShadeIntegration::Get().Blocked()) { logger::warn("[ReShade] {}", ReShadeIntegration::Get().Status()); }
 		else { logger::info("[ReShade] {}", ReShadeIntegration::Get().Status()); }
 		adapterVendor_ = adapterDesc.VendorId;
+#if !defined(TRP_NO_NEURAL_RENDERING)
+        pascalResearch_ = NeuralRendering::PascalConfiguration().mode && NvidiaAdapter() &&
+            NeuralRendering::PascalResearchFor(NeuralRendering::ComputeCapability(adapterDesc.AdapterLuid));
+        if (pascalResearch_) { logger::info("[NR Pascal Research] native presentation via Intel host; DLSS-G off; pack={}", NeuralRendering::PascalConfiguration().pack.string()); }
+#endif
 		adapterDevice_ = adapterDesc.DeviceId;
 		if (FAILED(adapter->CheckInterfaceSupport(__uuidof(IDXGIDevice), &adapterDriver_))) { adapterDriver_ = {}; }
 		nativeFactory_ = a_factory;
@@ -347,7 +354,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		const bool communityShaders = CommunityShaders::Active();
 		// The host has already replaced DLSS/DLAA with XeSS on other GPUs.
 		const bool xeSSStartup = !communityShaders && RenderPipeline::GetSingleton()->mUpscaleType == ::XeSS;
-		const auto startup = SelectProviderStartup(xeSSStartup, NvidiaAdapter(), RequestedProvider());
+		const auto startup = SelectProviderStartup(xeSSStartup, NvidiaFeaturesAvailable(), RequestedProvider());
 		RequestProvider(startup.requested);
 		provider_ = startup.presenter;
 		const bool intelStartup = provider_ == FrameGenerationProvider::XeFG;
@@ -1415,7 +1422,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (nvidiaNeedsPresent_) { return false; }
 		const auto request = RequestedProvider();
 		if ((request == provider_ && !recreateXeFG_) || !cameraAvailable_ || TransitionBlocked()) { return false; }
-		if (request == FrameGenerationProvider::NVIDIA && !NvidiaAdapter()) {
+		if (request == FrameGenerationProvider::NVIDIA && !NvidiaFeaturesAvailable()) {
 			providerStatus_ = "NVIDIA frame generation requires NVIDIA hardware; Intel presenter retained";
 			RequestProvider(provider_); return false;
 		}

@@ -3,6 +3,8 @@
 namespace TheosRenderPipeline::NeuralRendering
 {
 	bool RuntimeKernelsSupported() { return false; }
+	LaunchRequirements RuntimeLaunchRequirements(HMODULE) { return {}; }
+	int RuntimeKernelBundle(HMODULE, const void*, std::uint32_t) { return -1; }
 
 	RuntimeKernelResult ApplyRuntimeKernels(HMODULE, const std::filesystem::path&, bool, bool)
 	{

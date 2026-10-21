@@ -185,6 +185,6 @@ int wmain(int argc, wchar_t** argv) {
         std::fflush(stdout);
     }
     csv.close();
-    Require(NVSDK_NGX_SUCCEED(NVSDK_NGX_D3D12_Shutdown1(gpu.device.Get())), "normal NGX shutdown");
+    if (NVSDK_NGX_SUCCEED(init) || TheosRenderPipeline::NeuralRendering::PublicNGXInitializedInProcess()) Require(NVSDK_NGX_SUCCEED(NVSDK_NGX_D3D12_Shutdown1(gpu.device.Get())), "normal NGX shutdown");
     std::puts("COMPLETE");
 }

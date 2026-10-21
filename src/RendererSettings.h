@@ -77,6 +77,7 @@ struct RendererSettingsCapabilities
     bool sourceHost{}, neuralRuntime{}, dedicatedUI{}, externalWorld{};
     bool neuralOperational{true};
     bool nvidiaAdapter{true};
+    bool nvidiaFeatures{true};
 };
 
 inline bool CanEditNeuralEnabled(bool enabled, bool available) { return enabled || available; }
@@ -119,7 +120,7 @@ inline const char* ValidateRendererSettings(const RendererSettingsDraft& draft,
     {
         return "Choose DLSS, DLAA or XeSS.";
     }
-    if (!capabilities.nvidiaAdapter && !capabilities.externalWorld && draft.upscaleType != XeSS) {
+    if ((!capabilities.nvidiaAdapter || !capabilities.nvidiaFeatures) && !capabilities.externalWorld && draft.upscaleType != XeSS) {
         return "DLSS/DLAA require NVIDIA RTX hardware. Select XeSS for this GPU.";
     }
     if (!Appearance::ValidHours(draft.appearance.hours)) {

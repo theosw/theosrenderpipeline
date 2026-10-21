@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <string>
 #include <string_view>
+#include "NeuralLaunchRequirements.h"
 
 namespace TheosRenderPipeline::NeuralRendering
 {
@@ -42,4 +43,6 @@ namespace TheosRenderPipeline::NeuralRendering
 	// research: an unpinned pack (TRP_NR_PASCAL_PACK) and GTX 10 admission.
 	RuntimeKernelResult ApplyRuntimeKernels(HMODULE a_module, const std::filesystem::path& a_pack, bool newlyLoaded,
 		bool research = false);
+	LaunchRequirements RuntimeLaunchRequirements(HMODULE module);
+	int RuntimeKernelBundle(HMODULE module, const void* data, std::uint32_t bytes);
 }

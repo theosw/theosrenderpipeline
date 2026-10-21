@@ -95,6 +95,7 @@ OverlayUI::FrameView OverlayUI::CaptureFrameView()
     auto& backend = TheosRenderPipeline::SourceDLSSG::Backend::Get();
     view.sourceReady = backend.Ready();
     view.nvidiaAdapter = backend.NvidiaAdapter();
+    view.nvidiaFeatures = backend.NvidiaFeaturesAvailable();
     view.nvidiaServicesReady = backend.NvidiaServicesReady();
     view.generationActive = backend.GenerationActive();
     view.effectiveMultiplier = backend.EffectiveMultiplier();

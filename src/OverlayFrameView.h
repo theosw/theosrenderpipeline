@@ -55,6 +55,7 @@ struct OverlayUI::FrameView
     bool sourceReady{};
     bool nvidiaServicesReady{};
     bool nvidiaAdapter{true};
+    bool nvidiaFeatures{true};
     bool xessActive{};
     bool generationActive{};
     unsigned effectiveMultiplier{1};

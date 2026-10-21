@@ -21,6 +21,7 @@ int wmain(int argc,wchar_t** argv){
     // The legacy benchmark supplies a warm loader. coldpasses exercises the
     // production NR bootstrap without a prior DLSS/Streamline initialization.
     const auto cache=std::filesystem::absolute("out/diagnostics/ngx-cache");std::filesystem::create_directories(cache);
+    bool bootstrapInitialized=false;
     if (coldStart) {
         Require(!GetModuleHandleW(L"nvngx.dll") && !GetModuleHandleW(L"_nvngx.dll"),
             "cold NR starts without normal NGX loader");
@@ -30,6 +31,7 @@ int wmain(int argc,wchar_t** argv){
         const auto init =
             NVSDK_NGX_D3D12_Init_with_ProjectID("f1b2e5d8-9c4a-4e7b-8a36-5d2e90c47a11", NVSDK_NGX_ENGINE_TYPE_CUSTOM,
                 "nr-peripheral-benchmark", cache.c_str(), gpu.device.Get(), nullptr, NVSDK_NGX_Version_API);
+        bootstrapInitialized=NVSDK_NGX_SUCCEED(init) || init==NVSDK_NGX_Result_FAIL_FeatureAlreadyExists;
         // TRP_NR_PASCAL_RESEARCH=1: the driver's NGX core refuses GTX 10 (FeatureNotSupported);
         // the NR session then finds the loader itself.
         wchar_t research[4]{};
@@ -147,6 +149,6 @@ int wmain(int argc,wchar_t** argv){
     std::fflush(stdout);
     } // All submissions retired before releasing the feature and normal loader.
     std::puts("CLEANUP feature released, shutting down normal NGX");std::fflush(stdout);
-    Require(NVSDK_NGX_SUCCEED(NVSDK_NGX_D3D12_Shutdown1(gpu.device.Get())),"normal NGX shutdown");
-    std::puts("CLEANUP NGX shutdown complete");std::fflush(stdout);
+    if (bootstrapInitialized || TheosRenderPipeline::NeuralRendering::PublicNGXInitializedInProcess()) Require(NVSDK_NGX_SUCCEED(NVSDK_NGX_D3D12_Shutdown1(gpu.device.Get())),"normal NGX shutdown");
+    std::puts("CLEANUP NGX shutdown complete (public shutdown only when initialized)");std::fflush(stdout);
 }

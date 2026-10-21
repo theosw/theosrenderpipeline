@@ -41,7 +41,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			return entry == neuralRefusedRuntimes_.end() ? nullptr : &entry->second;
 		};
 		const std::string* note{};
-		if (!options.automaticRuntime && !(note = refused(options.runtimePath))) { return nullptr; }
+		if (!NeuralRendering::PascalResearchFor(neuralComputeCapability_) && !options.automaticRuntime && !(note = refused(options.runtimePath))) { return nullptr; }
 		// Until the device exists any present candidate can stand in; nothing
 		// creates a feature before CreateSwapChain chooses again.
 		if (neuralComputeCapability_ < 0 && device12_) {

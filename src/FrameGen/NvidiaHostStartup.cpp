@@ -9,6 +9,8 @@
 #include "SourceFrameGeneration.h"
 #include "NeuralRenderingMode.h"
 #include "PluginPaths.h"
+#include "NeuralResearch.h"
+#include "NeuralRenderingRuntimeIdentity.h"
 #include <PCH.h>
 
 HRESULT NvidiaHost::CreateSwapChain(IDXGIFactory* a_factory, ID3D11Device* a_device, DXGI_SWAP_CHAIN_DESC* a_desc, IDXGISwapChain** a_swapChain)
@@ -29,7 +31,13 @@ HRESULT NvidiaHost::CreateSwapChain(IDXGIFactory* a_factory, ID3D11Device* a_dev
         DXGI_ADAPTER_DESC adapterDesc{};
         if (SUCCEEDED(a_device->QueryInterface(IID_PPV_ARGS(&dxgiDevice))) && SUCCEEDED(dxgiDevice->GetAdapter(&adapter)) &&
             SUCCEEDED(adapter->GetDesc(&adapterDesc))) {
-            const auto selected = TheosRenderPipeline::Upscaler::ForAdapter(creation, adapterDesc.VendorId == 0x10DE);
+            bool pascal = false;
+#if !defined(TRP_NO_NEURAL_RENDERING)
+            pascal = TheosRenderPipeline::NeuralRendering::PascalConfiguration().mode &&
+                TheosRenderPipeline::NeuralRendering::PascalResearchFor(TheosRenderPipeline::NeuralRendering::ComputeCapability(adapterDesc.AdapterLuid));
+#endif
+            const auto selected = TheosRenderPipeline::Upscaler::ForAdapter(creation, adapterDesc.VendorId == 0x10DE && !pascal);
+            if (pascal) { logger::info("[NR Pascal Research] GTX 10: XeSS startup; DLSS/DLAA and NVIDIA frame generation unavailable; NR enabled by diagnostics"); }
             if (selected.mode != TheosRenderPipeline::Upscaler::Sanitize(creation).mode) {
                 logger::info("[SourceUpscaler] vendor=0x{:04X} cannot run UpscaleType={}; using XeSS quality={} this session",
                              adapterDesc.VendorId, creation.mode, selected.quality);

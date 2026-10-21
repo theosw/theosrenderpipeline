@@ -30,6 +30,7 @@ import ada_lowering
 import build_rtx40_kernels as ada
 import pascal_groups
 import pascal_lowering
+import launch_metadata
 from ada_lowering import require
 
 
@@ -113,6 +114,8 @@ def main():
         parser.add_argument('--' + name.replace('_', '-'), dest=name, type=Path, required=True)
     parser.add_argument('--native', action='append', default=[], metavar='BUNDLE=PTX',
                         help='native sm_61 kernels replacing same-named NVIDIA kernels in a bundle (repeatable)')
+    parser.add_argument('--launch', action='append', default=[], metavar='KERNEL:BLOCK[:GRID][:SHARED]',
+                        help='required native launch geometry (repeatable; TRPNRK1 v2)')
     parser.add_argument('--groups', action='store_true', help='grouped FP8 mma stand-ins (pascal_groups.py)')
     parser.add_argument('--group-max-a', type=int, default=pascal_groups.MAX_A, help='A fragments per grouped call')
     parser.add_argument('--no-maxnreg', action='store_true',
@@ -124,6 +127,7 @@ def main():
     native = {}
     for item in args.native:   # several PTX files may replace kernels of the same bundle
         native.setdefault(int(item.split('=', 1)[0]), []).append(Path(item.split('=', 1)[1]).read_text(encoding='ascii'))
+    launches = launch_metadata.parse(args.launch, native)
     original = args.official.read_bytes()
     require(ada.sha256(original) == ada.OFFICIAL_SHA256, 'original runtime identity differs')
     image = ada.Image(original)
@@ -146,9 +150,10 @@ def main():
             print(f'{name}: {detail["entries"]} kernels, {len(payload)} bytes', flush=True)
     pack = ada.write_pack(bundles)
     require(ada.read_pack(pack) == bundles, 'pack read-back differs')
+    pack = launch_metadata.append(pack, launches)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_bytes(pack)
-    report = dict(original=ada.OFFICIAL_SHA256, pack=ada.sha256(pack), packBytes=len(pack), research=True, bundles=details)
+    report = dict(original=ada.OFFICIAL_SHA256, pack=ada.sha256(pack), packBytes=len(pack), research=True, launches=launches, bundles=details)
     args.output.with_suffix('.json').write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')
     print(f'wrote {args.output} sha256={ada.sha256(pack)} bytes={len(pack)}', flush=True)
 

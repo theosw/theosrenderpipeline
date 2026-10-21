@@ -19,7 +19,7 @@ namespace TheosRenderPipeline::NeuralRendering
         using namespace KernelPacks;
         // Pinning the image also prevents HMODULE address reuse. The raw storage
         // intentionally has process lifetime, including failed feature retirement.
-        struct Installation { void* storage{}; std::size_t storageBytes{}; bool research{}; std::vector<Patch> plan; RuntimeKernelResult result; };
+        struct Installation { void* storage{}; std::size_t storageBytes{}; bool research{}; std::string digest; LaunchRequirements launches; std::vector<Patch> plan; RuntimeKernelResult result; };
         std::mutex installationMutex;
         std::map<HMODULE, Installation> installations;
 
@@ -78,11 +78,11 @@ namespace TheosRenderPipeline::NeuralRendering
             bool Flush() override { return FlushInstructionCache(GetCurrentProcess(), base, ImageSize) != 0; }
         };
 
-        bool HashIs(std::span<const std::uint8_t> bytes, std::string_view expected)
+        std::string Digest(std::span<const std::uint8_t> bytes)
         {
             BCRYPT_ALG_HANDLE algorithm{};
             BCRYPT_HASH_HANDLE hash{};
-            if (bytes.size() > ULONG_MAX || BCryptOpenAlgorithmProvider(&algorithm, BCRYPT_SHA256_ALGORITHM, nullptr, 0) < 0) { return false; }
+            if (bytes.size() > ULONG_MAX || BCryptOpenAlgorithmProvider(&algorithm, BCRYPT_SHA256_ALGORITHM, nullptr, 0) < 0) { return {}; }
             std::array<std::uint8_t, 32> digest{};
             bool ok = BCryptCreateHash(algorithm, &hash, nullptr, 0, nullptr, 0, 0) >= 0;
             if (ok) { ok = BCryptHashData(hash, const_cast<PUCHAR>(bytes.data()), static_cast<ULONG>(bytes.size()), 0) >= 0; }
@@ -90,12 +90,14 @@ namespace TheosRenderPipeline::NeuralRendering
             if (hash) { BCryptDestroyHash(hash); }
             BCryptCloseAlgorithmProvider(algorithm, 0);
             constexpr char hex[] = "0123456789ABCDEF";
-            if (!ok || expected.size() != digest.size()*2) { return false; }
+            if (!ok) { return {}; }
+            std::string result(64, '0');
             for (std::size_t i = 0; i < digest.size(); ++i) {
-                if (hex[digest[i] >> 4] != expected[2*i] || hex[digest[i] & 15] != expected[2*i+1]) { return false; }
+                result[2*i] = hex[digest[i] >> 4]; result[2*i+1] = hex[digest[i] & 15];
             }
-            return true;
+            return result;
         }
+        bool HashIs(std::span<const std::uint8_t> bytes, std::string_view expected) { return Digest(bytes) == expected; }
 
         struct File
         {
@@ -208,11 +210,42 @@ namespace TheosRenderPipeline::NeuralRendering
         }
     }
 
-    bool RuntimeKernelsSupported() { return true; }
+    bool RuntimeKernelsSupported() {
+#if defined(TRP_STANDARD_RESEARCH)
+        return false;
+#else
+        return true;
+#endif
+    }
+
+    LaunchRequirements RuntimeLaunchRequirements(HMODULE module)
+    {
+        std::scoped_lock lock(installationMutex);
+        const auto it = installations.find(module);
+        return it != installations.end() && it->second.result.applied ? it->second.launches : LaunchRequirements{};
+    }
+
+    int RuntimeKernelBundle(HMODULE module, const void* data, std::uint32_t bytes)
+    {
+        std::scoped_lock lock(installationMutex);
+        const auto it = installations.find(module);
+        if (it == installations.end() || !it->second.result.applied) { return -1; }
+        const auto* pack = static_cast<const std::uint8_t*>(it->second.storage);
+        for (int i=0; i<15; ++i) {
+            std::uint64_t offset{}, size{};
+            std::memcpy(&offset, pack+48+i*24+8, 8);
+            std::memcpy(&size, pack+48+i*24+16, 8);
+            if (data == pack+offset && size == bytes) { return i; }
+        }
+        return -1;
+    }
 
     RuntimeKernelResult ApplyRuntimeKernels(HMODULE module, const std::filesystem::path& packPath, bool newlyLoaded, bool research)
     {
         using namespace KernelPacks;
+#if defined(TRP_STANDARD_RESEARCH)
+        if (!research) { return {false, false, "NR 310.9.16 on RTX 20/30/40 needs the Universal edition"}; }
+#endif
         std::scoped_lock lock(installationMutex);
         WinMemory memory(module);
         if (auto it = installations.find(module); it != installations.end()) {
@@ -221,7 +254,7 @@ namespace TheosRenderPipeline::NeuralRendering
                 MEMORY_BASIC_INFORMATION info{};
                 if (!Matches(memory, installed.plan, true) || !VirtualQuery(installed.storage, &info, sizeof(info)) ||
                     info.State != MEM_COMMIT || info.Protect != PAGE_READONLY || info.RegionSize < installed.storageBytes ||
-                    (!installed.research && !HashIs({static_cast<const std::uint8_t*>(installed.storage), PackSize}, kKernelPackSha256))) {
+                    !HashIs({static_cast<const std::uint8_t*>(installed.storage), installed.storageBytes}, installed.digest)) {
                     installed.result = {false, true, "installed NR runtime or storage changed; relaunch required"};
                 }
             }
@@ -248,8 +281,17 @@ namespace TheosRenderPipeline::NeuralRendering
         Installation pending;
         pending.storageBytes = packSize;
         pending.research = research;
+        pending.digest = Digest(pack.Bytes());
         if (!MakePlan(pack.Bytes(), reinterpret_cast<std::uintptr_t>(module), reinterpret_cast<std::uintptr_t>(storage.get()),
                 pending.plan, pending.result.status, packSize, research)) { return pending.result; }
+        std::uint32_t version{};
+        std::memcpy(&version, pack.data+8, 4);
+        if (version == 2) {
+            std::uint64_t offset{}, bytes{};
+            std::memcpy(&offset, pack.data+48+14*24+8, 8);
+            std::memcpy(&bytes, pack.data+48+14*24+16, 8);
+            if (!ReadLaunchRequirements(pack.Bytes().subspan(static_cast<std::size_t>(offset+bytes)), pending.launches, pending.result.status)) { return pending.result; }
+        }
         if (!Matches(memory, pending.plan, false)) { return {false, false, "original NR patch bytes differ"}; }
         // Allocate registry/status before publication. Pin before the first write
         // so both successful and uncertain transactions can retain all targets.

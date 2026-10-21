@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../NvidiaBaselinePolicy.h"
+#include "NeuralResearch.h"
 
 #include <algorithm>
 #include <cctype>
@@ -45,6 +46,7 @@ namespace TheosRenderPipeline::SourceDLSSG
     {
         // Before device creation this is only file admission, never execution.
         if (computeCapability < 0) { return { kDefaultNeuralRuntime, kLatestNeuralRuntime, kInt8NeuralRuntime }; }
+        if (NeuralRendering::PascalResearchFor(computeCapability)) { return { kLatestNeuralRuntime }; }
         if (computeCapability >= 120) { return { kLatestNeuralRuntime, kDefaultNeuralRuntime }; }
         if (runtimeKernels) {
             if (computeCapability == 89) { return { kLatestNeuralRuntime, kDefaultNeuralRuntime }; }

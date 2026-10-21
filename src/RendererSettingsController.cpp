@@ -90,6 +90,7 @@ RendererSettingsResult RendererSettingsController::Apply(const RendererSettingsD
     const bool sourceUpscaler = host_.StartupConfigured();
     RendererSettingsCapabilities capabilities{sourceUpscaler, false, host_.DedicatedUITextureMode(), CommunityShaders::Active()};
     capabilities.nvidiaAdapter = SourceDLSSG::Backend::Get().NvidiaAdapter();
+    capabilities.nvidiaFeatures = SourceDLSSG::Backend::Get().NvidiaFeaturesAvailable();
 #if !defined(TRP_NO_NEURAL_RENDERING)
     // The draft may select a different runtime file; check the one it selects.
     const auto draftRuntime = TheosRenderPipeline::SourceDLSSG::ResolveNeuralRuntimeSetting(

@@ -234,8 +234,8 @@ void OverlayUI::DrawImagePanel(float tabCardHeight, const FrameView& view)
                 SettingRow(TR("Mode"), nullptr, true, false, [&] {
                     int mode = xess ? 2 : native ? 1 : 0;
                     const bool changed = Segmented("mode", mode, {
-                        {"DLSS", true, TR("NVIDIA DLSS reconstruction at the render scale below.")},
-                        {"DLAA", true, TR("NVIDIA DLAA at native resolution.")},
+                        {"DLSS", view.nvidiaFeatures, TR("NVIDIA RTX hardware is required for DLSS.")},
+                        {"DLAA", view.nvidiaFeatures, TR("NVIDIA RTX hardware is required for DLAA.")},
                         {TR("XeSS"), true, TR("Intel XeSS (experimental). After restart it uses Intel's quality resolutions.")}});
                     if (changed) { settingsDraft.upscaleType = mode == 2 ? XeSS : mode == 1 ? DLAA : DLSS; }
                     return changed;

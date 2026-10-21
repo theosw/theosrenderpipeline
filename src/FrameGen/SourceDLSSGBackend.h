@@ -226,6 +226,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 		const XeSSUpscaler& XeSS() const { return xess_; }
 		ID3D12Device* Device12() const { return device12_.Get(); }
 		bool NvidiaAdapter() const { return adapterVendor_ == 0x10DE; }
+		bool NvidiaFeaturesAvailable() const { return NvidiaAdapter() && !pascalResearch_; }
+		bool PascalResearchActive() const { return pascalResearch_; }
 		HRESULT BeforePresent(ID3D12Resource* a_source, ID3D12Resource* a_destination, DXGI_COLOR_SPACE_TYPE a_colorSpace);
 		HRESULT AfterPresent(HRESULT a_result);
 #if defined(ARP_DEVELOPER_DIAGNOSTICS)
@@ -241,6 +243,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		bool startupTransport_{}, presenterAttempted_{};
 		std::uint32_t transportFrame_{};
 		std::string startupFailure_;
+		bool pascalResearch_{};
 		bool Load(const std::filesystem::path& a_directory);
 		bool InitializeNvidia(const std::filesystem::path& directory);
 		bool UpgradeNvidiaFactory();
