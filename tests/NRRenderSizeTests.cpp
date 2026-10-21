@@ -42,7 +42,7 @@ int main(int argc, char** argv)
         std::printf("%s %s %ux%u: %ux%u -> %ux%u\n", f[0].c_str(), f[1].c_str(), output.width, output.height, nominal.width, nominal.height, chosen.width, chosen.height);
         Require(Same(chosen, expected), "independent exhaustive selection oracle");
         Require(range.Accepts(chosen, output), "SDK range and existing aspect check");
-        Require(NRInternalSize(chosen).Area() <= NRInternalSize(nominal).Area(), "never increase NR internal area");
+        Require(Same(chosen, nominal) || NRInternalSize(chosen).Area() < NRInternalSize(nominal).Area(), "every move strictly reduces NR internal area");
         Require(std::uint64_t(chosen.width) * chosen.height * 100 >= std::uint64_t(nominal.width) * nominal.height * 97, "97 percent nominal pixels");
         for (auto off : {RenderSizePolicy{false, true, true, quality}, RenderSizePolicy{true, false, true, quality},
             RenderSizePolicy{true, true, false, quality}, RenderSizePolicy{true, true, true, 5}}) {
@@ -58,6 +58,13 @@ int main(int argc, char** argv)
     const UpscalerInputResolution badAspect{{753,425},{753,425},{753,425}};
     Require(!badAspect.Accepts({753,425}, output) && Same(SelectNRFriendlyRenderSize(nominal, output, badAspect, on), nominal), "range cannot authorize aspect refusal");
     Require(NRInternalSize({0, 424}).Area() == 0, "invalid dimension");
+    const UpscalerInputResolution fillOnly{{960,540},{960,540},{1920,1080}};
+    Require(NRInternalSize({960,541}).Area() == NRInternalSize({960,540}).Area(), "equal-work regression fixture");
+    Require(Same(SelectNRFriendlyRenderSize({960,540}, {1920,1080}, fillOnly, on), {960,540}), "keep exact nominal instead of fill-only 960x541");
+    const UpscalerInputResolution quality720{nominal, nominal, output};
+    Require(Same(SelectNRFriendlyRenderSize(nominal, output, quality720, on), {768,432}), "720p Quality retains strict saving");
+    const UpscalerInputResolution quality1080{{1280,720},{960,540},{1920,1080}};
+    Require(Same(SelectNRFriendlyRenderSize({1280,720}, {1920,1080}, quality1080, on), {1280,721}), "1280x720 input retains strict saving");
     // Check the exhaustive optimizer against a deliberately simple Cartesian
     // oracle, including all five scaled presets and adversarial narrow ranges.
     for (unsigned seed = 0; seed < 80; ++seed) {
@@ -79,10 +86,10 @@ int main(int argc, char** argv)
             for (UINT h = range.minimum.height; h <= range.maximum.height; ++h) {
                 FrameExtent candidate{w,h};
                 if (range.Accepts(candidate, out) && std::uint64_t(w)*h*100 >= std::uint64_t(base.width)*base.height*97 &&
-                    NRInternalSize(candidate).Area() <= NRInternalSize(base).Area() && better(candidate, best)) { best = candidate; }
+                    NRInternalSize(candidate).Area() < NRInternalSize(base).Area() && better(candidate, best)) { best = candidate; }
             }
         }
         Require(Same(SelectNRFriendlyRenderSize(base, out, range, {true,true,true,int(seed % 5)}), best), "Cartesian oracle and tie ordering");
     }
-    std::printf("PASS %u SDK table selections; 80 Cartesian oracles; eligibility, range, aspect, area and pixel guards\n", count);
+    std::printf("PASS %u SDK table selections; 80 Cartesian oracles; eligibility, range, aspect, strict area saving and pixel guards\n", count);
 }

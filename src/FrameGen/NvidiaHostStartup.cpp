@@ -236,9 +236,14 @@ bool NvidiaHost::CreateGameFacingResources(IDXGISwapChain* a_swapChain)
             const auto from = TheosRenderPipeline::NeuralRendering::NRInternalSize(nominal);
             const auto to = TheosRenderPipeline::NeuralRendering::NRInternalSize(chosen);
             constexpr const char* names[]{"Performance", "Balanced", "Quality", "Ultra Performance", "Ultra Quality"};
-            logger::info("[NR render size] preset={} nominal={}x{} (NR {}x{}, T={}) -> {}x{} (NR {}x{}, T={})",
-                names[quality], nominal.width, nominal.height, from.width, from.height, from.tokens,
-                chosen.width, chosen.height, to.width, to.height, to.tokens);
+            if (chosen.width == nominal.width && chosen.height == nominal.height) {
+                logger::info("[NR render size] preset={} nominal={}x{} kept (no NR saving) (NR {}x{}, T={})",
+                    names[quality], nominal.width, nominal.height, from.width, from.height, from.tokens);
+            } else {
+                logger::info("[NR render size] preset={} nominal={}x{} (NR {}x{}, T={}) -> {}x{} (NR {}x{}, T={})",
+                    names[quality], nominal.width, nominal.height, from.width, from.height, from.tokens,
+                    chosen.width, chosen.height, to.width, to.height, to.tokens);
+            }
             renderWidth_ = chosen.width; renderHeight_ = chosen.height;
             nrFriendlyRenderSizeActive_ = chosen.width != nominal.width || chosen.height != nominal.height;
         } else {

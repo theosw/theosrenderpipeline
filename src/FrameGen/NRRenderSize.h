@@ -42,7 +42,8 @@ namespace TheosRenderPipeline::NeuralRendering
     };
 
     // SDK-independent, exhaustive selection within the admitted range and TRP's
-    // existing aspect tolerance. Caller publishes this extent before allocation.
+    // existing aspect tolerance. Keep nominal exactly unless NR area strictly falls.
+    // Caller publishes this extent before allocation.
     inline FrameExtent SelectNRFriendlyRenderSize(FrameExtent nominal, FrameExtent output,
         const UpscalerInputResolution& range, RenderSizePolicy policy)
     {
@@ -74,7 +75,7 @@ namespace TheosRenderPipeline::NeuralRendering
                 const auto pixels = std::uint64_t(w) * h;
                 if (pixels * 100 < nominalArea * 97) { continue; }
                 const auto internal = NRInternalSize(candidate).Area();
-                if (internal > internalLimit) { continue; }
+                if (internal >= internalLimit) { continue; }
                 const auto aspect = error(candidate) * best.height;
                 const auto bestAspect = error(best) * h;
                 if (internal < bestInternal || (internal == bestInternal &&
