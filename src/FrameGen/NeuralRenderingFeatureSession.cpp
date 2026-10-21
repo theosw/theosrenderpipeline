@@ -21,6 +21,7 @@
 #include <limits>
 #include <mutex>
 #include <map>
+#include <set>
 #include <string>
 #include <type_traits>
 #include <unordered_map>
@@ -43,6 +44,7 @@ namespace TheosRenderPipeline::NeuralRendering
 		// Subsequent passes must not observe a partly initialized shared module.
 		std::recursive_mutex initializationMutex;
 		std::map<HMODULE, std::size_t> researchRuntimeUsers;
+		std::set<HMODULE> failedResearchRuntimes;
 
 		using D3D12Init = NVSDK_NGX_Result(NVSDK_CONV*)(
 			unsigned long long,
@@ -215,9 +217,9 @@ namespace TheosRenderPipeline::NeuralRendering
 				released = NVSDK_NGX_SUCCEED(result);
 				if (!released) { logger::error("[DLSSNR Source] ReleaseFeature failed (0x{:08X}); keeping the runtime module loaded", static_cast<std::uint32_t>(result)); }
 			}
-			if (parameters && destroyParameters) {
+			if (released && parameters && destroyParameters) {
 				const auto result = destroyParameters(parameters);
-				if (NVSDK_NGX_FAILED(result)) { logger::warn("[DLSSNR Source] DestroyParameters failed (0x{:08X})", static_cast<std::uint32_t>(result)); }
+				if (NVSDK_NGX_FAILED(result)) { released = false; logger::warn("[DLSSNR Source] DestroyParameters failed (0x{:08X})", static_cast<std::uint32_t>(result)); }
 			}
 			// Only the direct research path owns this init. Normal NGX is shared with SR/FG.
 			if (researchRuntime && released) {
@@ -228,6 +230,7 @@ namespace TheosRenderPipeline::NeuralRendering
 					logger::info("[DLSSNR Source] research runtime Shutdown1 result=0x{:08X}; last feature retired", static_cast<std::uint32_t>(result));
 				}
 			}
+			if (researchRuntime && !released) { failedResearchRuntimes.insert(module); }
 			modulePathHook.reset();
 			// Unloading the runtime while a feature it failed to release may still
 			// run would leave its code unmapped; keep it for the process lifetime.
@@ -326,6 +329,11 @@ namespace TheosRenderPipeline::NeuralRendering
 		}
 		const auto capability = ComputeCapability(a_info.device->GetAdapterLuid());
 		const bool research = PascalResearchFor(capability);
+		if (research && failedResearchRuntimes.contains(state.module)) {
+			state.status = "research NR teardown previously failed; NR off until restart";
+			state.runtimeRefused = true;
+			return false;
+		}
 		if (research && (PascalConfiguration().pack.empty() || identity.sha256 != kKernelRuntimeSha256)) {
 			state.status = "Pascal research requires original NR 310.9.16 and PascalPack; NR off";
 			state.runtimeRefused = true;

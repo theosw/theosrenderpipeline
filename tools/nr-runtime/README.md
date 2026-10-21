@@ -116,7 +116,8 @@ packs outside source control. This path has no in-game acceptance yet.
 The Pascal builder accepts repeatable
 `--launch KERNEL:BXxBYxBZ[:GXxGYxGZ][:SHARED]` arguments, including
 `KERNEL:128x1x1::0` to set shared bytes while retaining the submitted grid.
-Names must identify a native replacement supplied with `--native`.
+Names must identify a native replacement supplied with `--native`. Fixed grid
+requirements are resolution-specific; c24 overrides only the block dimensions.
 
 With no launch rules, the writer still emits byte-identical TRPNRK1 v1.
 Rules select TRPNRK1 v2: the original 48-byte header, 15 bundle records,

@@ -2,6 +2,7 @@
 #include "NeuralRuntimeKernels.h"
 #include <PCH.h>
 #include <cstring>
+#include <atomic>
 
 namespace TheosRenderPipeline::NeuralRendering
 {
@@ -19,11 +20,11 @@ namespace TheosRenderPipeline::NeuralRendering
             HMODULE runtime{}, nvapi{};
             LaunchBindings bindings;
             Query query{};
-            Create create{};
-            CreateModule createModule{};
-            Destroy destroy{}, destroyModule{};
-            Chain chain{};
-            ChainEx chainEx{};
+            std::atomic<Create> create{};
+            std::atomic<CreateModule> createModule{};
+            std::atomic<Destroy> destroy{}, destroyModule{};
+            std::atomic<Chain> chain{};
+            std::atomic<ChainEx> chainEx{};
             FARPROC (WINAPI* getProc)(HMODULE,LPCSTR){};
             std::map<void*,void*> modules;
             std::map<void*,int> bundles;
@@ -37,7 +38,7 @@ namespace TheosRenderPipeline::NeuralRendering
         {
             auto& h=Active();
             const auto bundle=RuntimeKernelBundle(h.runtime,blob,bytes);
-            const auto result=h.createModule(device,blob,bytes,module);
+            const auto result=h.createModule.load()(device,blob,bytes,module);
             if (!result && module && *module) { std::scoped_lock lock(h.mutex); h.bundles[*module]=bundle; }
             return result;
         }
@@ -53,7 +54,7 @@ namespace TheosRenderPipeline::NeuralRendering
                     return -1;
                 }
             }
-            const auto result=h.create(device,module,name,function);
+            const auto result=h.create.load()(device,module,name,function);
             std::scoped_lock lock(h.mutex);
             if (!result && function && *function) {
                 h.bindings.names[*function]=name ? name : "";
@@ -64,14 +65,14 @@ namespace TheosRenderPipeline::NeuralRendering
         int __cdecl DestroyFunction(ID3D12Device* device, void* function)
         {
             auto& h=Active();
-            const auto result=h.destroy(device,function);
+            const auto result=h.destroy.load()(device,function);
             if (!result) { std::scoped_lock lock(h.mutex); h.bindings.names.erase(function); h.modules.erase(function); }
             return result;
         }
         int __cdecl DestroyModule(ID3D12Device* device, void* module)
         {
             auto& h=Active();
-            const auto result=h.destroyModule(device,module);
+            const auto result=h.destroyModule.load()(device,module);
             if (!result) {
                 std::scoped_lock lock(h.mutex);
                 h.bundles.erase(module);
@@ -101,8 +102,8 @@ namespace TheosRenderPipeline::NeuralRendering
             if (result && count) { h.bindings.failure=std::format("NVAPI refused required NR launch geometry (status={}, count={})",result,count); logger::error("[DLSSNR Launch] {}",h.bindings.failure); }
             return result;
         }
-        int __cdecl LaunchChain(ID3D12GraphicsCommandList* l,const KernelLaunch* k,std::uint32_t n) { return Launch(l,k,n,Active().chain); }
-        int __cdecl LaunchChainEx(ID3D12GraphicsCommandList* l,const KernelLaunchEx* k,std::uint32_t n) { return Launch(l,k,n,Active().chainEx); }
+        int __cdecl LaunchChain(ID3D12GraphicsCommandList* l,const KernelLaunch* k,std::uint32_t n) { return Launch(l,k,n,Active().chain.load()); }
+        int __cdecl LaunchChainEx(ID3D12GraphicsCommandList* l,const KernelLaunchEx* k,std::uint32_t n) { return Launch(l,k,n,Active().chainEx.load()); }
         void* __cdecl QueryInterface(std::uint32_t id)
         {
             auto& h=Active();
