@@ -21,6 +21,8 @@ exact result). Fail-closed: anything left that sm_61 cannot run is an error.
 import collections
 import re
 
+import pascal_groups
+
 
 def require(condition, message):
     if not condition:
@@ -87,7 +89,16 @@ def emulation_functions(emulation_ptx):
     return '\n// PASCAL: stand-ins for sm_75+ instructions (pascal_emulation.cu)\n' + functions + '\n'
 
 
-def lower(ada_ptx, emulation_ptx):
+def group_functions(groups_ptx):
+    """The .func definitions of the generated grouped stand-ins (pascal_groups.py), module-local."""
+    body = groups_ptx.replace('\r', '')
+    return ('\n// PASCAL: grouped mma stand-ins (pascal_groups.py)\n' +
+            body[body.index('.visible .func'):].replace('.visible .func', '.func') + '\n')
+
+
+def lower(ada_ptx, emulation_ptx, groups_ptx=None):
+    """groups_ptx: compiled pascal_groups.generate_cu() output covering this module's runs, or
+    None to keep one stand-in call per mma."""
     counts = collections.Counter()
     s = ada_ptx.replace('\r', '')
     entries = re.findall(r'\.entry\s+(\w+)', s)
@@ -97,6 +108,10 @@ def lower(ada_ptx, emulation_ptx):
     address = re.search(r'\.address_size 64\n', s)
     require(address, 'expected .address_size 64')
     s = s[:address.end()] + emulation_functions(emulation_ptx) + s[address.end():]
+    if groups_ptx:
+        s, counts['grouped mma'] = pascal_groups.replace_runs(s, call)
+        address = re.search(r'\.address_size 64\n', s)
+        s = s[:address.end()] + group_functions(groups_ptx) + s[address.end():]
 
     def sub(name, pattern, replace, text, flags=0):
         result, n = re.subn(pattern, replace, text, flags=flags)

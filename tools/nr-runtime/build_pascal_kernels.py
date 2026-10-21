@@ -9,22 +9,26 @@ TRP_NR_PASCAL_RESEARCH=1 and TRP_NR_PASCAL_PACK=<pack> (NeuralRenderingFeatureSe
 Same TRPNRK1 layout as build_rtx40_kernels.py. Usage:
     python -I build_pascal_kernels.py --official nvngx_dlssnr.dll --cuda13 <CUDA 13.4 root>
         --cuda12 <CUDA 12.9 root> --emulation-ptx pascal_emulation.ptx --output <pack>
-        [--native 5=native_vit.ptx]
+        [--native 5=native_vit.ptx] [--groups]
 pascal_emulation.ptx: nvcc -arch=sm_61 -rdc=true -ptx -O3 pascal_emulation.cu (no fast math).
 native_vit.ptx: nvcc -arch=sm_61 -ptx -O3 -std=c++17 native_vit.cu; its kernels replace the
 same-named NVIDIA kernels of bundle 5 (cc_vit_1d_ffn_expand/contract, qkv).
+--groups: replace runs of FP8 mma with grouped stand-ins (pascal_groups.py), generated for the
+run shapes of bundles 0-6 and compiled with CUDA 12.9's nvcc inside the --vcvars environment.
 """
 from pathlib import Path
 import argparse
 import json
 import re
 import struct
+import subprocess
 import sys
 import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import ada_lowering
 import build_rtx40_kernels as ada
+import pascal_groups
 import pascal_lowering
 from ada_lowering import require
 
@@ -36,18 +40,38 @@ def retarget(ptx):
     return re.sub(r'\.version 9\.\d+', '.version 8.8', ptx)
 
 
-def build_bundle(cuda13, cuda12, index, original, emulation, work, native=None):
+def module_ptx(cuda13, index, original, work):
+    """NVIDIA's PTX for a bundle, lowered for Ada where needed."""
     folder = work / f'bundle{index:02}'
     folder.mkdir()
     _, ptxs = ada.unpack(cuda13, folder / 'nvidia', 'nvidia.fatbin', original)
     require(set(ptxs) == {'sm_120'}, f'bundle {index}: expected sm_120 PTX')
     ptx = ptxs['sm_120'].decode('ascii').rstrip('\0')
     if index in ada.LOWERED:
-        ptx = ada_lowering.lower(ptx, ada.LOWERED[index])[0]
-    else:
-        ptx = ptx.replace('.target sm_120', '.target sm_89')
+        return ada_lowering.lower(ptx, ada.LOWERED[index])[0]
+    return ptx.replace('.target sm_120', '.target sm_89')
+
+
+def compile_groups(cuda12, vcvars, signatures, work):
+    """sm_61 PTX of the grouped stand-ins for `signatures` (nvcc needs the MSVC environment)."""
+    folder = work / 'groups'
+    folder.mkdir()
+    (folder / 'groups.cu').write_text(pascal_groups.generate_cu(signatures), encoding='ascii', newline='\n')
+    nvcc = Path(cuda12) / 'bin' / 'nvcc.exe'
+    command = (f'call "{vcvars}" >nul 2>nul && "{nvcc}" -arch=sm_61 -rdc=true -ptx -O3 '
+               f'-Wno-deprecated-gpu-targets groups.cu -o groups.ptx')
+    result = subprocess.run(f'cmd /d /s /c "{command}"', cwd=folder, capture_output=True, text=True)
+    require(result.returncode == 0, f'nvcc groups.cu failed: {result.stdout[-2000:]} {result.stderr[-2000:]}')
+    return (folder / 'groups.ptx').read_text(encoding='ascii')
+
+
+def build_bundle(cuda12, index, ptx, emulation, work, native=None, groups=None, maxnreg=True):
+    folder = work / f'bundle{index:02}'
     if index < 7:
-        pascal, counts = pascal_lowering.lower(ptx, emulation)
+        pascal, counts = pascal_lowering.lower(ptx, emulation, groups)
+        if not maxnreg:
+            pascal, dropped = re.subn(r'\.maxnreg \d+\s*\n', '', pascal)
+            counts = dict(counts, droppedMaxnreg=dropped)
     else:
         pascal, counts = retarget(ptx), {}
     if native:
@@ -75,7 +99,14 @@ def main():
         parser.add_argument('--' + name.replace('_', '-'), dest=name, type=Path, required=True)
     parser.add_argument('--native', action='append', default=[], metavar='BUNDLE=PTX',
                         help='native sm_61 kernels replacing same-named NVIDIA kernels in a bundle')
+    parser.add_argument('--groups', action='store_true', help='grouped FP8 mma stand-ins (pascal_groups.py)')
+    parser.add_argument('--group-max-a', type=int, default=pascal_groups.MAX_A, help='A fragments per grouped call')
+    parser.add_argument('--no-maxnreg', action='store_true',
+                        help="drop NVIDIA's .maxnreg (set for Ada) from the network kernels")
+    parser.add_argument('--vcvars', type=Path,
+                        default=Path(r'C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat'))
     args = parser.parse_args()
+    pascal_groups.MAX_A = args.group_max_a
     native = {int(item.split('=', 1)[0]): Path(item.split('=', 1)[1]).read_text(encoding='ascii') for item in args.native}
     original = args.official.read_bytes()
     require(ada.sha256(original) == ada.OFFICIAL_SHA256, 'original runtime identity differs')
@@ -84,10 +115,17 @@ def main():
     emulation = args.emulation_ptx.read_text(encoding='ascii')
     bundles, details = [], []
     with tempfile.TemporaryDirectory() as work:
+        sources = [ada.fatbin_at(image, rva) for _, _, _, rva in ada.BUNDLES]
+        ptxs = [module_ptx(args.cuda13, index, source, Path(work)) for index, source in enumerate(sources)]
+        groups = None
+        if args.groups:
+            signatures = set().union(*(pascal_groups.analyze(ptx) for ptx in ptxs[:7]))
+            groups = compile_groups(args.cuda12, args.vcvars, signatures, Path(work))
+            print(f'grouped stand-ins: {len(signatures)} block shapes', flush=True)
         for index, (name, _, _, rva) in enumerate(ada.BUNDLES):
-            source = ada.fatbin_at(image, rva)
-            payload, detail = build_bundle(args.cuda13, args.cuda12, index, source, emulation, Path(work), native.get(index))
-            bundles.append((rva, len(source), payload))
+            payload, detail = build_bundle(args.cuda12, index, ptxs[index], emulation, Path(work), native.get(index), groups,
+                                           maxnreg=not args.no_maxnreg)
+            bundles.append((rva, len(sources[index]), payload))
             details.append(dict(name=name, **detail))
             print(f'{name}: {detail["entries"]} kernels, {len(payload)} bytes', flush=True)
     pack = ada.write_pack(bundles)
