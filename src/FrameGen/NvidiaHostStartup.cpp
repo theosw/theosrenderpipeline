@@ -218,7 +218,7 @@ bool NvidiaHost::CreateGameFacingResources(IDXGISwapChain* a_swapChain)
     const auto quality = sourceUpscalerSettings_.Startup().AllocationQuality();
     const TheosRenderPipeline::NeuralRendering::RenderSizePolicy sizePolicy{
         TheosRenderPipeline::NeuralRendering::PascalConfiguration().nrFriendlyRenderSize,
-        backend.PascalResearchActive(), backend.NeuralConfiguration().enabled && nr.beforeUpscaling, quality};
+        backend.PascalResearchActive(), nr.enabled && nr.beforeUpscaling, quality};
     if (sizePolicy.Active() && !TheosRenderPipeline::CommunityShaders::Active()) {
         TheosRenderPipeline::UpscalerInputResolution range;
         HRESULT rangeResult = E_FAIL;
@@ -386,7 +386,15 @@ bool NvidiaHost::InitializeSourceUpscaler(const D3D11_TEXTURE2D_DESC& a_outputDe
             nrFriendlyRenderSizeActive_ ? TheosRenderPipeline::FrameExtent{renderWidth_, renderHeight_} : TheosRenderPipeline::FrameExtent{});
         sourceUpscalerSettings_.Completed(SUCCEEDED(hr));
         if (FAILED(hr)) { status_ = std::format("XeSS initialization failed: {} (0x{:08X})", backend.XeSS().Status(), static_cast<unsigned>(hr)); return false; }
+        // Keep ownership flags even if a successfully created SDK owner violates
+        // the prepared extent: teardown must still retire/release that owner.
         xeSSActive_ = upscalerReady_ = true;
+        const auto actual = backend.XeSS().InputSize();
+        if (actual.width != renderWidth_ || actual.height != renderHeight_) {
+            sourceUpscalerSettings_.Completed(false);
+            status_ = "XeSS disagreed with the prepared render extent";
+            return false;
+        }
         AdoptEffectiveSourceUpscalerSettings();
         if (!CreateNativeUIExtractionResources(a_outputDesc)) { logger::warn("[XeSS] native UI extraction unavailable; retaining HUD-less fallback"); }
         status_ = "XeSS upscaling ready; native UI and shared frame-generation bridge retained";

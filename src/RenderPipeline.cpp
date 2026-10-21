@@ -84,7 +84,10 @@ void RenderPipeline::LoadINI()
 
 	// A reload after the feature exists (e.g. kDataLoaded) must not stomp the
 	// computed optimal bias with the INI's stored value.
-	if (mUseOptimalMipLodBias && DLSSBackend::GetSingleton()->HasFeature()) {
+    const auto* host = NvidiaHost::GetSingleton();
+    if (mUseOptimalMipLodBias && host->NRFriendlyRenderSizeActive() && host->UpscalerReady()) {
+        mMipLodBias = host->OptimalMipmapBias();
+    } else if (mUseOptimalMipLodBias && DLSSBackend::GetSingleton()->HasFeature()) {
 		mMipLodBias = DLSSBackend::GetSingleton()->GetOptimalMipLodBias();
 	}
 
