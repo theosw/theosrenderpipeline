@@ -2,12 +2,14 @@
 
 #include <Windows.h>
 #include <wrl/client.h>
+#include <charconv>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <map>
 #include <mutex>
 #include <set>
+#include <string_view>
 
 namespace KernelProfiler
 {
@@ -52,6 +54,88 @@ namespace KernelProfiler
 		// TRP_NR_KERNEL_PROFILE=2 times each chain as NVIDIA submits it, keeping
 		// the overlap between chained kernels; =1 splits chains per kernel.
 		bool wholeChains{};
+		bool profiling{};
+		struct LaunchOverride
+		{
+			Dim3 block{}, grid{};
+			std::uint32_t sharedBytes{};
+			bool hasGrid{}, hasShared{}, logged{};
+		};
+		std::map<std::string, LaunchOverride, std::less<>> overrides;
+
+		bool ParseUnsigned(std::string_view text, std::uint32_t& value)
+		{
+			const auto result = std::from_chars(text.data(), text.data() + text.size(), value);
+			return !text.empty() && result.ec == std::errc{} && result.ptr == text.data() + text.size();
+		}
+
+		bool ParseDim(std::string_view text, Dim3& dim)
+		{
+			const auto x = text.find('x'), y = text.find('x', x == text.npos ? text.size() : x + 1);
+			return x != text.npos && y != text.npos && ParseUnsigned(text.substr(0, x), dim.x) &&
+				ParseUnsigned(text.substr(x + 1, y - x - 1), dim.y) && ParseUnsigned(text.substr(y + 1), dim.z) &&
+				dim.x && dim.y && dim.z;
+		}
+
+		bool ParseOverrides(std::string_view spec)
+		{
+			overrides.clear();
+			decltype(overrides) parsed;
+			while (!spec.empty()) {
+				const auto end = spec.find(';');
+				const auto entry = spec.substr(0, end);
+				std::vector<std::string_view> fields;
+				for (std::size_t at = 0;;) {
+					const auto colon = entry.find(':', at);
+					fields.push_back(entry.substr(at, colon == entry.npos ? colon : colon - at));
+					if (colon == entry.npos) { break; }
+					at = colon + 1;
+				}
+				LaunchOverride rule;
+				if (fields.size() < 2 || fields.size() > 4 || fields[0].empty() || !ParseDim(fields[1], rule.block) ||
+					rule.block.x > 1024 || rule.block.y > 1024 || rule.block.z > 64 ||
+					std::uint64_t(rule.block.x) * rule.block.y * rule.block.z > 1024) { return false; }
+				if (fields.size() >= 3) {
+					rule.hasGrid = !fields[2].empty();
+					if ((!rule.hasGrid && fields.size() != 4) || (rule.hasGrid && !ParseDim(fields[2], rule.grid))) { return false; }
+				}
+				if (fields.size() == 4) {
+					rule.hasShared = true;
+					if (!ParseUnsigned(fields[3], rule.sharedBytes)) { return false; }
+				}
+				if (!parsed.emplace(std::string(fields[0]), rule).second) { return false; }
+				if (end == spec.npos) { break; }
+				spec.remove_prefix(end + 1);
+			}
+			overrides = std::move(parsed);
+			return !overrides.empty();
+		}
+
+		// Copy descriptors only. Parameter storage and the runtime's flag protocol stay intact.
+		template<class T> const T* OverrideLaunches(const T* kernels, std::uint32_t count, std::vector<T>& rewritten, const char* path)
+		{
+			if (overrides.empty()) { return kernels; }
+			for (std::uint32_t i = 0; i < count; ++i) {
+				const auto name = names.find(kernels[i].function);
+				if (name == names.end()) { continue; }
+				const auto found = overrides.find(name->second);
+				if (found == overrides.end()) { continue; }
+				if (rewritten.empty()) { rewritten.assign(kernels, kernels + count); }
+				auto& rule = found->second;
+				auto& launch = rewritten[i];
+				launch.block = rule.block;
+				if (rule.hasGrid) { launch.grid = rule.grid; }
+				if (rule.hasShared) { launch.sharedBytes = rule.sharedBytes; }
+				if (!rule.logged) {
+					std::printf("LAUNCH_OVERRIDE kernel=%s path=%s block=%ux%ux%u->%ux%ux%u grid=%ux%ux%u->%ux%ux%u shared=%u->%u\n",
+						name->second.c_str(), path, kernels[i].block.x, kernels[i].block.y, kernels[i].block.z,
+						launch.block.x, launch.block.y, launch.block.z, kernels[i].grid.x, kernels[i].grid.y, kernels[i].grid.z,
+						launch.grid.x, launch.grid.y, launch.grid.z, kernels[i].sharedBytes, launch.sharedBytes);
+					rule.logged = true;
+				}
+			}
+			return rewritten.empty() ? kernels : rewritten.data();
+		}
 		// TRP_NR_KERNEL_PARAMS=1 prints each distinct parameter block once.
 		bool dumpParams{};
 		// TRP_NR_KERNEL_BARRIERS=1 puts a UAV barrier before every split kernel, so no two
@@ -140,7 +224,7 @@ namespace KernelProfiler
 		template<class F> int Timed(ID3D12GraphicsCommandList* list, Handle function, Dim3 grid, Dim3 block, std::uint32_t shared, F launch,
 			std::uint32_t chainLength = 1)
 		{
-			if (!collecting || nextQuery + 2 > kQueries || !EnsureQueries(list)) { return launch(); }
+			if (!profiling || !collecting || nextQuery + 2 > kQueries || !EnsureQueries(list)) { return launch(); }
 			const auto query = nextQuery; nextQuery += 2;
 			list->EndQuery(heap.Get(), D3D12_QUERY_TYPE_TIMESTAMP, query);
 			const auto result = launch();
@@ -257,6 +341,10 @@ namespace KernelProfiler
 		int __cdecl LaunchChain(ID3D12GraphicsCommandList* list, const Launch* kernels, std::uint32_t count)
 		{
 			std::scoped_lock lock(mutex);
+			std::vector<Launch> rewritten;
+			kernels = OverrideLaunches(kernels, count, rewritten, "chain");
+			// Plain research runs must preserve chain overlap: no queries, copies or barriers.
+			if (!profiling) { return realChain(list, kernels, count); }
 			if (wholeChains && count) {
 				return Timed(list, kernels[0].function, kernels[0].grid, kernels[0].block, kernels[0].sharedBytes,
 					[&] { return realChain(list, kernels, count); }, count);
@@ -273,8 +361,17 @@ namespace KernelProfiler
 		int __cdecl LaunchChainEx(ID3D12GraphicsCommandList* list, const LaunchEx* kernels, std::uint32_t count)
 		{
 			std::scoped_lock lock(mutex);
+			std::vector<LaunchEx> rewritten;
+			kernels = OverrideLaunches(kernels, count, rewritten, "chain-ex");
+			if (!profiling) { return realChainEx(list, kernels, count); }
+			if (wholeChains && count) {
+				return Timed(list, kernels[0].function, kernels[0].grid, kernels[0].block, kernels[0].sharedBytes,
+					[&] { return realChainEx(list, kernels, count); }, count);
+			}
 			int result = 0;
 			for (std::uint32_t i = 0; i < count && result == 0; ++i) {
+				DumpParams(kernels[i].function, kernels[i].grid, kernels[i].block, kernels[i].params, kernels[i].paramSize);
+				if (barriers) { const auto barrier = UavBarrier(); list->ResourceBarrier(1, &barrier); }
 				result = Timed(list, kernels[i].function, kernels[i].grid, kernels[i].block, kernels[i].sharedBytes,
 					[&] { return realChainEx(list, kernels + i, 1); });
 			}
@@ -332,8 +429,23 @@ namespace KernelProfiler
 	bool Install()
 	{
 		char value[8]{};
-		if (!GetEnvironmentVariableA("TRP_NR_KERNEL_PROFILE", value, sizeof(value)) || (value[0] != '1' && value[0] != '2')) { return false; }
+		const auto length = GetEnvironmentVariableA("TRP_NR_KERNEL_PROFILE", value, sizeof(value));
+		profiling = length && length < sizeof(value) && (value[0] == '1' || value[0] == '2');
 		wholeChains = value[0] == '2';
+		const auto specSize = GetEnvironmentVariableA("TRP_NR_LAUNCH_OVERRIDE", nullptr, 0);
+		if (specSize) {
+			char research[4]{};
+			if (GetEnvironmentVariableA("TRP_NR_PASCAL_RESEARCH", research, sizeof(research)) != 1 || research[0] != '1') {
+				std::printf("LAUNCH_OVERRIDE ignored: requires TRP_NR_PASCAL_RESEARCH=1\n");
+			} else {
+				std::string spec(specSize, '\0');
+				const auto read = GetEnvironmentVariableA("TRP_NR_LAUNCH_OVERRIDE", spec.data(), specSize);
+				if (!read || read >= specSize || !ParseOverrides(std::string_view(spec.data(), read))) {
+					std::printf("LAUNCH_OVERRIDE rejected: invalid specification (no overrides enabled)\n");
+				}
+			}
+		}
+		if (!profiling && overrides.empty()) { return false; }
 		char params[8]{};
 		dumpParams = GetEnvironmentVariableA("TRP_NR_KERNEL_PARAMS", params, sizeof(params)) && params[0] == '1';
 		barriers = GetEnvironmentVariableA("TRP_NR_KERNEL_BARRIERS", params, sizeof(params)) && params[0] == '1';
@@ -362,7 +474,9 @@ namespace KernelProfiler
 		realGetProcAddress = &::GetProcAddress;
 		auto* original = PatchImport(GetModuleHandleW(nullptr), "KERNEL32.dll", "LoadLibraryExW", reinterpret_cast<void*>(&LoadLibraryExWHook));
 		realLoadLibraryExW = reinterpret_cast<LoadLibraryExWFn>(original);
-		return original != nullptr;
+		if (!original) { std::printf("KERNELHOOK failed to intercept LoadLibraryExW\n"); }
+		// The caller starts collection only for profiling, even when plain hooks are installed.
+		return original != nullptr && profiling;
 	}
 
 	std::string Diagnostics()
