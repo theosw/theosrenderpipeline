@@ -401,7 +401,7 @@ namespace TheosRenderPipeline::NeuralRendering
 			state.status = "normal NGX loader is not resident after public initialization";
 			return false;
 		}
-		logger::info("[DLSSNR Source] public NGX initialized result=0x{:08X} loader={}",
+		logger::info("[DLSSNR Source] loader ready; public NGX result=0x{:08X} loader={}",
 			static_cast<std::uint32_t>(publicInitResult), normalLoaderPath.string());
 
 		auto init = reinterpret_cast<D3D12Init>(

@@ -155,7 +155,7 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& v
                         }
                         ImGui::EndDisabled();
                         if (i == 0 && !view.nvidiaFeatures && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                            ImGui::SetTooltip("%s", TR("Needs an NVIDIA GPU."));
+                            ImGui::SetTooltip("%s", TR("Needs NVIDIA RTX hardware."));
                     }
                     ImGui::EndCombo();
                 }

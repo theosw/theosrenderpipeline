@@ -24,7 +24,7 @@
 #if !defined(TRP_NO_NEURAL_RENDERING)
 #include "NeuralRenderingFeatureSession.h"
 #include "NeuralResearch.h"
-#include "NeuralRenderingRuntimeIdentity.h"
+#include "NeuralRuntimeCompatibility.h"
 #endif
 
 namespace TheosRenderPipeline::SourceDLSSG

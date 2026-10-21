@@ -8,6 +8,7 @@ namespace TheosRenderPipeline::NeuralRendering
     inline ResearchConfiguration ReadPascalConfiguration(const std::filesystem::path& ini, const std::filesystem::path& runtimeFolder)
     {
             ResearchConfiguration result;
+            (void)ini; (void)runtimeFolder;
 #if defined(TRP_ENABLE_PASCAL_RESEARCH) || defined(TRP_NR_VENDOR_BENCHMARK)
             result.mode=GetPrivateProfileIntW(L"NeuralRenderingResearch",L"EnablePascal",0,ini.c_str())==1?L'1':L'\0';
             wchar_t mode[8]{};
