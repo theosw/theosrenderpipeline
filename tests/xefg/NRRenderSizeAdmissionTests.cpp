@@ -18,9 +18,9 @@ int wmain(int argc, wchar_t** argv)
     D3D12_COMMAND_QUEUE_DESC qd{}; ComPtr<ID3D12CommandQueue> queue;
     Check(d12->CreateCommandQueue(&qd, IID_PPV_ARGS(&queue)), "queue");
     Interop interop; Check(interop.Initialize(d11.Get(), d12.Get(), queue.Get()), "shared owner");
+    TheosRenderPipeline::XeSSUpscaler sr;
     for (const TheosRenderPipeline::FrameExtent output : {TheosRenderPipeline::FrameExtent{1280,720}, {1920,1080}}) {
         for (int quality : {2, 1, 0}) {
-            TheosRenderPipeline::XeSSUpscaler sr;
             Check(sr.Open(d12.Get(), std::filesystem::absolute(argv[1])), "XeSS context");
             TheosRenderPipeline::FrameExtent nominal{}; TheosRenderPipeline::UpscalerInputResolution range;
             Check(sr.QuerySize(output.width, output.height, quality, nominal), "nominal SDK query");
