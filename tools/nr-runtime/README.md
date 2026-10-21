@@ -118,15 +118,20 @@ The Pascal builder accepts repeatable
 `KERNEL:128x1x1::0` to set shared bytes while retaining the submitted grid.
 Names must identify a native replacement supplied with `--native`. Fixed grid
 requirements are resolution-specific; c24 overrides only the block dimensions.
+Use `KERNEL:32x4x1:*1x1x2` to retain the submitted x/y grid and double z.
+Each multiplier must be 1..64. The JSON report uses `gridMultiplier` instead
+of `grid` for these rules. Multiplication is checked against CUDA's x limit
+of 2147483647 and y/z limits of 65535 before any chain reaches the driver.
 
-With no launch rules, the writer still emits byte-identical TRPNRK1 v1.
-Rules select TRPNRK1 v2: the original 48-byte header, 15 bundle records,
+With no launch rules or recorded bounds, the writer emits byte-identical TRPNRK1 v1.
+Rules or bounds select TRPNRK1 v2: the original 48-byte header, 15 bundle records,
 alignment and fatbin payloads are unchanged, except header version at byte 8.
 Immediately after the last fatbin comes `TRPLCH1\0`, uint32 schema version 1,
 uint32 record count, then variable records. Each record has eleven little-endian
 uint32 fields: bundle index, architecture mask (1=SM61, 2=SM89), ASCII name
-length, flags (1=grid, 2=dynamic shared), block xyz, grid xyz, shared bytes;
-then the name without a terminator, zero-padded to four bytes. Absent optional
+length, flags (1=fixed grid, 2=dynamic shared, 4=grid multipliers), block xyz, grid xyz, shared bytes;
+then the name without a terminator, zero-padded to four bytes. Flags 1 and 4
+are mutually exclusive. Absent optional
 fields are zero. Unknown versions/flags, duplicates, invalid dimensions,
 truncation and trailing bytes are refused. Old readers safely refuse v2;
 new readers retain v1 RTX and Pascal compatibility.
@@ -146,3 +151,27 @@ last retired feature calls the runtime's own `D3D12_Shutdown1`; simultaneous NR
 passes share ownership. A failed release retains initialization. The manual
 benchmark calls public NGX shutdown only after successful public initialization.
 Normal RTX ownership remains with its existing host.
+
+
+`--launch-bounds` writes TRPLCH1 schema 2. Bounds are recorded by default
+when any native kernel has maxThreads < 1024 or a reqntid, and always for
+multiplier rules. `--no-launch-bounds` explicitly omits them only to reproduce
+historical pack bytes; it never disables build-time validation. The build
+report records `launchBoundsRecorded` and `unknownOriginalBlockCount`.
+Each record extends the eleven schema-1 words with two five-word bounds, first
+SM61 then SM89: maximum threads, required block xyz (zero if absent), maximum
+dynamic shared bytes. A bound-only record has zero block/grid/shared/flags;
+its name is checked only when launched. Schema-1-only readers refuse schema 2.
+The builder reads each native function's ELF `.nv.info` maxntid/reqntid, `.text`
+register count and `.nv.shared` size. Register bounds use 256-register warp
+allocation and four register partitions (64K registers); static plus dynamic
+shared memory is limited to 48 KiB. After rewriting, the runtime checks the
+selected architecture's bound before forwarding the complete chain.
+
+Bounds extraction and original-PTX block validation run even without bounds
+metadata. A native entry exceeding its compiled bounds needs a valid launch
+rule. NVIDIA entries with no maxntid/reqntid have unknown original blocks;
+the builder warns and reports their count. It also names every restrictive
+native entry without a launch rule. Schema-2 packs still check
+the actual runtime launch. No ELF parser runs inside the DLL. No rules/bounds
+still emits the same v1 bytes; old-style rules without bounds retain schema 1.

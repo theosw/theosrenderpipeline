@@ -81,6 +81,7 @@ int wmain(int argc,wchar_t** argv){
         const bool recorded=pass->Record(gpu.device.Get(),gpu.list.Get(),frame%kCommandSlots,options,frame==0 || recreate,true,float(w),float(h),
             motion.Get(),depth.Get(),options.beforeUpscaling?nullptr:ui.Get(),scene.Get(),options.beforeUpscaling?nullptr:composed.Get(),frequency);
         if(!recorded && pass->RefusedCreation())std::printf("REFUSED 0x%08X\n",pass->RefusedCreation());
+        if (!recorded) std::printf("REFUSED_BEFORE_SUBMISSION device_removed=0x%08lX\n",static_cast<unsigned long>(gpu.device->GetDeviceRemovedReason()));
         Require(recorded,pass->Status().c_str());
         if (coldStart) {
             Require(GetModuleHandleW(L"nvngx.dll") || GetModuleHandleW(L"_nvngx.dll"),

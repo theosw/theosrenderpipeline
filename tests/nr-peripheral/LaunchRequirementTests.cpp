@@ -33,6 +33,20 @@ int main()
     KernelLaunch plain{a,{8,4,1},{32,1,1},128,&params,4};
     std::vector<KernelLaunch> rewritten;
     Require(b.Rewrite(&plain,1,rewritten) && rewritten[0].block.x==128,"plain covered");
+    b.requirements["native"]={0,3,4,{32,4,1},{2,3,2},0};
+    Require(b.Rewrite(input.data(),3,output) && output[1].grid==LaunchDim{16,12,2} && output[1].block==LaunchDim{32,4,1},"multiplied Ex grid");
+    Require(b.Rewrite(&plain,1,rewritten) && rewritten[0].grid==LaunchDim{16,12,2},"multiplied plain grid");
+    // A later overflow must discard even an earlier, valid rewrite.
+    auto overflowing=input;
+    overflowing[2]=input[1];
+    for (const auto grid : {LaunchDim{1073741824u,1,1}, LaunchDim{1,21846,1}, LaunchDim{1,1,32768}}) {
+        overflowing[2].grid=grid;
+        b.failure.clear();
+        Require(!b.Rewrite(overflowing.data(),3,output) && output.empty() && !b.failure.empty(),"overflow discards entire chain");
+        b.failure.clear(); Active().bindings=b; Active().chainEx=&Forward;
+        Require(LaunchChainEx(nullptr,overflowing.data(),3)!=0 && calls==0,"overflow refused before driver");
+    }
+    b.failure.clear(); b.requirements["native"]={0,3,3,{128,1,1},{7,2,1},4096};
     Active().bindings=b;
     Active().chain=&RejectEmpty;
     Require(LaunchChain(nullptr,nullptr,0)==-5 && Active().bindings.failure.empty(),"failed empty NVAPI capability probe does not poison admission");
@@ -61,6 +75,50 @@ int main()
     LaunchRequirements rules; std::string reason;
     Require(ReadLaunchRequirements(metadata,rules,reason) && rules.at("native").block.x==128,"v2 decoded");
     for (std::size_t n=0;n<metadata.size();++n) { Require(!ReadLaunchRequirements(std::span(metadata).first(n),rules,reason),"truncated metadata refused"); }
+    auto setWord=[&](std::size_t at,std::uint32_t value) { std::memcpy(metadata.data()+at,&value,4); };
+    setWord(28,4); setWord(44,1); setWord(48,1); setWord(52,2);
+    Require(ReadLaunchRequirements(metadata,rules,reason) && rules.at("native").flags==4 && rules.at("native").grid==LaunchDim{1,1,2},"multiplier decoded");
+    for (const auto flags : {5u,8u}) {
+        setWord(28,flags); Require(!ReadLaunchRequirements(metadata,rules,reason),"conflicting or unknown flags refused");
+    }
+    setWord(28,4);
+    for (const auto at : {44u,48u,52u}) {
+        for (const auto value : {0u,65u}) {
+            setWord(at,value); Require(!ReadLaunchRequirements(metadata,rules,reason),"multiplier outside 1..64 refused");
+        }
+        setWord(at,1);
+    }
+    setWord(28,0); setWord(44,0); setWord(48,0); setWord(52,0);
+    auto boundedMetadata=metadata;
+    boundedMetadata.insert(boundedMetadata.begin()+60,40,0);
+    auto boundWord=[&](std::size_t at,std::uint32_t value) { std::memcpy(boundedMetadata.data()+at,&value,4); };
+    boundWord(8,2); boundWord(32,0); boundWord(36,0); boundWord(40,0);
+    boundWord(60,128); boundWord(76,4096); boundWord(80,256); boundWord(96,8192);
+    Require(ReadLaunchRequirements(boundedMetadata,rules,reason) && !rules.at("native").block.x &&
+        rules.at("native").bounds[0].maxThreads==128 && rules.at("native").bounds[1].maxThreads==256,"schema2 bound-only record decoded");
+    for (std::size_t n=0;n<boundedMetadata.size();++n) { Require(!ReadLaunchRequirements(std::span(boundedMetadata).first(n),rules,reason),"truncated schema2 refused"); }
+    Require(ReadLaunchRequirements(boundedMetadata,rules,reason),"schema2 restored");
+    LaunchBindings bounded; bounded.requirements=rules; bounded.names[a]="native"; bounded.names[c]="helper";
+    KernelLaunch limited=plain; limited.block={32,4,1}; limited.sharedBytes=4096;
+    Require(bounded.Ready() && bounded.Rewrite(&limited,1,rewritten) && rewritten[0].block==limited.block,"compiled thread/shared bound accepted at limit");
+    limited.block={32,8,1};
+    Require(!bounded.Rewrite(&limited,1,rewritten) && rewritten.empty(),"compiled thread bound rejects oversized block");
+    bounded.failure.clear(); bounded.capability=89;
+    Require(bounded.Rewrite(&limited,1,rewritten),"architecture-specific bound selected");
+    bounded.capability=61; limited.block={32,4,1}; limited.sharedBytes=4097;
+    Require(!bounded.Rewrite(&limited,1,rewritten),"compiled shared bound enforced");
+    bounded.failure.clear(); limited.sharedBytes=0;
+    bounded.requirements["native"].bounds[0].requiredBlock={128,1,1};
+    Require(!bounded.Rewrite(&limited,1,rewritten),"reqntid checks dimensions as well as product");
+    bounded.failure.clear(); limited.block={128,1,1};
+    Require(bounded.Rewrite(&limited,1,rewritten),"exact reqntid accepted");
+    bounded.requirements["native"].bounds[0].requiredBlock={};
+    auto tooLarge=input; tooLarge[1].block={32,8,1};
+    Active().bindings=bounded; Active().chainEx=&Forward;
+    const auto callsBefore=calls;
+    Require(LaunchChainEx(nullptr,tooLarge.data(),3)!=0 && calls==callsBefore,"compiled bound refusal before driver");
+    boundWord(60,1025);
+    Require(!ReadLaunchRequirements(boundedMetadata,rules,reason),"invalid compiled bound refused");
     const auto temp=std::filesystem::temp_directory_path()/("trp-pascal-config-"+std::to_string(GetCurrentProcessId())+"-"+std::to_string(GetTickCount64()));
     std::filesystem::create_directory(temp);
     const auto ini=temp/L"diagnostics.ini";
@@ -84,4 +142,5 @@ int main()
     Require(!ReadLaunchRequirements(metadata,rules,reason),"trailing bytes refused");
     metadata.pop_back(); metadata[32]=0; metadata[33]=8;
     Require(!ReadLaunchRequirements(metadata,rules,reason),"oversized block refused");
+    std::puts("PASS launch requirements decoding, whole-chain rewrite, overflow refusal and research configuration");
 }

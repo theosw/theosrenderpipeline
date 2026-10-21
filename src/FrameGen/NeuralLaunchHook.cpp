@@ -93,9 +93,10 @@ namespace TheosRenderPipeline::NeuralRendering
             for (std::uint32_t i=0;i<count;++i) {
                 const auto& name=h.bindings.names.at(kernels[i].function);
                 if (h.bindings.requirements.contains(name) && h.logged.insert(name).second) {
-                    const auto& r=h.bindings.requirements.at(name);
-                    logger::info("[DLSSNR Launch] {} block={}x{}x{} -> {}x{}x{}; chain kept whole ({} kernels)",name,
-                        kernels[i].block.x,kernels[i].block.y,kernels[i].block.z,r.block.x,r.block.y,r.block.z,count);
+                    const auto& r=rewritten[i];
+                    logger::info("[DLSSNR Launch] {} block={}x{}x{} -> {}x{}x{}; grid={}x{}x{} -> {}x{}x{}; chain kept whole ({} kernels)",name,
+                        kernels[i].block.x,kernels[i].block.y,kernels[i].block.z,r.block.x,r.block.y,r.block.z,
+                        kernels[i].grid.x,kernels[i].grid.y,kernels[i].grid.z,r.grid.x,r.grid.y,r.grid.z,count);
                 }
             }
             const auto result=forward(list,rewritten.empty()?kernels:rewritten.data(),count);
@@ -176,6 +177,7 @@ namespace TheosRenderPipeline::NeuralRendering
                 if (!VirtualProtect(&iat->u1.Function,sizeof(void*),PAGE_READWRITE,&old)) { reason="NR resolver import is not writable"; return false; }
                 h.getProc=reinterpret_cast<decltype(h.getProc)>(iat->u1.Function);
                 h.bindings.requirements=requirements;
+                h.bindings.capability=capability;
                 h.runtime=runtime;
                 InterlockedExchangePointer(reinterpret_cast<void**>(&iat->u1.Function),reinterpret_cast<void*>(&GetProc));
                 if (!VirtualProtect(&iat->u1.Function,sizeof(void*),old,&ignored)) {
@@ -204,7 +206,7 @@ namespace TheosRenderPipeline::NeuralRendering
             for (const auto& [name, rule]:h.bindings.requirements) {
                 bool found=false;
                 for (const auto& [handle,bound]:h.bindings.names) { found |= bound==name; }
-                if (!found) { reason += "; missing "+name; }
+                if (!found && rule.block.x) { reason += "; missing "+name; }
             }
             return false;
         }

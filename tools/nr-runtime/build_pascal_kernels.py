@@ -31,6 +31,7 @@ import build_rtx40_kernels as ada
 import pascal_groups
 import pascal_lowering
 import launch_metadata
+import launch_bounds
 from ada_lowering import require
 
 
@@ -66,7 +67,7 @@ def compile_groups(cuda12, vcvars, signatures, work):
     return (folder / 'groups.ptx').read_text(encoding='ascii')
 
 
-def build_bundle(cuda12, index, ptx, emulation, work, native=None, groups=None, maxnreg=True):
+def build_bundle(cuda12, index, ptx, emulation, work, native=None, groups=None, maxnreg=True, launches=()):
     folder = work / f'bundle{index:02}'
     if index < 7:
         pascal, counts = pascal_lowering.lower(ptx, emulation, groups)
@@ -82,8 +83,22 @@ def build_bundle(cuda12, index, ptx, emulation, work, native=None, groups=None, 
     if replaced:
         counts = dict(counts, native=replaced)
     (folder / 'pascal.ptx').write_text(pascal, encoding='ascii', newline='\n')
+    bounds = {}
     for sm in (61, 89):
         ada.run(cuda12, 'ptxas', f'-arch=sm_{sm}', '-O3', 'pascal.ptx', '-o', f'pascal.sm_{sm}.cubin', cwd=folder)
+        bounds[sm] = launch_bounds.extract((folder / f'pascal.sm_{sm}.cubin').read_bytes(), replaced, sm)
+        original = launch_bounds.original_blocks(ptx)
+        rules = {r['name']: r for r in launches}
+        for name, bound in bounds[sm].items():
+            launch_bounds.validate(name, bound, original.get(name), rules.get(name))
+    unknown = sorted(set(replaced) - original.keys())
+    if unknown:
+        print(f'bundle {index}: warning: {len(unknown)} native kernels have unknown NVIDIA block (.maxntid/.reqntid absent): {unknown}', flush=True)
+    for name in replaced:
+        if name not in rules and any(b[name]['maxThreads'] < 1024 or b[name]['reqntid'][0] for b in bounds.values()):
+            print(f'WARNING native kernel {name}: restrictive compiled bound without --launch rule; '
+                  f'SM61 maxThreads={bounds[61][name]["maxThreads"]}, SM89 maxThreads={bounds[89][name]["maxThreads"]}; '
+                  f'NVIDIA block={original.get(name, "unknown")}', flush=True)
     ada.run(cuda12, 'fatbinary', '--64', '--create=trp.fatbin',
             '--image3=kind=elf,sm=61,file=pascal.sm_61.cubin',
             '--image3=kind=elf,sm=89,file=pascal.sm_89.cubin', cwd=folder)
@@ -94,7 +109,7 @@ def build_bundle(cuda12, index, ptx, emulation, work, native=None, groups=None, 
     require(sorted(entries) == sorted(re.findall(r'\.entry\s+(\w+)', pascal)), f'bundle {index}: kernel entries changed')
     return payload, dict(entries=len(entries), lowered=counts, bundleBytes=len(payload),
                          sm61=ada.sha256((folder / 'pascal.sm_61.cubin').read_bytes()),
-                         sm89=ada.sha256((folder / 'pascal.sm_89.cubin').read_bytes()))
+                         sm89=ada.sha256((folder / 'pascal.sm_89.cubin').read_bytes()), launchBounds=bounds, unknownOriginalBlocks=unknown)
 
 
 def background_priority():
@@ -115,7 +130,10 @@ def main():
     parser.add_argument('--native', action='append', default=[], metavar='BUNDLE=PTX',
                         help='native sm_61 kernels replacing same-named NVIDIA kernels in a bundle (repeatable)')
     parser.add_argument('--launch', action='append', default=[], metavar='KERNEL:BLOCK[:GRID][:SHARED]',
-                        help='required native launch geometry (repeatable; TRPNRK1 v2)')
+                        help='required native launch geometry; GRID may be *AxBxC multipliers (repeatable; TRPNRK1 v2)')
+    bounds_options = parser.add_mutually_exclusive_group()
+    bounds_options.add_argument('--launch-bounds', action='store_true', help='record compiled native launch bounds (TRPLCH1 schema 2; default for restrictive native kernels)')
+    bounds_options.add_argument('--no-launch-bounds', action='store_true', help='omit bounds metadata ONLY to reproduce historical pack bytes; validation still runs')
     parser.add_argument('--groups', action='store_true', help='grouped FP8 mma stand-ins (pascal_groups.py)')
     parser.add_argument('--group-max-a', type=int, default=pascal_groups.MAX_A, help='A fragments per grouped call')
     parser.add_argument('--no-maxnreg', action='store_true',
@@ -144,16 +162,23 @@ def main():
             print(f'grouped stand-ins: {len(signatures)} block shapes', flush=True)
         for index, (name, _, _, rva) in enumerate(ada.BUNDLES):
             payload, detail = build_bundle(args.cuda12, index, ptxs[index], emulation, Path(work), native.get(index), groups,
-                                           maxnreg=not args.no_maxnreg)
+                                           maxnreg=not args.no_maxnreg, launches=launches)
             bundles.append((rva, len(sources[index]), payload))
             details.append(dict(name=name, **detail))
             print(f'{name}: {detail["entries"]} kernels, {len(payload)} bytes', flush=True)
     pack = ada.write_pack(bundles)
     require(ada.read_pack(pack) == bundles, 'pack read-back differs')
+    restrictive = any(b['maxThreads'] < 1024 or b['reqntid'][0] for d in details for arch in d['launchBounds'].values() for b in arch.values())
+    bounded = not args.no_launch_bounds and (args.launch_bounds or restrictive or any('gridMultiplier' in r for r in launches))
+    if bounded:
+        launches = launch_bounds.add_records(launches, {i: d['launchBounds'] for i,d in enumerate(details)})
+    else:
+        for d in details:
+            d.pop('launchBounds')
     pack = launch_metadata.append(pack, launches)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_bytes(pack)
-    report = dict(original=ada.OFFICIAL_SHA256, pack=ada.sha256(pack), packBytes=len(pack), research=True, launches=launches, bundles=details)
+    report = dict(original=ada.OFFICIAL_SHA256, pack=ada.sha256(pack), packBytes=len(pack), research=True, launchBoundsRecorded=bounded, unknownOriginalBlockCount=sum(len(d['unknownOriginalBlocks']) for d in details), launches=launches, bundles=details)
     args.output.with_suffix('.json').write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')
     print(f'wrote {args.output} sha256={ada.sha256(pack)} bytes={len(pack)}', flush=True)
 
