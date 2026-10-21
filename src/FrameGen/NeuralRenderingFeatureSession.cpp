@@ -600,6 +600,7 @@ namespace TheosRenderPipeline::NeuralRendering
 		parameters->Set("DLSSNR.MVecScaleY", a_input.motionVectorScaleY);
 		WriteTuningParameters(*parameters, a_input.tuning, a_input.reset, a_input.depthInverted, state.contract.build);
 
+		if (!LaunchHookHealthy(state.module, state.status)) { return false; } // A rejected session never evaluates again.
 		const auto evaluateResult = state.evaluateFeature(
 			a_input.commandList, state.feature, parameters, nullptr);
 		state.lastEvaluateResult = static_cast<std::uint32_t>(evaluateResult);

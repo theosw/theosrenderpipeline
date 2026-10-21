@@ -124,6 +124,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		const InputWaitDiagnostics& LastInputWait() const { return inputWait_; }
 		HRESULT Begin(Work a_work, ID3D12GraphicsCommandList** a_list, AllocatorWaitTiming* a_wait = nullptr);
 		HRESULT Submit(Work a_work);
+		HRESULT Discard(Work a_work); // Close an unsubmitted list; fence/slot values remain unchanged.
 		HRESULT Drain();
 		void SetRetirementWaitPolicy(RetirementWaitPolicy a_policy) { waitPolicy_ = a_policy; }
 		// Returns and clears the most recent wait that outlasted one slice.

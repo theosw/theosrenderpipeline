@@ -196,6 +196,11 @@ namespace TheosRenderPipeline::SourceDLSSG
 
     bool Backend::FailNeuralRecording()
     {
+        // RecordEvaluation checks hook health before this path. Never execute
+        // any part of a list whose inference chain was rejected.
+        const auto early = interop_.Discard(Work::Upscaling);
+        const auto late = interop_.Discard(Work::SwapChain);
+        if (FAILED(early) || FAILED(late)) { return Check(FAILED(early) ? early : late, "discard rejected NR recording"); }
         std::scoped_lock lock(neuralMutex_);
         neuralSnapshot_.failed = true;
         neuralSnapshot_.active = false;

@@ -36,7 +36,8 @@ namespace TheosRenderPipeline::NeuralRendering
         template<class T> bool Rewrite(const T* launches, std::uint32_t count, std::vector<T>& result) {
             result.clear();
             auto fail = [&](std::string reason) { failure = reason; result.clear(); return false; };
-            if (!failure.empty() || (count && !launches)) { return fail("NR launch rejected: invalid chain or previous launch failure"); }
+            if (!failure.empty()) { return false; }
+            if (count && !launches) { return fail("NR launch rejected: invalid chain or previous launch failure"); }
             for (std::uint32_t i = 0; i < count; ++i) {
                 const auto name = names.find(launches[i].function);
                 if (name == names.end()) { return fail("NR launch rejected: unknown CU function handle"); }

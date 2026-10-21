@@ -44,7 +44,7 @@ int main()
         b.failure.clear();
         Require(!b.Rewrite(overflowing.data(),3,output) && output.empty() && !b.failure.empty(),"overflow discards entire chain");
         b.failure.clear(); Active().bindings=b; Active().chainEx=&Forward;
-        Require(LaunchChainEx(nullptr,overflowing.data(),3)!=0 && calls==0,"overflow refused before driver");
+        Require(LaunchChainEx(nullptr,overflowing.data(),3)==0 && !Active().bindings.failure.empty() && calls==0,"overflow refused before driver");
     }
     b.failure.clear(); b.requirements["native"]={0,3,3,{128,1,1},{7,2,1},4096};
     Active().bindings=b;
@@ -53,7 +53,7 @@ int main()
     Active().chainEx=&Forward;
     Require(LaunchChainEx(nullptr,input.data(),3)==0 && calls==1,"real Ex hook forwarding");
     Active().bindings.names.erase(a);
-    Require(LaunchChainEx(nullptr,input.data(),3)!=0 && calls==1,"unknown handle does not reach driver");
+    Require(LaunchChainEx(nullptr,input.data(),3)==0 && !Active().bindings.failure.empty() && calls==1,"unknown handle does not reach driver");
     Active().bindings.failure.clear();
     Active().bundles[c]=1;
     void* handle{};
@@ -116,7 +116,14 @@ int main()
     auto tooLarge=input; tooLarge[1].block={32,8,1};
     Active().bindings=bounded; Active().chainEx=&Forward;
     const auto callsBefore=calls;
-    Require(LaunchChainEx(nullptr,tooLarge.data(),3)!=0 && calls==callsBefore,"compiled bound refusal before driver");
+    Require(LaunchChainEx(nullptr,tooLarge.data(),3)==0 && !Active().bindings.failure.empty() && calls==callsBefore,"compiled bound refusal before driver");
+    const auto firstFailure=Active().bindings.failure;
+    Require(LaunchChainEx(nullptr,input.data(),3)==0 && calls==callsBefore && Active().bindings.failure==firstFailure,"failure latch drops later chains with benign status");
+    Require(!LaunchHookHealthy(nullptr,reason) && reason==firstFailure,"health exposes original failure after Evaluate");
+    unsigned executions{};
+    Require(!ExecuteHealthyNeuralList(nullptr,[&] { ++executions; }) && executions==0,"submission gate skips entire rejected list");
+    RejectedNeuralLists::Get().Discard(nullptr);
+    Require(ExecuteHealthyNeuralList(nullptr,[&] { ++executions; }) && executions==1,"reset or discarded list can be reused");
     boundWord(60,1025);
     Require(!ReadLaunchRequirements(boundedMetadata,rules,reason),"invalid compiled bound refused");
     const auto temp=std::filesystem::temp_directory_path()/("trp-pascal-config-"+std::to_string(GetCurrentProcessId())+"-"+std::to_string(GetTickCount64()));

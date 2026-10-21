@@ -1,4 +1,5 @@
 #include "NeuralLaunchHook.h"
+#include "NeuralLaunchSubmission.h"
 #include "NeuralRuntimeKernels.h"
 #include <PCH.h>
 #include <cstring>
@@ -86,9 +87,13 @@ namespace TheosRenderPipeline::NeuralRendering
         {
             auto& h=Active();
             std::scoped_lock lock(h.mutex);
+            // NVIDIA fail-fasts on NVAPI errors. Unwind Evaluate normally, then
+            // FeatureSession observes the latched failure before submission.
+            if (!h.bindings.failure.empty()) { RejectedNeuralLists::Get().Reject(list); return 0; }
             std::vector<T> rewritten;
             if (!h.bindings.Rewrite(kernels,count,rewritten)) {
-                logger::error("[DLSSNR Launch] {}; NR off",h.bindings.failure); return -1;
+                RejectedNeuralLists::Get().Reject(list);
+                logger::error("[DLSSNR Launch] {}; NR off",h.bindings.failure); return 0;
             }
             for (std::uint32_t i=0;i<count;++i) {
                 const auto& name=h.bindings.names.at(kernels[i].function);
@@ -100,7 +105,7 @@ namespace TheosRenderPipeline::NeuralRendering
                 }
             }
             const auto result=forward(list,rewritten.empty()?kernels:rewritten.data(),count);
-            if (result && count) { h.bindings.failure=std::format("NVAPI refused required NR launch geometry (status={}, count={})",result,count); logger::error("[DLSSNR Launch] {}",h.bindings.failure); }
+            if (result && count) { h.bindings.failure=std::format("NVAPI refused required NR launch geometry (status={}, count={})",result,count); logger::error("[DLSSNR Launch] {}",h.bindings.failure); RejectedNeuralLists::Get().Reject(list); return 0; }
             return result;
         }
         int __cdecl LaunchChain(ID3D12GraphicsCommandList* l,const KernelLaunch* k,std::uint32_t n) { return Launch(l,k,n,Active().chain.load()); }

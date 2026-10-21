@@ -175,3 +175,14 @@ the builder warns and reports their count. It also names every restrictive
 native entry without a launch rule. Schema-2 packs still check
 the actual runtime launch. No ELF parser runs inside the DLL. No rules/bounds
 still emits the same v1 bytes; old-style rules without bounds retain schema 1.
+
+
+A rejected chain latches failure and drops every later chain in that Evaluate.
+The hook returns a benign NVAPI status so NVIDIA can unwind without fail-fast;
+FeatureSession checks health immediately after Evaluate and never evaluates a
+failed session again. Rejected command lists are marked non-executable. Both
+game call sites discard the list before any submission, keeping fences/slots
+unchanged; the queue execution gate also refuses rejected lists. The benchmark
+closes/discards the list, retires the feature and reports NR_OFF with no frame.
+The game's existing unknown-recording-failure policy still latches the entire
+backend until restart: it does not promise continued native/XeSS presentation.

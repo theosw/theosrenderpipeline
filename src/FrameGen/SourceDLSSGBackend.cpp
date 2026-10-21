@@ -811,7 +811,7 @@ namespace TheosRenderPipeline::SourceDLSSG
                 {frameConstants_.jitterOffset.x,frameConstants_.jitterOffset.y})) {
 				if (!RefuseNeuralCreation(options.runtimePath)) {
 					FailNeuralRecording();
-					return fault_; // Retain all objects and the unsubmitted list on unknown NGX failure.
+					return fault_; // Retain objects; the failed recording was discarded.
 				}
 				// This frame presents without NR; the next one uses the next runtime.
 				active = false;

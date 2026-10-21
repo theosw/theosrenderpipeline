@@ -81,6 +81,14 @@ int wmain(int argc,wchar_t** argv){
         const bool recorded=pass->Record(gpu.device.Get(),gpu.list.Get(),frame%kCommandSlots,options,frame==0 || recreate,true,float(w),float(h),
             motion.Get(),depth.Get(),options.beforeUpscaling?nullptr:ui.Get(),scene.Get(),options.beforeUpscaling?nullptr:composed.Get(),frequency);
         if(!recorded && pass->RefusedCreation())std::printf("REFUSED 0x%08X\n",pass->RefusedCreation());
+        if (!recorded && pass->Status().find("NR launch rejected") != std::string::npos) {
+            const auto reason=pass->Status();
+            gpu.Discard(); // Earlier kernels may depend on this dropped chain.
+            Check(gpu.device->GetDeviceRemovedReason(),"device healthy after refused NR launch");
+            pass.reset();
+            std::printf("NR_OFF reason=%s device_removed=0x00000000 submitted=none frame=none clean_exit=1\n",reason.c_str());
+            return 0;
+        }
         if (!recorded) std::printf("REFUSED_BEFORE_SUBMISSION device_removed=0x%08lX\n",static_cast<unsigned long>(gpu.device->GetDeviceRemovedReason()));
         Require(recorded,pass->Status().c_str());
         if (coldStart) {
