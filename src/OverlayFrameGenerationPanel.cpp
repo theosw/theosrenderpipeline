@@ -147,15 +147,15 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& v
                 {
                     for (int i = 0; i < 2; ++i)
                     {
-                        ImGui::BeginDisabled(i == 0 && !view.nvidiaFeatures);
+                        ImGui::BeginDisabled(i == 0 && !view.nvidiaFrameGeneration);
                         if (ImGui::Selectable(providers[i], provider == i) && provider != i)
                         {
                             draft.provider = static_cast<TheosRenderPipeline::FrameGenerationProvider>(i);
                             changed = true;
                         }
                         ImGui::EndDisabled();
-                        if (i == 0 && !view.nvidiaFeatures && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                            ImGui::SetTooltip("%s", TR("Needs NVIDIA RTX hardware."));
+                        if (i == 0 && !view.nvidiaFrameGeneration && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                            ImGui::SetTooltip("%s", !view.nvidiaFeatures ? TR("Needs NVIDIA RTX hardware.") : TR("NVIDIA's runtime reports frame generation unavailable on this system."));
                     }
                     ImGui::EndCombo();
                 }

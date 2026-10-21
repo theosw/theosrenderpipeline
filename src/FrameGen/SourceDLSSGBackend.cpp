@@ -348,13 +348,14 @@ namespace TheosRenderPipeline::SourceDLSSG
         if (pascalResearch_) { logger::info("[NR Pascal Research] native presentation via Intel host; DLSS-G off; pack={}", NeuralRendering::PascalConfiguration().pack.string()); }
 #endif
 		adapterDevice_ = adapterDesc.DeviceId;
+		providerCapabilitiesKnown_ = true;
 		if (FAILED(adapter->CheckInterfaceSupport(__uuidof(IDXGIDevice), &adapterDriver_))) { adapterDriver_ = {}; }
 		nativeFactory_ = a_factory;
 		// With Community Shaders, CS upscales; UpscaleType only selects TRP's own upscaler.
 		const bool communityShaders = CommunityShaders::Active();
 		// The host has already replaced DLSS/DLAA with XeSS on other GPUs.
 		const bool xeSSStartup = !communityShaders && RenderPipeline::GetSingleton()->mUpscaleType == ::XeSS;
-		const auto startup = SelectProviderStartup(xeSSStartup, NvidiaFeaturesAvailable(), RequestedProvider());
+		const auto startup = SelectProviderStartup(xeSSStartup, NvidiaFrameGenerationAvailable(), RequestedProvider());
 		RequestProvider(startup.requested);
 		provider_ = startup.presenter;
 		const bool intelStartup = provider_ == FrameGenerationProvider::XeFG;
@@ -1419,11 +1420,14 @@ namespace TheosRenderPipeline::SourceDLSSG
 	bool Backend::PreflightProviderSwitch()
 	{
 		if (nativePresenterFallback_ || presenterReplacement_.Pending()) { return false; }
+		// Normalize before transition/camera gates, including a later Apply of a
+		// saved NVIDIA default on unsupported hardware. No INI is written here.
+		RequestProvider(RequestedProvider());
 		if (nvidiaNeedsPresent_) { return false; }
 		const auto request = RequestedProvider();
 		if ((request == provider_ && !recreateXeFG_) || !cameraAvailable_ || TransitionBlocked()) { return false; }
-		if (request == FrameGenerationProvider::NVIDIA && !NvidiaFeaturesAvailable()) {
-			providerStatus_ = "NVIDIA frame generation requires NVIDIA hardware; Intel presenter retained";
+		if (request == FrameGenerationProvider::NVIDIA && !NvidiaFrameGenerationAvailable()) {
+			providerStatus_ = "NVIDIA frame generation unavailable; Intel presenter retained";
 			RequestProvider(provider_); return false;
 		}
 		if (request == FrameGenerationProvider::NVIDIA && NvidiaSwitchBlocked()) {

@@ -50,7 +50,12 @@ namespace TheosRenderPipeline::SourceDLSSG
 	{
 	public:
 		static Backend& Get();
-		void RequestProvider(FrameGenerationProvider provider) { if (ValidProvider(static_cast<int>(provider))) { requestedProvider_.store(provider); } }
+		void RequestProvider(FrameGenerationProvider provider) {
+			if (ValidProvider(static_cast<int>(provider))) {
+				requestedProvider_.store(nativePresenterFallback_ ? provider_ :
+					NormalizeProviderRequest(provider, !providerCapabilitiesKnown_ || NvidiaFrameGenerationAvailable()));
+			}
+		}
 		FrameGenerationProvider Provider() const { return provider_; }
 		FrameGenerationProvider RequestedProvider() const { return requestedProvider_.load(); }
 		const XeFGSnapshot& XeFGState() const { return xefg_.Snapshot(); }
@@ -227,6 +232,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		ID3D12Device* Device12() const { return device12_.Get(); }
 		bool NvidiaAdapter() const { return adapterVendor_ == 0x10DE; }
 		bool NvidiaFeaturesAvailable() const { return NvidiaAdapter() && !pascalResearch_; }
+		bool NvidiaFrameGenerationAvailable() const { return NvidiaFeaturesAvailable() && !FrameGenerationUnsupportedReported(); }
 		bool PascalResearchActive() const { return pascalResearch_; }
 		HRESULT BeforePresent(ID3D12Resource* a_source, ID3D12Resource* a_destination, DXGI_COLOR_SPACE_TYPE a_colorSpace);
 		HRESULT AfterPresent(HRESULT a_result);
@@ -303,7 +309,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		DXGI_SWAP_CHAIN_DESC presenterDesc_{};
 		std::string providerStatus_{"NVIDIA presenter"};
 		bool providerSwitchPending_{}, cameraAvailable_{}, recreateXeFG_{}, nvidiaNeedsPresent_{};
-		bool nativePresenterFallback_{}, fallbackPrepared_{};
+		bool providerCapabilitiesKnown_{}, nativePresenterFallback_{}, fallbackPrepared_{};
 		PresenterReplacement presenterReplacement_;
 		FrameGenerationProvider replacementProvider_{FrameGenerationProvider::XeFG};
 		std::uint32_t replacementFrame_{};

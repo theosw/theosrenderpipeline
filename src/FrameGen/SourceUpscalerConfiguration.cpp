@@ -31,6 +31,7 @@ void NvidiaHost::ApplySourceUpscalerSettingsAfterPresent()
 {
     if (FAILED(FailureResult()) || nativeUIPass_.Active() || nativeUIPass_.HasEarlyEvaluation()) { return; }
     auto& backend = TheosRenderPipeline::SourceDLSSG::Backend::Get();
+    if (backend.PresenterRecoveryPending()) { return; }
     sourceUpscalerSettings_.SetNvidiaServicesReady(backend.NvidiaServicesReady());
     if (!sourceUpscalerSettings_.NeedsLiveChange()) { return; }
     auto* dlss = DLSSBackend::GetSingleton();

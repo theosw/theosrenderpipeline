@@ -50,6 +50,10 @@ RendererSettingsDraft RendererSettingsController::Capture([[maybe_unused]] bool 
     settingsDraft.directRCASOutput = performanceSettings.directRCASOutput;
     settingsDraft.directDLSSOutput = performanceSettings.directDLSSOutput;
     settingsDraft.sourceDLSSG = frameGen_.settings.sourceDLSSG;
+    if (host_.StartupConfigured() && !SourceDLSSG::Backend::Get().NvidiaFrameGenerationAvailable()) {
+        // Present the session choice without changing the loaded/saved defaults.
+        settingsDraft.sourceDLSSG.provider = NormalizeProviderRequest(settingsDraft.sourceDLSSG.provider, false);
+    }
     settingsDraft.appearance = Appearance::Runtime::Get().Configuration();
     // An NR request whose runtime is missing stays as saved: the switch can still
     // turn it off, its other rows are locked, validation keeps the unchanged

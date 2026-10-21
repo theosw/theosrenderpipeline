@@ -96,6 +96,7 @@ OverlayUI::FrameView OverlayUI::CaptureFrameView()
     view.sourceReady = backend.Ready();
     view.nvidiaAdapter = backend.NvidiaAdapter();
     view.nvidiaFeatures = backend.NvidiaFeaturesAvailable();
+    view.nvidiaFrameGeneration = backend.NvidiaFrameGenerationAvailable();
     view.nvidiaServicesReady = backend.NvidiaServicesReady();
     view.generationActive = backend.GenerationActive();
     view.effectiveMultiplier = backend.EffectiveMultiplier();
