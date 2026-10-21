@@ -3,6 +3,7 @@
 #include <Windows.h>
 #include <d3d12.h>
 #include <mutex>
+#include <cstddef>
 #include <set>
 
 namespace TheosRenderPipeline::NeuralRendering
@@ -10,6 +11,10 @@ namespace TheosRenderPipeline::NeuralRendering
     // NVAPI CU descriptor ABI (nvapi.h); parameter pointers are borrowed unchanged.
     struct KernelLaunch { void* function; LaunchDim grid, block; std::uint32_t sharedBytes; const void* params; std::uint32_t paramSize; };
     struct KernelLaunchEx { void* function; LaunchDim grid, block; std::uint32_t sharedBytes; const void* params; std::uint32_t paramSize; void** kernelParams; };
+
+    static_assert(sizeof(KernelLaunch) == 56 && sizeof(KernelLaunchEx) == 64);
+    static_assert(offsetof(KernelLaunch, block) == 20 && offsetof(KernelLaunch, params) == 40 &&
+        offsetof(KernelLaunchEx, kernelParams) == 56, "NVAPI CU launch descriptor ABI");
 
     class LaunchBindings
     {

@@ -25,7 +25,8 @@ namespace TheosRenderPipeline::NeuralRendering
 		return capability == 75 || capability == 86 || capability == 89;
 	}
 
-	// False in Standard, which never patches the runtime.
+	// False in Standard, including its opt-in Pascal research build; only an
+	// explicit research installation may bypass Standard's normal refusal.
 	bool RuntimeKernelsSupported();
 
 	struct RuntimeKernelResult

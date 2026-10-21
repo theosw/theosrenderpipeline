@@ -131,6 +131,16 @@ void Neural()
         draft.sourceDLSSG.neuralEnabled = false; draft.upscaleType = DLSS;
         Require(ValidateRendererSettings(draft, amd), "unsupported DLSS startup cannot be saved on a non-NVIDIA GPU");
     }
+    {
+        RendererSettingsDraft draft; draft.valid = true; draft.upscaleType = XeSS;
+        draft.sourceDLSSG.neuralEnabled = true;
+        RendererSettingsCapabilities pascalHost{true, true, true, false};
+        pascalHost.nvidiaFeatures = false;
+        Require(!ValidateRendererSettings(draft, pascalHost), "research NR with XeSS applies without DLSS services");
+        Require(!NeuralSettingsUnavailable(XeSS, pascalHost), "NR controls stay usable independently of DLSS availability");
+        draft.upscaleType = DLSS;
+        Require(ValidateRendererSettings(draft, pascalHost), "unavailable DLSS cannot apply on research GTX host");
+    }
     RendererSettingsDraft current; current.valid = true; current.sourceDLSSG.neuralEnabled = true;
     auto draft = current; draft.upscaleType = DLAA; draft.qualityLevel = 4;
     RendererSettingsCapabilities lostUI{true,true,false,false};

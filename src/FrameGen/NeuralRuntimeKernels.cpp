@@ -97,7 +97,7 @@ namespace TheosRenderPipeline::NeuralRendering
             }
             return result;
         }
-        bool HashIs(std::span<const std::uint8_t> bytes, std::string_view expected) { return Digest(bytes) == expected; }
+        bool HashIs(std::span<const std::uint8_t> bytes, std::string_view expected) { return expected.size() == 64 && Digest(bytes) == expected; }
 
         struct File
         {
@@ -268,7 +268,8 @@ namespace TheosRenderPipeline::NeuralRendering
         File runtime(filename, 266424944);
         std::error_code sizeError;
         const auto packSize = research ? static_cast<std::size_t>(std::filesystem::file_size(packPath, sizeError)) : PackSize;
-        File pack(packPath, sizeError ? 0 : packSize);
+        if (sizeError || packSize < 512 || packSize > ULONG_MAX) { return {false, false, "NR compatibility kernel pack is missing or outside supported size bounds"}; }
+        File pack(packPath, packSize);
         if (!runtime.data || !HashIs(runtime.Bytes(), kKernelRuntimeSha256)) { return {false, false, "loaded NR file is not the pinned NVIDIA 310.9.16 runtime"}; }
         // Research packs are unpinned; production packs must match their pinned hash.
         if (!pack.data || (!research && !HashIs(pack.Bytes(), kKernelPackSha256))) { return {false, false, "NR compatibility kernel pack is missing or its SHA-256 differs"}; }
@@ -282,6 +283,7 @@ namespace TheosRenderPipeline::NeuralRendering
         pending.storageBytes = packSize;
         pending.research = research;
         pending.digest = Digest(pack.Bytes());
+        if (pending.digest.size() != 64) { return {false, false, "NR kernel pack hashing failed; NR off"}; }
         if (!MakePlan(pack.Bytes(), reinterpret_cast<std::uintptr_t>(module), reinterpret_cast<std::uintptr_t>(storage.get()),
                 pending.plan, pending.result.status, packSize, research)) { return pending.result; }
         std::uint32_t version{};

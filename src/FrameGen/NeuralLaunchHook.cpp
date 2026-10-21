@@ -137,15 +137,15 @@ namespace TheosRenderPipeline::NeuralRendering
         if (requirements.empty()) { return true; }
         auto& h=Active();
         std::scoped_lock lock(h.mutex);
+        for (const auto& [name,r]:requirements) {
+            const auto bit=capability==61?1u:capability==89?2u:0u;
+            if (!(r.architectures & bit)) { reason="NR launch requirements do not cover this GPU architecture"; return false; }
+        }
         if (h.runtime) {
             if (h.runtime!=runtime || h.bindings.requirements!=requirements || !h.bindings.failure.empty()) {
                 reason="NR required-launch hook conflicts with retained runtime; restart required"; return false;
             }
             return true;
-        }
-        for (const auto& [name,r]:requirements) {
-            const auto bit=capability==61?1u:capability==89?2u:0u;
-            if (!(r.architectures & bit)) { reason="NR launch requirements do not cover this GPU architecture"; return false; }
         }
         h.nvapi=LoadLibraryExW(L"nvapi64.dll",nullptr,LOAD_LIBRARY_SEARCH_SYSTEM32);
         h.query=reinterpret_cast<Query>(::GetProcAddress(h.nvapi,"nvapi_QueryInterface"));
