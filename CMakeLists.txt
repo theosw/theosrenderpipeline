@@ -446,6 +446,14 @@ if(TRP_BUILD_COMPATIBILITY_TESTS)
     target_compile_definitions(TRPDLSSFeatureReleaseTests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
     target_include_directories(TRPDLSSFeatureReleaseTests PRIVATE src "${TRP_NGX_SDK_DIR}/include")
     add_test(NAME DLSSFeatureRelease COMMAND TRPDLSSFeatureReleaseTests)
+    add_executable(TRPNRRenderSizeTests tests/NRRenderSizeTests.cpp)
+    target_compile_features(TRPNRRenderSizeTests PRIVATE cxx_std_23)
+    target_compile_definitions(TRPNRRenderSizeTests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    target_include_directories(TRPNRRenderSizeTests PRIVATE src)
+    add_test(NAME NRRenderSize COMMAND TRPNRRenderSizeTests
+        "${PROJECT_SOURCE_DIR}/tests/data/NRInternalSizeVectors.csv"
+        "${PROJECT_SOURCE_DIR}/tests/data/NRRenderSizeCases.csv")
+
     add_executable(TRPUpscalerInputResolutionTests tests/UpscalerInputResolutionTests.cpp)
     target_compile_features(TRPUpscalerInputResolutionTests PRIVATE cxx_std_23)
     target_compile_definitions(TRPUpscalerInputResolutionTests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
