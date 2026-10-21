@@ -74,8 +74,11 @@ def build_bundle(cuda12, index, ptx, emulation, work, native=None, groups=None, 
             counts = dict(counts, droppedMaxnreg=dropped)
     else:
         pascal, counts = retarget(ptx), {}
-    if native:
-        pascal, replaced = pascal_lowering.replace_entries(pascal, native)
+    replaced = []
+    for native_ptx in native or ():
+        pascal, names = pascal_lowering.replace_entries(pascal, native_ptx)
+        replaced += names
+    if replaced:
         counts = dict(counts, native=replaced)
     (folder / 'pascal.ptx').write_text(pascal, encoding='ascii', newline='\n')
     for sm in (61, 89):
@@ -93,12 +96,23 @@ def build_bundle(cuda12, index, ptx, emulation, work, native=None, groups=None, 
                          sm89=ada.sha256((folder / 'pascal.sm_89.cubin').read_bytes()))
 
 
+def background_priority():
+    """Below-normal CPU priority for this build and its ptxas/nvcc children (Windows)."""
+    try:
+        import ctypes
+        kernel32 = ctypes.windll.kernel32
+        kernel32.SetPriorityClass(kernel32.GetCurrentProcess(), 0x4000)   # BELOW_NORMAL_PRIORITY_CLASS
+    except (AttributeError, OSError):
+        pass
+
+
 def main():
+    background_priority()
     parser = argparse.ArgumentParser(description=__doc__.split('\n')[0])
     for name in ('official', 'cuda13', 'cuda12', 'emulation_ptx', 'output'):
         parser.add_argument('--' + name.replace('_', '-'), dest=name, type=Path, required=True)
     parser.add_argument('--native', action='append', default=[], metavar='BUNDLE=PTX',
-                        help='native sm_61 kernels replacing same-named NVIDIA kernels in a bundle')
+                        help='native sm_61 kernels replacing same-named NVIDIA kernels in a bundle (repeatable)')
     parser.add_argument('--groups', action='store_true', help='grouped FP8 mma stand-ins (pascal_groups.py)')
     parser.add_argument('--group-max-a', type=int, default=pascal_groups.MAX_A, help='A fragments per grouped call')
     parser.add_argument('--no-maxnreg', action='store_true',
@@ -107,7 +121,9 @@ def main():
                         default=Path(r'C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat'))
     args = parser.parse_args()
     pascal_groups.MAX_A = args.group_max_a
-    native = {int(item.split('=', 1)[0]): Path(item.split('=', 1)[1]).read_text(encoding='ascii') for item in args.native}
+    native = {}
+    for item in args.native:   # several PTX files may replace kernels of the same bundle
+        native.setdefault(int(item.split('=', 1)[0]), []).append(Path(item.split('=', 1)[1]).read_text(encoding='ascii'))
     original = args.official.read_bytes()
     require(ada.sha256(original) == ada.OFFICIAL_SHA256, 'original runtime identity differs')
     image = ada.Image(original)
