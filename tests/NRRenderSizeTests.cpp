@@ -6,6 +6,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <tuple>
 
 using namespace TheosRenderPipeline;
 using namespace TheosRenderPipeline::NeuralRendering;
@@ -40,7 +41,7 @@ int main(int argc, char** argv)
         const RenderSizePolicy on{true, true, true, quality};
         const auto chosen = SelectNRFriendlyRenderSize(nominal, output, range, on);
         std::printf("%s %s %ux%u: %ux%u -> %ux%u\n", f[0].c_str(), f[1].c_str(), output.width, output.height, nominal.width, nominal.height, chosen.width, chosen.height);
-        Require(Same(chosen, expected), "independent exhaustive selection oracle");
+        Require(Same(chosen, expected), "independent strict-area and exact-pair qualification oracle");
         Require(range.Accepts(chosen, output), "SDK range and existing aspect check");
         Require(Same(chosen, nominal) || NRInternalSize(chosen).Area() < NRInternalSize(nominal).Area(), "every move strictly reduces NR internal area");
         Require(std::uint64_t(chosen.width) * chosen.height * 100 >= std::uint64_t(nominal.width) * nominal.height * 97, "97 percent nominal pixels");
@@ -63,8 +64,29 @@ int main(int argc, char** argv)
     Require(Same(SelectNRFriendlyRenderSize({960,540}, {1920,1080}, fillOnly, on), {960,540}), "keep exact nominal instead of fill-only 960x541");
     const UpscalerInputResolution quality720{nominal, nominal, output};
     Require(Same(SelectNRFriendlyRenderSize(nominal, output, quality720, on), {768,432}), "720p Quality retains strict saving");
+    for (const auto [base, selected, out] : {std::tuple{FrameExtent{753,424}, FrameExtent{768,432}, output},
+        std::tuple{FrameExtent{696,392}, FrameExtent{704,397}, FrameExtent{1600,900}},
+        std::tuple{FrameExtent{742,418}, FrameExtent{768,432}, output}}) {
+        const UpscalerInputResolution admitted{base, base, out};
+        for (int quality = 0; quality < 5; ++quality) {
+            const auto approved = SelectNRFriendlyRenderSizeWithDecision(base, out, admitted, {true,true,true,quality});
+            Require(Same(approved.extent, selected) && approved.decision == RenderSizeDecision::Moved, "each exact qualified pair moves");
+            Require(Same(SelectNRFriendlyRenderSize(base, out, admitted, {false,true,true,quality}), base), "switch off bypasses qualification");
+        }
+    }
     const UpscalerInputResolution quality1080{{1280,720},{960,540},{1920,1080}};
-    Require(Same(SelectNRFriendlyRenderSize({1280,720}, {1920,1080}, quality1080, on), {1280,721}), "1280x720 input retains strict saving");
+    Require(Same(SelectNRRenderSizeCandidate({1280,720}, {1920,1080}, quality1080, on), {1280,721}), "1280x720 strict-area candidate unchanged");
+    const auto blocked720 = SelectNRFriendlyRenderSizeWithDecision({1280,720}, {1920,1080}, quality1080, on);
+    Require(Same(blocked720.extent, {1280,720}) && blocked720.decision == RenderSizeDecision::KeptNotQualified, "1280x721 is not quality-qualified");
+    const UpscalerInputResolution quality900{{942,530},{942,530},{1600,900}};
+    Require(Same(SelectNRRenderSizeCandidate({942,530}, {1600,900}, quality900, on), {960,541}), "960x541 strict-area candidate unchanged");
+    const auto blocked900 = SelectNRFriendlyRenderSizeWithDecision({942,530}, {1600,900}, quality900, on);
+    Require(Same(blocked900.extent, {942,530}) && blocked900.decision == RenderSizeDecision::KeptNotQualified, "960x541 is not quality-qualified");
+    Require(SelectNRFriendlyRenderSizeWithDecision({960,540}, {1920,1080}, fillOnly, on).decision == RenderSizeDecision::KeptNoSaving, "fill-only move keeps no-saving reason");
+    const UpscalerInputResolution neighbor{{754,424},{754,424},output};
+    Require(Same(SelectNRRenderSizeCandidate({754,424}, output, neighbor, on), {768,432}), "neighbor can share the qualified destination");
+    Require(Same(SelectNRFriendlyRenderSize({754,424}, output, neighbor, on), {754,424}), "qualification is exact in nominal dimensions");
+    Require(!IsQualityQualifiedMove(nominal, {754,425}), "qualification is exact in selected dimensions");
     // Check the exhaustive optimizer against a deliberately simple Cartesian
     // oracle, including all five scaled presets and adversarial narrow ranges.
     for (unsigned seed = 0; seed < 80; ++seed) {
@@ -89,7 +111,8 @@ int main(int argc, char** argv)
                     NRInternalSize(candidate).Area() < NRInternalSize(base).Area() && better(candidate, best)) { best = candidate; }
             }
         }
-        Require(Same(SelectNRFriendlyRenderSize(base, out, range, {true,true,true,int(seed % 5)}), best), "Cartesian oracle and tie ordering");
+        Require(Same(SelectNRRenderSizeCandidate(base, out, range, {true,true,true,int(seed % 5)}), best), "Cartesian oracle and tie ordering");
+        Require(Same(SelectNRFriendlyRenderSize(base, out, range, {true,true,true,int(seed % 5)}), base), "unqualified Cartesian optimum keeps exact nominal");
     }
-    std::printf("PASS %u SDK table selections; 80 Cartesian oracles; eligibility, range, aspect, strict area saving and pixel guards\n", count);
+    std::printf("PASS %u SDK table selections; 80 Cartesian oracles; eligibility, range, aspect, strict area saving, exact-pair qualification and pixel guards\n", count);
 }

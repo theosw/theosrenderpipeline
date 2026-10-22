@@ -1,6 +1,7 @@
 #pragma once
 #include "UpscalerInputResolution.h"
 #include <cstdint>
+#include <array>
 
 namespace TheosRenderPipeline::NeuralRendering
 {
@@ -43,8 +44,9 @@ namespace TheosRenderPipeline::NeuralRendering
 
     // SDK-independent, exhaustive selection within the admitted range and TRP's
     // existing aspect tolerance. Keep nominal exactly unless NR area strictly falls.
-    // Caller publishes this extent before allocation.
-    inline FrameExtent SelectNRFriendlyRenderSize(FrameExtent nominal, FrameExtent output,
+    // This unqualified optimum is for policy evaluation; allocation uses the
+    // quality-qualified SelectNRFriendlyRenderSize API below.
+    inline FrameExtent SelectNRRenderSizeCandidate(FrameExtent nominal, FrameExtent output,
         const UpscalerInputResolution& range, RenderSizePolicy policy)
     {
         if (!policy.Active() || !range.Accepts(nominal, output) ||
@@ -87,4 +89,46 @@ namespace TheosRenderPipeline::NeuralRendering
         }
         return best;
     }
+
+    struct QualifiedRenderSizeMove { FrameExtent nominal, selected; };
+    // c28-launch, NR 310.9.16 preset 0 / ratio 1, RGB MSE pooled over
+    // frames 10..49 against each endpoint's own same-size NVIDIA reference.
+    // Adding a pair requires <= 0.5 dB pooled loss relative to its nominal.
+    inline constexpr std::array kQualifiedRenderSizeMoves{
+        QualifiedRenderSizeMove{{753,424}, {768,432}}, // 50.433040 -> 53.413151 dB
+        QualifiedRenderSizeMove{{696,392}, {704,397}}, // 51.540393 -> 51.732637 dB
+        QualifiedRenderSizeMove{{742,418}, {768,432}}, // 51.549547 -> 53.413151 dB
+    };
+
+    inline bool IsQualityQualifiedMove(FrameExtent nominal, FrameExtent selected)
+    {
+        for (const auto& move : kQualifiedRenderSizeMoves) {
+            if (nominal.width == move.nominal.width && nominal.height == move.nominal.height &&
+                selected.width == move.selected.width && selected.height == move.selected.height) { return true; }
+        }
+        return false;
+    }
+
+    enum class RenderSizeDecision { KeptNoSaving, KeptNotQualified, Moved };
+    struct RenderSizeSelection { FrameExtent extent; RenderSizeDecision decision; };
+
+    // Qualify the strict-area optimum; never substitute another candidate or
+    // infer approval from a nearby size or a shared selected extent.
+    inline RenderSizeSelection SelectNRFriendlyRenderSizeWithDecision(FrameExtent nominal, FrameExtent output,
+        const UpscalerInputResolution& range, RenderSizePolicy policy)
+    {
+        const auto candidate = SelectNRRenderSizeCandidate(nominal, output, range, policy);
+        if (candidate.width == nominal.width && candidate.height == nominal.height) {
+            return {nominal, RenderSizeDecision::KeptNoSaving};
+        }
+        if (!IsQualityQualifiedMove(nominal, candidate)) { return {nominal, RenderSizeDecision::KeptNotQualified}; }
+        return {candidate, RenderSizeDecision::Moved};
+    }
+
+    inline FrameExtent SelectNRFriendlyRenderSize(FrameExtent nominal, FrameExtent output,
+        const UpscalerInputResolution& range, RenderSizePolicy policy)
+    {
+        return SelectNRFriendlyRenderSizeWithDecision(nominal, output, range, policy).extent;
+    }
+
 }

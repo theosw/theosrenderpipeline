@@ -231,12 +231,16 @@ bool NvidiaHost::CreateGameFacingResources(IDXGISwapChain* a_swapChain)
         }
         if (SUCCEEDED(rangeResult)) {
             const TheosRenderPipeline::FrameExtent nominal{renderWidth_, renderHeight_};
-            const auto chosen = TheosRenderPipeline::NeuralRendering::SelectNRFriendlyRenderSize(
+            const auto selection = TheosRenderPipeline::NeuralRendering::SelectNRFriendlyRenderSizeWithDecision(
                 nominal, {outputWidth_, outputHeight_}, range, sizePolicy);
+            const auto chosen = selection.extent;
             const auto from = TheosRenderPipeline::NeuralRendering::NRInternalSize(nominal);
             const auto to = TheosRenderPipeline::NeuralRendering::NRInternalSize(chosen);
             constexpr const char* names[]{"Performance", "Balanced", "Quality", "Ultra Performance", "Ultra Quality"};
-            if (chosen.width == nominal.width && chosen.height == nominal.height) {
+            if (selection.decision == TheosRenderPipeline::NeuralRendering::RenderSizeDecision::KeptNotQualified) {
+                logger::info("[NR render size] preset={} nominal={}x{} kept (move not quality-qualified) (NR {}x{}, T={})",
+                    names[quality], nominal.width, nominal.height, from.width, from.height, from.tokens);
+            } else if (chosen.width == nominal.width && chosen.height == nominal.height) {
                 logger::info("[NR render size] preset={} nominal={}x{} kept (no NR saving) (NR {}x{}, T={})",
                     names[quality], nominal.width, nominal.height, from.width, from.height, from.tokens);
             } else {
