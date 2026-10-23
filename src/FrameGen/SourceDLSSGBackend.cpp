@@ -590,10 +590,12 @@ namespace TheosRenderPipeline::SourceDLSSG
 				// size during this frame: replace it with this Present's finished frame.
 				EngineScreenshot::Request engine;
 				if (!EngineScreenshot::Take(engine)) { return S_OK; }
-				request.path = std::move(engine.path);
+				// No path: Skyrim did not save it (Photo Mode); the writer finds the photo.
+				owner = engine.path.empty() ? "the photo's" : "Skyrim's";
+				request.path = engine.path;
 				request.jpegQuality = engine.jpegQuality;
 				request.replaceAllowed = true;
-				owner = "Skyrim's";
+				screenshotPhoto_ = std::move(engine);
 			}
 			if (!request.replaceAllowed) {
 				logger::warn("[Screenshot] ReShade overlay open or UI frame unavailable; keeping ReShade's file {}. Close the ReShade overlay before taking a corrected screenshot.", request.path);
@@ -637,11 +639,23 @@ namespace TheosRenderPipeline::SourceDLSSG
 				}
 				return S_OK; // Retain the readback after a device fault.
 			}
-			screenshotWriter_.Start([readback = std::move(readback), path = std::move(screenshotPath_), quality = screenshotQuality_] {
+			screenshotWriter_.Start([readback = std::move(readback), path = std::move(screenshotPath_), quality = screenshotQuality_,
+				photo = std::move(screenshotPhoto_)] {
 				FinalFrameCapture::Image image;
 				auto hr = FinalFrameCapture::Read(readback, image);
-				if (SUCCEEDED(hr)) { hr = ScreenshotFile::Replace(std::filesystem::u8path(path), image.width, image.height, image.bgr, quality); }
-				return hr;
+				if (FAILED(hr)) { return hr; }
+				auto file = std::filesystem::u8path(path);
+				if (path.empty()) {
+					// Photo Mode writes its photo itself, about when the flag clears.
+					file = EngineScreenshot::FindPhoto(photo, std::chrono::seconds(5));
+					if (file.empty()) {
+						logger::info("[Screenshot] no new {}x{} photo appeared in the Photos folder; nothing replaced",
+							photo.width, photo.height);
+						return S_FALSE;
+					}
+					logger::info("[Screenshot] replacing {} with the finished frame", file.filename().string());
+				}
+				return ScreenshotFile::Replace(file, image.width, image.height, image.bgr, quality);
 			});
 			screenshotPath_.clear();
 			return S_OK;

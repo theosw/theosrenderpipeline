@@ -1,23 +1,38 @@
 #pragma once
+#include <chrono>
+#include <filesystem>
 #include <string>
 
-// Skyrim saves screenshots (PrintScreen, Photo Mode) from kSCREENSHOT, its own
-// target at the render size TRP gives the game: no DLSS output, no NR, no native
-// UI. The engine's save is kept as written and its path queued here; the
-// presenter replaces the file with the finished frame of the same Present, as
-// it does for ReShade's screenshots.
+// Skyrim saves screenshots from kSCREENSHOT, its own target at the render size
+// TRP gives the game: no DLSS output, no NR, no native UI. TRP replaces such a
+// file with the finished frame of the same Present, as it does for ReShade's
+// screenshots.
+//
+// PrintScreen: Skyrim's SaveRenderTargetToFile writes the file and its path is
+// queued. Photo Mode raises the same screenshot flag but writes its own photo
+// (My Games\<game>\Photos\Screenshot_N.png) without that call; the flag queues a
+// capture anyway, and the photo it finds is replaced (FindPhoto).
 namespace TheosRenderPipeline::EngineScreenshot
 {
     struct Request
     {
-        std::string path;
+        std::string path;  // empty: find the photo another plugin writes (FindPhoto)
         int jpegQuality{ 90 };
+        std::chrono::system_clock::time_point since;
+        unsigned width{}, height{};  // kSCREENSHOT's size when the flag rose
     };
 
     // Hooks BSGraphics::Renderer::SaveRenderTargetToFile. Declines (and logs the
     // entry bytes) when the function's entry cannot be detoured safely; Skyrim's
     // own screenshots are then unchanged.
     void Install();
-    // The oldest saved screenshot waiting for the finished frame.
+    // At each D3D11 Present, before that frame is finished: a rising screenshot
+    // flag queues a capture of the next finished frame.
+    void OnPresent();
+    // The oldest screenshot waiting for the finished frame.
     bool Take(Request& a_request);
+    // A photo another plugin wrote for a flag-only request: the newest PNG in the
+    // Photos folder written since the flag rose, at kSCREENSHOT's size. Waits up
+    // to a_timeout for it to appear; empty when none does.
+    std::filesystem::path FindPhoto(const Request& a_request, std::chrono::milliseconds a_timeout);
 }
