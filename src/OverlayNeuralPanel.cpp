@@ -631,25 +631,28 @@ void DrawNeuralSettings(const OverlayUI::FrameView& view, TheosRenderPipeline::S
         });
         {
             // Live, unlike the other ! rows: the mark carries the image caveat.
-            const RestartHelpScope caveat(TR("The model runs on alternate frames. NR's change is carried to the frames "
-                                          "between using motion vectors and depth, which roughly halves NR's GPU cost. "
-                                          "Expect some ghosting in fast motion and on newly revealed areas. Best "
-                                          "with 2x frame generation."));
+            const RestartHelpScope caveat(TR("The model runs on every second or third frame. NR's change is carried to "
+                                          "the frames between using motion vectors and depth, which cuts NR's GPU cost "
+                                          "to about a half or a third. Expect some ghosting in fast motion and on newly "
+                                          "revealed areas, more at every third frame. Best with 2x frame generation."));
             SettingRow(TR("Model rate"), "ModelRate", true, unavailable, [&] {
                 using NR::ModelRate;
-                int rate = reconstruction.modelRate == ModelRate::EveryOtherFrame ? 1 : 0;
+                int rate = static_cast<int>(NR::SanitizeModelRate(reconstruction.modelRate));
                 const bool changed = Segmented("modelRate", rate, {
                     {TR("Every frame"), true, TR("NR's model runs on every frame.")},
                     {TR("Every other frame"), true, TR("The model runs on alternate frames; the frames between reuse its change, "
                                                 "moved with the scene. Applies to every pass. Freeze frame runs it on "
-                                                "every frame.")}});
-                if (changed) { reconstruction.modelRate = rate == 1 ? ModelRate::EveryOtherFrame : ModelRate::EveryFrame; }
+                                                "every frame.")},
+                    {TR("Every third frame"), true, TR("The model runs on one frame in three; the two frames between carry its "
+                                                "change on, one frame at a time. Lowest GPU cost, most ghosting in fast "
+                                                "motion. Applies to every pass. Freeze frame runs it on every frame.")}});
+                if (changed) { reconstruction.modelRate = static_cast<ModelRate>(rate); }
                 DrawSettingsHelp(TR("How often NR's model runs, for every pass. Apply switches it live."));
                 // Each real frame starts its generated frames when it finishes, so the
                 // alternation shows between them, more as they get closer together.
                 const unsigned generated = draft.provider == TheosRenderPipeline::FrameGenerationProvider::XeFG
                                                ? draft.xefg.generatedFrames : draft.generation.generatedFrames;
-                if (reconstruction.modelRate == ModelRate::EveryOtherFrame && view.frameGenerationRequested && generated > 1)
+                if (NR::ModelRateInterval(reconstruction.modelRate) > 1 && view.frameGenerationRequested && generated > 1)
                 {
                     ImGui::TextDisabled("%s", TR("Best with 2x frame generation"));
                     DrawSettingsHelp(TR("At 3x and above, the generated frames between real ones can look unevenly paced: "
@@ -1202,23 +1205,24 @@ void OverlayUI::DrawNeuralRenderingPanel(float height, const FrameView& view)
                         : state.active ? UIHealth::kHealthy
                                        : UIHealth::kIdle);
         const auto& timing = state.telemetry;
-        const bool alternate =
-            applied.reconstruction.modelRate == TheosRenderPipeline::NeuralRendering::ModelRate::EveryOtherFrame;
+        const auto interval = TheosRenderPipeline::NeuralRendering::ModelRateInterval(applied.reconstruction.modelRate);
+        const bool alternate = interval > 1;
         DrawSettingsValue(TR("Inference"), state.active && timing.gpuSamples
                                            ? (alternate ? TRF("{:.2f} ms per run", timing.AverageGPUMicroseconds() / 1000.0)
                                                         : TRF("{:.2f} ms", timing.AverageGPUMicroseconds() / 1000.0)).c_str()
                                            : TR("unavailable"));
         DrawSettingsHelp(alternate ? TR("Combined model inference and inter-pass preparation, per frame the model runs on. "
-                                        "Frames between skip it, so the average per frame is about half. Excludes input "
+                                        "Frames between skip it, so the average per frame is about a half or a third. Excludes input "
                                         "preparation, the last pass's restoration, reconstruction, UI composition and the "
                                         "D3D11/D3D12 handoff.")
                                    : TR("Combined model inference and inter-pass preparation. Excludes input preparation, the "
                                         "last pass's restoration, reconstruction, UI composition and the D3D11/D3D12 handoff."));
         if (alternate)
         {
-            DrawSettingsValue(TR("Model rate"), state.active ? TRF("Every other frame | {:.0f}% of frames",
+            const char* rateName = interval == 3 ? TR("Every third frame") : TR("Every other frame");
+            DrawSettingsValue(TR("Model rate"), state.active ? TRF("{} | {:.0f}% of frames", rateName,
                                                                    timing.modelRunShare * 100.0).c_str()
-                                                             : TR("Every other frame"));
+                                                             : rateName);
             DrawSettingsHelp(TR("The share of recent frames the model ran on. Resets, setting changes and Freeze frame "
                                 "run it on every frame."));
         }

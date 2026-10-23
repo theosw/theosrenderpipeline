@@ -43,6 +43,38 @@ int main()
         }
         Require(evaluated == std::vector<bool>{ true, false, true, false, true, false, true, false }, "alternates");
     }
+    // Every third frame: two skips per evaluation. The first skip stores the change
+    // it carried, the second accumulates motion back to the evaluation, and the
+    // evaluation after them composes it. Every other frame keeps its decisions.
+    {
+        ModelRateSchedule schedule;
+        std::vector<bool> evaluated;
+        for (int frame = 0; frame < 9; ++frame) {
+            const auto d = schedule.Next({ ModelRate::EveryThirdFrame, frame == 0 });
+            evaluated.push_back(d.evaluate);
+            const int phase = frame % 3;  // 0 evaluates, 1 and 2 skip
+            Require(d.captureGuides, "guides are kept on every frame of the cycle");
+            Require(d.storeChange == (phase != 2), "the evaluation and the first skip store their change");
+            Require(d.accumulateMotion == (phase == 2), "the second skip accumulates motion to the evaluation");
+            Require(d.composeMotion == (phase == 0 && frame > 0), "an evaluation after two skips composes their motion");
+        }
+        Require(evaluated == std::vector<bool>{ true, false, false, true, false, false, true, false, false }, "one in three");
+        Require(ModelRateInterval(ModelRate::EveryThirdFrame) == 3 && ModelRateInterval(ModelRate::EveryOtherFrame) == 2 &&
+            ModelRateInterval(ModelRate::EveryFrame) == 1 && ModelRateInterval(static_cast<ModelRate>(9)) == 1, "intervals");
+    }
+    // A change on the second frame of the cycle evaluates and starts the cycle again.
+    {
+        ModelRateSchedule schedule;
+        Require(schedule.Next({ ModelRate::EveryThirdFrame }).evaluate, "evaluates first");
+        Require(!schedule.Next({ ModelRate::EveryThirdFrame }).evaluate, "first skip");
+        auto d = schedule.Next({ ModelRate::EveryThirdFrame, false, true });
+        Require(d.evaluate && d.composeMotion && !d.accumulateMotion, "a change evaluates and bridges the one skip");
+        Require(!schedule.Next({ ModelRate::EveryThirdFrame }).evaluate && !schedule.Next({ ModelRate::EveryThirdFrame }).evaluate,
+            "then skips twice");
+        d = schedule.Next({ ModelRate::EveryOtherFrame });
+        Require(d.evaluate && d.composeMotion, "switching to every other frame after two skips evaluates first");
+        Require(!schedule.Next({ ModelRate::EveryOtherFrame }).evaluate, "and alternates");
+    }
     // A reset or change forces an evaluation; a reset after a skip has no history to bridge.
     {
         ModelRateSchedule schedule;

@@ -100,7 +100,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			int requestedPasses{}, readyPasses{}, startablePasses{};
 			std::array<bool, NeuralRendering::kMaxNeuralPasses> objectControls{};
 			bool objectControlsUnavailable{};
-			bool everyOtherFrame{};
+			unsigned modelInterval{};
 			bool operator==(const StatusKey&) const = default;
 		};
 		void PublishStatus(const StatusKey& key);
