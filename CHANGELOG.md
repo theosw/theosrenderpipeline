@@ -1,3 +1,11 @@
+# Unreleased
+
+- About 70 menu texts can now be translated: help texts in a condition, text built
+  with `std::format`, status lines from the object hooks and the DLSS preset
+  description, and words dropped into a translated sentence (such as the mask
+  preview's group names). `tools/lang/audit.py --unwrapped` lists menu text that
+  bypasses translation; it reports none. Thanks to BUNNIKE for the report.
+
 # 0.5.3
 
 Game-tested on an RTX 4080 SUPER with DLSS-G and XeFG frame generation: the Simplified

@@ -162,8 +162,8 @@ void OverlayUI::DrawStageMeasurements(const FrameView& view, SettingsPage page)
         row12(TR("Input tags (D3D12)"), Stage12::kFrameGenTagList, TR("DLSS-G's copies of the tagged inputs."));
         row12(TR("XeFG input copies"), Stage12::kXeFGInputs);
         if (row12(TR("Frame generation"), Stage12::kFrameGenerationHold,
-                  "GPU time from the end of TRP's output to DLSS-G releasing this frame's inputs. It covers generating "
-                  "this frame's generated frames; other GPU work running at the same time can add to it."))
+                  TR("GPU time from the end of TRP's output to DLSS-G releasing this frame's inputs. It covers generating "
+                     "this frame's generated frames; other GPU work running at the same time can add to it.")))
         {
             const auto& hold = timings.frameGenerationHold;
             ImGui::TextWrapped(TR("Frame generation ms: p50 %.2f | p95 %.2f | p99 %.2f"), hold.p50Ms, hold.p95Ms,

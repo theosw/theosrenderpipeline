@@ -9,7 +9,7 @@ using namespace TheosRenderPipeline::Overlay;
 void OverlayUI::DrawImageMeasurements(const FrameView& view)
 {
     const bool cs = view.communityShaders;
-    DrawStatusLabel(cs ? "Community Shaders" : ModeName(view.upscaler.mode), view.upscaleHealth);
+    DrawStatusLabel(cs ? "Community Shaders" : ModeName(view.upscaler.mode), view.upscaleHealth);  // not translated: product names
     DrawSettingsValue(TR("Render"), std::format("{} x {}", view.renderWidth, view.renderHeight).c_str());
     DrawSettingsValue(TR("Output"), std::format("{} x {}", view.nativeWidth, view.nativeHeight).c_str());
     if (!cs && !view.xessActive)
@@ -67,7 +67,7 @@ void OverlayUI::DrawMemoryMeasurements(const FrameView& view)
                             : pressure >= 0.80f ? UIHealth::kWarning
                                                 : UIHealth::kHealthy;
     DrawSettingsValue(TR("GPU memory"),
-                      std::format("{:.2f} / {:.2f} GiB", memory.currentUsage / gib, memory.budget / gib).c_str());
+                      TRF("{:.2f} / {:.2f} GiB", memory.currentUsage / gib, memory.budget / gib).c_str());
     DrawSettingsHelp(TR("Current usage / Windows GPU memory budget. The budget can be lower than physical VRAM."));
     char label[32]{};
     std::snprintf(label, sizeof(label), TR("%.1f%% of budget"), pressure * 100);
@@ -160,7 +160,7 @@ void OverlayUI::DrawAdvancedPanel(float height, const FrameView& view)
     if (BeginSettingsColumns("advanced", height, view))
     {
         const bool cs = view.communityShaders;
-        DrawStatusLabel(cs ? "Community Shaders" : "Skyrim / ENB", view.nativeUIHealth);
+        DrawStatusLabel(cs ? "Community Shaders" : "Skyrim / ENB", view.nativeUIHealth);  // not translated: product names
         DrawSettingsValue(TR("ReShade request"),
                           view.reShadeBeforeUpscaling ? TR("Before upscaling") : TR("After upscaling"));
         ImGui::TextWrapped("%s", view.reShadeStatus.c_str());
@@ -203,7 +203,7 @@ void OverlayUI::DrawAdvancedPanel(float height, const FrameView& view)
 void OverlayUI::DrawUIStatusPanel(const FrameView& view)
 {
     const bool cs = view.communityShaders;
-    DrawSettingsValue(TR("UI composition"), cs              ? "Community Shaders"
+    DrawSettingsValue(TR("UI composition"), cs              ? "Community Shaders"  // not translated: product names
                                         : view.nativeUI ? TR("Native resolution")
                                                         : TR("Render resolution"));
     if (ImGui::CollapsingHeader(TRID("UI details").c_str()))

@@ -131,7 +131,7 @@ inline void Label(const char* label, bool changed, bool restarts)
     if (restarts) {
         ImGui::SameLine(0, Px(5.0f));
         ImGui::TextColored(kOchre, "!");
-        DrawSettingsHelp(RestartHelpText());
+        DrawSettingsHelp(TR(RestartHelpText()));
     }
 }
 }

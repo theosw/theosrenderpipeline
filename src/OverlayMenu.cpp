@@ -140,7 +140,8 @@ void OverlayUI::BuildUI()
 void OverlayUI::DrawPipelineSummary(const FrameView& view)
 {
 #if !defined(TRP_NO_NEURAL_RENDERING)
-    const auto neuralTooltip = view.sourceNeural.status + "\nClick to open Neural Rendering settings.";
+    const auto neuralTooltip = TheosRenderPipeline::Localization::TranslateText(view.sourceNeural.status) + "\n" +
+                               TR("Click to open Neural Rendering settings.");
 #endif
     PipelineDiagram diagram{
         {{{TR("World"), view.renderDetail, TR("Game-rendered scene.\nClick to open Image settings."),

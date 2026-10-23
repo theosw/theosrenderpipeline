@@ -1,10 +1,11 @@
 """Compare a menu dictionary with the menu sources.
 
-    python tools/lang/audit.py [dictionary.ini] [--prune] [--missing FILE]
+    python tools/lang/audit.py [dictionary.ini] [--prune] [--missing FILE] [--unwrapped]
 
 Lists the menu text the dictionary does not translate yet (missing) and the
 entries no menu text uses any more (unused). --prune deletes the unused
-entries; --missing writes the missing text as ready-to-fill dictionary lines.
+entries; --missing writes the missing text as ready-to-fill dictionary lines;
+--unwrapped lists menu text drawn without TR(), which no dictionary can reach.
 Run from the repository root. The default dictionary is the shipped zh-CN.ini.
 """
 import re
@@ -46,6 +47,41 @@ def source_texts():
             for m in re.finditer(RUN, path.read_text(encoding='utf-8', errors='replace')):
                 texts.add(unescape(''.join(PIECE.findall(m.group(0)))))
     return texts
+
+
+COMMENT = re.compile(r'//[^\n]*|/\*.*?\*/', re.S)
+CHAR = re.compile(r"'(?:[^'\\\n]|\\.)'")
+WRAPPED = re.compile(r'\bTR(?:F|ID|C)?\(\s*$')
+CONTEXT_ARG = re.compile(r'\bTRC\(\s*' + RUN + r'\s*,\s*$')
+SKIP = re.compile(r'logger::|spdlog::|ImGui::PushID|ImGui::BeginTable|ImGui::BeginChild|ImGui::OpenPopup|ImGui::BeginPopup|'
+                  r'GetValue|SetValue|GetBoolValue|SetBoolValue|GetLongValue|SetLongValue|GetDoubleValue|SetDoubleValue|'
+                  r'not translated:|translated where shown')
+
+
+def unwrapped():
+    """Prose literals in the menu sources outside TR()/TRF()/TRC()/TRID(): (file, line, text).
+    A line containing 'not translated:' (with a reason) is left out, as are log lines,
+    INI accessors and ImGui IDs. Text must contain a space and a word to count."""
+    found = []
+    for path in sorted(Path('src').glob('Overlay*')):
+        source = path.read_text(encoding='utf-8')
+        # Blank comments and char literals, keeping offsets and line numbers.
+        blank = lambda m: re.sub(r'[^\n]', ' ', m.group(0))
+        code = CHAR.sub(blank, COMMENT.sub(blank, source))
+        lines = source.split('\n')
+        for m in re.finditer(RUN, code):
+            text = unescape(''.join(PIECE.findall(source[m.start():m.end()])))
+            if ' ' not in text.strip() or not re.search(r'[A-Za-z]{2,}', text) or '##' in text:
+                continue
+            before = code[max(0, m.start() - 200):m.start()]
+            if WRAPPED.search(before) or CONTEXT_ARG.search(before + source[m.start():m.end()] + ','):
+                continue
+            number = code.count('\n', 0, m.start()) + 1
+            statement = '\n'.join(lines[max(0, number - 3):number])
+            if SKIP.search(statement):
+                continue
+            found.append((path.as_posix(), number, text))
+    return found
 
 
 def split(line):
@@ -96,6 +132,11 @@ def main(argv):
         newline = '\r\n' if b'\r\n' in path.read_bytes() else '\n'
         path.write_bytes((newline.join(keep) + newline).encode('utf-8'))
         print(f'pruned {unused} unused entries')
+    if '--unwrapped' in argv:
+        rows = unwrapped()
+        for name, number, text in rows:
+            print(f'  unwrapped: {name}:{number}: {text[:110]}')
+        print(f'{len(rows)} menu texts outside TR()')
     if output:
         target = Path(output)
         target.write_text(''.join(f'{quote(english)} =\n' for english in missing), encoding='utf-8')
