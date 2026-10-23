@@ -243,6 +243,10 @@ namespace TheosRenderPipeline::Overlay
 		colors[ImGuiCol_TextSelectedBg] = ImVec4(0.46f, 0.31f, 0.08f, 0.60f);
 		colors[ImGuiCol_NavHighlight] = kAmber;
 		style.ScaleAllSizes(a_scale);
+		// ScaleAllSizes truncates the software cursor's scale to a whole number, so
+		// zoom below 100% drew it at size 0 (an invisible cursor at 75%) and zoom
+		// up to 199% left it unscaled. Follow the zoom, never below its normal size.
+		style.MouseCursorScale = (std::max)(1.0f, a_scale);
 	}
 
 	void DrawHealthDot(UIHealth a_health)
