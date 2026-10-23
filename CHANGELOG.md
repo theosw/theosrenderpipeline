@@ -1,3 +1,11 @@
+# Unreleased
+
+- Fix quicksaves (and other saves) waiting until a menu opened when Skyrim's
+  depth of field is off (`bDoDepthOfField=0`). Skyrim draws a save's thumbnail
+  only while TAA or depth of field runs, and TRP keeps Skyrim's TAA off for DLSS;
+  it now lets TAA run for the frames Skyrim asks for a save thumbnail. Thanks to
+  jackson8541 for the report.
+
 # 0.5.3
 
 Game-tested on an RTX 4080 SUPER with DLSS-G and XeFG frame generation: the Simplified

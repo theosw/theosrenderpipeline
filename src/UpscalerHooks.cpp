@@ -16,6 +16,7 @@
 #include "FrameGen/SourceFrameGeneration.h"
 #include "FrameGen/LoadingArtwork.h"
 #include "EngineScreenshot.h"
+#include "SaveThumbnailTAA.h"
 #include "FrameGen/NativeUICopyRoute.h"
 #include "FrameGen/NvidiaHost.h"
 #include "FrameGen/SourceHostBoundary.h"
@@ -1013,7 +1014,22 @@ struct UpscalerHooks
 			++upscaler->mRenderedFrameCount;
 			// The TAA singleton is unavailable during early initialization. Keep
 			// its pass disabled once it exists; NVIDIA receives jittered input.
-			if (GetGameTAA()) {
+			// While Skyrim asks for a save's thumbnail it may run (SaveThumbnailTAA.h).
+			static TheosRenderPipeline::SaveThumbnailTAA saveThumbnail;
+			static REL::Relocation<std::uint32_t*> saveScreenshotRequested{ REL::RelocationID(517224, 403755) };
+			const auto save = saveThumbnail.Next(*saveScreenshotRequested != 0);
+			using SaveEvent = TheosRenderPipeline::SaveThumbnailTAA::Event;
+			if (save.event == SaveEvent::Started) {
+				logger::info("[Save] Skyrim asked for a save thumbnail; its TAA runs until it is drawn");
+			} else if (save.event == SaveEvent::Finished) {
+				logger::info("[Save] save thumbnail drawn after {} frame(s); game TAA off again", save.frames);
+			} else if (save.event == SaveEvent::GaveUp) {
+				logger::warn("[Save] save thumbnail still pending after {} frames with TAA on; game TAA off again. "
+					"A save may wait for a menu (bDoDepthOfField=1 works around it)", save.frames - 1);
+			}
+			if (save.taa) {
+				if (!GetGameTAA()) { SetGameTAA(true); }
+			} else if (GetGameTAA()) {
 				SetGameTAA(false);
 				static bool logged = false;
 				if (!logged) {
