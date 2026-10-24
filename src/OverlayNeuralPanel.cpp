@@ -23,6 +23,8 @@ namespace
 // Base only: the live, session-only NR comparison. Set while the panel draws
 // Base; weather overrides never show it.
 std::function<void(TheosRenderPipeline::NeuralRendering::CompareSettings)> g_setCompare;
+// Base only, while the panel draws Base in Lab mode: show the Lab model-rate switch.
+bool g_labModelRate = false;
 
 void DrawNRAppliedPasses(const OverlayUI::FrameView& view, const TheosRenderPipeline::SourceDLSSG::NeuralOptions& applied)
 {
@@ -645,7 +647,7 @@ void DrawNeuralSettings(const OverlayUI::FrameView& view, TheosRenderPipeline::S
                                                 "every frame.")}});
                 if (changed) { reconstruction.modelRate = rate == 1 ? ModelRate::EveryOtherFrame : ModelRate::EveryFrame; }
                 DrawSettingsHelp(TR("How often NR's model runs, for every pass. Apply switches it live."));
-                if (base && OverlayUI::GetSingleton()->LabMode())
+                if (base && g_labModelRate)
                 {
                     // Session-only, like the other Lab switches: never saved, off at every start.
                     const bool alternate = reconstruction.modelRate == ModelRate::EveryOtherFrame;
@@ -1281,9 +1283,11 @@ void OverlayUI::DrawNeuralRenderingPanel(float height, const FrameView& view)
         else {
             DrawBaseSettings(view, [&] {
                 g_setCompare = [this](auto compare) { SetNeuralCompare(compare); };
+                g_labModelRate = showDeveloperControls;
                 DrawSourceNeuralControls(view, settingsDraft.sourceDLSSG, settingsDraft.sharpening, settingsDraft.sharpness,
                                          settingsDraft.upscaleType, nrRuntimePresent);
                 g_setCompare = nullptr;
+                g_labModelRate = false;
             });
         }
         EndSettingsColumns();
