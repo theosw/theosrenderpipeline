@@ -1,4 +1,10 @@
-# Theo's Render Pipeline — Universal, 0.5.3
+# Theo's Render Pipeline — Universal, 0.5.4
+
+Version 0.5.4 fixes saves waiting until a menu opened when Skyrim's depth of
+field is off, saves Photo Mode photos with TRP's finished frame at the output
+resolution, lets about 70 more menu texts be translated and fixes the menu
+cursor disappearing at 75% zoom. Lab mode adds an Every third frame switch to
+NR's Model rate. See CHANGELOG.md.
 
 Version 0.5.3 adds menu languages: the menu's text now comes from a language
 file, and Simplified Chinese is included (pick it with the button next to Zoom).
@@ -110,7 +116,7 @@ This package includes the full renderer, configuration and sharpening shader.
 It requires no other Theo's Render Pipeline package. NVIDIA DLLs are supplied
 separately: download the SR/FG files below, and the NR runtime if you want NR.
 Alternatively, install Standard first and Universal after it in MO2; Standard
-0.5.3 supplies the complete NVIDIA and Intel runtime bundles, including the
+0.5.4 supplies the complete NVIDIA and Intel runtime bundles, including the
 original NR 310.9.16 and the retained older NR runtime. Universal adds the
 compatibility pack and legacy INT8 alternative. In that setup,
 skip the runtime downloads below.
@@ -331,7 +337,7 @@ an RTX 4080 SUPER: ordinary 6.8.0.2158 and full add-on 6.8.0.2155, with
 early NR and x4. Sky Reflection Fix's ReShade registration was excluded;
 Rumble passed a separate initial test. Combined third-party add-ons,
 Standard gameplay and CS with ReShade remain unverified. These were earlier
-development builds; the exact 0.5.3 package has not been tested with ReShade.
+development builds; the exact 0.5.4 package has not been tested with ReShade.
 
 MartysMods ReGrade+ (ReShade 6.6 or newer) used to crash the game while TRP
 started ReShade: it prepares itself only in a device event that ReShade does not

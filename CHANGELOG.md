@@ -1,4 +1,4 @@
-# Unreleased
+# 0.5.4
 
 - Fix the mouse cursor disappearing in the menu at 75% zoom. ImGui rounds the
   cursor's scale down to a whole number, which was 0 below 100%; the cursor now
