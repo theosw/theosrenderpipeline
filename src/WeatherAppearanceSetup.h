@@ -69,7 +69,7 @@ inline const auto& Fields()
         TRP_APPEARANCE_FIELD("PeripheralCompression", false, 0, 1, true, reconstruction.peripheralCompression),
         TRP_APPEARANCE_FIELD("CombinedPreparation", false, 0, 1, true, reconstruction.fusedPreparation),
         // 0 every frame, 1 every other frame. Switches live without restarting NR.
-        Field{"ModelRate", false, 0, 2, true,
+        Field{"ModelRate", false, 0, 1, true,
             [](const Setup& s) { return static_cast<float>(static_cast<int>(s.reconstruction.modelRate)); },
             [](Setup& s, float v) { s.reconstruction.modelRate = static_cast<NeuralRendering::ModelRate>(static_cast<int>(std::round(v))); }},
         Field{"ReconstructionMethod", false, 0, 2, true,

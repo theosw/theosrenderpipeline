@@ -29,6 +29,7 @@ public:
 		static OverlayUI overlay;
 		return &overlay;
 	}
+	bool LabMode() const { return showDeveloperControls; }
 
 	void Init(IDXGISwapChain* a_swapChain, ID3D11Device* a_device, ID3D11DeviceContext* a_context);
 

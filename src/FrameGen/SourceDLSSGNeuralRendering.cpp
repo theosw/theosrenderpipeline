@@ -426,7 +426,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		const bool rateChanged = gap || createdThisFrame_ || effectivePasses != rateEffectivePasses_ ||
 			!SameModelOutputOptions(options, rateOptions_);
 		rateOptions_ = options; rateEffectivePasses_ = effectivePasses;
-		const auto rate = rateSchedule_.Next({ reconstruction.modelRate, reset || controlReset, rateChanged, frozen_ });
+		const auto rate = rateSchedule_.Next({ NeuralRendering::EffectiveModelRate(reconstruction.modelRate), reset || controlReset, rateChanged, frozen_ });
 		const bool skipped = !rate.evaluate;
 		telemetry_.RecordModelRun(rate.evaluate);
 		// Camera jitter in render pixels. Before upscaling the colour raster carries
@@ -776,7 +776,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		}
 		key.passOverride = options.passOverride; key.requestedPasses = options.passes; key.readyPasses = readyPasses_;
 		key.startablePasses = startablePasses_;
-		key.modelInterval = NeuralRendering::ModelRateInterval(reconstruction.modelRate);
+		key.modelInterval = NeuralRendering::ModelRateInterval(NeuralRendering::EffectiveModelRate(reconstruction.modelRate));
 		key.objectControls=objectControlActive_;
 		key.objectControlsUnavailable=
 			std::any_of(options.objectMasks.passes.begin(),options.objectMasks.passes.begin()+options.passes,

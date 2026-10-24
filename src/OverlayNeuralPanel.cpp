@@ -631,28 +631,39 @@ void DrawNeuralSettings(const OverlayUI::FrameView& view, TheosRenderPipeline::S
         });
         {
             // Live, unlike the other ! rows: the mark carries the image caveat.
-            const RestartHelpScope caveat(TR("The model runs on every second or third frame. NR's change is carried to "
-                                          "the frames between using motion vectors and depth, which cuts NR's GPU cost "
-                                          "to about a half or a third. Expect some ghosting in fast motion and on newly "
-                                          "revealed areas, more at every third frame. Best with 2x frame generation."));
+            const RestartHelpScope caveat(TR("The model runs on alternate frames. NR's change is carried to the frames "
+                                          "between using motion vectors and depth, which roughly halves NR's GPU cost. "
+                                          "Expect some ghosting in fast motion and on newly revealed areas. Best "
+                                          "with 2x frame generation."));
             SettingRow(TR("Model rate"), "ModelRate", true, unavailable, [&] {
                 using NR::ModelRate;
-                int rate = static_cast<int>(NR::SanitizeModelRate(reconstruction.modelRate));
+                int rate = reconstruction.modelRate == ModelRate::EveryOtherFrame ? 1 : 0;
                 const bool changed = Segmented("modelRate", rate, {
                     {TR("Every frame"), true, TR("NR's model runs on every frame.")},
                     {TR("Every other frame"), true, TR("The model runs on alternate frames; the frames between reuse its change, "
                                                 "moved with the scene. Applies to every pass. Freeze frame runs it on "
-                                                "every frame.")},
-                    {TR("Every third frame"), true, TR("The model runs on one frame in three; the two frames between carry its "
-                                                "change on, one frame at a time. Lowest GPU cost, most ghosting in fast "
-                                                "motion. Applies to every pass. Freeze frame runs it on every frame.")}});
-                if (changed) { reconstruction.modelRate = static_cast<ModelRate>(rate); }
+                                                "every frame.")}});
+                if (changed) { reconstruction.modelRate = rate == 1 ? ModelRate::EveryOtherFrame : ModelRate::EveryFrame; }
                 DrawSettingsHelp(TR("How often NR's model runs, for every pass. Apply switches it live."));
+                if (base && OverlayUI::GetSingleton()->LabMode())
+                {
+                    // Session-only, like the other Lab switches: never saved, off at every start.
+                    const bool alternate = reconstruction.modelRate == ModelRate::EveryOtherFrame;
+                    bool third = NR::LabEveryThirdFrame();
+                    ImGui::BeginDisabled(!alternate);
+                    if (ImGui::Checkbox(TR("Every third frame (Lab)"), &third)) { NR::LabEveryThirdFrame() = third; }
+                    ImGui::EndDisabled();
+                    DrawSettingsHelp(alternate
+                        ? TR("Not saved. Every other frame runs the model on one frame in three instead; the two frames "
+                             "between carry its change on, one frame at a time. Saves little more GPU time, with more "
+                             "ghosting in fast motion and less even pacing.")
+                        : TR("Applies with Every other frame. Not saved."));
+                }
                 // Each real frame starts its generated frames when it finishes, so the
                 // alternation shows between them, more as they get closer together.
                 const unsigned generated = draft.provider == TheosRenderPipeline::FrameGenerationProvider::XeFG
                                                ? draft.xefg.generatedFrames : draft.generation.generatedFrames;
-                if (NR::ModelRateInterval(reconstruction.modelRate) > 1 && view.frameGenerationRequested && generated > 1)
+                if (reconstruction.modelRate == ModelRate::EveryOtherFrame && view.frameGenerationRequested && generated > 1)
                 {
                     ImGui::TextDisabled("%s", TR("Best with 2x frame generation"));
                     DrawSettingsHelp(TR("At 3x and above, the generated frames between real ones can look unevenly paced: "
@@ -1205,7 +1216,8 @@ void OverlayUI::DrawNeuralRenderingPanel(float height, const FrameView& view)
                         : state.active ? UIHealth::kHealthy
                                        : UIHealth::kIdle);
         const auto& timing = state.telemetry;
-        const auto interval = TheosRenderPipeline::NeuralRendering::ModelRateInterval(applied.reconstruction.modelRate);
+        const auto interval = TheosRenderPipeline::NeuralRendering::ModelRateInterval(
+            TheosRenderPipeline::NeuralRendering::EffectiveModelRate(applied.reconstruction.modelRate));
         const bool alternate = interval > 1;
         DrawSettingsValue(TR("Inference"), state.active && timing.gpuSamples
                                            ? (alternate ? TRF("{:.2f} ms per run", timing.AverageGPUMicroseconds() / 1000.0)

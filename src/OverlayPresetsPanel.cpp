@@ -111,7 +111,7 @@ std::string FieldValue(const Appearance::Field& field, const Appearance::Setup& 
     }
     if (key.ends_with("SameAsPass1")) { return value != 0 ? TR("follows Pass 1") : TR("own settings"); }
     if (key == "ReconstructionMethod") { return value == 2 ? TR("Ratio") : value == 1 ? TR("Residual") : TR("Auto"); }
-    if (key == "ModelRate") { return value >= 2 ? TR("every third frame") : value != 0 ? TR("every other frame") : TR("every frame"); }
+    if (key == "ModelRate") { return value != 0 ? TR("every other frame") : TR("every frame"); }
     // Keys stay English in the INI, so they are compared without translating.
     if (key.ends_with("Network")) { return NeuralNetworkName(value != 0 ? 1 : 0); }
     if (key.ends_with("Style")) { return NeuralStyleName(static_cast<int>(value)); }

@@ -1,10 +1,11 @@
 # Unreleased
 
-- NR Model rate adds **Every third frame**: the model runs on one frame in three,
-  for about a third of NR's GPU cost, and the two frames between carry its change
-  on one frame at a time with motion vectors and depth. Expect more ghosting in
-  fast motion than with Every other frame. Every other frame is unchanged. INI
-  `NRModelRate=2`; weather overrides take `ModelRate` 0 to 2.
+- Lab mode adds **Every third frame (Lab)** under NR's Model rate. While it is on,
+  Every other frame runs the model on one frame in three instead, and the two
+  frames between carry its change on one frame at a time with motion vectors and
+  depth. It saves little more GPU time than Every other frame (about 0.45 ms per
+  frame on an RTX 4080 SUPER), ghosts more in fast motion and paces less evenly.
+  It is not saved and is off at every start.
 
 # 0.5.3
 

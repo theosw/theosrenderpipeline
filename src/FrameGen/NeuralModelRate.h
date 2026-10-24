@@ -1,4 +1,5 @@
 #pragma once
+#include <atomic>
 #include <cstdint>
 
 // Model rate: run NR's model on every frame, or on every second or third frame and
@@ -9,16 +10,33 @@
 // model's history, and evaluate whenever the chain is broken.
 namespace TheosRenderPipeline::NeuralRendering
 {
+	// Saved settings hold EveryFrame or EveryOtherFrame; EveryThirdFrame is Lab only
+	// (LabEveryThirdFrame) and never saved.
 	enum class ModelRate : std::uint32_t { EveryFrame, EveryOtherFrame, EveryThirdFrame };
+	// A saved rate: every frame or every other frame.
 	inline ModelRate SanitizeModelRate(ModelRate value)
 	{
-		return value == ModelRate::EveryOtherFrame || value == ModelRate::EveryThirdFrame ? value : ModelRate::EveryFrame;
+		return value == ModelRate::EveryOtherFrame ? value : ModelRate::EveryFrame;
 	}
+	// Lab, for this session only: Every other frame runs the model on every third
+	// frame instead. Off at every start.
+	inline std::atomic_bool& LabEveryThirdFrame()
+	{
+		static std::atomic_bool value{};
+		return value;
+	}
+	// The rate the schedule runs: the saved rate, or every third frame for Every
+	// other frame while the Lab switch is on.
+	inline ModelRate EffectiveModelRate(ModelRate saved, bool labEveryThirdFrame)
+	{
+		const auto rate = SanitizeModelRate(saved);
+		return rate == ModelRate::EveryOtherFrame && labEveryThirdFrame ? ModelRate::EveryThirdFrame : rate;
+	}
+	inline ModelRate EffectiveModelRate(ModelRate saved) { return EffectiveModelRate(saved, LabEveryThirdFrame()); }
 	// Frames per model run: 1, 2 or 3.
 	inline unsigned ModelRateInterval(ModelRate value)
 	{
-		const auto rate = SanitizeModelRate(value);
-		return rate == ModelRate::EveryThirdFrame ? 3u : rate == ModelRate::EveryOtherFrame ? 2u : 1u;
+		return value == ModelRate::EveryThirdFrame ? 3u : value == ModelRate::EveryOtherFrame ? 2u : 1u;
 	}
 
 	// One frame's facts, sampled by the NR pass before it records anything.

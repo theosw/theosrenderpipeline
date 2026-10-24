@@ -119,6 +119,14 @@ int main()
         Require(schedule.Next(Alternate()).evaluate, "nothing stored after invalidation");
     }
     Require(SanitizeModelRate(static_cast<ModelRate>(7)) == ModelRate::EveryFrame, "unknown rates run every frame");
+    // Every third frame is Lab only: a saved 2 runs every frame, and the Lab switch
+    // turns only Every other frame into every third frame.
+    Require(SanitizeModelRate(ModelRate::EveryThirdFrame) == ModelRate::EveryFrame, "every third frame is never saved");
+    Require(EffectiveModelRate(ModelRate::EveryOtherFrame, true) == ModelRate::EveryThirdFrame &&
+            EffectiveModelRate(ModelRate::EveryOtherFrame, false) == ModelRate::EveryOtherFrame &&
+            EffectiveModelRate(ModelRate::EveryFrame, true) == ModelRate::EveryFrame &&
+            EffectiveModelRate(ModelRate::EveryThirdFrame, true) == ModelRate::EveryFrame, "the Lab switch");
+    Require(!LabEveryThirdFrame(), "the Lab switch starts off");
 
     // Which option changes make the stored change stale.
     {

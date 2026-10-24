@@ -45,11 +45,10 @@ unchanged. The extra passes stay allocated and their histories reset when they
 resume. These options default off; their effect on responsiveness depends on the
 workload.
 
-NR's **Model rate** can run the model on **Every other frame** or **Every third frame**. The frames between
+NR's **Model rate** can run the model on **Every other frame**. The frames between
 reuse its last change, moved with the game's motion vectors and checked against
-depth (and object groups while object rules capture them), which cuts NR's GPU
-cost to about a half or a third. Expect some ghosting in fast motion and on newly
-revealed areas, more at every third frame.
+depth (and object groups while object rules capture them), which roughly halves
+NR's GPU cost. Expect some ghosting in fast motion and on newly revealed areas.
 Resets, setting changes and Freeze frame run the model on that frame. It works best with 2x frame generation: at 3x and above the generated frames
 between real ones can look unevenly paced. The rate applies to every pass, switches live, is a weather override setting
 (`ModelRate`) and defaults to every frame (INI `NRModelRate`).
