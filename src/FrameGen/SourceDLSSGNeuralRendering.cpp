@@ -426,7 +426,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		const bool rateChanged = gap || createdThisFrame_ || effectivePasses != rateEffectivePasses_ ||
 			!SameModelOutputOptions(options, rateOptions_);
 		rateOptions_ = options; rateEffectivePasses_ = effectivePasses;
-		const auto rate = rateSchedule_.Next({ reconstruction.modelRate, reset || controlReset, rateChanged, frozen_ });
+		const auto rate = rateSchedule_.Next({ NeuralRendering::EffectiveModelRate(reconstruction.modelRate), reset || controlReset, rateChanged, frozen_ });
 		const bool skipped = !rate.evaluate;
 		telemetry_.RecordModelRun(rate.evaluate);
 		// Camera jitter in render pixels. Before upscaling the colour raster carries
@@ -482,6 +482,15 @@ namespace TheosRenderPipeline::SourceDLSSG
 			if (const auto hr = resolve_.Record(device, list, slot, NeuralResolveKernels::ModelRateStage(3), ResolveKernel::Reproject,
 				constants, hudless, rateChange_.Get(), currentGuides, corrected_.Get(), nullptr, previousGuides); FAILED(hr)) {
 				status_ = std::format("NR model-rate reprojection failed 0x{:08X}", static_cast<UINT>(hr)); return false;
+			}
+			if (rate.accumulateMotion) {
+				// Every third frame, second skip: reprojection above moved the stored
+				// change one frame. The next evaluation's history is three frames old,
+				// so this frame's guides keep the motion back to the last evaluation.
+				if (!dispatch(NeuralResolveKernels::ModelRateStage(4), ResolveKernel::ComposeMotion, motion, currentGuides,
+						previousGuides, rateMotion_.Get()) ||
+					!dispatch(NeuralResolveKernels::ModelRateStage(5), ResolveKernel::CaptureGuides, rateMotion_.Get(), depth,
+						objectMask, currentGuides)) { return false; }
 			}
 		} else {
 			// Adaptive exposure measures the original scene before anything encodes it.
@@ -767,7 +776,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		}
 		key.passOverride = options.passOverride; key.requestedPasses = options.passes; key.readyPasses = readyPasses_;
 		key.startablePasses = startablePasses_;
-		key.everyOtherFrame = reconstruction.modelRate == NeuralRendering::ModelRate::EveryOtherFrame;
+		key.modelInterval = NeuralRendering::ModelRateInterval(NeuralRendering::EffectiveModelRate(reconstruction.modelRate));
 		key.objectControls=objectControlActive_;
 		key.objectControlsUnavailable=
 			std::any_of(options.objectMasks.passes.begin(),options.objectMasks.passes.begin()+options.passes,
@@ -938,7 +947,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 				}
 				successStatus_+=std::format("; object tone/structure passes={} (auto skin paused on masked passes)",masked);
 			}
-			if (key.everyOtherFrame) { successStatus_ += "; model every other frame"; }
+			if (key.modelInterval == 2) { successStatus_ += "; model every other frame"; }
+			else if (key.modelInterval == 3) { successStatus_ += "; model every third frame"; }
 			if(key.objectControlsUnavailable){successStatus_+="; object tone/structure unavailable on legacy NR; per-pass and final strength retained";}
 		}
 		if (status_ != successStatus_) { status_ = successStatus_; }

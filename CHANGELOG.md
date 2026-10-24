@@ -18,6 +18,12 @@
   flag but writes its own photo, so TRP captures the frame on the flag and
   replaces the new render-size PNG that appears in `My Games\Skyrim Special
   Edition\Photos` within five seconds. Photo Mode's gallery thumbnail is unchanged.
+- Lab mode adds **Every third frame (Lab)** under NR's Model rate. While it is on,
+  Every other frame runs the model on one frame in three instead, and the two
+  frames between carry its change on one frame at a time with motion vectors and
+  depth. It saves little more GPU time than Every other frame (about 0.45 ms per
+  frame on an RTX 4080 SUPER), ghosts more in fast motion and paces less evenly.
+  It is not saved and is off at every start.
 
 # 0.5.3
 

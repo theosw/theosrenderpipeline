@@ -23,6 +23,8 @@ namespace
 // Base only: the live, session-only NR comparison. Set while the panel draws
 // Base; weather overrides never show it.
 std::function<void(TheosRenderPipeline::NeuralRendering::CompareSettings)> g_setCompare;
+// Base only, while the panel draws Base in Lab mode: show the Lab model-rate switch.
+bool g_labModelRate = false;
 
 void DrawNRAppliedPasses(const OverlayUI::FrameView& view, const TheosRenderPipeline::SourceDLSSG::NeuralOptions& applied)
 {
@@ -646,6 +648,20 @@ void DrawNeuralSettings(const OverlayUI::FrameView& view, TheosRenderPipeline::S
                                                 "every frame.")}});
                 if (changed) { reconstruction.modelRate = rate == 1 ? ModelRate::EveryOtherFrame : ModelRate::EveryFrame; }
                 DrawSettingsHelp(TR("How often NR's model runs, for every pass. Apply switches it live."));
+                if (base && g_labModelRate)
+                {
+                    // Session-only, like the other Lab switches: never saved, off at every start.
+                    const bool alternate = reconstruction.modelRate == ModelRate::EveryOtherFrame;
+                    bool third = NR::LabEveryThirdFrame();
+                    ImGui::BeginDisabled(!alternate);
+                    if (ImGui::Checkbox(TR("Every third frame (Lab)"), &third)) { NR::LabEveryThirdFrame() = third; }
+                    ImGui::EndDisabled();
+                    DrawSettingsHelp(alternate
+                        ? TR("Not saved. Every other frame runs the model on one frame in three instead; the two frames "
+                             "between carry its change on, one frame at a time. Saves little more GPU time, with more "
+                             "ghosting in fast motion and less even pacing.")
+                        : TR("Applies with Every other frame. Not saved."));
+                }
                 // Each real frame starts its generated frames when it finishes, so the
                 // alternation shows between them, more as they get closer together.
                 const unsigned generated = draft.provider == TheosRenderPipeline::FrameGenerationProvider::XeFG
@@ -1203,23 +1219,25 @@ void OverlayUI::DrawNeuralRenderingPanel(float height, const FrameView& view)
                         : state.active ? UIHealth::kHealthy
                                        : UIHealth::kIdle);
         const auto& timing = state.telemetry;
-        const bool alternate =
-            applied.reconstruction.modelRate == TheosRenderPipeline::NeuralRendering::ModelRate::EveryOtherFrame;
+        const auto interval = TheosRenderPipeline::NeuralRendering::ModelRateInterval(
+            TheosRenderPipeline::NeuralRendering::EffectiveModelRate(applied.reconstruction.modelRate));
+        const bool alternate = interval > 1;
         DrawSettingsValue(TR("Inference"), state.active && timing.gpuSamples
                                            ? (alternate ? TRF("{:.2f} ms per run", timing.AverageGPUMicroseconds() / 1000.0)
                                                         : TRF("{:.2f} ms", timing.AverageGPUMicroseconds() / 1000.0)).c_str()
                                            : TR("unavailable"));
         DrawSettingsHelp(alternate ? TR("Combined model inference and inter-pass preparation, per frame the model runs on. "
-                                        "Frames between skip it, so the average per frame is about half. Excludes input "
+                                        "Frames between skip it, so the average per frame is about a half or a third. Excludes input "
                                         "preparation, the last pass's restoration, reconstruction, UI composition and the "
                                         "D3D11/D3D12 handoff.")
                                    : TR("Combined model inference and inter-pass preparation. Excludes input preparation, the "
                                         "last pass's restoration, reconstruction, UI composition and the D3D11/D3D12 handoff."));
         if (alternate)
         {
-            DrawSettingsValue(TR("Model rate"), state.active ? TRF("Every other frame | {:.0f}% of frames",
+            const char* rateName = interval == 3 ? TR("Every third frame") : TR("Every other frame");
+            DrawSettingsValue(TR("Model rate"), state.active ? TRF("{} | {:.0f}% of frames", rateName,
                                                                    timing.modelRunShare * 100.0).c_str()
-                                                             : TR("Every other frame"));
+                                                             : rateName);
             DrawSettingsHelp(TR("The share of recent frames the model ran on. Resets, setting changes and Freeze frame "
                                 "run it on every frame."));
         }
@@ -1266,9 +1284,11 @@ void OverlayUI::DrawNeuralRenderingPanel(float height, const FrameView& view)
         else {
             DrawBaseSettings(view, [&] {
                 g_setCompare = [this](auto compare) { SetNeuralCompare(compare); };
+                g_labModelRate = showDeveloperControls;
                 DrawSourceNeuralControls(view, settingsDraft.sourceDLSSG, settingsDraft.sharpening, settingsDraft.sharpness,
                                          settingsDraft.upscaleType, nrRuntimePresent);
                 g_setCompare = nullptr;
+                g_labModelRate = false;
             });
         }
         EndSettingsColumns();
