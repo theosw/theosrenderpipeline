@@ -17,7 +17,7 @@ namespace
 {
 // presetSelected uses 0 for Base; stored preset IDs are 1..0x7FFFFFFF.
 constexpr std::uint32_t BaseRow = 0;
-constexpr std::array<const char*, 6> GroupLabels{"Anywhere outside", "Clear", "Cloudy", "Rain", "Snow", "Interiors"};
+constexpr std::array<const char*, 6> GroupLabels{"Anywhere outside", "Clear", "Cloudy", "Rain", "Snow", "Interiors"};  // translated where shown
 
 Appearance::Setup DraftSetup(const RendererSettingsDraft& draft)
 {
@@ -88,8 +88,8 @@ std::string Summary(const Appearance::NamedProfile& preset)
     if (weathers) { text += TRF("{}{} weather{}", text.empty() ? "" : " + ", weathers, weathers == 1 ? "" : "s"); }
     if (text.empty()) { text = TR("Not used yet"); }
     const auto changes = preset.profile.changes.size();
-    text += changes ? std::format(" | {} change{}", changes, changes == 1 ? "" : "s") : " | no changes";
-    return preset.profile.enabled ? text : "Off | " + text;
+    text += changes == 1 ? std::string(TR(" | 1 change")) : changes ? TRF(" | {} changes", changes) : std::string(TR(" | no changes"));
+    return preset.profile.enabled ? text : std::string(TR("Off")) + " | " + text;
 }
 void Note(const char* text) { ImGui::TextDisabled("%s", text); }
 const char* ShownName(const Appearance::NamedProfile& preset) { return preset.name.empty() ? TR("Unnamed override") : preset.name.c_str(); }
@@ -105,7 +105,7 @@ std::string FieldValue(const Appearance::Field& field, const Appearance::Setup& 
     if (key == "BeforeUpscaling") { return value != 0 ? TR("before upscaling") : TR("after upscaling"); }
     if (key == "Passes")
     {
-        static constexpr const char* counts[]{"one pass", "two passes", "three passes", "four passes", "five passes"};
+        static constexpr const char* counts[]{"one pass", "two passes", "three passes", "four passes", "five passes"};  // translated where shown
         static_assert(std::size(counts) == NeuralRendering::kMaxNeuralPasses);
         return TR(counts[std::clamp(static_cast<int>(value), 1, NeuralRendering::kMaxNeuralPasses) - 1]);
     }
@@ -203,8 +203,8 @@ void OverlayUI::DrawPresetList(const FrameView& view)
     const auto& scene = state.context;
 
     DrawSettingsHeading(TR("Weather overrides"));
-    Note("Change settings for the weathers and places you choose, with different values by time of day if you want. "
-         "Everywhere else uses Base.");
+    Note(TR("Change settings for the weathers and places you choose, with different values by time of day if you want. "
+         "Everywhere else uses Base."));
     if (scene.valid && !settings.presets.empty()) {
         const auto applied = state.paused ? std::string(TR("Base (paused)")) : state.result.incoming;
         const auto place = scene.interior ? std::string(TR("Interior")) : ShortWeatherLabel(scene.incoming.record, *catalogue);
@@ -307,8 +307,8 @@ void OverlayUI::DrawPresetList(const FrameView& view)
             if (hours) { settings.hours = *hours; actionMessage = TR("Copied ENB clock markers and dawn/dusk boundaries. Review the times, then Apply."); actionMessageIsError = false; }
             else { actionMessage = TR("Could not derive an increasing 24-hour schedule from the game's enbseries.ini. Enter the times manually."); actionMessageIsError = true; }
         }
-        Tooltip("Uses ENB's Night, Sunrise, Day and Sunset markers, plus Sunrise minus DawnDuration and Sunset plus DuskDuration. "
-            "It does not reproduce ENB's internal phase weights or change ENB settings.");
+        Tooltip(TR("Uses ENB's Night, Sunrise, Day and Sunset markers, plus Sunrise minus DawnDuration and Sunset plus DuskDuration. "
+            "It does not reproduce ENB's internal phase weights or change ENB settings."));
         ImGui::TextDisabled("%s", TR("Times must increase from Night to Dusk. Overrides blend between neighbouring times."));
         ImGui::EndPopup();
     }
@@ -388,8 +388,8 @@ void OverlayUI::DrawPresetEditor(const FrameView& view,
 
         ImGui::TableNextRow();
         ImGui::TableNextColumn();
-        HintLabel("Weathers", "An exact weather wins over a weather type, which wins over Anywhere outside. If two "
-                              "overrides share one, the higher in the list wins.");
+        HintLabel(TR("Weathers"), TR("An exact weather wins over a weather type, which wins over Anywhere outside. If two "
+                              "overrides share one, the higher in the list wins."));
         ImGui::TableNextColumn();
         {
             Flow flow;
@@ -401,8 +401,8 @@ void OverlayUI::DrawPresetEditor(const FrameView& view,
                 flow.Next(ImGui::CalcTextSize(label.c_str(), nullptr, true).x + ImGui::GetStyle().FramePadding.x * 2);
                 if (Chip(label.c_str(), !loaded || owner)) { unassign = record; }
                 Tooltip(TRF("{}{}{}\nClick to remove.", WeatherLabel(record, *catalogue),
-                    loaded ? "" : "\nNot loaded this session; kept for when its plugin returns.",
-                    owner ? std::format("\n\"{}\" uses this instead; it is higher in the list.", ShownName(*owner)) : std::string()).c_str());
+                    loaded ? std::string() : "\n" + std::string(TR("Not loaded this session; kept for when its plugin returns.")),
+                    owner ? "\n" + TRF("\"{}\" uses this instead; it is higher in the list.", ShownName(*owner)) : std::string()).c_str());
             }
             const bool currentHere = Appearance::HasWeather(preset, scene.incoming.record);
             ImGui::BeginDisabled(!scene.valid || scene.interior || !Appearance::Valid(scene.incoming.record) || currentHere);
@@ -447,9 +447,9 @@ void OverlayUI::DrawPresetEditor(const FrameView& view,
         // All day, or one look per time of day that blends into the next.
         ImGui::TableNextRow();
         ImGui::TableNextColumn();
-        HintLabel(TR("Time of day"), "Pick a time to give it its own look; it blends into the next. Intensity, local tone, "
+        HintLabel(TR("Time of day"), TR("Pick a time to give it its own look; it blends into the next. Intensity, local tone, "
                                  "local structure and sharpening strength can differ by time; other settings stay the same "
-                                 "all day. Green is now.");
+                                 "all day. Green is now."));
         ImGui::TableNextColumn();
         {
             const auto& times = Appearance::Times;

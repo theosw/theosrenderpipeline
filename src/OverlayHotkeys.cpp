@@ -34,7 +34,7 @@ namespace TheosRenderPipeline::Overlay
             return utf8;
         }
         char hex[16]{};
-        std::snprintf(hex, sizeof(hex), "Key 0x%02X", key);
+        std::snprintf(hex, sizeof(hex), TR("Key 0x%02X"), key);
         return hex;
     }
 

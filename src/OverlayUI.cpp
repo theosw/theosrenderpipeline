@@ -82,7 +82,7 @@ void OverlayUI::Init(IDXGISwapChain* a_swapChain, ID3D11Device* a_device, ID3D11
 	// Both input routes queue hotkeys; only Present changes ImGui or game controls.
 	if (const auto error = hotkeys.Install(hwnd,
 	        static_cast<UINT>(RenderPipeline::GetSingleton()->mToggleOverlayHotkey), WindowMessage)) {
-		util::report_and_fail(std::format("Theo's Render Pipeline: window hotkey observer failed (Win32 {}).", error));
+		util::report_and_fail(std::format("Theo's Render Pipeline: window hotkey observer failed (Win32 {}).", error));  // not translated: a fatal error, read in the log
 	}
 	logger::info("[Overlay Input] window-message observer installed (thread={})", GetWindowThreadProcessId(hwnd, nullptr));
 

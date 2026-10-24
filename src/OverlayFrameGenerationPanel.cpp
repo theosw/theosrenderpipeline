@@ -48,33 +48,33 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& v
         }
         // ---- Status: what is running now.
         const char* intelPath = view.xefg.unlockReady && view.xefg.generatedFrames > 1
-            ? TR("Experimental XeFG MFG") : "Intel XeFG x2";
+            ? TR("Experimental XeFG MFG") : "Intel XeFG x2";  // not translated: product names
         const char* path = intel                       ? intelPath
                            : unlock.UsesTuringUnlock() ? TR("Turing MFG (experimental)")
                            : unlock.UsesAmpereUnlock() ? TR("Ampere MFG (experimental)")
-                           : unlock.UsesAdaUnlock()    ? "Ada MFG"
+                           : unlock.UsesAdaUnlock()    ? "Ada MFG"  // not translated: product names
                                                        : TR("Native NVIDIA");
         DrawStatusLabel(frameGenerationRuntimeActive ? (intel ? TR("XeFG active") : TR("DLSS-G active")) : TR("Frame generation inactive"),
                         frameGenerationRuntimeActive ? UIHealth::kHealthy : UIHealth::kIdle);
         ImGui::SameLine();
         ImGui::TextDisabled("| %s", path);
         const auto availableMaximum = intel ? view.xefg.maxGeneratedFrames : nvidiaReported ? usableMaximum : 0u;
-        DrawSettingsValue(TR("Multiplier"), (availableMaximum > 1 ? std::format("x{} of x2 to x{}", activeDisplayMultiplier, availableMaximum + 1)
-                                         : availableMaximum == 1 ? std::format("x{} (x2 only)", activeDisplayMultiplier)
-                                                                 : std::format("x{} | availability waiting", activeDisplayMultiplier)).c_str());
-        DrawSettingsValue(TR("Display"), std::format("{:.0f} Hz", view.refreshRate).c_str());
+        DrawSettingsValue(TR("Multiplier"), (availableMaximum > 1 ? TRF("x{} of x2 to x{}", activeDisplayMultiplier, availableMaximum + 1)
+                                         : availableMaximum == 1 ? TRF("x{} (x2 only)", activeDisplayMultiplier)
+                                                                 : TRF("x{} | availability waiting", activeDisplayMultiplier)).c_str());
+        DrawSettingsValue(TR("Display"), TRF("{:.0f} Hz", view.refreshRate).c_str());
         if (view.vsyncObserved) {
             DrawSettingsValue(TR("VSync"), TRF("game {} -> presenter {}", view.vsyncIncoming ? TR("On") : TR("Off"),
                                                    view.vsyncRequested ? TR("On") : TR("Off")).c_str());
             DrawSettingsHelp(TR("What the game asked for, and what the presenter requested for presentation."));
             if (view.vsyncFailed) ImGui::TextColored(kOchre, "%s", TR("Last presentation request failed."));
         }
-        DrawSettingsValue(TR("Latency"), intel ? "XeLL (Intel)"
-            : std::format("Reflex | {}", TheosRenderPipeline::SourceDLSSG::ReflexModeName(sourceState.reflexSubmitted)).c_str());
+        DrawSettingsValue(TR("Latency"), intel ? "XeLL (Intel)"  // not translated: product names
+            : std::format("Reflex | {}", TheosRenderPipeline::SourceDLSSG::ReflexModeName(sourceState.reflexSubmitted)).c_str());  // not translated: product names
         DrawSettingsValue(TR("Output cap"), intel ? (view.xefg.frameLimitUs ?
-            std::format("{:.1f} FPS", 1000000.0 / view.xefg.frameLimitUs).c_str() : TR("Off")) :
+            TRF("{:.1f} FPS", 1000000.0 / view.xefg.frameLimitUs).c_str() : TR("Off")) :
                           sourceState.frameLimitSubmittedUs
-                              ? std::format("{:.1f} FPS", 1000000.0 / sourceState.frameLimitSubmittedUs).c_str()
+                              ? TRF("{:.1f} FPS", 1000000.0 / sourceState.frameLimitSubmittedUs).c_str()
                               : TR("Off"));
         DrawSettingsValue(TR("UI composition"),
             intel ? (!view.uiRecomposition ? TR("Interpolated with the scene") : view.xefg.uiTexture ? TR("UI layer + HUD-less") : TR("Extracted from frame"))
@@ -140,7 +140,7 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& v
                 const float mark = ImGui::CalcTextSize("!").x + style.ItemSpacing.x;
                 ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - mark);
                 int provider = std::clamp(static_cast<int>(draft.provider), 0, 1);
-                const char* providers[]{"NVIDIA DLSS-G", TR("Intel XeFG (experimental)")};
+                const char* providers[]{"NVIDIA DLSS-G", TR("Intel XeFG (experimental)")};  // not translated: product names
                 bool changed = false;
                 if (ImGui::BeginCombo("##provider", providers[provider]))
                 {
@@ -241,7 +241,7 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& v
                 if (editIntel)
                 {
                     int none = -1;
-                    Segmented("xell", none, {{"XeLL (Intel)", false,
+                    Segmented("xell", none, {{"XeLL (Intel)", false,  // not translated: product names
                         TR("XeFG uses XeLL latency reduction. Your Reflex choice is kept for NVIDIA.")}});
                     return false;
                 }
@@ -399,8 +399,8 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& v
                 ImGui::SameLine();
                 ImGui::AlignTextToFramePadding();
                 ImGui::TextDisabled(TR("session only%s"), meteringReady
-                    ? (pacing.flags & TheosRenderPipeline::XeFGPacing::Unavailable ? " | driver unavailable"
-                       : pacing.flags & TheosRenderPipeline::XeFGPacing::Metered ? " | driver active" : " | driver idle") : "");
+                    ? (pacing.flags & TheosRenderPipeline::XeFGPacing::Unavailable ? TR(" | driver unavailable")
+                       : pacing.flags & TheosRenderPipeline::XeFGPacing::Metered ? TR(" | driver active") : TR(" | driver idle")) : "");
                 // Live and session-only: not part of the settings draft.
                 return false;
             });

@@ -55,8 +55,8 @@ const char* NeuralUnavailableReason(const OverlayUI::FrameView& view, int upscal
     if (view.sourceReady && !view.nvidiaAdapter) { return TR("Neural Rendering requires NVIDIA RTX hardware. XeSS upscaling and XeFG remain available."); }
     if (view.neuralRuntimePath.empty())
     {
-        return "NR runtime path is empty. Configure NeuralRenderingRuntimePath in TheosRenderPipeline.ini "
-               "and restart Skyrim.";
+        return TR("NR runtime path is empty. Configure NeuralRenderingRuntimePath in TheosRenderPipeline.ini "
+                  "and restart Skyrim.");
     }
     if (!nrRuntimePresent)
     {
@@ -76,8 +76,8 @@ const char* NeuralUnavailableReason(const OverlayUI::FrameView& view, int upscal
     }
     if (!view.communityShaders && !view.dedicatedUITexture)
     {
-        return "NR requires dedicated UI composition. Set NativeUICompositionMode=0 in the INI and "
-               "restart Skyrim. If it is already 0, check the log for a composition failure.";
+        return TR("NR requires dedicated UI composition. Set NativeUICompositionMode=0 in the INI and "
+                  "restart Skyrim. If it is already 0, check the log for a composition failure.");
     }
     return nullptr;
 }
@@ -118,8 +118,8 @@ void DrawEye(ImDrawList* draw, ImVec2 min, float size, bool shown, bool hovered)
 std::string ShownGroups(unsigned groups, const char* const (&names)[4])
 {
     std::vector<const char*> shown;
-    for (unsigned i = 0; i < 4; ++i) { if ((groups >> i) & 1) { shown.push_back(names[i]); } }
-    if (shown.size() == 4) { return "all groups"; }
+    for (unsigned i = 0; i < 4; ++i) { if ((groups >> i) & 1) { shown.push_back(TR(names[i])); } }
+    if (shown.size() == 4) { return TR("all groups"); }
     std::string text;
     for (std::size_t i = 0; i < shown.size(); ++i)
     {
@@ -136,7 +136,7 @@ void DrawPassObjects(const OverlayUI::FrameView& view, TheosRenderPipeline::Neur
                      unsigned pass, bool unavailable, bool preset)
 {
     namespace NR = TheosRenderPipeline::NeuralRendering;
-    static constexpr const char* names[]{"First person", "Player", "NPCs", "Creatures"};
+    static constexpr const char* names[]{"First person", "Player", "NPCs", "Creatures"};  // translated where shown
     static const ImVec4 swatches[]{{0.37f, 0.72f, 0.65f, 1}, {0.44f, 0.62f, 0.88f, 1}, {0.85f, 0.65f, 0.28f, 1},
                                    {0.70f, 0.54f, 0.85f, 1}};
     const auto& style = ImGui::GetStyle();
@@ -165,10 +165,10 @@ void DrawPassObjects(const OverlayUI::FrameView& view, TheosRenderPipeline::Neur
     ImGui::SameLine();
     ImGui::TextDisabled("%s", TR("experimental"));
     DrawSettingsHelp(locked ? lockedReason
-        : "Tick a group to override it in this pass. Strength blends this pass's result with its input: 0 keeps "
+        : TR("Tick a group to override it in this pass. Strength blends this pass's result with its input: 0 keeps "
           "the input, 1 the full result, so Pass 2 at 0 keeps Pass 1's work. Tone and structure replace this "
           "pass's values for the group and pause its automatic skin mask. Rules are independent of the other passes "
-          "and of weather overrides. Inference still runs at any strength.");
+          "and of weather overrides. Inference still runs at any strength."));
     ImGui::TableNextColumn();
     const float left = ImGui::GetCursorPosX() + check + style.ItemSpacing.x;
     int column = 0;
@@ -202,7 +202,7 @@ void DrawPassObjects(const OverlayUI::FrameView& view, TheosRenderPipeline::Neur
         const bool eyeHovered = ImGui::IsItemHovered();
         if (eyeHovered)
         {
-            ImGui::SetTooltip(shown ? TR("Hide %s in the mask preview.") : TR("Show %s in the mask preview."), names[i]);
+            ImGui::SetTooltip(shown ? TR("Hide %s in the mask preview.") : TR("Show %s in the mask preview."), TR(names[i]));
         }
         const auto eyeMin = ImGui::GetItemRectMin();
         DrawEye(ImGui::GetWindowDrawList(), ImVec2(eyeMin.x, eyeMin.y + (frame - eye) * 0.5f), eye, shown, eyeHovered);
@@ -252,8 +252,8 @@ void DrawPassObjects(const OverlayUI::FrameView& view, TheosRenderPipeline::Neur
                                          : TR("Open a group's eye to start the preview."));
     ImGui::SameLine();
     ImGui::AlignTextToFramePadding();
-    const auto shownText = masks.previewGroups ? "showing " + ShownGroups(masks.previewGroups, names) + " | not saved"
-                                               : std::string("open an eye to preview a group | not saved");
+    const auto shownText = masks.previewGroups ? TRF("showing {} | not saved", ShownGroups(masks.previewGroups, names))
+                                               : std::string(TR("open an eye to preview a group | not saved"));
     ImGui::TextDisabled("%s", shownText.c_str());
     DrawSettingsHelp(TR("The preview covers the whole finished image, so it is the same on every pass tab."));
     ImGui::EndDisabled();
@@ -264,9 +264,10 @@ void DrawPassObjects(const OverlayUI::FrameView& view, TheosRenderPipeline::Neur
     if (!view.neuralObjectsAvailable || inUse)
     {
         ImGui::Indent(Px(14.0f));
-        ImGui::TextDisabled("%s%s", view.neuralObjectStatus.c_str(),
+        // The status comes from the object hooks in English; translate it where it is shown.
+        ImGui::TextDisabled("%s%s", TheosRenderPipeline::Localization::TranslateText(view.neuralObjectStatus).c_str(),
             !inUse || !view.neuralObjectsAvailable ? ""
-            : view.neuralObjectCurrent ? " | classifying this frame" : " | no classification this frame; normal NR");
+            : view.neuralObjectCurrent ? TR(" | classifying this frame") : TR(" | no classification this frame; normal NR"));
         ImGui::Unindent(Px(14.0f));
     }
 }
@@ -389,12 +390,12 @@ PassAction DrawPassTabs(const OverlayUI::FrameView& view, int& selected, int pas
     const float line = std::round((std::max)(1.0f, Px(1.0f)));
     const auto border = ImGui::GetColorU32(ImGuiCol_Border);
     const auto& live = view.sourceNeural;
-    const char* resetLabel = "Reset to Pass 1";
+    const char* resetLabel = TR("Reset to Pass 1");
     const float resetWidth = reset != PassReset::None ? ImGui::CalcTextSize(resetLabel).x + style.FramePadding.x * 3 : 0.0f;
     // Tabs narrow from their usual width so five, + and the reset tab share the
     // strip; never below the name and its state dot.
     const float dot = ImGui::GetTextLineHeight() * 0.18f;
-    const float tabMinimum = ImGui::CalcTextSize("Pass 5").x + dot * 2 + style.ItemInnerSpacing.x + style.FramePadding.x * 2;
+    const float tabMinimum = ImGui::CalcTextSize(TR("Pass 5")).x + dot * 2 + style.ItemInnerSpacing.x + style.FramePadding.x * 2;
     const float tabSpace = available - (passes < kMaxPasses ? addWidth : 0.0f) - (resetWidth > 0 ? resetWidth + style.ItemSpacing.x : 0.0f);
     const float tabWidth = std::floor(std::clamp((tabSpace + line * (passes - 1)) / passes, tabMinimum, Px(132.0f)));
     PassAction action = PassAction::None;
@@ -693,9 +694,9 @@ void DrawNeuralSettings(const OverlayUI::FrameView& view, TheosRenderPipeline::S
                 }
                 ImGui::EndDisabled();
                 DrawSettingsHelp(before ? TR("Freeze frame needs After upscaling: before upscaling, DLSS needs a moving frame.")
-                                        : "Session only. NR keeps working on one held frame while the game runs on, so "
-                                          "setting changes compare on identical content. Turn frame generation off for a "
-                                          "steady image.");
+                                        : TR("Session only. NR keeps working on one held frame while the game runs on, so "
+                                             "setting changes compare on identical content. Turn frame generation off for a "
+                                             "steady image."));
                 if (changed) { g_setCompare(compare); }
                 return false;
             });
@@ -747,7 +748,7 @@ void DrawNeuralSettings(const OverlayUI::FrameView& view, TheosRenderPipeline::S
                        : !draft.neuralExtraPasses[extraIndex].linked && (decor || tabChanged[selected]) ? PassReset::Available
                                                                                                          : PassReset::Nothing;
     const auto action = DrawPassTabs(view, selected, draft.neuralPasses, !unavailable,
-        decor && decor->EditingTime() ? std::format("editing {}", decor->EditingTime()) : std::string(), tabChanged,
+        decor && decor->EditingTime() ? TRF("editing {}", decor->EditingTime()) : std::string(), tabChanged,
         reset);
     // + adds the next pass and the remove mark takes off the last; a removed
     // pass keeps its own settings for when it is added again.
@@ -810,7 +811,7 @@ void DrawNeuralSettings(const OverlayUI::FrameView& view, TheosRenderPipeline::S
                 {TR("Default"), true, TR("Style 0.")},
                 {TR("Natural"), true, TR("Style 1.")},
                 {TR("Cinematic"), true, TR("Style 2.")},
-                {customLabel.c_str(), !legacy, legacy ? "310.8 runs styles 0 to 2 only."
+                {customLabel.c_str(), !legacy, legacy ? TR("310.8 runs styles 0 to 2 only.")
                     : TR("Click to type a style number, 3 to 255.")}}, &layout);
             if (changed) { tuning.style = index == 3 ? (std::max)(tuning.style, 3) : index; }
             if (layout.clicked == 3 && !legacy) {
@@ -893,9 +894,9 @@ void DrawNeuralSettings(const OverlayUI::FrameView& view, TheosRenderPipeline::S
             const bool legacy = LegacyNeuralRuntime(view);
             int index = legacy || network != 0 ? 1 : 0;
             const bool changed = Segmented("network", index, {
-                {TR("Small"), !legacy, legacy ? "310.9.16 only. 310.8 always runs the old model."
-                                          : "310.9.16's small FP8 model: faster and softer. NVIDIA's "
-                                            "CC_SMALL_FP8; Preset B in OptiScaler forks."},
+                {TR("Small"), !legacy, legacy ? TR("310.9.16 only. 310.8 always runs the old model.")
+                                          : TR("310.9.16's small FP8 model: faster and softer. NVIDIA's "
+                                               "CC_SMALL_FP8; Preset B in OptiScaler forks.")},
                 {TR("Old"), true, TR("The model 310.8 runs, also included in 310.9.16. NVIDIA's CC_SILVER_AARDWOLD; "
                               "Preset A in OptiScaler forks.")}});
             if (changed) { network = index; }
@@ -919,10 +920,10 @@ void DrawNeuralSettings(const OverlayUI::FrameView& view, TheosRenderPipeline::S
         const bool noUICorrection = cs || draft.neuralBeforeUpscaling;
         SettingRow(TR("UI correction"), key("UICorrection").c_str(), false, unavailable || noUICorrection, [&] {
             const bool changed = ImGui::Checkbox("##v", &tuning.uiCorrection);
-            DrawSettingsHelp(cs ? "NVIDIA's UI correction flag. Asks NR to treat the area around the HUD separately. Only "
-                                  "used when NR runs after upscaling. Community Shaders draws the UI after NR, so it is off."
-                                : "NVIDIA's UI correction flag. Asks NR to treat the area around the HUD separately. Only "
-                                  "used when NR runs after upscaling.");
+            DrawSettingsHelp(cs ? TR("NVIDIA's UI correction flag. Asks NR to treat the area around the HUD separately. Only "
+                                     "used when NR runs after upscaling. Community Shaders draws the UI after NR, so it is off.")
+                                : TR("NVIDIA's UI correction flag. Asks NR to treat the area around the HUD separately. Only "
+                                     "used when NR runs after upscaling."));
             return changed;
         });
         ImGui::EndTable();
@@ -1003,7 +1004,7 @@ void DrawNeuralSettings(const OverlayUI::FrameView& view, TheosRenderPipeline::S
         });
         // Ratio's settings stay visible, greyed, until Ratio is selected.
         const bool ratioOff = unavailable || (!producerColor && reconstruction.method != NR::ResolveMethod::Ratio);
-        const char* ratioHelp = producerColor ? "" : " Used by Ratio reconstruction.";
+        const char* ratioHelp = producerColor ? "" : TR(" Used by Ratio reconstruction.");
         SettingRowFor(TR("Effect \xC2\xB7 colour"), {"EffectStrength", "ColourStrength"}, false, ratioOff, [&] {
             const float half = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
             ImGui::SetNextItemWidth(half);
@@ -1022,8 +1023,8 @@ void DrawNeuralSettings(const OverlayUI::FrameView& view, TheosRenderPipeline::S
             const char* reason = producerColor ? TR("Not on the Community Shaders route yet.") : TR("Used by Ratio reconstruction.");
             ImGui::SetNextItemWidth(half);
             bool changed = ImGui::SliderFloat("##broad", &reconstruction.broadStrength, 0, 2);
-            DrawSettingsHelp(bandsOff ? reason : "Broad: how much NR relights whole areas and objects. Lower it if shadows on "
-                                                 "objects change as the view changes.");
+            DrawSettingsHelp(bandsOff ? reason : TR("Broad: how much NR relights whole areas and objects. Lower it if shadows on "
+                                                    "objects change as the view changes."));
             ImGui::SameLine();
             ImGui::SetNextItemWidth(-FLT_MIN);
             changed |= ImGui::SliderFloat("##detail", &reconstruction.detailStrength, 0, 2);
@@ -1063,7 +1064,7 @@ void DrawNeuralSettings(const OverlayUI::FrameView& view, TheosRenderPipeline::S
             if (reconstruction.adaptiveExposure)
             {
                 SettingRow(TR("Bias"), "ExposureBias", false, exposureOff, [&] {
-                    const bool changed = ImGui::SliderFloat("##bias", &reconstruction.exposureBias, -2, 2, "%+.1f EV");
+                    const bool changed = ImGui::SliderFloat("##bias", &reconstruction.exposureBias, -2, 2, TR("%+.1f EV"));
                     DrawSettingsHelp(exposureOff ? TR("Used by Ratio reconstruction with linear HDR input.")
                                                  : TR("Brightens NR's view when positive, darkens it when negative."));
                     return changed;
@@ -1084,8 +1085,8 @@ void DrawNeuralSettings(const OverlayUI::FrameView& view, TheosRenderPipeline::S
             bool changed = ImGui::Checkbox("##hdr", &reconstruction.colorIsHDR);
             ImGui::EndDisabled();
             DrawSettingsHelp(producerColor ? TR("Community Shaders supplies scene colour; the input is not switched here.")
-                                           : "Input colour is linear HDR. Used by Ratio reconstruction; it does not change "
-                                             "the display HDR mode.");
+                                           : TR("Input colour is linear HDR. Used by Ratio reconstruction; it does not change "
+                                                "the display HDR mode."));
             ImGui::SameLine();
             ImGui::AlignTextToFramePadding();
             ImGui::TextDisabled("%s", TR("white point"));
@@ -1132,10 +1133,10 @@ bool DrawNeuralRuntimeCombo(const OverlayUI::FrameView& view, TheosRenderPipelin
         }
         ImGui::EndCombo();
     }
-    const auto help = std::format("{}NR runtime. Automatic chooses the runtime for your GPU. Universal unlocks NVIDIA "
-        "310.9.16 on RTX 20/30/40; RTX 50 uses it natively. The kernel pack uses FP16 fallback on RTX 20/30 and FP8 on "
-        "RTX 40. Legacy INT8 is an RTX 20/30 alternative. Hover an entry for its filename.",
-        chosen.empty() ? std::string() : std::format("Automatic is using {}.\n\n", chosen));
+    const auto help = (chosen.empty() ? std::string() : TRF("Automatic is using {}.", chosen) + "\n\n") +
+        TR("NR runtime. Automatic chooses the runtime for your GPU. Universal unlocks NVIDIA "
+           "310.9.16 on RTX 20/30/40; RTX 50 uses it natively. The kernel pack uses FP16 fallback on RTX 20/30 and FP8 on "
+           "RTX 40. Legacy INT8 is an RTX 20/30 alternative. Hover an entry for its filename.");
     DrawSettingsHelp(help.c_str());
     if (ImGui::BeginComboPreview())
     {

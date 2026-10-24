@@ -3,6 +3,11 @@
 - Fix the mouse cursor disappearing in the menu at 75% zoom. ImGui rounds the
   cursor's scale down to a whole number, which was 0 below 100%; the cursor now
   follows the zoom and is never smaller than normal.
+- About 70 menu texts can now be translated: help texts in a condition, text built
+  with `std::format`, status lines from the object hooks and the DLSS preset
+  description, and words dropped into a translated sentence (such as the mask
+  preview's group names). `tools/lang/audit.py --unwrapped` lists menu text that
+  bypasses translation; it reports none. Thanks to BUNNIKE for the report.
 
 # 0.5.3
 

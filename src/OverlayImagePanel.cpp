@@ -12,7 +12,7 @@ namespace
 {
 bool DrawTextureCapCombo(const char* a_label, std::uint32_t& a_cap)
 {
-    static constexpr const char* kNames[]{"Full size", "512", "1024", "2048", "4096"};
+    static constexpr const char* kNames[]{"Full size", "512", "1024", "2048", "4096"};  // translated where shown
     static constexpr std::uint32_t kValues[]{0, 512, 1024, 2048, 4096};
     int selected = 0;
     for (int i = 0; i < static_cast<int>(std::size(kValues)); ++i)
@@ -126,8 +126,8 @@ void OverlayUI::DrawHDROutputSettings(const FrameView& view)
         SettingRow(TR("Match Windows SDR"), nullptr, false, !hdr.enabled, [&] {
             const bool changed = ImGui::Checkbox("##matchWindows", &hdr.matchWindowsSDR);
             DrawSettingsHelp(!hdr.enabled ? off
-                : "Uses Windows' SDR content brightness (Settings > Display > HDR) for paper white and UI, so whites "
-                  "match the desktop. Untick to set them here.");
+                : TR("Uses Windows' SDR content brightness (Settings > Display > HDR) for paper white and UI, so whites "
+                     "match the desktop. Untick to set them here."));
             ImGui::SameLine();
             ImGui::AlignTextToFramePadding();
             if (hdr.matchWindowsSDR && windowsKnown) { ImGui::TextDisabled(TR("%.0f nits from Windows"), state.windowsSDRWhiteNits); }
@@ -168,8 +168,8 @@ void OverlayUI::DrawHDROutputSettings(const FrameView& view)
         });
         SettingRow(TR("Highlight strength"), nullptr, false, !hdr.enabled, [&] {
             const bool changed = ImGui::SliderFloat("##highlight", &hdr.highlightStrength, 0.0f, 1.0f, "%.2f");
-            DrawSettingsHelp(!hdr.enabled ? off : "0 keeps the SDR range at paper white; 1 expands the brightest pixels "
-                                                  "to peak brightness.");
+            DrawSettingsHelp(!hdr.enabled ? off : TR("0 keeps the SDR range at paper white; 1 expands the brightest pixels "
+                                                     "to peak brightness."));
             return changed;
         });
         SettingRow(TR("Expansion start"), nullptr, false, !hdr.enabled, [&] {
@@ -229,7 +229,7 @@ void OverlayUI::DrawImagePanel(float tabCardHeight, const FrameView& view)
         {
             {
                 const RestartHelpScope restart(warmSwitch
-                    ? "DLSS and XeSS can switch on Apply.\nDLAA needs Save as default and a restart."
+                    ? TR("DLSS and XeSS can switch on Apply.\nDLAA needs Save as default and a restart.")
                     : TR("Changing the mode needs Save as default and a restart."));
                 SettingRow(TR("Mode"), nullptr, true, false, [&] {
                     int mode = xess ? 2 : native ? 1 : 0;
@@ -281,7 +281,7 @@ void OverlayUI::DrawImagePanel(float tabCardHeight, const FrameView& view)
                 }
                 DrawSettingsHelp(xess ? TR("DLSS and DLAA only.")
                     : TRF("{}\nRequested preset; NVIDIA chooses the actual model. L/M require a supporting runtime.",
-                                  TheosRenderPipeline::DLSSPreset::Description(settingsDraft.dlssPreset)).c_str());
+                                  TR(TheosRenderPipeline::DLSSPreset::Description(settingsDraft.dlssPreset))).c_str());
                 return changed;
             });
             SettingRow(TR("Auto exposure"), nullptr, false, xess, [&] {

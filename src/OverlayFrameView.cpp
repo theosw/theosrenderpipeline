@@ -112,12 +112,12 @@ void OverlayUI::DescribeFrameView(FrameView& view) const
                       view.nvidiaHostActive ? (view.provider == TheosRenderPipeline::FrameGenerationProvider::XeFG ? TR("XeFG off") : TR("DLSS-G off")) : TR("Generation unavailable"));
     }
     const auto& output = view.outputRate;
-    view.outputText = output.available ? std::format("{:.1f} FPS", output.fps) : std::string(TR("unavailable"));
+    view.outputText = output.available ? TRF("{:.1f} FPS", output.fps) : std::string(TR("unavailable"));
     view.outputLabel = TR("Runtime output");
-    view.activeUpscaleStage = view.sourceDLSSGActive ? (view.sourceNeural.active ? "TRP DLSS NR" : "TRP DLSS")
+    view.activeUpscaleStage = view.sourceDLSSGActive ? (view.sourceNeural.active ? "TRP DLSS NR" : "TRP DLSS")  // not translated: product names
                                                      : TR("NVIDIA host unavailable");
-    if (view.upscaler.mode == XeSS) { view.activeUpscaleStage = view.sourceNeural.active ? "TRP XeSS + NR" : "TRP XeSS"; }
+    if (view.upscaler.mode == XeSS) { view.activeUpscaleStage = view.sourceNeural.active ? "TRP XeSS + NR" : "TRP XeSS"; }  // not translated: product names
     if (cs) {
-        view.activeUpscaleStage = view.sourceNeural.active ? "CS upscaling + TRP NR" : TR("CS upscaling");
+        view.activeUpscaleStage = view.sourceNeural.active ? TR("CS upscaling + TRP NR") : TR("CS upscaling");
     }
 }
