@@ -9,7 +9,9 @@
 //
 // While Skyrim asks for a save screenshot, its TAA may run, so the thumbnail is
 // drawn and the save goes on; then it is off again. If the request is still set
-// kGiveUpFrames frames later, TAA goes back off until the request clears.
+// kGiveUpFrames frames later, TAA goes back off until the request clears. Only
+// during gameplay: a paused game (the journal, the pause menu) asks too, and its
+// menu blur draws the thumbnail without TAA.
 namespace TheosRenderPipeline
 {
     class SaveThumbnailTAA
