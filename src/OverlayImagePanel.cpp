@@ -262,7 +262,7 @@ void OverlayUI::DrawImagePanel(float tabCardHeight, const FrameView& view)
                         ImGui::EndCombo();
                     }
                     const auto help = view.nrFriendlyRenderSizeActive
-                        ? std::format(TR("Size of the rendered world before upscaling.\nNR render size this session: {} x {}.\nPreset changes take effect after restart."), view.renderWidth, view.renderHeight)
+                        ? TRF("Size of the rendered world before upscaling.\nNR render size this session: {} x {}.\nPreset changes take effect after restart.", view.renderWidth, view.renderHeight)
                         : std::string(native ? TR("DLAA renders at native resolution.") : TR("Size of the rendered world before upscaling."));
                     DrawSettingsHelp(help.c_str());
                     return changed;
