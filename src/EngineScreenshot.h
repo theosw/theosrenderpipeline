@@ -11,7 +11,9 @@
 // PrintScreen: Skyrim's SaveRenderTargetToFile writes the file and its path is
 // queued. Photo Mode raises the same screenshot flag but writes its own photo
 // (My Games\<game>\Photos\Screenshot_N.png) without that call; the flag queues a
-// capture anyway, and the photo it finds is replaced (FindPhoto).
+// capture anyway, and the photo it finds is replaced (FindPhoto). Photo Mode
+// takes its photo in Main::Swap and the flag is clear again before Present, so
+// the flag is also sampled when the frame starts (OnFrameBegin).
 namespace TheosRenderPipeline::EngineScreenshot
 {
     struct Request
@@ -29,6 +31,9 @@ namespace TheosRenderPipeline::EngineScreenshot
     // At each D3D11 Present, before that frame is finished: a rising screenshot
     // flag queues a capture of the next finished frame.
     void OnPresent();
+    // When Skyrim starts rendering a frame: remembers a set screenshot flag for
+    // that frame's OnPresent.
+    void OnFrameBegin();
     // The oldest screenshot waiting for the finished frame.
     bool Take(Request& a_request);
     // A photo another plugin wrote for a flag-only request: the newest PNG in the

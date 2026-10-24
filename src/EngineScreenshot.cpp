@@ -5,6 +5,7 @@
 #include <d3d11.h>
 
 #include <array>
+#include <atomic>
 #include <deque>
 #include <fstream>
 #include <mutex>
@@ -112,10 +113,20 @@ namespace TheosRenderPipeline::EngineScreenshot
         }
     }
 
+    namespace
+    {
+        std::atomic_bool g_queuedThisFrame{};
+    }
+
+    void OnFrameBegin()
+    {
+        if (Queued()) { g_queuedThisFrame = true; }
+    }
+
     void OnPresent()
     {
         static bool wasQueued = false;
-        const bool queued = Queued();
+        const bool queued = g_queuedThisFrame.exchange(false) || Queued();
         const bool rose = queued && !wasQueued;
         wasQueued = queued;
         if (!rose || !g_original) { return; }
