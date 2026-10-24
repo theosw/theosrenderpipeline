@@ -1017,7 +1017,7 @@ struct UpscalerHooks
 			// While Skyrim asks for a save's thumbnail it may run (SaveThumbnailTAA.h).
 			static TheosRenderPipeline::SaveThumbnailTAA saveThumbnail;
 			static REL::Relocation<std::uint32_t*> saveScreenshotRequested{ REL::RelocationID(517224, 403755) };
-			const auto* saveUI = RE::UI::GetSingleton();
+			auto* saveUI = RE::UI::GetSingleton();
 			const bool gameplay = !(saveUI && saveUI->GameIsPaused());
 			const auto save = saveThumbnail.Next(gameplay && *saveScreenshotRequested != 0);
 			using SaveEvent = TheosRenderPipeline::SaveThumbnailTAA::Event;
