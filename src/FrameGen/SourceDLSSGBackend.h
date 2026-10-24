@@ -17,6 +17,7 @@
 #include "SourceDLSSGHDR.h"
 #include "SourceDLSSGHDROutput.h"
 #include "FinalFrameCapture.h"
+#include "../EngineScreenshot.h"
 #include "SourceDLSSGMFG.h"
 #include "SourceDLSSGPresentationFeedback.h"
 #include "SourceDLSSGRuntimeDiagnostics.h"
@@ -381,6 +382,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		FinalFrameCapture screenshotCapture_;
 		ScreenshotWorker screenshotWriter_;
 		std::string screenshotPath_;
+		EngineScreenshot::Request screenshotPhoto_;  // a flag-only request: the writer finds the photo
 		int screenshotQuality_{};
 		bool screenshotRecorded_{}, screenshotFaultLogged_{};
 		NeuralHistory neuralHistory_;

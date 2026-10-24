@@ -1012,6 +1012,7 @@ struct UpscalerHooks
 				upscaler->mRenderedFrameCount + 1);
 			upscaler->mGraphicsState = a_state;
 			++upscaler->mRenderedFrameCount;
+			TheosRenderPipeline::EngineScreenshot::OnFrameBegin();
 			// The TAA singleton is unavailable during early initialization. Keep
 			// its pass disabled once it exists; NVIDIA receives jittered input.
 			// While Skyrim asks for a save's thumbnail it may run (SaveThumbnailTAA.h).

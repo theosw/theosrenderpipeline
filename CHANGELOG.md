@@ -13,6 +13,11 @@
   only while TAA or depth of field runs, and TRP keeps Skyrim's TAA off for DLSS;
   it now lets TAA run for the frames Skyrim asks for a save thumbnail. Thanks to
   jackson8541 for the report.
+- Photo Mode photos now contain TRP's finished frame at the output resolution, as
+  PrintScreen screenshots do since 0.5.3. Photo Mode raises Skyrim's screenshot
+  flag but writes its own photo, so TRP captures the frame on the flag and
+  replaces the new render-size PNG that appears in `My Games\Skyrim Special
+  Edition\Photos` within five seconds. Photo Mode's gallery thumbnail is unchanged.
 
 # 0.5.3
 
