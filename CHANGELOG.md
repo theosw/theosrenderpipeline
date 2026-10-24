@@ -1,5 +1,10 @@
 # 0.5.4
 
+Game-tested on an RTX 4080 SUPER (LoreRim) with the release package: Photo Mode and
+PrintScreen at 5120x1440, two quicksaves with depth of field off and SSE Engine
+Fixes' save screenshot fix turned off (both saved at once with correct thumbnails),
+the Lab Every third frame switch, and the menu at 75% zoom in English and Chinese.
+
 - Fix the mouse cursor disappearing in the menu at 75% zoom. ImGui rounds the
   cursor's scale down to a whole number, which was 0 below 100%; the cursor now
   follows the zoom and is never smaller than normal.
