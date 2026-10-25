@@ -31,6 +31,8 @@ set(ARP_BASELINE_SOURCES
     src/Localization.h
     src/EngineScreenshot.cpp
     src/EngineScreenshot.h
+    src/PhotoFileMatch.cpp
+    src/PhotoFileMatch.h
     src/NativeInput.h
     src/NativeUIBridge.h
     src/NativeInputThunks.h

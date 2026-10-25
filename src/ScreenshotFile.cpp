@@ -5,6 +5,7 @@
 #include <wrl/client.h>
 #include <algorithm>
 #include <cwctype>
+#include <cstring>
 #include <string>
 
 namespace TheosRenderPipeline::ScreenshotFile
@@ -13,6 +14,27 @@ namespace TheosRenderPipeline::ScreenshotFile
 
     namespace
     {
+        HRESULT ReplaceOpenFile(const std::filesystem::path& temporary, const std::filesystem::path& destination)
+        {
+            // MoveFileEx cannot replace an open destination even with delete
+            // sharing. Windows 10's POSIX rename keeps the old handle valid
+            // while atomically publishing the new file at that name.
+            const auto name = std::filesystem::absolute(destination).wstring();
+            std::vector<std::uint8_t> storage(sizeof(FILE_RENAME_INFO) + name.size() * sizeof(wchar_t));
+            auto* rename = reinterpret_cast<FILE_RENAME_INFO*>(storage.data());
+            rename->Flags = FILE_RENAME_FLAG_REPLACE_IF_EXISTS | FILE_RENAME_FLAG_POSIX_SEMANTICS;
+            rename->FileNameLength = static_cast<DWORD>(name.size() * sizeof(wchar_t));
+            std::memcpy(rename->FileName, name.data(), rename->FileNameLength);
+            const auto file = CreateFileW(temporary.c_str(), GENERIC_WRITE | DELETE,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, FILE_FLAG_WRITE_THROUGH, nullptr);
+            if (file == INVALID_HANDLE_VALUE) { return HRESULT_FROM_WIN32(GetLastError()); }
+            const bool replaced = FlushFileBuffers(file) && SetFileInformationByHandle(file, FileRenameInfoEx,
+                rename, static_cast<DWORD>(storage.size()));
+            const auto error = replaced ? ERROR_SUCCESS : GetLastError();
+            CloseHandle(file);
+            return HRESULT_FROM_WIN32(error); // Unsupported filesystems retain the original.
+        }
+
         const GUID* Container(const std::filesystem::path& path)
         {
             auto extension = path.extension().wstring();
@@ -66,7 +88,7 @@ namespace TheosRenderPipeline::ScreenshotFile
     }
 
     HRESULT Replace(const std::filesystem::path& path, UINT width, UINT height,
-        const std::vector<std::uint8_t>& bgr, int jpegQuality) noexcept
+        const std::vector<std::uint8_t>& bgr, int jpegQuality, const std::function<bool()>& stillMatches) noexcept
     {
         return ScreenshotBoundary([&]() -> HRESULT {
             const auto* container = Container(path);
@@ -87,6 +109,10 @@ namespace TheosRenderPipeline::ScreenshotFile
                 ~TemporaryFile() { DeleteFileW(path.c_str()); }
             } cleanup{temporary};
             auto hr = Encode(temporary, *container, width, height, bgr, jpegQuality);
+            // An inferred Photo Mode destination must still name the claimed
+            // original after encoding. Decline without touching it if replaced.
+            if (SUCCEEDED(hr) && stillMatches && !stillMatches()) { return S_FALSE; }
+            if (SUCCEEDED(hr) && stillMatches) { return ReplaceOpenFile(temporary, path); }
             if (SUCCEEDED(hr) && !MoveFileExW(temporary.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
                 hr = HRESULT_FROM_WIN32(GetLastError());
             }

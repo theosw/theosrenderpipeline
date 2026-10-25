@@ -1222,12 +1222,17 @@ void OverlayUI::DrawNeuralRenderingPanel(float height, const FrameView& view)
         const auto interval = TheosRenderPipeline::NeuralRendering::ModelRateInterval(
             TheosRenderPipeline::NeuralRendering::EffectiveModelRate(applied.reconstruction.modelRate));
         const bool alternate = interval > 1;
+		DrawSettingsValue(TR("NR per frame"), state.active && timing.frameSamples
+			? TRF("{:.2f} ms", timing.AverageFrameGPUMicroseconds() / 1000.0).c_str() : TR("unavailable"));
+		DrawSettingsHelp(TR("Measured NR GPU work per rendered frame, averaged over the latest completed samples, including "
+			"model runs, skipped-frame reprojection, change storage, preparation, reconstruction, previews and NR UI composition. "
+			"Excludes object classification capture, Freeze frame capture, the D3D11/D3D12 handoff and frame generation."));
         DrawSettingsValue(TR("Inference"), state.active && timing.gpuSamples
                                            ? (alternate ? TRF("{:.2f} ms per run", timing.AverageGPUMicroseconds() / 1000.0)
                                                         : TRF("{:.2f} ms", timing.AverageGPUMicroseconds() / 1000.0)).c_str()
                                            : TR("unavailable"));
         DrawSettingsHelp(alternate ? TR("Combined model inference and inter-pass preparation, per frame the model runs on. "
-                                        "Frames between skip it, so the average per frame is about a half or a third. Excludes input "
+                                        "Frames between skip inference but still do reprojection and storage. See NR per frame for measured work. Excludes input "
                                         "preparation, the last pass's restoration, reconstruction, UI composition and the "
                                         "D3D11/D3D12 handoff.")
                                    : TR("Combined model inference and inter-pass preparation. Excludes input preparation, the "

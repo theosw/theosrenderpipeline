@@ -111,6 +111,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			std::uint64_t evaluation{};
 			std::uint64_t cpuRecordNanoseconds{};
 			bool pending{};
+			bool modelRan{};
 		};
 		NeuralRendering::FeatureSession feature_;
 		// Passes 2 to 5. Each runs the model on the previous pass's result with its

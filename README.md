@@ -11,7 +11,7 @@ Rendering (NR), and native-resolution menus and HUD. Current version:
 - Frame generation and multi-frame generation (MFG).
 - Experimental Intel XeSS upscaling and XeFG frame generation, including on AMD
   GPUs. See [XeSS and XeFG](#xess-and-xefg-experimental).
-- NR before or after DLSS/DLAA, one or two independently configured passes,
+- NR before or after DLSS/DLAA, one to five independently configured passes,
   input scaling and tuning, in both editions. NR defaults off.
 - Optional peripheral compression, combined NR preparation and an every-other-frame
   NR model rate, all off by default.
@@ -47,8 +47,10 @@ workload.
 
 NR's **Model rate** can run the model on **Every other frame**. The frames between
 reuse its last change, moved with the game's motion vectors and checked against
-depth (and object groups while object rules capture them), which roughly halves
-NR's GPU cost. Expect some ghosting in fast motion and on newly revealed areas.
+depth (and object groups while object rules capture them). This lowers inference
+frequency; reprojection and change storage still cost GPU time. The NR panel's
+**NR per frame** measurement includes this work rather than estimating it from
+the model interval. Expect some ghosting in fast motion and on newly revealed areas.
 Resets, setting changes and Freeze frame run the model on that frame. It works best with 2x frame generation: at 3x and above the generated frames
 between real ones can look unevenly paced. The rate applies to every pass, switches live, is a weather override setting
 (`ModelRate`) and defaults to every frame (INI `NRModelRate`).
