@@ -5,7 +5,6 @@
 #include <d3d11.h>
 
 #include <array>
-#include <atomic>
 #include <deque>
 #include <mutex>
 #include <optional>

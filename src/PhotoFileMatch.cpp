@@ -62,7 +62,14 @@ namespace TheosRenderPipeline::PhotoFiles
     Request Matcher::Begin()
     {
         auto request = std::make_shared<Ticket>();
-        FILETIME now{}; GetSystemTimePreciseAsFileTime(&now); request->since = Ticks(now);
+        // CommonLib targets older Windows declarations. Resolve the precise
+        // clock at runtime; coarse timestamps cannot safely admit a photo.
+        using PreciseClock = void (WINAPI*)(LPFILETIME);
+        static const auto clock = reinterpret_cast<PreciseClock>(
+            GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "GetSystemTimePreciseAsFileTime"));
+        FILETIME now{};
+        if (clock) { clock(&now); } else { request->valid = false; }
+        request->since = Ticks(now);
         std::lock_guard lock(mutex_);
         if (const auto previous = current_.lock(); previous && !previous->claimed) {
             previous->valid = false; request->valid = false;

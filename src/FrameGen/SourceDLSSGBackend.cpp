@@ -657,8 +657,12 @@ namespace TheosRenderPipeline::SourceDLSSG
 					file = matched.Path();
 					logger::info("[Screenshot] replacing {} with the finished frame", file.filename().string());
 				}
+				if (!path.empty()) {
+					// Exact-path Skyrim/ReShade screenshots retain the ordinary writer.
+					return ScreenshotFile::Replace(file, image.width, image.height, image.bgr, quality);
+				}
 				return ScreenshotFile::Replace(file, image.width, image.height, image.bgr, quality,
-					[&] { return !path.empty() || matched.StillMatches(); });
+					[&] { return matched.StillMatches(); });
 			});
 			screenshotPath_.clear();
 			return S_OK;

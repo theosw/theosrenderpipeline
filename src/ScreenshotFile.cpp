@@ -28,7 +28,13 @@ namespace TheosRenderPipeline::ScreenshotFile
             const auto file = CreateFileW(temporary.c_str(), GENERIC_WRITE | DELETE,
                 FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, FILE_FLAG_WRITE_THROUGH, nullptr);
             if (file == INVALID_HANDLE_VALUE) { return HRESULT_FROM_WIN32(GetLastError()); }
-            const bool replaced = FlushFileBuffers(file) && SetFileInformationByHandle(file, FileRenameInfoEx,
+            // SDK minwinbase.h defines FileRenameInfoEx as ABI value 22, but
+            // hides the name with this project's older NTDDI declarations.
+            constexpr auto renameInfoEx = static_cast<FILE_INFO_BY_HANDLE_CLASS>(22);
+#if NTDDI_VERSION >= NTDDI_WIN10_RS1
+            static_assert(renameInfoEx == FileRenameInfoEx);
+#endif
+            const bool replaced = FlushFileBuffers(file) && SetFileInformationByHandle(file, renameInfoEx,
                 rename, static_cast<DWORD>(storage.size()));
             const auto error = replaced ? ERROR_SUCCESS : GetLastError();
             CloseHandle(file);
