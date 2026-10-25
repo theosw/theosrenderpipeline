@@ -1,3 +1,11 @@
+# Unreleased
+
+- Fix Every third frame (Lab) carrying NR's change onto the second skipped frame
+  from two frames back with only one frame of motion, so moving detail landed a
+  frame off and smeared. The first skipped frame now stores the change it
+  carried, so each skipped frame moves it one frame. Every other frame is
+  unchanged.
+
 # 0.5.4
 
 Game-tested on an RTX 4080 SUPER (LoreRim) with the release package: Photo Mode and
