@@ -106,18 +106,26 @@ namespace TheosRenderPipeline::SourceDLSSG
 			NeuralRendering::RuntimeBuild::Unknown;
 		if (neuralComputeCapability_ < 0 && device12_) { neuralComputeCapability_ = NeuralRendering::ComputeCapability(device12_->GetAdapterLuid()); }
 		const NeuralRendering::IncompatibleRuntime* refused{};
+		bool unsupported{};
 		const auto reason = neuralAvailability_.UnavailableReason(options, [&](const std::filesystem::path& path) {
 			const auto identity = NeuralRenderingRuntimeIdentity::VerifySource(path, true);
 			if (identity.matched && (refused = NeuralRendering::FindIncompatibleRuntime(identity.sha256, neuralComputeCapability_))) {
 				return NeuralRendering::RuntimeBuild::Unknown;
 			}
-			return identity.matched ? NeuralRendering::MatchRuntime(identity.size, identity.sha256, identity.version, true) :
+			const auto build = identity.matched ? NeuralRendering::MatchRuntime(identity.size, identity.sha256, identity.version, true) :
 				NeuralRendering::RuntimeBuild::Unknown;
+			unsupported = build == NeuralRendering::RuntimeBuild::Unknown;
+			return build;
 		}, retainedBuild);
 		if (refused) {
 			// Refuse it before any feature uses it; the next frame runs the next runtime instead.
 			RefuseNeuralRuntime(options.runtimePath, std::format("is {}", refused->description), " RTX 40 cards need a fixed build.");
 			return "NR runtime refused for this GPU; switching runtime";
+		}
+		if (unsupported && options.automaticRuntime) {
+			// Automatic chose this file only because it exists; try the next candidate.
+			RefuseNeuralRuntime(options.runtimePath, "is not a supported NR build", "");
+			return "NR runtime unsupported; switching runtime";
 		}
 		if (reason && reason != neuralReportedUnavailable_) { logger::warn("[SourceDLSSG NR] {}", reason); }
 		neuralReportedUnavailable_ = reason;
