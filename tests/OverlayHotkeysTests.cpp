@@ -225,6 +225,15 @@ int main()
     Require(initial.next == &held && held.next == &mouse && mouse.next == &character && character.next == &invalid,
         "game event chain remains unchanged for other listeners");
     Require(CollectGameHotkeyPresses(static_cast<EventFixture*>(nullptr), 0).empty(), "null game input batch");
+    {
+        // Mouse device 1, wheel up 8, wheel down 9: two up and one down give +1.
+        EventFixture up1, key, up2, held, down;
+        up1.next = &key; key.next = &up2; up2.next = &held; held.next = &down;
+        up1.device = up2.device = held.device = down.device = 1;
+        up1.scan = up2.scan = held.scan = 8; down.scan = 9; held.down = false; key.scan = 8;
+        Require(CollectGameWheel(&up1, 1, 8u, 9u) == 1, "wheel notches come from mouse presses only");
+        Require(CollectGameWheel(static_cast<EventFixture*>(nullptr), 1, 8u, 9u) == 0, "null batch has no wheel");
+    }
 
     Reset();
     Require(PostMessageW(window, WM_KEYDOWN, VK_F10, 1) != FALSE, "post before non-removing peek");

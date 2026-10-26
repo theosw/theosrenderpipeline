@@ -112,6 +112,10 @@ void OverlayUI::PollInput()
 		io.AddMouseButtonEvent(1, right);
 		lastRight = right;
 	}
+	// Taken even when unfocused, so scrolling in the game never reaches a later menu.
+	if (const int wheel = pendingWheel.exchange(0); focused && wheel) {
+		io.AddMouseWheelEvent(0.0f, static_cast<float>(wheel));
+	}
 	TheosRenderPipeline::Overlay::NumericInput::Keys keys{};
 	if (focused) {
 		for (unsigned vk = VK_BACK; vk < keys.size(); ++vk) {

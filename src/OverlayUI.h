@@ -3,6 +3,7 @@
 #include <d3d11.h>
 #include <dxgi.h>
 #include <wrl/client.h>
+#include <atomic>
 #include <functional>
 #include <string_view>
 
@@ -36,6 +37,8 @@ public:
     void OnPresent(ID3D11Texture2D* producerUI = nullptr);
 
     void ObserveGameHotkeys(const std::vector<UINT>& pressedKeys) { hotkeys.ObserveGameKeys(pressedKeys); }
+    // Wheel notches from Skyrim's input thread; PollInput drains them on Present.
+    void ObserveGameWheel(int notches) { pendingWheel += notches; }
 
     // The renderer state the menu draws from (OverlayFrameView.h).
     struct FrameView;
@@ -149,6 +152,7 @@ private:
 	bool textInputCaptured{ false };
 	TheosRenderPipeline::Overlay::NumericInput numericInput;
 	TheosRenderPipeline::Overlay::WindowHotkeys hotkeys;
+	std::atomic_int pendingWheel{0};
 
 	IDXGISwapChain* swapChain{ nullptr };
 	ID3D11Device* device{ nullptr };

@@ -15,6 +15,10 @@ namespace TheosRenderPipeline::Overlay
                 const auto pressed = CollectGameHotkeyPresses(events ? *events : nullptr, RE::INPUT_DEVICE::kKeyboard);
                 // Even an empty batch closes the previous matching interval.
                 OverlayUI::GetSingleton()->ObserveGameHotkeys(pressed);
+                if (const int wheel = CollectGameWheel(events ? *events : nullptr, RE::INPUT_DEVICE::kMouse,
+                        RE::BSWin32MouseDevice::Keys::kWheelUp, RE::BSWin32MouseDevice::Keys::kWheelDown)) {
+                    OverlayUI::GetSingleton()->ObserveGameWheel(wheel);
+                }
                 return RE::BSEventNotifyControl::kContinue;
             }
         };
