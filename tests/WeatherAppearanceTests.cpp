@@ -661,6 +661,32 @@ static void PresetFileSystem()
     Require(handSave.Ok() && handSave.unchanged == 2 && text.starts_with("; my notes"),
         "unchanged hand-written preset files are left alone");
     in.close();
+
+    // A new preset whose name matches a file that is not a loaded preset leaves that file alone.
+    const auto notes = folder / "Notes.ini";
+    { std::ofstream(notes) << "[Notes]\nkeep = me\n"; }
+    auto withNew = handSave.settings;
+    AddPreset(withNew, "Notes");
+    const auto collided = SavePresetFiles(withNew, folder);
+    std::ifstream notesIn(notes);
+    const std::string notesText((std::istreambuf_iterator<char>(notesIn)), {});
+    Require(!collided.Ok() && notesText.starts_with("[Notes]"), "a new preset does not overwrite an unloaded file");
+    notesIn.close();
+    // A rename chain (first takes the second's name, the second moves on) never
+    // overwrites the second's file before it has been written elsewhere.
+    auto swapped = handSave.settings;
+    const auto firstFile = folder / Utf8Path(swapped.presets[0].file);
+    const auto second = swapped.presets[1].name;
+    swapped.presets[1].name = "Moved";
+    swapped.presets[0].name = second;
+    const auto chain = SavePresetFiles(swapped, folder);
+    const auto moved = LoadSettings(main, ReadPresetFolder(folder).Views());
+    const auto movedPreset = std::ranges::find(moved.presets, std::string("Moved"), &NamedProfile::name);
+    Require(!chain.Ok() && std::filesystem::exists(firstFile) && movedPreset != moved.presets.end() &&
+        movedPreset->profile == swapped.presets[1].profile,
+        "a rename chain moves the second preset and keeps the first's file instead of overwriting");
+    const auto finished = SavePresetFiles(chain.settings, folder);
+    Require(finished.Ok() && !std::filesystem::exists(firstFile), "saving again completes the rename");
     std::filesystem::remove_all(root);
 }
 static void MigrationAndSchedule()
