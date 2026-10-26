@@ -82,14 +82,18 @@ void Conversions()
 "NR Pass %d: %s" = "NR %s"
 "Uses about 19% fewer model pixels." = "约少 19% 的模型像素。"
 "{} passes" = "{} 遍 (100% 输入)"
+"At Intel's default (0.70)." = "{%s%s%s}"
+"{} frames" = "{} %s"
 )ini", "formats.ini", &warnings);
 	Require(table->Find("Pass %d: %.1f%%"), "matching conversions are kept");
 	Require(!table->Find("Limited to %.0f%% so the menu fits."), "a different conversion keeps English");
 	Require(!table->Find("NR Pass %d: %s"), "a missing conversion keeps English");
 	Require(Warned(warnings, "formats.ini:3:") && Warned(warnings, "formats.ini:4:"), "each rejected entry is reported");
 	Require(table->Find("Uses about 19% fewer model pixels."), "a percent sign in prose is not a conversion");
-	Require(table->Find("{} passes"), "std::format text is not checked for % conversions");
-	Require(warnings.size() == 2, "only the mismatched entries warn");
+	Require(table->Find("{} passes"), "a percent sign in std::format text is not a conversion");
+	Require(!table->Find("At Intel's default (0.70)."), "a brace does not let a translation add conversions to plain text");
+	Require(!table->Find("{} frames"), "std::format text cannot gain printf conversions");
+	Require(warnings.size() == 4, "only the mismatched entries warn");
 }
 
 // Activation from the Lang folder, Translate, TRF and the catalogue.
