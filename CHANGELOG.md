@@ -5,6 +5,30 @@
   frame off and smeared. The first skipped frame now stores the change it
   carried, so each skipped frame moves it one frame. Every other frame is
   unchanged.
+- The mouse wheel now scrolls the menu. Skyrim reads the mouse through
+  DirectInput, so the menu takes the wheel from Skyrim's own input events.
+- Save as default no longer turns NR off when NR's runtime is missing at the
+  time (for example while its mod is disabled); the saved request stays and NR
+  resumes once the runtime is back.
+- An NR runtime that fails before NVIDIA's code runs (it does not load, a
+  different NR DLL is already loaded, or it is not a supported build) is now
+  skipped for the next runtime instead of stopping the game's presentation.
+  Automatic also moves on from a runtime file that is not a supported build.
+- Saving a new or renamed weather override no longer overwrites an existing file
+  of the same name in `Presets`, such as one the game did not load or another
+  override renamed in the same save; the save reports it instead.
+- Fix a crash when another mod validates a texture description through the
+  game's device without creating the texture.
+- A language file can no longer slip printf placeholders into plain menu text
+  behind a `{`; such an entry keeps the English.
+- An empty NR answer (as on a feature's first frame) now keeps the scene on the
+  Community Shaders colour path and with Broad/Detail tone controls, instead of
+  showing a black or brightness-shifted frame.
+- XeFG no longer refuses to start in very large load orders (over 1,024 loaded
+  modules), and its x3-x6 pacing no longer keeps bad history after pauses of
+  more than about 15 minutes.
+- The camera jitter sequence keeps cycling in sessions longer than about 39
+  hours.
 
 # 0.5.4
 
