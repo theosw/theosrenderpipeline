@@ -334,7 +334,6 @@ void OverlayUI::RefreshNeuralRuntimeAvailability()
             TheosRenderPipeline::PluginPaths::Directory(),
             TheosRenderPipeline::SourceDLSSG::Backend::Get().NeuralComputeCapability(),
             TheosRenderPipeline::NeuralRendering::RuntimeKernelsSupported()));
-    settingsDraft.sourceDLSSG.neuralEnabled &= nrRuntimePresent;
 #endif
 }
 
