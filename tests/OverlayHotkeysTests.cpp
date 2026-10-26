@@ -243,6 +243,17 @@ int main()
     Pump(); keys.ObserveGameKeys({VK_F10});
     Expect({VK_F10}, "removed message queues exactly once");
 
+    // Window wheel messages add up to notches; a half-notch precision delta waits for its pair.
+    Reset();
+    keys.TakeWheel();
+    Post(MAKEWPARAM(0, 2 * WHEEL_DELTA), WM_MOUSEWHEEL, 0);
+    Post(MAKEWPARAM(0, WHEEL_DELTA / 2), WM_MOUSEWHEEL, 0);
+    Require(keys.TakeWheel() == 2, "two wheel notches arrive through window messages");
+    Post(MAKEWPARAM(0, WHEEL_DELTA / 2), WM_MOUSEWHEEL, 0);
+    Post(MAKEWPARAM(0, static_cast<WORD>(-WHEEL_DELTA)), WM_MOUSEWHEEL, 0);
+    Require(keys.TakeWheel() == 0 && keys.TakeWheel() == 0, "a completed half notch and one notch back cancel");
+    Expect({}, "wheel messages queue no hotkey");
+
     Reset();
     consumeMessages = true;
     Post(VK_F10); keys.ObserveGameKeys({});

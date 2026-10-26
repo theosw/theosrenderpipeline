@@ -217,6 +217,14 @@ namespace TheosRenderPipeline::Overlay
             return;
         }
 
+        if (message.message == WM_MOUSEWHEEL) {
+            // Partial deltas from precision wheels add up to whole notches.
+            static int remainder = 0;
+            remainder += GET_WHEEL_DELTA_WPARAM(message.wParam);
+            wheel_ += remainder / WHEEL_DELTA;
+            remainder %= WHEEL_DELTA;
+            return;
+        }
         UINT key{};
         switch (message.message) {
         case WM_KEYDOWN:
