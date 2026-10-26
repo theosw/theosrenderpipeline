@@ -5,8 +5,12 @@
   frame off and smeared. The first skipped frame now stores the change it
   carried, so each skipped frame moves it one frame. Every other frame is
   unchanged.
-- The mouse wheel now scrolls the menu. Skyrim reads the mouse through
-  DirectInput, so the menu takes the wheel from Skyrim's own input events.
+- The mouse wheel now scrolls the menu. It is taken from window messages while
+  the menu's cursor is free, and from Skyrim's own input events otherwise.
+- Underwater, the motion repair no longer swaps the game's D3D11 state. On
+  NVIDIA's driver the swap rewrote most of the context's function table, where
+  TRP's HUD routing hooks live; it now saves and restores just the bindings it
+  uses.
 - Save as default no longer turns NR off when NR's runtime is missing at the
   time (for example while its mod is disabled); the saved request stays and NR
   resumes once the runtime is back.
