@@ -211,7 +211,7 @@ int RenderPipeline::JitterPhaseCount() const
 void RenderPipeline::GetJitters(float* a_outX, float* a_outY)
 {
 	mJitterIndex++;
-	DLSSBackend::GetJitterOffset(a_outX, a_outY, static_cast<int>(mJitterIndex), JitterPhaseCount());
+	DLSSBackend::GetJitterOffset(a_outX, a_outY, static_cast<int>(mJitterIndex & 0x3FFFFFFFu), JitterPhaseCount());
 }
 
 void RenderPipeline::SetJitterOffsets(float a_x, float a_y)
