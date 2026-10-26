@@ -47,6 +47,7 @@ inline const OverrideNotes*& ActiveOverrideNotes()
     static const OverrideNotes* notes{};
     return notes;
 }
+// translated where shown (OverlaySettingRows.h)
 inline constexpr const char* RestartsNRHelp = "Changing this restarts NR briefly. A weather override that changes it "
                                               "can hitch when the weather changes.";
 }

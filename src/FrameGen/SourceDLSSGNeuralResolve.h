@@ -45,8 +45,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 		static constexpr unsigned kBaseStages = 16;
 		static constexpr unsigned kExtraPassSteps = 4;
 		static constexpr unsigned kExtraStagesEnd = kBaseStages + kExtraPassSteps * (static_cast<unsigned>(NeuralRendering::kExtraPasses) - 1);
-		// Model rate: capture guides, compose motion, store the change, reproject it.
-		static constexpr unsigned kModelRateStages = 4;
+		// Model rate: capture guides, compose motion, store the change, reproject it,
+		// and on a second skip in a row compose the motion back and capture it again.
+		static constexpr unsigned kModelRateStages = 6;
 		static constexpr unsigned kStages = kExtraStagesEnd + kModelRateStages;
 		static constexpr unsigned ModelRateStage(unsigned step) { return kExtraStagesEnd + step; }
 		// pass is 1 for Pass 2 up to 4 for Pass 5.

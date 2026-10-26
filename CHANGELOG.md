@@ -1,3 +1,35 @@
+# 0.5.4
+
+Game-tested on an RTX 4080 SUPER (LoreRim) with the release package: Photo Mode and
+PrintScreen at 5120x1440, two quicksaves with depth of field off and SSE Engine
+Fixes' save screenshot fix turned off (both saved at once with correct thumbnails),
+the Lab Every third frame switch, and the menu at 75% zoom in English and Chinese.
+
+- Fix the mouse cursor disappearing in the menu at 75% zoom. ImGui rounds the
+  cursor's scale down to a whole number, which was 0 below 100%; the cursor now
+  follows the zoom and is never smaller than normal.
+- About 70 menu texts can now be translated: help texts in a condition, text built
+  with `std::format`, status lines from the object hooks and the DLSS preset
+  description, and words dropped into a translated sentence (such as the mask
+  preview's group names). `tools/lang/audit.py --unwrapped` lists menu text that
+  bypasses translation; it reports none. Thanks to BUNNIKE for the report.
+- Fix quicksaves (and other saves) waiting until a menu opened when Skyrim's
+  depth of field is off (`bDoDepthOfField=0`). Skyrim draws a save's thumbnail
+  only while TAA or depth of field runs, and TRP keeps Skyrim's TAA off for DLSS;
+  it now lets TAA run for the frames Skyrim asks for a save thumbnail. Thanks to
+  jackson8541 for the report.
+- Photo Mode photos now contain TRP's finished frame at the output resolution, as
+  PrintScreen screenshots do since 0.5.3. Photo Mode raises Skyrim's screenshot
+  flag but writes its own photo, so TRP captures the frame on the flag and
+  replaces the new render-size PNG that appears in `My Games\Skyrim Special
+  Edition\Photos` within five seconds. Photo Mode's gallery thumbnail is unchanged.
+- Lab mode adds **Every third frame (Lab)** under NR's Model rate. While it is on,
+  Every other frame runs the model on one frame in three instead, and the two
+  frames between carry its change on one frame at a time with motion vectors and
+  depth. It saves little more GPU time than Every other frame (about 0.45 ms per
+  frame on an RTX 4080 SUPER), ghosts more in fast motion and paces less evenly.
+  It is not saved and is off at every start.
+
 # 0.5.3
 
 Game-tested on an RTX 4080 SUPER with DLSS-G and XeFG frame generation: the Simplified

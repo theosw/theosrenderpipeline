@@ -557,6 +557,9 @@ private:
     void ForwardInput()
     {
         auto& io = ImGui::GetIO();
+        // A scripted run draws the in-game software cursor, as the game does, so a
+        // saved PNG shows it; interactive runs keep the Windows cursor.
+        io.MouseDrawCursor = Scripted() && forwardMouse_;
         if (forwardMouse_)
             io.AddMousePosEvent(mousePos_.x, mousePos_.y);
         else

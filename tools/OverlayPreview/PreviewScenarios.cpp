@@ -363,6 +363,16 @@ PreviewScenario ModelRate()
     return scenario;
 }
 
+// Lab mode on Every other frame, so the Every third frame (Lab) switch shows.
+PreviewScenario ModelRateLab()
+{
+    auto scenario = ModelRate();
+    scenario.name = "model-rate-lab";
+    scenario.summary = "NR model every other frame in Lab mode, with the Every third frame switch";
+    scenario.labMode = true;
+    return scenario;
+}
+
 // A non-NVIDIA GPU: XeSS upscaling and XeFG x2, with NR unavailable.
 PreviewScenario Intel();
 // Universal on NVIDIA: the tensor model was asked for x5 and safely refused, so
@@ -440,5 +450,5 @@ PreviewScenario Lab()
 
 std::vector<PreviewScenario> PreviewScenarios()
 {
-    return {Healthy(), NROff(), Presets(), CommunityShaders(), HostUnavailable(), Objects(), FivePasses(), Compare(), Exposure(), Steady(), ModelRate(), Intel(), TensorRefused(), Lab()};
+    return {Healthy(), NROff(), Presets(), CommunityShaders(), HostUnavailable(), Objects(), FivePasses(), Compare(), Exposure(), Steady(), ModelRate(), ModelRateLab(), Intel(), TensorRefused(), Lab()};
 }
