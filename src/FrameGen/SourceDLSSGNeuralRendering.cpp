@@ -483,6 +483,13 @@ namespace TheosRenderPipeline::SourceDLSSG
 				constants, hudless, rateChange_.Get(), currentGuides, corrected_.Get(), nullptr, previousGuides); FAILED(hr)) {
 				status_ = std::format("NR model-rate reprojection failed 0x{:08X}", static_cast<UINT>(hr)); return false;
 			}
+			if (rate.storeChange) {
+				// Every third frame, first skip: the next frame reprojects from this
+				// one with this frame's guides, so store the change carried onto it
+				// before a preview or UI draws over corrected_.
+				if (!dispatch(NeuralResolveKernels::ModelRateStage(2), ResolveKernel::StoreChange, hudless, corrected_.Get(), nullptr,
+					rateChange_.Get())) { return false; }
+			}
 			if (rate.accumulateMotion) {
 				// Every third frame, second skip: reprojection above moved the stored
 				// change one frame. The next evaluation's history is three frames old,
