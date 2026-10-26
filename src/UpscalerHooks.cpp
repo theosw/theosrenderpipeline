@@ -303,7 +303,8 @@ HRESULT WINAPI hk_ID3D11Device_CreateTexture2D(ID3D11Device* This, const D3D11_T
 			pDesc->SampleDesc.Count);
 	}
 	static bool locking = false;
-	if (locking || FAILED(hr) || !pDesc) {
+	// A null output pointer is a legal validation-only call (S_FALSE): nothing to capture.
+	if (locking || FAILED(hr) || !pDesc || !ppTexture2D || !*ppTexture2D) {
 		return hr;
 	}
 	auto upscaler = RenderPipeline::GetSingleton();
