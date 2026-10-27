@@ -2,6 +2,7 @@
 #include "SourceDLSSGNeuralRendering.h"
 #include "TRPNeuralShaders.generated.h"
 #include <chrono>
+#include <utility>
 
 namespace TheosRenderPipeline::SourceDLSSG
 {
@@ -63,6 +64,31 @@ namespace TheosRenderPipeline::SourceDLSSG
 			timestampReadback_->Unmap(0, &written);
 			mappedTimestamps_ = nullptr;
 		}
+	}
+
+	bool NeuralPass::RetireChangedModels(const NeuralOptions& options)
+	{
+		if (reconstruction_.preset != options.reconstruction.preset) {
+			if (!feature_.ResetAfterRetirement()) { return false; }
+			firstHistoryInvalid_ = true;
+			reconstruction_.preset = options.reconstruction.preset;
+		}
+		bool invalidate = firstHistoryInvalid_;
+		for (std::size_t i = 0; i + 1 < static_cast<std::size_t>(options.passes); ++i) {
+			const auto wanted = options.EffectiveExtra(i);
+			if (extra_[i].settings.preset != wanted.preset) {
+				if (!extra_[i].feature.ResetAfterRetirement()) { return false; }
+				extra_[i].settings.preset = wanted.preset;
+				// Retain all unaffected owners, but let only a ready prefix run.
+				createdPasses_ = (std::min)(createdPasses_, static_cast<int>(i) + 1);
+				invalidate = true;
+			}
+			extra_[i].historyInvalid |= invalidate;
+		}
+		startablePasses_ = NeuralRendering::kMaxNeuralPasses;
+		passNote_.clear();
+		rateSchedule_ = {};
+		return true;
 	}
 
 	void NeuralPass::InitializeTelemetry(ID3D12Device* device, std::uint64_t timestampFrequency)
@@ -235,7 +261,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		info.renderWidth = reconstruction.peripheralCompression ? workWidth : static_cast<UINT>(motion->GetDesc().Width);
 		info.renderHeight = reconstruction.peripheralCompression ? workHeight : motion->GetDesc().Height;
 		// Each identified runtime contract selects its own default preset.
-		info.networkPreset = reconstruction.preset == 0 ? -1 : reconstruction.preset;
+		info.networkPreset = NeuralRendering::RequestedNetworkPreset(reconstruction.preset);
 		if (!feature_.EnsureInitialized(info)) { status_ = feature_.Status(); return false; }
 		// Pass 1 and 2 start together as before; Passes 3 to 5 follow one per frame.
 		auto ramp = NeuralRendering::NextFeatureRamp(createdPasses_, options.passes, startablePasses_);
@@ -243,7 +269,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			const auto& plan = plans[i];
 			auto& feature = extra_[i].feature;
 			info.displayWidth = plan.width; info.displayHeight = plan.height;
-			info.networkPreset = plan.settings.preset == 0 ? -1 : plan.settings.preset;
+			info.networkPreset = NeuralRendering::RequestedNetworkPreset(plan.settings.preset);
 			if (reconstruction.peripheralCompression) { info.renderWidth = plan.width; info.renderHeight = plan.height; }
 			if (!feature.EnsureInitialized(info)) {
 				// NGX refusing a later pass is not a reason to drop the runtime: the
@@ -373,6 +399,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			status_ = "NR source input contract is incomplete"; return false;
 		}
 		if (!Initialize(device, options, motion, hudless, composed)) { return false; }
+		reset |= std::exchange(firstHistoryInvalid_, false);
 		// Before upscaling the held frame would reach DLSS without its jitter.
 		if (!HoldFrame(device, list, options.compare.freeze && !options.beforeUpscaling, motion, depth, hudless, objectMask, reset)) {
 			return false;
@@ -430,10 +457,13 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// The passes whose object controls run this frame. A change resets their histories.
 		std::array<bool, NeuralRendering::kMaxNeuralPasses> controlWanted{};
 		bool controlReset = false;
+		bool firstControlReset = false;
 		for (unsigned pass = 0; pass < controlWanted.size(); ++pass) {
 			controlWanted[pass] = objectMask && pass < unsigned(effectivePasses) &&
 				NeuralRendering::UsesReconstructionContract(feature_.Build()) && options.objectMasks.passes[pass].Active();
 			controlReset |= controlWanted[pass] != objectControlActive_[pass];
+			if (pass == 0) { firstControlReset = controlReset; }
+			else { extra_[pass - 1].historyInvalid |= controlReset; }
 		}
 
 		// Model rate: decide before preparing anything for the model (NeuralModelRate.h).
@@ -627,7 +657,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			input.motionVectorScaleX = reconstruction.peripheralCompression ? 1.0f : scaleX * motionRatio;
 			input.motionVectorScaleY = reconstruction.peripheralCompression ? 1.0f : scaleY * motionRatio;
 			input.reset = reset; input.depthInverted = depthInverted; input.tuning = options.tuning;
-			input.reset |= controlReset;
+			input.reset |= firstControlReset;
 			input.controlMask=controls[0];
 			if (input.controlMask) {
 				// The provider multiplies mask RGB by these global controls. Absolute

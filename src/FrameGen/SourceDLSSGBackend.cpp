@@ -16,6 +16,7 @@
 #include "../RenderPipeline.h"
 #include "../PerformanceTuning.h"
 #include "SourceFrameGeneration.h"
+#include "StartupFallback.h"
 #include <d3dcompiler.h>
 #include <chrono>
 #if !defined(TRP_NO_NEURAL_RENDERING)
@@ -260,6 +261,18 @@ namespace TheosRenderPipeline::SourceDLSSG
 		streamlineFactory_ = upgradedFactory;
 		return true;
 	}
+	bool Backend::EnterStartupTransport()
+	{
+		if (!device12_ || !CanUseStartupTransport(fault_, device12_->GetDeviceRemovedReason(), presenterAttempted_)) { return false; }
+		startupFailure_ = status_;
+		startupTransport_ = true;
+		// This is a new, explicit transport state, not a repaired Streamline
+		// session. Retain all partial SDK state; never call slInit again here.
+		fault_ = S_OK;
+		providerStatus_ = std::format("Normal presentation; DLSS-G/Reflex/NR unavailable: {}. Restart to retry.", startupFailure_);
+		logger::warn("[FrameGeneration] {}", providerStatus_);
+		return true;
+	}
 	HRESULT Backend::CreateSwapChain(IDXGIFactory* a_factory, ID3D11Device* a_device,
 		const DXGI_SWAP_CHAIN_DESC& a_desc, const std::filesystem::path& a_directory, IDXGISwapChain** a_result)
 	{
@@ -317,7 +330,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (!intelStartup) { nvidiaStartup = std::make_unique<MFGUnlock::StartupScope>(mfgUnlock_); }
 		if (intelStartup) {
 			logger::info("[FrameGeneration] Intel startup uses XeFG/XeLL; NVIDIA runtimes are not initialized");
-		} else if (!InitializeNvidia(a_directory)) { return fault_; }
+		} else if (!InitializeNvidia(a_directory) && !EnterStartupTransport()) { return fault_; }
 		logger::info("[FrameGeneration] startup upscaler={} requested={} presenter={}",
 			communityShaders ? "Community Shaders" : xeSSStartup ? "XeSS" : "DLSS/DLAA",
 			ProviderName(startup.requested), ProviderName(startup.presenter));
@@ -344,7 +357,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			logger::warn("[DLSSNR Source] presenting queue does not expose GPU timestamp frequency; CPU boundary timing remains available");
 		}
 #endif
-		if (!intelStartup && !UpgradeNvidiaFactory()) { return fault_; }
+		if (!intelStartup && !startupTransport_ && !UpgradeNvidiaFactory() && !EnterStartupTransport()) { return fault_; }
 		auto desc = a_desc;
 		window_ = a_desc.OutputWindow;
 		{
@@ -375,7 +388,10 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// context when the saved presenter is NVIDIA.
 		if (xeSSStartup &&
 			!Check(xess_.Open(device12_.Get(), PluginPaths::IntelDirectory()), "XeSS context", "XeSS")) { return fault_; }
-		if (intelStartup) {
+		presenterAttempted_ = true; // Never fall back after any presenter factory call, even if it returns failure.
+		if (startupTransport_) {
+			if (!Check(nativeFactory_->CreateSwapChain(queue_.Get(), &desc, &native), "normal startup transport")) { return fault_; }
+		} else if (intelStartup) {
 			if (!CheckXeFG(xefg_.Probe(device12_.Get(), PluginPaths::IntelDirectory(), xefgTensorRequested_)) ||
 				!CheckXeFG(xefg_.Create(device12_.Get(), queue_.Get(), nativeFactory_.Get(), desc, XeFGStartupInvertedDepth(communityShaders), &native, 0,
 					XeFGConfiguration(), IntelPipelines(XeFGPipelineCache(), xefg_.PipelineCacheName(), xefg_.RuntimeModule())))) { return fault_; }
@@ -408,7 +424,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// Steady measures first; only a Fixed cap applies from the first frame.
 		session_.RequestOutputFPSLimit(static_cast<FrameLimitMode>(frameLimit_.load(std::memory_order_relaxed)) == FrameLimitMode::Fixed ?
 			outputFPSLimit_.load(std::memory_order_relaxed) : 0);
-		if (!intelStartup) {
+		if (!intelStartup && !startupTransport_) {
 			if (!CheckSession(session_.Start(api_, 1))) { return fault_; }
 			nvidiaSessionStarted_ = true;
 			mfgUnlock_.Tick();
@@ -420,7 +436,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		const auto rebuild = wrapper->RebuildBuffers();
 		if (FAILED(rebuild)) { wrapper->Release(); return rebuild; }
 		ready_ = true;
-		status_ = "source Streamline swapchain ready; generation off until valid inputs";
+		status_ = startupTransport_ ? providerStatus_ : "source Streamline swapchain ready; generation off until valid inputs";
 		logger::info("[SourceDLSSG] {} {}x{} format={} buffers=2", status_, desc.BufferDesc.Width, desc.BufferDesc.Height, static_cast<int>(desc.BufferDesc.Format));
 		*a_result = wrapper;
 		return S_OK;
@@ -489,6 +505,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		ID3D11Texture2D* a_ui, ID3D11Texture2D* a_hudless, FrameExtent a_renderExtent,
 		UINT a_width, UINT a_height, bool a_neuralEligible)
 	{
+		if (startupTransport_) { return Ready(); } // Plain output only; no vendor frame inputs are consumed.
 		if (!Ready() || !Session::ValidConstants(a_constants) || !a_motion || !a_depth ||
 			!a_renderExtent.width || !a_renderExtent.height) { return false; }
 		if (neuralEvaluatedEarly_) {
@@ -712,12 +729,12 @@ namespace TheosRenderPipeline::SourceDLSSG
 		const auto oldGeneration = session_.Snapshot().generationRequested;
 		const auto oldLimited = session_.Snapshot().generationLimited;
 		const auto oldRecomposition = session_.Snapshot().options.enableUserInterfaceRecomposition;
-		if (provider_ == FrameGenerationProvider::NVIDIA) { mfgUnlock_.Tick(); }
+		if (!startupTransport_ && provider_ == FrameGenerationProvider::NVIDIA) { mfgUnlock_.Tick(); }
 		session_.SetMFGUnlockState(mfgUnlock_.Snapshot().UsesCompatibilityUnlock(), mfgUnlock_.Snapshot().Ready());
 		session_.RequestGeneration(GenerationConfiguration());
 		session_.RequestReflexMode(ReflexConfiguration());
 		session_.RequestUIRecomposition(UIRecompositionConfiguration());
-		if (releaseForPreset_.exchange(false, std::memory_order_relaxed) && provider_ == FrameGenerationProvider::NVIDIA) {
+		if (releaseForPreset_.exchange(false, std::memory_order_relaxed) && !startupTransport_ && provider_ == FrameGenerationProvider::NVIDIA) {
 			session_.RequestFeatureRelease();
 			logger::info("[SourceDLSSG] frame generation preset {}: releasing DLSS-G for one Present to recreate it",
 				PresetLabel(PresetConfiguration()));
@@ -850,7 +867,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 				return S_OK;
 			});
 		}
-		if (provider_ == FrameGenerationProvider::NVIDIA && !nvidiaNeedsPresent_ && ((prepared && !CheckSession(session_.CompleteInputWrites())) ||
+		if (!startupTransport_ && provider_ == FrameGenerationProvider::NVIDIA && !nvidiaNeedsPresent_ && ((prepared && !CheckSession(session_.CompleteInputWrites())) ||
 			!CheckSession(session_.BeforePresent(generationAllowed)))) { return fault_; }
 		if (provider_ == FrameGenerationProvider::XeFG && !CheckXeFG(xefg_.FinalizePresent())) { return fault_; }
 		if (oldReflexRequest != session_.Snapshot().reflexRequested ||
@@ -877,6 +894,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 			std::scoped_lock lock(neuralMutex_);
 			const bool changed = neuralSnapshot_.active != active;
 			neuralSnapshot_.active = active;
+			neuralSnapshot_.runtimeBuild = active && neuralPass_ ? neuralPass_->Build() : NeuralRendering::RuntimeBuild::Unknown;
+			neuralSnapshot_.submittedPresets = active && neuralPass_ ? neuralPass_->SubmittedPresets() : std::array<int, NeuralRendering::kMaxNeuralPasses>{-1, -1, -1, -1, -1};
 			// A new pass runs from the frame after its feature's creation.
 			neuralSnapshot_.effectivePasses = active && neuralPass_ ?
 				(std::max)(1, (std::min)(options.EffectivePasses(), neuralPass_->ReadyPasses())) : options.EffectivePasses();
@@ -904,6 +923,13 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// (or another native error) with an unexplained E_FAIL.
 		if (FAILED(a_result)) { Check(a_result, "native Present"); }
 		if (FAILED(a_result)) { return a_result; }
+		if (startupTransport_) {
+			if (!Check(interop_.WaitForInputReaders(nullptr, 0), "normal post-Present fence bridge") ||
+				!Check(interop_.Drain(), "normal presentation retirement")) { return fault_; }
+			++transportFrame_;
+			neuralFrameBegun_ = neuralEvaluatedEarly_ = false;
+			return a_result;
+		}
 		providerSwitchPending_ = PreflightProviderSwitch();
 		if (provider_ == FrameGenerationProvider::XeFG) {
 			if (!CheckXeFG(xefg_.AfterPresent(a_result))) { return fault_; }
@@ -1297,6 +1323,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 	}
 	bool Backend::ResumeAfterResize()
 	{
+		if (startupTransport_) { return Ready(); }
 		if (nvidiaNeedsPresent_) { return Ready(); }
 		if (provider_ == FrameGenerationProvider::XeFG) { xefg_.ResetHistory(); return Ready(); }
 		return Ready() && CheckSession(session_.ResumeAfterResize());
@@ -1382,6 +1409,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 	bool Backend::ApplyProviderSwitch(SwapChain& wrapper)
 	{
 		if (!Ready()) { return false; }
+		if (startupTransport_) { return true; } // Restart is the bounded retry; partial SDK initialization is retained.
 		if (!providerSwitchPending_) {
 			return provider_ != FrameGenerationProvider::XeFG || CheckXeFG(xefg_.BeginFrame());
 		}

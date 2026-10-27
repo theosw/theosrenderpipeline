@@ -479,6 +479,21 @@ namespace TheosRenderPipeline::NeuralRendering
 	{
 		return IsInitialized() ? state_->contract.build : RuntimeBuild::Unknown;
 	}
+	int FeatureSession::SubmittedPreset() const { return IsInitialized() ? state_->contract.preset : -1; }
+	bool FeatureSession::ResetAfterRetirement()
+	{
+		if (state_->creationContext && !state_->creationContext->CanRelease()) { return false; }
+		if (state_->feature && state_->releaseFeature) {
+			const auto result = state_->releaseFeature(state_->feature);
+			if (NVSDK_NGX_FAILED(result)) {
+				state_->status = std::format("NR model replacement release refused (0x{:08X}); relaunch required", static_cast<std::uint32_t>(result));
+				return false; // Retain feature, parameters and module; do not create another owner.
+			}
+			state_->feature = nullptr;
+		}
+		state_.reset(new State);
+		return true;
+	}
 
 	std::uint64_t FeatureSession::EvaluationsRecorded() const
 	{

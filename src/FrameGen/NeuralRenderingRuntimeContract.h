@@ -67,13 +67,20 @@ namespace TheosRenderPipeline::NeuralRendering
 				preset >= 0 && preset <= 1 && std::isfinite(scalingRatio) && scalingRatio > 0 && scalingRatio <= 1;
 		}
 	};
+	// A saved zero means the runtime default, not a universal model identity.
+	inline int RequestedNetworkPreset(int saved) { return saved == 0 ? -1 : saved; }
+	inline int ResolveNetworkPreset(RuntimeBuild build, int requested)
+	{
+		if (build == RuntimeBuild::Unknown) { return -1; }
+		return requested == -1 ? (UsesReconstructionContract(build) ? 0 : 1) : requested;
+	}
 	inline FeatureContract MakeFeatureContract(RuntimeBuild build, std::uint32_t width, std::uint32_t height,
 		std::uint32_t guideWidth, std::uint32_t guideHeight, int requestedPreset = -1)
 	{
 		// Full-resolution NR uses ratio=1 with this runtime even when DLSS
 		// guides are smaller. The older runtime uses the guide-width ratio.
 		return { build, width, height, guideWidth, guideHeight,
-			requestedPreset == -1 ? (UsesReconstructionContract(build) ? 0 : 1) : requestedPreset,
+			ResolveNetworkPreset(build, requestedPreset),
 			2, UsesReconstructionContract(build) ? 1.0f : width ? float(guideWidth) / float(width) : 0.0f };
 	}
 	template<class Parameters> void WriteCreationParameters(Parameters& parameters, const FeatureContract& contract)

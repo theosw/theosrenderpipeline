@@ -6,6 +6,7 @@
 #include "NeuralObjectMask.h"
 #include "NeuralRenderingCompare.h"
 #include "NeuralRuntimeFiles.h"
+#include "NeuralRenderingRuntimeContract.h"
 #include "SourceDLSSGNeuralTelemetry.h"
 #include <algorithm>
 #include <filesystem>
@@ -77,6 +78,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 
 	struct NeuralSnapshot
 	{
+		NeuralRendering::RuntimeBuild runtimeBuild{NeuralRendering::RuntimeBuild::Unknown};
+		std::array<int, NeuralRendering::kMaxNeuralPasses> submittedPresets{-1, -1, -1, -1, -1};
 		bool active{ false }, failed{ false };
 		int effectivePasses{1};
 		NeuralRendering::PassOverride passOverride{NeuralRendering::PassOverride::None};
@@ -145,6 +148,10 @@ namespace TheosRenderPipeline::SourceDLSSG
 			// Only how many passes run changes the image, not why.
 			historyOptions.passOverride = NeuralRendering::PassOverride::None;
 			historyOptions.presetPasses = options.EffectivePasses() != options.passes ? options.EffectivePasses() : 0;
+			// Model-only changes are retired by NeuralPass, which resets just the
+			// changed pass and its downstream histories. Do not reset upstream here.
+			historyOptions.reconstruction.preset = 0;
+			for (auto& extra : historyOptions.extraPasses) { extra.preset = 0; }
 			const bool reset = cameraReset || active != active_ || (active && !SameHistoryOptions(historyOptions, previous_));
 			active_ = active;
 			previous_ = historyOptions;

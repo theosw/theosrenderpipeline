@@ -62,6 +62,7 @@ static std::array<unsigned char, 4> Pixel(ID3D11Device* device, ID3D11DeviceCont
 
 int main(int argc, char** argv)
 {
+    ReShadeIntegration::Get().ObserveLifecycle(true);
     SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
     const bool requireReShade = argc == 2 && std::string_view(argv[1]) == "--require-reshade";
     // Run beside ReShade plus a supplied incompatible add-on (ReGrade+), which
@@ -308,6 +309,18 @@ int main(int argc, char** argv)
         }
     }
     owned->get_command_queue()->wait_idle(); effects.ResetAfterRetirement();
+    const auto lifecycle=effects.Lifecycle();
+    unsigned ownedInits{}, ownedDestroys{}, foreignInits{};
+    for(std::size_t i=0;i<lifecycle.count;++i) {
+        const auto& event=lifecycle.records[i];
+        if(event.event==TheosRenderPipeline::ReShadeLifecycleEvent::InitRuntime) {
+            if(event.owned) { ++ownedInits; Require(event.nativeDevice && event.nativeQueue && event.backbuffer,"owned runtime has complete observed identities"); }
+            else ++foreignInits;
+        }
+        if(event.owned && event.event==TheosRenderPipeline::ReShadeLifecycleEvent::DestroyRuntime) ++ownedDestroys;
+    }
+    Require(ownedInits>=2 && ownedInits==ownedDestroys,"observer pairs owned recreation/destruction without taking ownership");
+    Require(foreignInits>0,"observer distinguishes the automatic D3D12 runtime");
     std::puts("PASS: actual ReShade placement, depth, source/output ownership, overlay and runtime lifecycle");
     // The output chain owns asynchronous D3D12 work; wait before releasing it.
     ComPtr<ID3D12Fence> fence; Check(device12->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence)), "retirement fence");

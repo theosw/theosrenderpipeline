@@ -79,14 +79,15 @@ namespace TheosRenderPipeline::SourceDLSSG
 			return {(value & 0x100u) != 0, value & 0xffu};
 		}
 		const std::string& ProviderStatus() const { return providerStatus_; }
-		bool GenerationActive() const { return Ready() && (provider_ == FrameGenerationProvider::XeFG ? xefg_.Snapshot().enabled : session_.Snapshot().GenerationActive()); }
-		unsigned EffectiveMultiplier() const { return provider_ == FrameGenerationProvider::XeFG ? xefg_.Snapshot().generatedFrames+1 : session_.Snapshot().options.numFramesToGenerate + 1; }
-		std::uint32_t FrameIndex() const { return provider_ == FrameGenerationProvider::XeFG ? xefg_.Snapshot().frameId : nvidiaNeedsPresent_ ? xefg_.Snapshot().frameId + 1 : session_.Snapshot().frameIndex; }
+		bool GenerationActive() const { return Ready() && !startupTransport_ && (provider_ == FrameGenerationProvider::XeFG ? xefg_.Snapshot().enabled : session_.Snapshot().GenerationActive()); }
+		unsigned EffectiveMultiplier() const { return startupTransport_ ? 1 : provider_ == FrameGenerationProvider::XeFG ? xefg_.Snapshot().generatedFrames+1 : session_.Snapshot().options.numFramesToGenerate + 1; }
+		std::uint32_t FrameIndex() const { return startupTransport_ ? transportFrame_ : provider_ == FrameGenerationProvider::XeFG ? xefg_.Snapshot().frameId : nvidiaNeedsPresent_ ? xefg_.Snapshot().frameId + 1 : session_.Snapshot().frameIndex; }
 		bool ApplyProviderSwitch(SwapChain& wrapper);
 		// A live switch to NVIDIA would be refused: NR initialized NGX before
 		// Streamline in this session. Saving NVIDIA and restarting resolves it.
 		bool NvidiaSwitchBlocked() const;
-		bool NvidiaServicesReady() const { return Ready() && nvidiaInitialized_; }
+		bool NvidiaServicesReady() const { return Ready() && nvidiaInitialized_ && !startupTransport_; }
+		bool StartupTransport() const { return startupTransport_; }
 		// CPU time of one host Present split into its phases: input/output
 		// recording, the presenter's own Present, and retirement/replacement.
 		void ObservePresentTiming(double prepareMs, double presentMs, double finishMs);
@@ -228,6 +229,10 @@ namespace TheosRenderPipeline::SourceDLSSG
 	private:
 		friend class SwapChain; // Transport failures use the same first-error latch.
 		Backend() = default;
+		bool EnterStartupTransport();
+		bool startupTransport_{}, presenterAttempted_{};
+		std::uint32_t transportFrame_{};
+		std::string startupFailure_;
 		bool Load(const std::filesystem::path& a_directory);
 		bool InitializeNvidia(const std::filesystem::path& directory);
 		bool UpgradeNvidiaFactory();

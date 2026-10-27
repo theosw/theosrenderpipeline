@@ -688,3 +688,11 @@ if(TRP_BUILD_COMPATIBILITY_TESTS)
     endforeach()
 
 endif()
+
+if(TRP_BUILD_COMPATIBILITY_TESTS)
+    add_executable(TRPRenderLifecycleTests tests/RenderLifecycleTests.cpp)
+    target_compile_features(TRPRenderLifecycleTests PRIVATE cxx_std_23)
+    target_compile_definitions(TRPRenderLifecycleTests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    target_include_directories(TRPRenderLifecycleTests PRIVATE src)
+    add_test(NAME RenderLifecycle COMMAND TRPRenderLifecycleTests)
+endif()
