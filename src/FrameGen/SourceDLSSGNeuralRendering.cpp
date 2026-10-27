@@ -2,6 +2,7 @@
 #include "SourceDLSSGNeuralRendering.h"
 #include "TRPNeuralShaders.generated.h"
 #include <chrono>
+#include <utility>
 
 namespace TheosRenderPipeline::SourceDLSSG
 {
@@ -65,6 +66,31 @@ namespace TheosRenderPipeline::SourceDLSSG
 		}
 	}
 
+	bool NeuralPass::RetireChangedModels(const NeuralOptions& options)
+	{
+		if (reconstruction_.preset != options.reconstruction.preset) {
+			if (!feature_.ResetAfterRetirement()) { return false; }
+			firstHistoryInvalid_ = true;
+			reconstruction_.preset = options.reconstruction.preset;
+		}
+		bool invalidate = firstHistoryInvalid_;
+		for (std::size_t i = 0; i + 1 < static_cast<std::size_t>(options.passes); ++i) {
+			const auto wanted = options.EffectiveExtra(i);
+			if (extra_[i].settings.preset != wanted.preset) {
+				if (!extra_[i].feature.ResetAfterRetirement()) { return false; }
+				extra_[i].settings.preset = wanted.preset;
+				// Retain all unaffected owners, but let only a ready prefix run.
+				createdPasses_ = (std::min)(createdPasses_, static_cast<int>(i) + 1);
+				invalidate = true;
+			}
+			extra_[i].historyInvalid |= invalidate;
+		}
+		startablePasses_ = NeuralRendering::kMaxNeuralPasses;
+		passNote_.clear();
+		rateSchedule_ = {};
+		return true;
+	}
+
 	void NeuralPass::InitializeTelemetry(ID3D12Device* device, std::uint64_t timestampFrequency)
 	{
 		if (telemetryAttempted_ || !device || !timestampFrequency) { return; }
@@ -72,7 +98,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		timestampFrequency_ = timestampFrequency;
 		D3D12_QUERY_HEAP_DESC query{};
 		query.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
-		query.Count = static_cast<UINT>(kCommandSlots * 2);
+		query.Count = static_cast<UINT>(kCommandSlots * 4);
 		if (FAILED(device->CreateQueryHeap(&query, IID_PPV_ARGS(&timestampHeap_)))) {
 			timestampFrequency_ = 0;
 			logger::warn("[DLSSNR Source] GPU boundary timing unavailable: timestamp heap creation failed");
@@ -82,7 +108,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		heap.Type = D3D12_HEAP_TYPE_READBACK;
 		D3D12_RESOURCE_DESC buffer{};
 		buffer.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-		buffer.Width = sizeof(std::uint64_t) * kCommandSlots * 2;
+		buffer.Width = sizeof(std::uint64_t) * kCommandSlots * 4;
 		buffer.Height = 1;
 		buffer.DepthOrArraySize = 1;
 		buffer.MipLevels = 1;
@@ -108,8 +134,12 @@ namespace TheosRenderPipeline::SourceDLSSG
 	{
 		if (slot >= pendingTiming_.size() || !pendingTiming_[slot].pending || !mappedTimestamps_) { return; }
 		const auto& pending = pendingTiming_[slot];
-		telemetry_.Record(pending.evaluation, mappedTimestamps_[slot * 2],
-			mappedTimestamps_[slot * 2 + 1], timestampFrequency_, pending.cpuRecordNanoseconds);
+		const auto query = slot * 4;
+		if (pending.modelRan) {
+			telemetry_.Record(pending.evaluation, mappedTimestamps_[query],
+				mappedTimestamps_[query + 1], timestampFrequency_, pending.cpuRecordNanoseconds);
+		}
+		telemetry_.RecordFrame(mappedTimestamps_[query + 2], mappedTimestamps_[query + 3], timestampFrequency_);
 		pendingTiming_[slot] = {};
 	}
 
@@ -231,7 +261,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		info.renderWidth = reconstruction.peripheralCompression ? workWidth : static_cast<UINT>(motion->GetDesc().Width);
 		info.renderHeight = reconstruction.peripheralCompression ? workHeight : motion->GetDesc().Height;
 		// Each identified runtime contract selects its own default preset.
-		info.networkPreset = reconstruction.preset == 0 ? -1 : reconstruction.preset;
+		info.networkPreset = NeuralRendering::RequestedNetworkPreset(reconstruction.preset);
 		if (!feature_.EnsureInitialized(info)) { status_ = feature_.Status(); return false; }
 		// Pass 1 and 2 start together as before; Passes 3 to 5 follow one per frame.
 		auto ramp = NeuralRendering::NextFeatureRamp(createdPasses_, options.passes, startablePasses_);
@@ -239,7 +269,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			const auto& plan = plans[i];
 			auto& feature = extra_[i].feature;
 			info.displayWidth = plan.width; info.displayHeight = plan.height;
-			info.networkPreset = plan.settings.preset == 0 ? -1 : plan.settings.preset;
+			info.networkPreset = NeuralRendering::RequestedNetworkPreset(plan.settings.preset);
 			if (reconstruction.peripheralCompression) { info.renderWidth = plan.width; info.renderHeight = plan.height; }
 			if (!feature.EnsureInitialized(info)) {
 				// NGX refusing a later pass is not a reason to drop the runtime: the
@@ -369,6 +399,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			status_ = "NR source input contract is incomplete"; return false;
 		}
 		if (!Initialize(device, options, motion, hudless, composed)) { return false; }
+		reset |= std::exchange(firstHistoryInvalid_, false);
 		// Before upscaling the held frame would reach DLSS without its jitter.
 		if (!HoldFrame(device, list, options.compare.freeze && !options.beforeUpscaling, motion, depth, hudless, objectMask, reset)) {
 			return false;
@@ -380,6 +411,20 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// Interop::Begin retired this exact command slot before Record was called.
 		// Reading its previous query pair therefore never adds a CPU wait.
 		HarvestTelemetry(slot);
+		const bool gpuTiming = timestampHeap_ && timestampReadback_ && mappedTimestamps_ && timestampFrequency_;
+		const auto query = static_cast<UINT>(slot * 4);
+		if (gpuTiming) { list->EndQuery(timestampHeap_.Get(), D3D12_QUERY_TYPE_TIMESTAMP, query + 2); }
+		std::uint64_t modelCPUTime{};
+		bool modelRecorded{};
+		auto finishTiming = [&] {
+			if (!gpuTiming) { return; }
+			list->EndQuery(timestampHeap_.Get(), D3D12_QUERY_TYPE_TIMESTAMP, query + 3);
+			// Skipped frames never wrote the inference pair; do not resolve/read it.
+			const bool ran = modelRecorded;
+			list->ResolveQueryData(timestampHeap_.Get(), D3D12_QUERY_TYPE_TIMESTAMP, query + (ran ? 0 : 2), ran ? 4 : 2,
+				timestampReadback_.Get(), sizeof(std::uint64_t) * (query + (ran ? 0 : 2)));
+			pendingTiming_[slot] = { feature_.EvaluationsRecorded(), modelCPUTime, true, ran };
+		};
 		// Marks left open by a failed recording are dropped with the list.
 		marks.Begin(D3D12Stage::kNeuralPrepare);
 		const auto reconstruction = NeuralRendering::SanitizeReconstruction(options.reconstruction);
@@ -412,10 +457,13 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// The passes whose object controls run this frame. A change resets their histories.
 		std::array<bool, NeuralRendering::kMaxNeuralPasses> controlWanted{};
 		bool controlReset = false;
+		bool firstControlReset = false;
 		for (unsigned pass = 0; pass < controlWanted.size(); ++pass) {
 			controlWanted[pass] = objectMask && pass < unsigned(effectivePasses) &&
 				NeuralRendering::UsesReconstructionContract(feature_.Build()) && options.objectMasks.passes[pass].Active();
 			controlReset |= controlWanted[pass] != objectControlActive_[pass];
+			if (pass == 0) { firstControlReset = controlReset; }
+			else { extra_[pass - 1].historyInvalid |= controlReset; }
 		}
 
 		// Model rate: decide before preparing anything for the model (NeuralModelRate.h).
@@ -610,7 +658,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			input.motionVectorScaleX = reconstruction.peripheralCompression ? 1.0f : scaleX * motionRatio;
 			input.motionVectorScaleY = reconstruction.peripheralCompression ? 1.0f : scaleY * motionRatio;
 			input.reset = reset; input.depthInverted = depthInverted; input.tuning = options.tuning;
-			input.reset |= controlReset;
+			input.reset |= firstControlReset;
 			input.controlMask=controls[0];
 			if (input.controlMask) {
 				// The provider multiplies mask RGB by these global controls. Absolute
@@ -618,8 +666,6 @@ namespace TheosRenderPipeline::SourceDLSSG
 				input.tuning.useAutoSkinMask = false;
 				input.tuning.intensity = input.tuning.localToneStrength = input.tuning.localStructureStrength = 1;
 			}
-			const bool gpuTiming = timestampHeap_ && timestampReadback_ && mappedTimestamps_ && timestampFrequency_;
-			const auto query = static_cast<UINT>(slot * 2);
 			marks.End(D3D12Stage::kNeuralPrepare);
 			marks.Begin(D3D12Stage::kNeuralInference);
 			if (gpuTiming) { list->EndQuery(timestampHeap_.Get(), D3D12_QUERY_TYPE_TIMESTAMP, query); }
@@ -678,15 +724,14 @@ namespace TheosRenderPipeline::SourceDLSSG
 			}
 			const auto cpuRecordNanoseconds = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
 				std::chrono::steady_clock::now() - cpuBegin).count());
+			modelCPUTime = cpuRecordNanoseconds;
 			if (!evaluated) {
 				telemetry_.RecordCPUOnly(cpuRecordNanoseconds);
 				return false;
 			}
+			modelRecorded = true;
 			if (gpuTiming) {
 				list->EndQuery(timestampHeap_.Get(), D3D12_QUERY_TYPE_TIMESTAMP, query + 1);
-				list->ResolveQueryData(timestampHeap_.Get(), D3D12_QUERY_TYPE_TIMESTAMP, query, 2,
-					timestampReadback_.Get(), sizeof(std::uint64_t) * query);
-				pendingTiming_[slot] = { feature_.EvaluationsRecorded(), cpuRecordNanoseconds, true };
 			} else {
 				telemetry_.RecordCPUOnly(cpuRecordNanoseconds);
 			}
@@ -867,6 +912,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			}
 			PublishStatus(key);
 			marks.End(D3D12Stage::kNeuralFinish);
+			finishTiming();
 			return true;
 		}
 
@@ -910,6 +956,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (FAILED(Interop::RecordCopy(list, corrected_.Get(), hudless))) { status_ = "NR HUD-less copy rejected"; return false; }
 		marks.End(D3D12Stage::kNeuralFinish);
 		PublishStatus(key);
+		finishTiming();
 		return true;
 	}
 

@@ -3,6 +3,7 @@
 #include "OverlayFrameView.h"
 #include "OverlayUI.h"
 #include "OverlayUIStyle.h"
+#include "OverlaySettingRows.h"
 #include <PCH.h>
 using namespace TheosRenderPipeline::Overlay;
 
@@ -233,12 +234,14 @@ void OverlayUI::DrawReportingDetails(const FrameView& view)
         ImGui::Text(TR("NR session request: %s | %s upscaling | %d %s"), neural.enabled ? TRC("on", "OverlayAdvancedPanel") : TRC("off", "OverlayAdvancedPanel"),
                     neural.beforeUpscaling ? TR("before") : TR("after"), neural.passes, neural.passes == 1 ? TR("pass") : TR("passes"));
         ImGui::Text(TR("NR Pass 1: %.1f%% | network %s"), neural.reconstruction.inputScale * 100,
-                    neural.reconstruction.preset == 1 ? TR("Shipping") : TR("Default"));
+                    NeuralNetworkName(neural.reconstruction.preset));
+        DrawSettingsValue(TR("Submitted network"), NeuralSubmittedNetwork(view.neuralState, 0).c_str());
         for (int pass = 2; pass <= neural.passes; ++pass)
         {
             const auto extra = neural.EffectiveExtra(static_cast<std::size_t>(pass - 2));
             ImGui::Text(TR("NR Pass %d: %s | %.1f%% | network %s"), pass, extra.linked ? TR("linked") : TR("custom"),
-                        extra.inputScale * 100, extra.preset == 1 ? TR("Shipping") : TR("Default"));
+                        extra.inputScale * 100, NeuralNetworkName(extra.preset));
+            DrawSettingsValue(TR("Submitted network"), NeuralSubmittedNetwork(view.neuralState, pass - 1).c_str());
         }
         ImGui::TextWrapped("%s", TR("Include your GPU, driver, game and TRP versions, the active renderer, settings and reproduction steps."));
         ImGui::TextWrapped("%s", TR("Attach TheosRenderPipeline.log from Documents / My Games / Skyrim Special Edition / SKSE."));

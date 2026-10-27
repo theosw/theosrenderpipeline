@@ -4,6 +4,7 @@
 #include <d3d12.h>
 #include <cstdint>
 #include <string>
+#include "ReShadeLifecycle.h"
 
 namespace TheosRenderPipeline
 {
@@ -50,6 +51,8 @@ namespace TheosRenderPipeline
         const std::string& Status() const;
         struct Counters { std::uint64_t effects{}, updates{}, failures{}; };
         Counters Snapshot() const;
+        void ObserveLifecycle(bool enabled);
+        ReShadeLifecycleSnapshot Lifecycle() const;
     private:
         ReShadeIntegration() = default;
         struct State;

@@ -17,6 +17,29 @@ static void Require(bool ok, const char* why) { if (!ok) { std::fprintf(stderr, 
 
 int main()
 {
+    {
+        SourceDLSSG::NeuralHistory history;
+        SourceDLSSG::NeuralOptions options; options.enabled=true; options.passes=5;
+        options.extraPasses[2].linked=false;
+        Require(history.ResetFor(options,true,false),"initial chain resets");
+        Require(!history.ResetFor(options,true,false),"unchanged chain keeps history");
+        options.extraPasses[2].preset=1;
+        Require(!history.ResetFor(options,true,false),"model-only edit delegates selective downstream reset");
+        options.extraPasses[2].inputScale=.5f;
+        Require(history.ResetFor(options,true,false),"resource edit still resets the chain");
+    }
+    for (const auto build : {RuntimeBuild::Legacy, RuntimeBuild::Build14, RuntimeBuild::Nexus3108, RuntimeBuild::Version310}) {
+        for (int saved : {0, 1}) {
+            const auto requested = NeuralRendering::RequestedNetworkPreset(saved);
+            const auto contract = NeuralRendering::MakeFeatureContract(build, 64, 32, 32, 16, requested);
+            Require(contract.Valid() && contract.preset == (saved == 1 || build == RuntimeBuild::Legacy ? 1 : 0),
+                "saved default is resolved through the identified runtime contract");
+        }
+    }
+    Require(NeuralRendering::ResolveNetworkPreset(RuntimeBuild::Unknown, -1) == -1,
+        "unknown build has no verified submitted default");
+    Require(!NeuralRendering::MakeFeatureContract(RuntimeBuild::Version310, 64, 32, 32, 16, 2).Valid(),
+        "unqualified preset 2 remains gated");
     using NeuralRendering::MatchRuntime;
     using NeuralRendering::kRuntimeSize;
     // Known builds keep their exact mapping.

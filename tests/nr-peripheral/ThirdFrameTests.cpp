@@ -59,6 +59,7 @@ int main()
         // first-use compilation cannot trip the production gap reset.
         record(0, true); record(1, false); record(2, false);
         const auto telemetryBefore = pass.Telemetry().gpuSamples;
+        const auto framesBefore = pass.Telemetry().frameSamples;
         for (unsigned f = 0; f < 3; ++f) {
             const auto ran = record(f, f == 0);
             Require(ran == (f == 0 ? unsigned(passes) : 0), "evaluate then two skips, across the whole chain");
@@ -78,8 +79,12 @@ int main()
         }
         pass.RetireTelemetry(); // GPU fixture already retired every list.
         const auto timing = pass.Telemetry();
-        Require(timing.gpuSamples > telemetryBefore && timing.gpuSamples == modelSamples && !timing.gpuQueryFailures,
-            "inference timing counts the model runs only, with valid timestamps");
+        Require(timing.frameSamples > framesBefore && timing.gpuSamples > telemetryBefore,
+            "whole-frame and inference timestamps are harvested independently");
+        Require(timing.frameSamples == serial && timing.gpuSamples == modelSamples,
+            "whole-frame timing includes both skips; inference timing excludes them");
+        Require(timing.frameTicksTotal > timing.gpuTicksTotal && !timing.frameQueryFailures && !timing.gpuQueryFailures,
+            "total span includes model plus preparation/reprojection/storage, with valid timestamps");
         // Resets, changing output settings and switching rates must not reuse
         // the previous two-skip result out of turn.
         Require(record(0, true) == unsigned(passes), "reset forces evaluation");
@@ -94,5 +99,5 @@ int main()
         pass.RetireTelemetry();
     }
     LabEveryThirdFrame() = false;
-    std::puts("PASS: third-frame production pixels, 1/2/5 passes, both placements, native UI, invalidation, live rates and inference timing");
+    std::puts("PASS: third-frame production pixels, 1/2/5 passes, both placements, native UI, invalidation, live rates and retired timing");
 }

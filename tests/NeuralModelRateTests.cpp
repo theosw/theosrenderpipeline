@@ -21,6 +21,20 @@ static ModelRateFrame Alternate(bool reset = false, bool changed = false, bool f
 
 int main()
 {
+    {
+        TheosRenderPipeline::SourceDLSSG::NeuralTelemetryTracker timing;
+        Require(!timing.Snapshot().frameSamples, "absent timing is not a measured zero");
+        timing.RecordFrame(0, 9000, 1'000'000);
+        timing.RecordFrame(0, 2000, 1'000'000);
+        timing.RecordFrame(0, 1000, 1'000'000);
+        Require(timing.Snapshot().AverageFrameGPUMicroseconds() == 4000, "measured per-frame work includes both skipped frames");
+        timing.RecordFrame(2, 1, 1'000'000); timing.RecordFrame(0, 1, 0); timing.RecordFrame(0, 1, 2'000'000);
+        Require(timing.Snapshot().frameSamples == 3 && timing.Snapshot().frameQueryFailures == 3,
+            "invalid or cross-domain timestamps cannot enter the average");
+        for (unsigned i = 0; i < 128; ++i) { timing.RecordFrame(0, 1000, 1'000'000); }
+        Require(timing.Snapshot().frameSamples == 128 && timing.Snapshot().AverageFrameGPUMicroseconds() == 1000,
+            "recent window expires older settings and rate costs");
+    }
     // Every frame evaluates and keeps nothing.
     {
         ModelRateSchedule schedule;

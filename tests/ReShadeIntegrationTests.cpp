@@ -62,6 +62,7 @@ static std::array<unsigned char, 4> Pixel(ID3D11Device* device, ID3D11DeviceCont
 
 int main(int argc, char** argv)
 {
+    ReShadeIntegration::Get().ObserveLifecycle(true);
     SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
     const bool requireReShade = argc == 2 && std::string_view(argv[1]) == "--require-reshade";
     // Run beside ReShade plus a supplied incompatible add-on (ReGrade+), which
@@ -308,6 +309,37 @@ int main(int argc, char** argv)
         }
     }
     owned->get_command_queue()->wait_idle(); effects.ResetAfterRetirement();
+    // The native D3D12 presenter intentionally has no automatic runtime. Use
+    // a separate ordinary D3D11 window to exercise a foreign runtime's real
+    // device/runtime initialization and destruction notifications.
+    HWND foreignWindow=CreateWindowW(wc.lpszClassName,L"TRP foreign runtime fixture",WS_POPUP,0,0,outputWidth,outputHeight,nullptr,nullptr,wc.hInstance,nullptr);
+    Require(foreignWindow!=nullptr,"separate foreign-runtime window");
+    DXGI_SWAP_CHAIN_DESC foreignDesc{};
+    foreignDesc.BufferDesc.Width=outputWidth; foreignDesc.BufferDesc.Height=outputHeight;
+    foreignDesc.BufferDesc.Format=DXGI_FORMAT_R8G8B8A8_UNORM; foreignDesc.SampleDesc.Count=1;
+    foreignDesc.BufferUsage=DXGI_USAGE_RENDER_TARGET_OUTPUT; foreignDesc.BufferCount=2;
+    foreignDesc.OutputWindow=foreignWindow; foreignDesc.Windowed=TRUE; foreignDesc.SwapEffect=DXGI_SWAP_EFFECT_DISCARD;
+    ComPtr<IDXGISwapChain> foreignChain; ComPtr<ID3D11Device> foreignDevice; ComPtr<ID3D11DeviceContext> foreignContext;
+    Check(D3D11CreateDeviceAndSwapChain(nullptr,D3D_DRIVER_TYPE_HARDWARE,nullptr,0,nullptr,0,D3D11_SDK_VERSION,
+        &foreignDesc,&foreignChain,&foreignDevice,nullptr,&foreignContext),"ordinary foreign-runtime creation");
+    Check(foreignChain->Present(0,0),"foreign runtime Present");
+    Require(owned!=nullptr,"ordinary foreign runtime callback");
+    owned->get_command_queue()->wait_idle();
+    foreignChain.Reset(); foreignContext.Reset(); foreignDevice.Reset(); DestroyWindow(foreignWindow);
+    const auto lifecycle=effects.Lifecycle();
+    unsigned ownedInits{}, ownedDestroys{}, foreignInits{};
+    for(std::size_t i=0;i<lifecycle.count;++i) {
+        const auto& event=lifecycle.records[i];
+        std::printf("lifecycle seq=%llu event=%u owned=%u api=%u runtime=%llx device=%llx native=%llx queue=%llx buffer=%llx\n",
+            event.sequence,unsigned(event.event),unsigned(event.owned),event.api,event.runtime,event.device,event.nativeDevice,event.nativeQueue,event.backbuffer);
+        if(event.event==TheosRenderPipeline::ReShadeLifecycleEvent::InitRuntime) {
+            if(event.owned) { ++ownedInits; Require(event.nativeDevice && event.nativeQueue && event.backbuffer,"owned runtime has complete observed identities"); }
+            else ++foreignInits;
+        }
+        if(event.owned && event.event==TheosRenderPipeline::ReShadeLifecycleEvent::DestroyRuntime) ++ownedDestroys;
+    }
+    Require(ownedInits>=2 && ownedInits==ownedDestroys,"observer pairs owned recreation/destruction without taking ownership");
+    Require(foreignInits>0,"observer distinguishes the ordinary foreign D3D11 runtime");
     std::puts("PASS: actual ReShade placement, depth, source/output ownership, overlay and runtime lifecycle");
     // The output chain owns asynchronous D3D12 work; wait before releasing it.
     ComPtr<ID3D12Fence> fence; Check(device12->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence)), "retirement fence");

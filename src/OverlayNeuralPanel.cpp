@@ -32,7 +32,7 @@ void DrawNRAppliedPasses(const OverlayUI::FrameView& view, const TheosRenderPipe
     const auto height = applied.beforeUpscaling ? view.renderHeight : view.outputHeight;
     DrawSettingsValue(TR("Placement"), applied.beforeUpscaling ? TR("Before upscaling") : TR("After upscaling"));
     DrawSettingsValue(TR("Scene"), std::format("{} x {}", width, height).c_str());
-    auto pass = [&](const char* label, float scale, int preset) {
+    auto pass = [&](const char* label, float scale, int preset, int index) {
         auto config = applied.reconstruction;
         config.inputScale = scale;
         ImGui::Separator();
@@ -41,12 +41,13 @@ void DrawNRAppliedPasses(const OverlayUI::FrameView& view, const TheosRenderPipe
                                       TheosRenderPipeline::NeuralRendering::ModelExtent(height, config))
                               .c_str());
         DrawSettingsValue(TR("Network"), NeuralNetworkName(preset));
+        DrawSettingsValue(TR("Submitted network"), NeuralSubmittedNetwork(view.neuralState, index).c_str());
     };
-    pass(TR("Pass 1"), applied.reconstruction.inputScale, applied.reconstruction.preset);
+    pass(TR("Pass 1"), applied.reconstruction.inputScale, applied.reconstruction.preset, 0);
     for (int index = 2; index <= applied.passes; ++index)
     {
         const auto extra = applied.EffectiveExtra(static_cast<std::size_t>(index - 2));
-        pass(TRF("Pass {}", index).c_str(), extra.inputScale, extra.preset);
+        pass(TRF("Pass {}", index).c_str(), extra.inputScale, extra.preset, index - 1);
         DrawSettingsValue(TR("Settings"), extra.linked ? TR("Linked") : TR("Independent"));
     }
 }
@@ -910,11 +911,8 @@ void DrawNeuralSettings(const OverlayUI::FrameView& view, TheosRenderPipeline::S
             const bool legacy = LegacyNeuralRuntime(view);
             int index = legacy || network != 0 ? 1 : 0;
             const bool changed = Segmented("network", index, {
-                {TR("Small"), !legacy, legacy ? TR("310.9.16 only. 310.8 always runs the old model.")
-                                          : TR("310.9.16's small FP8 model: faster and softer. NVIDIA's "
-                                               "CC_SMALL_FP8; Preset B in OptiScaler forks.")},
-                {TR("Old"), true, TR("The model 310.8 runs, also included in 310.9.16. NVIDIA's CC_SILVER_AARDWOLD; "
-                              "Preset A in OptiScaler forks.")}});
+                {TR("Runtime default"), !legacy, TR("The runtime chooses its default network. The submitted numeric preset is shown under applied settings; model identity depends on the runtime.")},
+                {TR("Preset 1"), true, TR("Request network preset 1. Known 310.8 runtimes run the old model; other runtimes may map this differently.")}});
             if (changed) { network = index; }
             DrawSettingsHelp(TR("NR network, separate from the DLSS model preset."));
             return changed;
@@ -1222,12 +1220,17 @@ void OverlayUI::DrawNeuralRenderingPanel(float height, const FrameView& view)
         const auto interval = TheosRenderPipeline::NeuralRendering::ModelRateInterval(
             TheosRenderPipeline::NeuralRendering::EffectiveModelRate(applied.reconstruction.modelRate));
         const bool alternate = interval > 1;
+		DrawSettingsValue(TR("NR per frame"), state.active && timing.frameSamples
+			? TRF("{:.2f} ms", timing.AverageFrameGPUMicroseconds() / 1000.0).c_str() : TR("unavailable"));
+		DrawSettingsHelp(TR("Measured NR GPU work per rendered frame, averaged over the latest completed samples, including "
+			"model runs, skipped-frame reprojection, change storage, preparation, reconstruction, previews and NR UI composition. "
+			"Excludes object classification capture, Freeze frame capture, the D3D11/D3D12 handoff and frame generation."));
         DrawSettingsValue(TR("Inference"), state.active && timing.gpuSamples
                                            ? (alternate ? TRF("{:.2f} ms per run", timing.AverageGPUMicroseconds() / 1000.0)
                                                         : TRF("{:.2f} ms", timing.AverageGPUMicroseconds() / 1000.0)).c_str()
                                            : TR("unavailable"));
         DrawSettingsHelp(alternate ? TR("Combined model inference and inter-pass preparation, per frame the model runs on. "
-                                        "Frames between skip it, so the average per frame is about a half or a third. Excludes input "
+                                        "Frames between skip inference but still do reprojection and storage. See NR per frame for measured work. Excludes input "
                                         "preparation, the last pass's restoration, reconstruction, UI composition and the "
                                         "D3D11/D3D12 handoff.")
                                    : TR("Combined model inference and inter-pass preparation. Excludes input preparation, the "

@@ -13,7 +13,7 @@ The Steady frame limit no longer drifts, and NR Model rate no longer recommends
 it. See CHANGELOG.md.
 
 Version 0.5.2 adds up to five NR passes, an NR Model rate that runs the model on
-every other frame for roughly half NR's GPU cost (best with 2x frame generation),
+every other frame to reduce inference work (best with 2x frame generation),
 and Frame generation > Frame limit with a Steady mode that evens out frame times.
 It also fixes the vanilla main menu disappearing, NR stopping while the interface
 is hidden, and a possible XeFG freeze when gameplay starts. See CHANGELOG.md.
@@ -243,9 +243,12 @@ runtime information and the information needed for problem reports.
 
 The Neural Rendering tab contains **Base** and named weather overrides. Overrides
 change only their edited settings; other settings follow Base. Sharpening is here
-too. Passes are folder tabs: **+** adds Pass 2, which follows Pass 1 until you edit
-one of its settings; **Reset all to Pass 1** on its tab relinks it. Both passes use
-the same placement, and two passes can substantially increase inference cost. See
+too. Passes are folder tabs: **+** adds another pass, up to five; each follows
+Pass 1 until you edit one of its settings. **Reset to Pass 1** relinks that pass.
+All passes use the same placement; additional passes increase inference work.
+**NR per frame** measures preparation, inference or skipped-frame reprojection,
+storage, reconstruction and NR UI composition across recent completed frames.
+It excludes object capture, the D3D11/D3D12 handoff and frame generation. See
 [weather overrides](APPEARANCE-PROFILES.md).
 
 - DLSS starts at 67%, preset K, with sharpening enabled.

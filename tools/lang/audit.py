@@ -6,6 +6,8 @@ Lists the menu text the dictionary does not translate yet (missing) and the
 entries no menu text uses any more (unused). --prune deletes the unused
 entries; --missing writes the missing text as ready-to-fill dictionary lines;
 --unwrapped lists menu text drawn without TR(), which no dictionary can reach.
+--check exits nonzero for such text (read-only CI check). Missing translations
+remain allowed English fallbacks and do not fail the check.
 Run from the repository root. The default dictionary is the shipped zh-CN.ini.
 """
 import re
@@ -132,7 +134,8 @@ def main(argv):
         newline = '\r\n' if b'\r\n' in path.read_bytes() else '\n'
         path.write_bytes((newline.join(keep) + newline).encode('utf-8'))
         print(f'pruned {unused} unused entries')
-    if '--unwrapped' in argv:
+    rows = []
+    if '--unwrapped' in argv or '--check' in argv:
         rows = unwrapped()
         for name, number, text in rows:
             print(f'  unwrapped: {name}:{number}: {text[:110]}')
@@ -141,10 +144,11 @@ def main(argv):
         target = Path(output)
         target.write_text(''.join(f'{quote(english)} =\n' for english in missing), encoding='utf-8')
         print(f'wrote {target}')
-    elif missing:
+    elif missing and '--check' not in argv:
         for english in missing:
             print('  missing:', english.replace('\n', '\\n'))
+    return 1 if '--check' in argv and rows else 0
 
 
 if __name__ == '__main__':
-    main(sys.argv[1:])
+    sys.exit(main(sys.argv[1:]))
