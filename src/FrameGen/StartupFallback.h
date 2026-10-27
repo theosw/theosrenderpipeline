@@ -1,5 +1,6 @@
 #pragma once
 #include <winerror.h>
+#include <dxgi.h>
 
 namespace TheosRenderPipeline::SourceDLSSG
 {
@@ -9,6 +10,8 @@ namespace TheosRenderPipeline::SourceDLSSG
         bool presenterAttempted, bool queueWorkSubmitted = false)
     {
         return FAILED(failure) && SUCCEEDED(deviceStatus) && !presenterAttempted && !queueWorkSubmitted &&
-            failure != E_UNEXPECTED && failure != E_INVALIDARG && failure != E_POINTER;
+            failure != E_UNEXPECTED && failure != E_INVALIDARG && failure != E_POINTER &&
+            failure != DXGI_ERROR_DEVICE_REMOVED && failure != DXGI_ERROR_DEVICE_RESET &&
+            failure != DXGI_ERROR_DEVICE_HUNG && failure != DXGI_ERROR_DRIVER_INTERNAL_ERROR;
     }
 }

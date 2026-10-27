@@ -531,6 +531,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// only Prepare retain the late-stage contract and never run early NR here.
 		if (!neuralFrameBegun_) {
 			frameNeuralOptions_ = NeuralConfiguration();
+#if !defined(TRP_NO_NEURAL_RENDERING)
+			frameNeuralModelChanged_ = neuralPass_ && neuralPass_->ModelChangePending(frameNeuralOptions_);
+#endif
 			neuralEligible_ = eligible && !frameNeuralOptions_.WorldOnly();
 			frameNeuralReset_ = neuralHistory_.ResetFor(frameNeuralOptions_, neuralEligible_, a_constants.reset == sl::eTrue);
 		} else {
@@ -540,9 +543,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 		}
 #if !defined(TRP_NO_NEURAL_RENDERING)
 		if (frameNeuralOptions_.enabled && neuralEligible_ && neuralPass_ &&
-			neuralPass_->NeedsRecreation(frameNeuralOptions_, motion_.desc.Width, motion_.desc.Height)) { frameNeuralReset_ = true; }
+			neuralPass_->NeedsResourceRecreation(frameNeuralOptions_, motion_.desc.Width, motion_.desc.Height)) { frameNeuralReset_ = true; }
 #endif
-		if (frameNeuralReset_) { frameConstants_.reset = sl::eTrue; }
+		if (frameNeuralReset_ || frameNeuralModelChanged_) { frameConstants_.reset = sl::eTrue; }
         if (!neuralEvaluatedEarly_ && !CopyObjectMask(a_renderExtent)) { return false; }
 		auto tag = [](const SharedTexture& pair) {
 			TaggedTexture t;
@@ -912,7 +915,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 					options.tuning.style, enabled_, neuralSnapshot_.status);
 			}
 		}
-		neuralFrameBegun_ = neuralEvaluatedEarly_ = false;
+		neuralFrameBegun_ = neuralEvaluatedEarly_ = frameNeuralModelChanged_ = false;
 #endif
 		return S_OK;
 	}
@@ -927,7 +930,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			if (!Check(interop_.WaitForInputReaders(nullptr, 0), "normal post-Present fence bridge") ||
 				!Check(interop_.Drain(), "normal presentation retirement")) { return fault_; }
 			++transportFrame_;
-			neuralFrameBegun_ = neuralEvaluatedEarly_ = false;
+			neuralFrameBegun_ = neuralEvaluatedEarly_ = frameNeuralModelChanged_ = false;
 			return a_result;
 		}
 		providerSwitchPending_ = PreflightProviderSwitch();
@@ -1124,7 +1127,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		hdrFrameTagged_ = false;
 		neuralHistory_.Invalidate();
 		neuralEligible_ = false;
-		neuralFrameBegun_ = neuralEvaluatedEarly_ = false;
+		neuralFrameBegun_ = neuralEvaluatedEarly_ = frameNeuralModelChanged_ = false;
 		{
 			std::scoped_lock lock(neuralMutex_);
 			neuralSnapshot_.active = false;

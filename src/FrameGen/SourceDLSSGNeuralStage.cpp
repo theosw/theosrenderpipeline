@@ -223,7 +223,8 @@ namespace TheosRenderPipeline::SourceDLSSG
         reset |= frameNeuralReset_;
         // The upscaler still needs to discard a history fed by a changed NR
         // model. Keep this separate from the NR chain's per-pass reset mask.
-        reset |= neuralPass_ && neuralPass_->ModelChangePending(frameNeuralOptions_);
+        frameNeuralModelChanged_ = neuralPass_ && neuralPass_->ModelChangePending(frameNeuralOptions_);
+        reset |= options.beforeUpscaling && frameNeuralModelChanged_;
         if (!options.enabled || !options.WorldOnly() || !neuralEligible_) { return true; }
 
         auto* timing = PerformanceTuning::GetSingleton();
