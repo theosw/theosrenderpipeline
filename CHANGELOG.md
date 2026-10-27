@@ -5,6 +5,20 @@
   frame off and smeared. The first skipped frame now stores the change it
   carried, so each skipped frame moves it one frame. Every other frame is
   unchanged.
+- Changing a pass's NR network now replaces only that pass's model; its
+  resources and the other passes' models stay, and only that pass and those
+  after it restart their history.
+- When a pass's object controls switch on (as when Pass 2 resumes after
+  combat), only that pass and those after it restart their history; earlier
+  passes keep theirs.
+- If NVIDIA's Streamline fails to start before TRP creates its presenter, the
+  game now starts with normal presentation and says DLSS-G, Reflex and NR are
+  unavailable until a restart, instead of failing to start.
+- Photo Mode's TRP capture only uses a PNG the game created for that photo, held
+  against changes while TRP replaces it; two photos at once, or an older or
+  reused file, are left alone.
+- The NR panel's **NR per frame** shows NR's measured GPU time per rendered
+  frame, including skipped-frame reprojection and change storage.
 - The mouse wheel now scrolls the menu. It is taken from window messages while
   the menu's cursor is free, and from Skyrim's own input events otherwise.
 - Underwater, the motion repair no longer swaps the game's D3D11 state. On
