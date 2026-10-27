@@ -485,7 +485,6 @@ namespace TheosRenderPipeline::NeuralRendering
 	{
 		return IsInitialized() ? state_->contract.build : RuntimeBuild::Unknown;
 	}
-	int FeatureSession::SubmittedPreset() const { return IsInitialized() ? state_->contract.preset : -1; }
 	bool FeatureSession::ResetAfterRetirement()
 	{
 		if (state_->creationContext && !state_->creationContext->CanRelease()) { return false; }

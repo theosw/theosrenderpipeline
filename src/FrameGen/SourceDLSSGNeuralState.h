@@ -6,7 +6,6 @@
 #include "NeuralObjectMask.h"
 #include "NeuralRenderingCompare.h"
 #include "NeuralRuntimeFiles.h"
-#include "NeuralRenderingRuntimeContract.h"
 #include "SourceDLSSGNeuralTelemetry.h"
 #include <algorithm>
 #include <filesystem>
@@ -78,8 +77,6 @@ namespace TheosRenderPipeline::SourceDLSSG
 
 	struct NeuralSnapshot
 	{
-		NeuralRendering::RuntimeBuild runtimeBuild{NeuralRendering::RuntimeBuild::Unknown};
-		std::array<int, NeuralRendering::kMaxNeuralPasses> submittedPresets{-1, -1, -1, -1, -1};
 		bool active{ false }, failed{ false };
 		int effectivePasses{1};
 		NeuralRendering::PassOverride passOverride{NeuralRendering::PassOverride::None};

@@ -897,8 +897,6 @@ namespace TheosRenderPipeline::SourceDLSSG
 			std::scoped_lock lock(neuralMutex_);
 			const bool changed = neuralSnapshot_.active != active;
 			neuralSnapshot_.active = active;
-			neuralSnapshot_.runtimeBuild = active && neuralPass_ ? neuralPass_->Build() : NeuralRendering::RuntimeBuild::Unknown;
-			neuralSnapshot_.submittedPresets = active && neuralPass_ ? neuralPass_->SubmittedPresets() : std::array<int, NeuralRendering::kMaxNeuralPasses>{-1, -1, -1, -1, -1};
 			// A new pass runs from the frame after its feature's creation.
 			neuralSnapshot_.effectivePasses = active && neuralPass_ ?
 				(std::max)(1, (std::min)(options.EffectivePasses(), neuralPass_->ReadyPasses())) : options.EffectivePasses();

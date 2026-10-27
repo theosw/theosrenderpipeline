@@ -55,14 +55,6 @@ namespace TheosRenderPipeline::SourceDLSSG
 		}
 		// No list may be open. Backend drains first, just as for a full rebuild.
 		bool RetireChangedModels(const NeuralOptions& options);
-		NeuralRendering::RuntimeBuild Build() const { return feature_.Build(); }
-		std::array<int, NeuralRendering::kMaxNeuralPasses> SubmittedPresets() const
-		{
-			std::array<int, NeuralRendering::kMaxNeuralPasses> result{};
-			result[0] = feature_.SubmittedPreset();
-			for (std::size_t i = 0; i < extra_.size(); ++i) { result[i + 1] = extra_[i].feature.SubmittedPreset(); }
-			return result;
-		}
 		const std::string& Status() const { return status_; }
 		// NGX refused to create Pass 1 with this runtime. Initialization then stops
 		// before Record writes to the frame's list. A refused later pass is not a

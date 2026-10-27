@@ -32,7 +32,7 @@ void DrawNRAppliedPasses(const OverlayUI::FrameView& view, const TheosRenderPipe
     const auto height = applied.beforeUpscaling ? view.renderHeight : view.outputHeight;
     DrawSettingsValue(TR("Placement"), applied.beforeUpscaling ? TR("Before upscaling") : TR("After upscaling"));
     DrawSettingsValue(TR("Scene"), std::format("{} x {}", width, height).c_str());
-    auto pass = [&](const char* label, float scale, int preset, int index) {
+    auto pass = [&](const char* label, float scale, int preset) {
         auto config = applied.reconstruction;
         config.inputScale = scale;
         ImGui::Separator();
@@ -41,13 +41,12 @@ void DrawNRAppliedPasses(const OverlayUI::FrameView& view, const TheosRenderPipe
                                       TheosRenderPipeline::NeuralRendering::ModelExtent(height, config))
                               .c_str());
         DrawSettingsValue(TR("Network"), NeuralNetworkName(preset));
-        DrawSettingsValue(TR("Submitted network"), NeuralSubmittedNetwork(view.neuralState, index).c_str());
     };
-    pass(TR("Pass 1"), applied.reconstruction.inputScale, applied.reconstruction.preset, 0);
+    pass(TR("Pass 1"), applied.reconstruction.inputScale, applied.reconstruction.preset);
     for (int index = 2; index <= applied.passes; ++index)
     {
         const auto extra = applied.EffectiveExtra(static_cast<std::size_t>(index - 2));
-        pass(TRF("Pass {}", index).c_str(), extra.inputScale, extra.preset, index - 1);
+        pass(TRF("Pass {}", index).c_str(), extra.inputScale, extra.preset);
         DrawSettingsValue(TR("Settings"), extra.linked ? TR("Linked") : TR("Independent"));
     }
 }
@@ -911,8 +910,11 @@ void DrawNeuralSettings(const OverlayUI::FrameView& view, TheosRenderPipeline::S
             const bool legacy = LegacyNeuralRuntime(view);
             int index = legacy || network != 0 ? 1 : 0;
             const bool changed = Segmented("network", index, {
-                {TR("Runtime default"), !legacy, TR("The runtime chooses its default network. The submitted numeric preset is shown under applied settings; model identity depends on the runtime.")},
-                {TR("Preset 1"), true, TR("Request network preset 1. Known 310.8 runtimes run the old model; other runtimes may map this differently.")}});
+                {TR("Small"), !legacy, legacy ? TR("310.9.16 only. 310.8 always runs the old model.")
+                                          : TR("310.9.16's small FP8 model: faster and softer. NVIDIA's "
+                                               "CC_SMALL_FP8; Preset B in OptiScaler forks.")},
+                {TR("Old"), true, TR("The model 310.8 runs, also included in 310.9.16. NVIDIA's CC_SILVER_AARDWOLD; "
+                              "Preset A in OptiScaler forks.")}});
             if (changed) { network = index; }
             DrawSettingsHelp(TR("NR network, separate from the DLSS model preset."));
             return changed;

@@ -136,7 +136,6 @@ bool FeatureSession::RecordEvaluation(const EvaluationInput& in) {
 bool FeatureSession::IsInitialized() const {return state_->initialized;}
 std::uint32_t FeatureSession::RefusedCreation() const {return state_->refused?0xBAD00002u:0u;}
 RuntimeBuild FeatureSession::Build() const {return RuntimeBuild::Nexus3108;}
-int FeatureSession::SubmittedPreset() const {return state_->initialized ? ResolveNetworkPreset(Build(), state_->preset) : -1;}
 bool FeatureSession::ResetAfterRetirement() {
     if (Fixture::refuseRetirement) { return false; }
     const auto index = state_->index;

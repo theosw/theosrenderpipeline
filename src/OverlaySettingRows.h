@@ -3,7 +3,6 @@
 #include "OverlayPresetDecor.h"
 #include "Localization.h"
 #include "OverlayUIStyle.h"
-#include "FrameGen/SourceDLSSGNeuralState.h"
 #include <algorithm>
 #include <cfloat>
 #include <format>
@@ -207,15 +206,7 @@ inline std::string NeuralStyleName(int style)
     }
 }
 // NR network presets: 0 is 310.9.16's small FP8 model, 1 the older model 310.8 also runs.
-inline const char* NeuralNetworkName(int preset) { return preset != 0 ? TR("Preset 1") : TR("Runtime default"); }
-inline std::string NeuralSubmittedNetwork(const TheosRenderPipeline::SourceDLSSG::NeuralSnapshot& state, int pass)
-{
-    const int submitted = state.submittedPresets[static_cast<std::size_t>(pass)];
-    if (!state.active || submitted < 0) { return TR("Not submitted"); }
-    using namespace TheosRenderPipeline::NeuralRendering;
-    return std::format("{}: {} | {} | {}", TR("Preset"), submitted, RuntimeName(state.runtimeBuild),
-        state.runtimeBuild == RuntimeBuild::Nexus3108 ? TR("Old") : TR("Model identity unverified"));
-}
+inline const char* NeuralNetworkName(int preset) { return preset != 0 ? TR("Old") : TR("Small"); }
 
 // One option of a segmented control. A disabled option shows greyed, with
 // reason as its tooltip.

@@ -51,13 +51,12 @@ namespace TheosRenderPipeline
         std::atomic_bool overlayOpen{};
         static thread_local ComPtr<ID3D12Device>* capturingDevice;
         bool nativeOutput{}, disabled{}, blocked{}, bridged{};
+        // Per thread: another thread's runtime creation is not TRP's own.
         static thread_local bool creating;
-        std::atomic<api::effect_runtime*> observedOwned{};
         std::atomic<api::effect_runtime*> overlayRuntime{};
         static thread_local bool internal;
         bool before{}, attempted{}, updated{}, screenshotOverlay{};
         Counters counts{};
-        ReShadeLifecycleTrace lifecycle;
         std::string config, status{"ReShade not loaded"};
 
         struct InternalScope
@@ -69,40 +68,12 @@ namespace TheosRenderPipeline
 
         static void InitDevice(api::device* device)
         {
-            ObserveDevice(device, ReShadeLifecycleEvent::InitDevice);
             if (capturingDevice && device->get_api() == api::device_api::d3d12 && device->get_native()) {
                 // Public API handle, not a private proxy GUID or object offset.
                 auto* native = reinterpret_cast<ID3D12Device*>(device->get_native());
                 native->QueryInterface(IID_PPV_ARGS(capturingDevice->ReleaseAndGetAddressOf()));
             }
         }
-        static void ObserveDevice(api::device* device, ReShadeLifecycleEvent event)
-        {
-            auto& s = Data();
-            s.lifecycle.Record({0, 0, reinterpret_cast<std::uint64_t>(device), device->get_native(), 0, 0,
-                static_cast<std::uint32_t>(device->get_api()), event, false});
-        }
-        static void DestroyObservedDevice(api::device* device)
-        { ObserveDevice(device, ReShadeLifecycleEvent::DestroyDevice); }
-        static void ObserveRuntime(api::effect_runtime* runtime, ReShadeLifecycleEvent event)
-        {
-            auto& s = Data();
-            if (s.creating && event == ReShadeLifecycleEvent::InitRuntime) { s.observedOwned = runtime; }
-            auto* device = runtime->get_device();
-            auto* queue = runtime->get_command_queue();
-            s.lifecycle.Record({0, reinterpret_cast<std::uint64_t>(runtime), reinterpret_cast<std::uint64_t>(device),
-                device->get_native(), queue ? queue->get_native() : 0,
-                runtime->get_back_buffer_count() ? runtime->get_current_back_buffer().handle : 0,
-                static_cast<std::uint32_t>(device->get_api()), event, runtime == s.observedOwned.load()});
-            if (event == ReShadeLifecycleEvent::DestroyRuntime) {
-                auto* expected = runtime;
-                s.observedOwned.compare_exchange_strong(expected, nullptr);
-            }
-        }
-        static void InitObservedRuntime(api::effect_runtime* runtime)
-        { ObserveRuntime(runtime, ReShadeLifecycleEvent::InitRuntime); }
-        static void DestroyObservedRuntime(api::effect_runtime* runtime)
-        { ObserveRuntime(runtime, ReShadeLifecycleEvent::DestroyRuntime); }
         static bool Open(api::effect_runtime* value, bool open, api::input_source)
         {
             auto& s = Data();
@@ -497,9 +468,6 @@ namespace TheosRenderPipeline
                 s.disabled = std::strcmp(disabled, "1") == 0 || _stricmp(disabled, "true") == 0;
             }
             registerEvent(Event::init_device, reinterpret_cast<void*>(&State::InitDevice));
-            registerEvent(Event::destroy_device, reinterpret_cast<void*>(&State::DestroyObservedDevice));
-            registerEvent(Event::init_effect_runtime, reinterpret_cast<void*>(&State::InitObservedRuntime));
-            registerEvent(Event::destroy_effect_runtime, reinterpret_cast<void*>(&State::DestroyObservedRuntime));
             registerEvent(Event::reshade_open_overlay, reinterpret_cast<void*>(&State::Open));
             registerEvent(Event::reshade_screenshot, reinterpret_cast<void*>(&State::Screenshot));
             s.status = s.disabled ? "ReShade disabled in ReShade.ini" : "ReShade API 14 registered; waiting for source color";
@@ -676,5 +644,3 @@ namespace TheosRenderPipeline
     ReShadeIntegration::Counters ReShadeIntegration::Snapshot() const
     { return Data().counts; }
 }
-void TheosRenderPipeline::ReShadeIntegration::ObserveLifecycle(bool enabled) { Data().lifecycle.Enable(enabled); }
-TheosRenderPipeline::ReShadeLifecycleSnapshot TheosRenderPipeline::ReShadeIntegration::Lifecycle() const { return Data().lifecycle.Snapshot(); }
