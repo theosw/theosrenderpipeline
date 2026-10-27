@@ -645,17 +645,24 @@ namespace TheosRenderPipeline::SourceDLSSG
 				auto hr = FinalFrameCapture::Read(readback, image);
 				if (FAILED(hr)) { return hr; }
 				auto file = std::filesystem::u8path(path);
+				PhotoFiles::File matched;
 				if (path.empty()) {
 					// Photo Mode writes its photo itself, about when the flag clears.
-					file = EngineScreenshot::FindPhoto(photo, std::chrono::seconds(5));
-					if (file.empty()) {
-						logger::info("[Screenshot] no new {}x{} photo appeared in the Photos folder; nothing replaced",
+					matched = EngineScreenshot::FindPhoto(photo, std::chrono::seconds(5));
+					if (!matched) {
+						logger::info("[Screenshot] no unique completed {}x{} photo matched this request; original files retained",
 							photo.width, photo.height);
 						return S_FALSE;
 					}
+					file = matched.Path();
 					logger::info("[Screenshot] replacing {} with the finished frame", file.filename().string());
 				}
-				return ScreenshotFile::Replace(file, image.width, image.height, image.bgr, quality);
+				if (!path.empty()) {
+					// Exact-path Skyrim/ReShade screenshots retain the ordinary writer.
+					return ScreenshotFile::Replace(file, image.width, image.height, image.bgr, quality);
+				}
+				return ScreenshotFile::Replace(file, image.width, image.height, image.bgr, quality,
+					[&] { return matched.StillMatches(); });
 			});
 			screenshotPath_.clear();
 			return S_OK;

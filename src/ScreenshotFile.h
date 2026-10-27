@@ -3,6 +3,7 @@
 #include <Windows.h>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <vector>
 
 namespace TheosRenderPipeline::ScreenshotFile
@@ -11,6 +12,9 @@ namespace TheosRenderPipeline::ScreenshotFile
     // extension (.bmp, .png, .jpg/.jpeg) and atomically replaces `path`.
     // Any existing file is left intact on failure. Runs on a worker thread;
     // COM is initialized for the duration of the call when required.
+    // An optional identity guard runs after encoding, before publishing a Photo
+    // Mode replacement. S_FALSE leaves the original intact when it declines.
     HRESULT Replace(const std::filesystem::path& path, UINT width, UINT height,
-        const std::vector<std::uint8_t>& bgr, int jpegQuality) noexcept;
+        const std::vector<std::uint8_t>& bgr, int jpegQuality,
+        const std::function<bool()>& stillMatches = {}) noexcept;
 }
