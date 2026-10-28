@@ -33,6 +33,19 @@ int main(int argc, char** argv) {
     // when the active presenter has no metering owner.
     Require(ResolveVSync({VSyncMode::Auto,true,true},1,0,true).sync==0,"XeFG Auto overrides caller VSync");
     Require(ResolveVSync({VSyncMode::Auto,false,true},1,0,true).sync==1,"provider return restores caller VSync");
+    // DLSS-G requirement: Auto turns VSync off while it generates, reported apart from metering.
+    for (bool tearing : {false,true}) for (bool windowed : {false,true}) {
+        const auto required=ResolveVSync({VSyncMode::Auto,false,tearing,true},1,0,windowed);
+        Require(required.sync==0 && required.autoRequiredOff && !required.autoMetering,"required-off Auto submits immediate");
+        Require(bool(required.flags & DXGI_PRESENT_ALLOW_TEARING)==(tearing&&windowed),"required-off uses only legal tearing");
+        const auto metered=ResolveVSync({VSyncMode::Auto,true,tearing,true},1,0,windowed);
+        Require(metered.sync==0 && metered.autoMetering && !metered.autoRequiredOff,"metering keeps its own report");
+        Require(ResolveVSync({VSyncMode::On,false,tearing,true},1,0,windowed).sync==1,"explicit On stays the user's choice");
+        const auto off=ResolveVSync({VSyncMode::Off,false,tearing,true},1,0,windowed);
+        Require(off.sync==0 && !off.autoRequiredOff,"explicit Off is not reported as Auto");
+        Require(ResolveVSync({VSyncMode::Auto,false,tearing,true},1,DXGI_PRESENT_TEST,windowed).sync==1,"probes stay untouched");
+    }
+    Require(ResolveVSync({VSyncMode::Auto,false,true,false},1,0,true).sync==1,"generation off restores caller VSync");
     using namespace TheosRenderPipeline;
     constexpr auto ready = XeFGPacing::Installed | XeFGPacing::Registered | XeFGPacing::DriverAvailable | XeFGPacing::QueueReady;
     Require(XeFGPacing::CanMeter(ready), "available pacing admits Auto before the first independent flip");

@@ -72,6 +72,14 @@ inline PresetSave SavePresetFiles(Settings settings, const std::filesystem::path
             result.errors.push_back(std::format("preset name is not valid UTF-8; not saved: {}", name));
             continue;
         }
+        // A new or renamed preset never takes over an existing file: it may hold an
+        // unloaded preset, someone's notes, or another preset renamed in this save.
+        const bool own = !preset.file.empty() && FoldCase(preset.file) == FoldCase(name);
+        if (!own && std::filesystem::exists(path, error)) {
+            result.written = false;
+            result.errors.push_back(std::format("a file named {} already exists; rename the preset or save again", name));
+            continue;
+        }
         // A rename that changes only letter case must rename the file itself.
         if (!preset.file.empty() && preset.file != name && FoldCase(preset.file) == FoldCase(name)) {
             try { std::filesystem::rename(folder / Utf8Path(preset.file), path, error); } catch (const std::exception&) {}

@@ -580,10 +580,13 @@ static void GuardAndShadows(ID3D11Device* device, ID3D11DeviceContext* context,
     auto out = run(false, lit, shadow);
     Require(luma(out[5 * width + 5]) < 0.01f * luma(lit[5 * width + 5]), "NR painting black darkens a lit pixel");
     Require(std::abs(luma(out[0]) - luma(lit[0])) < 0.01f, "unchanged pixels keep their brightness");
-    // An empty model output (all black) is no answer: the original is kept.
-    out = run(false, lit, std::vector<Pixel>(lit.size(), Pixel{0, 0, 0, 1}));
-    for (size_t i = 0; i < lit.size(); ++i) {
-        Require(std::abs(luma(out[i]) - luma(lit[i])) < 0.01f, "an empty model output keeps the original");
+    // An empty model output (all black) is no answer: the original is kept, on
+    // producer colour too.
+    for (const bool producer : {false, true}) {
+        out = run(producer, lit, std::vector<Pixel>(lit.size(), Pixel{0, 0, 0, 1}));
+        for (size_t i = 0; i < lit.size(); ++i) {
+            Require(std::abs(luma(out[i]) - luma(lit[i])) < 0.01f, "an empty model output keeps the original");
+        }
     }
     std::puts("Hue guard and shadows: grey stays grey, colour still moves, black answers darken, empty output kept.");
 }
@@ -658,6 +661,13 @@ static void BroadDetail(ID3D11Device* device, ID3D11DeviceContext* context, ID3D
     }
     const auto off = resolve(uniform, false, 1, 1), neutral = resolve(uniform, true, 1, 1);
     Require(std::memcmp(off.data(), neutral.data(), off.size() * sizeof(Pixel)) == 0, "Broad and Detail at 1 match off exactly");
+    // An empty answer is no edit, whatever Broad and Detail are set to.
+    for (const float broad : {0.0f, 2.0f}) {
+        const auto empty = resolve(std::vector<Pixel>(proxy.size(), Pixel{0, 0, 0, 1}), true, broad, 1);
+        for (size_t i = 0; i < scene.size(); ++i) {
+            for (int c = 0; c < 3; ++c) { Require(std::abs(empty[i][c] - scene[i][c]) < 0.002f, "an empty answer leaves the tone bands inert"); }
+        }
+    }
     // Interior pixels, away from the blur's clamped border.
     const auto average = [&](const std::vector<Pixel>& image, int parity) {
         double sum = 0; int count = 0;

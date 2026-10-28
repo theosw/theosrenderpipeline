@@ -349,7 +349,7 @@ float4 SampleSteady(float2 position) {
     return clamp(sum,low,high);
 }
 [numthreads(8,8,1)] void Ratio(uint3 p : SV_DispatchThreadID, uint index : SV_GroupIndex) {
-    const bool answered = Mode == 1 && !ProducerColor ? ModelAnswered(index) : true;
+    const bool answered = Mode == 1 ? ModelAnswered(index) : true;
     if (p.x >= TargetWidth || p.y >= TargetHeight) return;
     const float2 jitter=float2(JitterX,JitterY);
     const bool jittered=any(jitter!=0);
@@ -372,6 +372,9 @@ float4 SampleSteady(float2 position) {
         OutputColor[p.xy]=float4(Swizzle(rgb),c.a); return;
     }
     float4 original=Tex2.Load(int3(p.xy,0));
+    // No answer at all (an empty first evaluation): keep the scene. Producer
+    // restoration and the tone bands would otherwise read it as an edit.
+    if (!answered) { OutputColor[p.xy]=original; return; }
     float3 a=0, n=0;
     uint2 size=max(uint2(WorkWidth,WorkHeight),1);
     // Where this pixel samples NR's grid; the tone bands are read there too.

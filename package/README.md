@@ -1,4 +1,12 @@
-# Theo's Render Pipeline — Universal, 0.5.4
+# Theo's Render Pipeline — Universal, 0.5.5
+
+Version 0.5.5 lets the mouse wheel scroll the menu, changes one NR pass's
+network without restarting the others, and starts the game with normal
+presentation instead of failing when NVIDIA's Streamline cannot start. VSync
+Auto now follows DLSS-G's own VSync requirement. It fixes Every third frame
+(Lab) smearing moving detail, Save as default turning NR off while its runtime
+was missing, a crash with mods that check textures through the game's device,
+and XeFG refusing to start in very large load orders. See CHANGELOG.md.
 
 Version 0.5.4 fixes saves waiting until a menu opened when Skyrim's depth of
 field is off, saves Photo Mode photos with TRP's finished frame at the output
@@ -13,7 +21,7 @@ The Steady frame limit no longer drifts, and NR Model rate no longer recommends
 it. See CHANGELOG.md.
 
 Version 0.5.2 adds up to five NR passes, an NR Model rate that runs the model on
-every other frame for roughly half NR's GPU cost (best with 2x frame generation),
+every other frame to reduce inference work (best with 2x frame generation),
 and Frame generation > Frame limit with a Steady mode that evens out frame times.
 It also fixes the vanilla main menu disappearing, NR stopping while the interface
 is hidden, and a possible XeFG freeze when gameplay starts. See CHANGELOG.md.
@@ -116,7 +124,7 @@ This package includes the full renderer, configuration and sharpening shader.
 It requires no other Theo's Render Pipeline package. NVIDIA DLLs are supplied
 separately: download the SR/FG files below, and the NR runtime if you want NR.
 Alternatively, install Standard first and Universal after it in MO2; Standard
-0.5.4 supplies the complete NVIDIA and Intel runtime bundles, including the
+0.5.5 supplies the complete NVIDIA and Intel runtime bundles, including the
 original NR 310.9.16 and the retained older NR runtime. Universal adds the
 compatibility pack and legacy INT8 alternative. In that setup,
 skip the runtime downloads below.
@@ -243,9 +251,12 @@ runtime information and the information needed for problem reports.
 
 The Neural Rendering tab contains **Base** and named weather overrides. Overrides
 change only their edited settings; other settings follow Base. Sharpening is here
-too. Passes are folder tabs: **+** adds Pass 2, which follows Pass 1 until you edit
-one of its settings; **Reset all to Pass 1** on its tab relinks it. Both passes use
-the same placement, and two passes can substantially increase inference cost. See
+too. Passes are folder tabs: **+** adds another pass, up to five; each follows
+Pass 1 until you edit one of its settings. **Reset to Pass 1** relinks that pass.
+All passes use the same placement; additional passes increase inference work.
+**NR per frame** measures preparation, inference or skipped-frame reprojection,
+storage, reconstruction and NR UI composition across recent completed frames.
+It excludes object capture, the D3D11/D3D12 handoff and frame generation. See
 [weather overrides](APPEARANCE-PROFILES.md).
 
 - DLSS starts at 67%, preset K, with sharpening enabled.
@@ -337,7 +348,7 @@ an RTX 4080 SUPER: ordinary 6.8.0.2158 and full add-on 6.8.0.2155, with
 early NR and x4. Sky Reflection Fix's ReShade registration was excluded;
 Rumble passed a separate initial test. Combined third-party add-ons,
 Standard gameplay and CS with ReShade remain unverified. These were earlier
-development builds; the exact 0.5.4 package has not been tested with ReShade.
+development builds; the exact 0.5.5 package has not been tested with ReShade.
 
 MartysMods ReGrade+ (ReShade 6.6 or newer) used to crash the game while TRP
 started ReShade: it prepares itself only in a device event that ReShade does not

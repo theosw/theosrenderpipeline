@@ -24,4 +24,7 @@ inline unsigned lateCreationFrame{~0u};
 inline unsigned refuseIndex{~0u};
 // Each evaluation's motion input, in order.
 inline std::vector<ID3D12Resource*> motions;
+inline std::vector<unsigned> createdFeatures;
+inline std::vector<std::pair<unsigned, bool>> evaluatedFeatures;
+inline bool refuseRetirement{};
 }

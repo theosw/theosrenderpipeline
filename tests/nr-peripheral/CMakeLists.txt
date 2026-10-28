@@ -15,6 +15,17 @@ target_link_libraries(TRPNeuralPeripheralTests PRIVATE d3d12 d3d11 d3dcompiler d
 trp_target_neural_shaders(TRPNeuralPeripheralTests)
 add_test(NAME NeuralPeripheralPixels COMMAND TRPNeuralPeripheralTests)
 
+add_executable(TRPNeuralThirdFrameTests ThirdFrameTests.cpp FeatureDouble.cpp
+    ../../src/FrameGen/SourceDLSSGNeuralRendering.cpp ../../src/FrameGen/SourceDLSSGNeuralResolve.cpp
+    ../../src/FrameGen/NeuralObjectBlend.cpp ../../src/FrameGen/NeuralObjectControl.cpp
+    ../../src/FrameGen/SourceDLSSGInterop.cpp ../../src/FrameGen/D3D12StageTimer.cpp)
+target_compile_features(TRPNeuralThirdFrameTests PRIVATE cxx_std_23)
+target_compile_definitions(TRPNeuralThirdFrameTests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+target_include_directories(TRPNeuralThirdFrameTests PRIVATE . ../../src)
+target_link_libraries(TRPNeuralThirdFrameTests PRIVATE d3d12 d3d11 d3dcompiler dxgi)
+trp_target_neural_shaders(TRPNeuralThirdFrameTests)
+add_test(NAME NeuralThirdFrame COMMAND TRPNeuralThirdFrameTests)
+
 add_executable(TRPNeuralCombatPolicyTests ../NeuralCombatPolicyTests.cpp)
 target_compile_features(TRPNeuralCombatPolicyTests PRIVATE cxx_std_20)
 target_include_directories(TRPNeuralCombatPolicyTests PRIVATE ../../src)
@@ -89,3 +100,21 @@ if(TRP_SIMPLEINI_INCLUDE_DIR)
     target_include_directories(TRPNeuralPassSettingsTests PRIVATE ../../src "${TRP_SIMPLEINI_INCLUDE_DIR}")
     add_test(NAME NeuralPassSettings COMMAND TRPNeuralPassSettingsTests)
 endif()
+
+add_executable(TRPNeuralSelectiveModelTests SelectiveModelTests.cpp FeatureDouble.cpp
+    ../../src/FrameGen/SourceDLSSGNeuralRendering.cpp ../../src/FrameGen/SourceDLSSGNeuralResolve.cpp
+    ../../src/FrameGen/NeuralObjectBlend.cpp ../../src/FrameGen/NeuralObjectControl.cpp
+    ../../src/FrameGen/SourceDLSSGInterop.cpp ../../src/FrameGen/D3D12StageTimer.cpp)
+target_compile_features(TRPNeuralSelectiveModelTests PRIVATE cxx_std_23)
+target_compile_definitions(TRPNeuralSelectiveModelTests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+target_include_directories(TRPNeuralSelectiveModelTests PRIVATE . ../../src)
+target_link_libraries(TRPNeuralSelectiveModelTests PRIVATE d3d12 d3d11 d3dcompiler dxgi)
+trp_target_neural_shaders(TRPNeuralSelectiveModelTests)
+add_test(NAME NeuralSelectiveModels COMMAND TRPNeuralSelectiveModelTests)
+
+add_executable(TRPStartupTransportTests StartupTransportTests.cpp ../../src/FrameGen/SourceDLSSGInterop.cpp ../../src/FrameGen/D3D12StageTimer.cpp)
+target_compile_features(TRPStartupTransportTests PRIVATE cxx_std_23)
+target_compile_definitions(TRPStartupTransportTests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+target_include_directories(TRPStartupTransportTests PRIVATE . ../../src)
+target_link_libraries(TRPStartupTransportTests PRIVATE d3d12 d3d11 d3dcompiler dxgi)
+add_test(NAME StartupTransportPixels COMMAND TRPStartupTransportTests)

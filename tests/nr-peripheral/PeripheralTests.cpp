@@ -277,10 +277,9 @@ static void ManyPasses(GPU& gpu){
                 for(size_t i=0;i<actual.size();++i)for(unsigned ch=0;ch<4;++ch)Near(tag[i][ch],actual[i][ch],0,"all passes feed the same real and FG scene");
             }
         }
-        // Object controls switching on for a starting pass reset every running
-        // history, as when Pass 2 resumes after combat.
+        // A newly starting masked pass resets itself and its dependents,
+        // preserving already-running upstream histories.
         unsigned expectedResets=unsigned(passes);
-        if(masked){expectedResets=2;for(int frame=2;frame<passes;++frame)expectedResets+=unsigned(frame+1);}
         Require(Fixture::creations==unsigned(passes)&&Fixture::resets==expectedResets,"each pass resets its new history once");
         Require(Fixture::controlEvaluations==(masked?expectedEvaluations:0u),"each running pass receives its own object controls");
         Require(!pass.NeedsRecreation(options,gw,gh),"many-pass settings stable");

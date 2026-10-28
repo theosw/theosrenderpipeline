@@ -1,4 +1,5 @@
 #include "FGInputDebugView.h"
+#include "D3D11ComputeBindings.h"
 #include <d3dcompiler.h>
 #include <algorithm>
 #include <cstring>
@@ -70,15 +71,9 @@ RWTexture2D<unorm float4> Strip : register(u0);
     bool FGInputDebugView::Initialize(ID3D11DeviceContext* context)
     {
         ComPtr<ID3D11Device> device; context->GetDevice(&device);
-        ComPtr<ID3D11Device1> device1;
-        if (!device || FAILED(device->QueryInterface(IID_PPV_ARGS(&device1))) ||
-            FAILED(context->QueryInterface(IID_PPV_ARGS(&context1_)))) { return false; }
-        const auto level = device->GetFeatureLevel();
-        const UINT flags = (device->GetCreationFlags() & D3D11_CREATE_DEVICE_SINGLETHREADED) ?
-            D3D11_1_CREATE_DEVICE_CONTEXT_STATE_SINGLETHREADED : 0;
+        if (!device) { return false; }
         ComPtr<ID3DBlob> blob, errors;
-        if (FAILED(device1->CreateDeviceContextState(flags, &level, 1, D3D11_SDK_VERSION, __uuidof(ID3D11Device), nullptr, &state_)) ||
-            FAILED(D3DCompile(kShader, sizeof(kShader) - 1, "TRPFGInputDebugView", nullptr, nullptr, "CS", "cs_5_0",
+        if (FAILED(D3DCompile(kShader, sizeof(kShader) - 1, "TRPFGInputDebugView", nullptr, nullptr, "CS", "cs_5_0",
                 D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &blob, &errors)) ||
             FAILED(device->CreateComputeShader(blob->GetBufferPointer(), blob->GetBufferSize(), nullptr, &shader_))) { return false; }
         D3D11_BUFFER_DESC buffer{ sizeof(Constants), D3D11_USAGE_DYNAMIC, D3D11_BIND_CONSTANT_BUFFER, D3D11_CPU_ACCESS_WRITE, 0, 0 };
@@ -123,9 +118,9 @@ RWTexture2D<unorm float4> Strip : register(u0);
         c.depthInverted = depthInverted;
         std::memcpy(mapped.pData, &c, sizeof(c));
         context->Unmap(constants_.Get(), 0);
-        // A private state block: none of the game's bindings are touched.
-        ComPtr<ID3DDeviceContextState> previous;
-        context1_->SwapDeviceContextState(state_.Get(), &previous);
+        {
+        // The game's compute bindings are saved and put back; no state swap (see FGMotionRepair).
+        const D3D11ComputeBindings saved(context, 1, 2, 1);
         ID3D11ShaderResourceView* inputs[2]{ motionView, depthView };
         auto* buffer = constants_.Get(); auto* uav = stripUAV_.Get();
         context->CSSetShader(shader_.Get(), nullptr, 0);
@@ -136,7 +131,7 @@ RWTexture2D<unorm float4> Strip : register(u0);
         ID3D11ShaderResourceView* noInputs[2]{}; ID3D11UnorderedAccessView* noUAV{};
         context->CSSetShaderResources(0, 2, noInputs);
         context->CSSetUnorderedAccessViews(0, 1, &noUAV, nullptr);
-        context1_->SwapDeviceContextState(previous.Get(), nullptr);
+        }
         status_ = "live";
     }
 }

@@ -17,6 +17,7 @@ void Extent(ID3D12Resource* r, unsigned w, unsigned h, const char* why) {
 }
 }
 struct FeatureSession::State {
+    unsigned reusedIndex{~0u}; int preset{-1};
     unsigned w{},h{},gw{},gh{},index{},createdFrame{};
     Microsoft::WRL::ComPtr<ID3D12RootSignature> root;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> pipeline;
@@ -31,7 +32,9 @@ bool FeatureSession::EnsureInitialized(const CreateInfo& info) {
         state_->refused=true; state_->status="feature creation failed (0xBAD00002)"; return false;
     }
     if (!state_->initialized) {
-        state_->index=Fixture::creations;
+        state_->index=state_->reusedIndex == ~0u ? Fixture::creations : state_->reusedIndex;
+        state_->preset=info.networkPreset;
+        Fixture::createdFeatures.push_back(state_->index);
         state_->w=state_->index && Fixture::secondWidth?Fixture::secondWidth:Fixture::workWidth;
         state_->h=state_->index && Fixture::secondHeight?Fixture::secondHeight:Fixture::workHeight;
         if(state_->index<Fixture::passWidth.size() && Fixture::passWidth[state_->index]){
@@ -127,11 +130,18 @@ bool FeatureSession::RecordEvaluation(const EvaluationInput& in) {
     in.commandList->ResourceBarrier(2,b);
     }
     ++state_->evaluations; ++Fixture::evaluations; Fixture::resets+=in.reset; Fixture::motions.push_back(in.motionVectors);
+    Fixture::evaluatedFeatures.emplace_back(state_->index, in.reset);
     return true;
 }
 bool FeatureSession::IsInitialized() const {return state_->initialized;}
 std::uint32_t FeatureSession::RefusedCreation() const {return state_->refused?0xBAD00002u:0u;}
 RuntimeBuild FeatureSession::Build() const {return RuntimeBuild::Nexus3108;}
+bool FeatureSession::ResetAfterRetirement() {
+    if (Fixture::refuseRetirement) { return false; }
+    const auto index = state_->index;
+    state_.reset(new State); state_->reusedIndex=index;
+    return true;
+}
 std::uint64_t FeatureSession::EvaluationsRecorded() const {return state_->evaluations;}
 const std::string& FeatureSession::Status() const {return state_->status;}
 }

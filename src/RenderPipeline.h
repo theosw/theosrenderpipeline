@@ -69,7 +69,8 @@ struct ImageWrapper
 class RenderPipeline
 {
 public:
-	float mJitterIndex{ 0 };
+	// An integer: a float counter stops advancing at 2^24 frames.
+	std::uint32_t mJitterIndex{ 0 };
 	float mJitterOffsets[2]{ 0, 0 };
 	bool  mSharpening{ false };
 	float mSharpness{ 0.3f };

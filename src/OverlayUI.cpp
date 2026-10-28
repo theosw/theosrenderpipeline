@@ -112,6 +112,17 @@ void OverlayUI::PollInput()
 		io.AddMouseButtonEvent(1, right);
 		lastRight = right;
 	}
+	// Window messages carry the wheel while the menu's cursor is free; Skyrim's own
+	// input events while DirectInput holds the mouse. Prefer the first so one notch
+	// is never counted twice. Both are taken even when unfocused, so scrolling in
+	// the game never reaches a later menu.
+	const int windowWheel = hotkeys.TakeWheel(), gameWheel = pendingWheel.exchange(0);
+	static bool loggedWindow = false, loggedGame = false;
+	if (windowWheel && !loggedWindow) { loggedWindow = true; logger::info("[Overlay] mouse wheel arrives through window messages"); }
+	if (gameWheel && !loggedGame) { loggedGame = true; logger::info("[Overlay] mouse wheel arrives through Skyrim input events"); }
+	if (const int wheel = windowWheel ? windowWheel : gameWheel; focused && wheel) {
+		io.AddMouseWheelEvent(0.0f, static_cast<float>(wheel));
+	}
 	TheosRenderPipeline::Overlay::NumericInput::Keys keys{};
 	if (focused) {
 		for (unsigned vk = VK_BACK; vk < keys.size(); ++vk) {
@@ -334,7 +345,6 @@ void OverlayUI::RefreshNeuralRuntimeAvailability()
             TheosRenderPipeline::PluginPaths::Directory(),
             TheosRenderPipeline::SourceDLSSG::Backend::Get().NeuralComputeCapability(),
             TheosRenderPipeline::NeuralRendering::RuntimeKernelsSupported()));
-    settingsDraft.sourceDLSSG.neuralEnabled &= nrRuntimePresent;
 #endif
 }
 

@@ -50,7 +50,9 @@ namespace TheosRenderPipeline
         api::effect_runtime* runtime{};
         std::atomic_bool overlayOpen{};
         static thread_local ComPtr<ID3D12Device>* capturingDevice;
-        bool nativeOutput{}, disabled{}, blocked{}, bridged{}, creating{};
+        bool nativeOutput{}, disabled{}, blocked{}, bridged{};
+        // Per thread: another thread's runtime creation is not TRP's own.
+        static thread_local bool creating;
         std::atomic<api::effect_runtime*> overlayRuntime{};
         static thread_local bool internal;
         bool before{}, attempted{}, updated{}, screenshotOverlay{};
@@ -413,6 +415,7 @@ namespace TheosRenderPipeline
     };
 
     thread_local bool ReShadeIntegration::State::internal{};
+    thread_local bool ReShadeIntegration::State::creating{};
     thread_local ComPtr<ID3D12Device>* ReShadeIntegration::State::capturingDevice{};
     ReShadeIntegration& ReShadeIntegration::Get() { static ReShadeIntegration value; return value; }
     ReShadeIntegration::State& ReShadeIntegration::Data()

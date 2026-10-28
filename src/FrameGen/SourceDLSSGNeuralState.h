@@ -145,6 +145,10 @@ namespace TheosRenderPipeline::SourceDLSSG
 			// Only how many passes run changes the image, not why.
 			historyOptions.passOverride = NeuralRendering::PassOverride::None;
 			historyOptions.presetPasses = options.EffectivePasses() != options.passes ? options.EffectivePasses() : 0;
+			// Model-only changes are retired by NeuralPass, which resets just the
+			// changed pass and its downstream histories. Do not reset upstream here.
+			historyOptions.reconstruction.preset = 0;
+			for (auto& extra : historyOptions.extraPasses) { extra.preset = 0; }
 			const bool reset = cameraReset || active != active_ || (active && !SameHistoryOptions(historyOptions, previous_));
 			active_ = active;
 			previous_ = historyOptions;

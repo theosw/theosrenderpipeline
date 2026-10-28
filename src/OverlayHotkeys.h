@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <Windows.h>
 #include <array>
 #include <mutex>
@@ -123,6 +124,8 @@ namespace TheosRenderPipeline::Overlay
         void CancelCapture();
         bool IsCapturing();
         HotkeyCapture TakeCapture();
+        // Wheel notches from WM_MOUSEWHEEL since the last call (positive = away from the user).
+        int TakeWheel() { return wheel_.exchange(0); }
 
     private:
         void ObserveMessage(const MSG& message);
@@ -144,6 +147,7 @@ namespace TheosRenderPipeline::Overlay
         std::array<unsigned, 256> windowPresses_{};
         std::array<unsigned, 256> gamePresses_{};
         HotkeyCapture capture_;
+        std::atomic_int wheel_{0};
     };
 
     // Skyrim keyboard IDs are DirectInput scan codes, not Win32 virtual keys.

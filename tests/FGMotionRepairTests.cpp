@@ -79,6 +79,28 @@ int main()
     const auto kept = run(object, identity);
     for (std::size_t i = 0; i < kept.size(); ++i) { Require(kept[i] == object[i], "a moving object keeps its own motion"); }
     ++cases;
+    // The game's compute bindings survive the repair, and the context's dispatch
+    // table is left alone: a state swap rewrites it and drops the UI routing hooks.
+    {
+        ComPtr<ID3D11ShaderResourceView> gameView;
+        Check(device->CreateShaderResourceView(depth.Get(), nullptr, &gameView), "game view");
+        D3D11_BUFFER_DESC bufferDesc{ 16, D3D11_USAGE_DEFAULT, D3D11_BIND_CONSTANT_BUFFER, 0, 0, 0 };
+        ComPtr<ID3D11Buffer> gameBuffer; Check(device->CreateBuffer(&bufferDesc, nullptr, &gameBuffer), "game buffer");
+        auto* view = gameView.Get(); auto* buffer = gameBuffer.Get();
+        context->CSSetShaderResources(0, 1, &view);
+        context->CSSetConstantBuffers(0, 1, &buffer);
+        const auto* table = *reinterpret_cast<void* const* const*>(context.Get());
+        std::vector<void*> before(table, table + 115);
+        run(stuck, identity);
+        const auto* after = *reinterpret_cast<void* const* const*>(context.Get());
+        Require(after == table && std::equal(before.begin(), before.end(), after), "the context's dispatch table is unchanged");
+        ComPtr<ID3D11ShaderResourceView> gotView; ComPtr<ID3D11Buffer> gotBuffer;
+        context->CSGetShaderResources(0, 1, &gotView); context->CSGetConstantBuffers(0, 1, &gotBuffer);
+        Require(gotView.Get() == view && gotBuffer.Get() == buffer, "the game's compute bindings are restored");
+        ID3D11ShaderResourceView* noView{}; ID3D11Buffer* noBuffer{};
+        context->CSSetShaderResources(0, 1, &noView); context->CSSetConstantBuffers(0, 1, &noBuffer);
+    }
+    ++cases;
     // Above water even stuck-looking motion passes through: the repair is armed
     // only while the game reports the player underwater.
     auto source = Texture(device.Get(), DXGI_FORMAT_R32G32_FLOAT, 8, stuck.data());

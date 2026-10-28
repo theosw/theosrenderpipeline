@@ -71,3 +71,8 @@ Wrap menu text in `TR("...")`, formatted text in `TRF("...", args)`, and the
 labels of tabs and collapsing headers in `TRID("...")`, which keeps the English as
 the ImGui ID so switching language keeps their state. Only the menu (`src/Overlay*`)
 translates: settings keys, weather override names and log lines stay English.
+
+Run `python tools/lang/audit.py --check` before committing menu changes. It fails
+when menu prose cannot be reached through translation wrappers; missing dictionary
+entries remain allowed English fallbacks. The localization workflow runs this
+check and its CLI regression tests without requiring renderer dependencies.

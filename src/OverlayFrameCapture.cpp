@@ -112,6 +112,7 @@ OverlayUI::FrameView OverlayUI::CaptureFrameView()
     view.vsyncIncoming = vsync.submission.incomingSync;
     view.vsyncRequested = vsync.submission.sync;
     view.vsyncFailed = FAILED(vsync.result);
+    view.vsyncRequiredOff = vsync.submission.autoRequiredOff;
     view.vsyncConfigured = backend.VSyncConfigurationMode();
     view.xefgTensorRequested = backend.XeFGTensorRequested();
     view.xefgTensorStatus = backend.XeFGTensorStatus();

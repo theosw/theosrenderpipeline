@@ -2,6 +2,7 @@
 #include <chrono>
 #include <filesystem>
 #include <string>
+#include "PhotoFileMatch.h"
 
 // Skyrim saves screenshots from kSCREENSHOT, its own target at the render size
 // TRP gives the game: no DLSS output, no NR, no native UI. TRP replaces such a
@@ -20,7 +21,7 @@ namespace TheosRenderPipeline::EngineScreenshot
     {
         std::string path;  // empty: find the photo another plugin writes (FindPhoto)
         int jpegQuality{ 90 };
-        std::chrono::system_clock::time_point since;
+        PhotoFiles::Request photo;
         unsigned width{}, height{};  // kSCREENSHOT's size when the flag rose
     };
 
@@ -36,8 +37,7 @@ namespace TheosRenderPipeline::EngineScreenshot
     void OnFrameBegin();
     // The oldest screenshot waiting for the finished frame.
     bool Take(Request& a_request);
-    // A photo another plugin wrote for a flag-only request: the newest PNG in the
-    // Photos folder written since the flag rose, at kSCREENSHOT's size. Waits up
-    // to a_timeout for it to appear; empty when none does.
-    std::filesystem::path FindPhoto(const Request& a_request, std::chrono::milliseconds a_timeout);
+    // Worker-only conservative match: one newly created, completed PNG at the
+    // requested dimensions. Holds it against writes; ambiguity leaves it intact.
+    PhotoFiles::File FindPhoto(const Request& a_request, std::chrono::milliseconds a_timeout);
 }

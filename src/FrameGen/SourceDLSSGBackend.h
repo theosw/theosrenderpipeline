@@ -68,6 +68,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 		struct VSyncObservation { bool observed{}; VSyncSubmission submission{}; HRESULT result{S_FALSE}; FrameGenerationProvider provider{}; };
 		void ObserveVSync(VSyncSubmission submission, HRESULT result);
 		VSyncObservation VSyncState() const { std::scoped_lock lock(vsyncMutex_); return vsyncState_; }
+		// From slGetFeatureRequirements(DLSS-G); false when the runtime does not say.
+		bool DLSSGVSyncOffRequired() const { return dlssgVSyncOffRequired_.load(std::memory_order_relaxed); }
 		void ConfigureXeFG(XeFGOptions options)
 		{
 			options = SanitizeXeFG(options);
@@ -79,14 +81,15 @@ namespace TheosRenderPipeline::SourceDLSSG
 			return {(value & 0x100u) != 0, value & 0xffu};
 		}
 		const std::string& ProviderStatus() const { return providerStatus_; }
-		bool GenerationActive() const { return Ready() && (provider_ == FrameGenerationProvider::XeFG ? xefg_.Snapshot().enabled : session_.Snapshot().GenerationActive()); }
-		unsigned EffectiveMultiplier() const { return provider_ == FrameGenerationProvider::XeFG ? xefg_.Snapshot().generatedFrames+1 : session_.Snapshot().options.numFramesToGenerate + 1; }
-		std::uint32_t FrameIndex() const { return provider_ == FrameGenerationProvider::XeFG ? xefg_.Snapshot().frameId : nvidiaNeedsPresent_ ? xefg_.Snapshot().frameId + 1 : session_.Snapshot().frameIndex; }
+		bool GenerationActive() const { return Ready() && !startupTransport_ && (provider_ == FrameGenerationProvider::XeFG ? xefg_.Snapshot().enabled : session_.Snapshot().GenerationActive()); }
+		unsigned EffectiveMultiplier() const { return startupTransport_ ? 1 : provider_ == FrameGenerationProvider::XeFG ? xefg_.Snapshot().generatedFrames+1 : session_.Snapshot().options.numFramesToGenerate + 1; }
+		std::uint32_t FrameIndex() const { return startupTransport_ ? transportFrame_ : provider_ == FrameGenerationProvider::XeFG ? xefg_.Snapshot().frameId : nvidiaNeedsPresent_ ? xefg_.Snapshot().frameId + 1 : session_.Snapshot().frameIndex; }
 		bool ApplyProviderSwitch(SwapChain& wrapper);
 		// A live switch to NVIDIA would be refused: NR initialized NGX before
 		// Streamline in this session. Saving NVIDIA and restarting resolves it.
 		bool NvidiaSwitchBlocked() const;
-		bool NvidiaServicesReady() const { return Ready() && nvidiaInitialized_; }
+		bool NvidiaServicesReady() const { return Ready() && nvidiaInitialized_ && !startupTransport_; }
+		bool StartupTransport() const { return startupTransport_; }
 		// CPU time of one host Present split into its phases: input/output
 		// recording, the presenter's own Present, and retirement/replacement.
 		void ObservePresentTiming(double prepareMs, double presentMs, double finishMs);
@@ -228,9 +231,14 @@ namespace TheosRenderPipeline::SourceDLSSG
 	private:
 		friend class SwapChain; // Transport failures use the same first-error latch.
 		Backend() = default;
+		bool EnterStartupTransport();
+		bool startupTransport_{}, presenterAttempted_{};
+		std::uint32_t transportFrame_{};
+		std::string startupFailure_;
 		bool Load(const std::filesystem::path& a_directory);
 		bool InitializeNvidia(const std::filesystem::path& directory);
 		bool UpgradeNvidiaFactory();
+		void ReadDLSSGRequirements();
 		bool PreflightProviderSwitch();
 		HRESULT CreatePresenter(FrameGenerationProvider provider, IDXGISwapChain** result);
 		bool Check(sl::Result a_result, const char* a_operation);
@@ -268,6 +276,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		PFun_slIsFeatureSupported* supported_{};
 		PFun_slGetFeatureFunction* featureFunction_{};
 		PFun_slUpgradeInterface* upgrade_{};
+		PFun_slGetFeatureRequirements* requirements_{}; // Optional: diagnostics and VSync policy only.
 		SessionAPI api_{};
 		Session session_;
 		XeFGPresenter xefg_;
@@ -287,6 +296,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 		bool providerSwitchPending_{}, cameraAvailable_{}, recreateXeFG_{}, nvidiaNeedsPresent_{};
 		sl::Result reportedStateQueryResult_{ sl::Result::eOk };
 		sl::Result reportedOptionsResult_{ sl::Result::eOk };
+		std::atomic<bool> dlssgVSyncOffRequired_{};
+		int reportedVSyncHint_{-1};
 		MFGUnlock mfgUnlock_;
 		bool rtx30LegacyDLSSG_{};
 		std::atomic<sl::ReflexMode> reflexMode_{ sl::ReflexMode::eLowLatency };
@@ -394,6 +405,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		sl::Constants frameConstants_{};
 		bool neuralEligible_{};
 		bool frameNeuralReset_{};
+		bool frameNeuralModelChanged_{};
 		bool neuralFrameBegun_{}, neuralEvaluatedEarly_{};
 		Microsoft::WRL::ComPtr<ID3D11Texture2D> uiSource_;
 		D3D11FrameCopy::Depth depthCopy_;

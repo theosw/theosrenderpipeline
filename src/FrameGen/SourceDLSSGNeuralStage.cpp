@@ -100,24 +100,33 @@ namespace TheosRenderPipeline::SourceDLSSG
 	}
 	const char* Backend::NeuralUnavailableReason(const NeuralOptions& options)
 	{
+		if (startupTransport_) { return "NR unavailable after frame-generation startup failure; restart to retry"; }
 		std::scoped_lock lock(neuralMutex_);
 		if (!NvidiaAdapter() && options.enabled) { return "Neural Rendering requires an NVIDIA RTX GPU; XeSS and XeFG remain available"; }
 		const auto retainedBuild = neuralPass_ ? neuralPass_->RetainedRuntimeBuild(options.runtimePath) :
 			NeuralRendering::RuntimeBuild::Unknown;
 		if (neuralComputeCapability_ < 0 && device12_) { neuralComputeCapability_ = NeuralRendering::ComputeCapability(device12_->GetAdapterLuid()); }
 		const NeuralRendering::IncompatibleRuntime* refused{};
+		bool unsupported{};
 		const auto reason = neuralAvailability_.UnavailableReason(options, [&](const std::filesystem::path& path) {
 			const auto identity = NeuralRenderingRuntimeIdentity::VerifySource(path, true);
 			if (identity.matched && (refused = NeuralRendering::FindIncompatibleRuntime(identity.sha256, neuralComputeCapability_))) {
 				return NeuralRendering::RuntimeBuild::Unknown;
 			}
-			return identity.matched ? NeuralRendering::MatchRuntime(identity.size, identity.sha256, identity.version, true) :
+			const auto build = identity.matched ? NeuralRendering::MatchRuntime(identity.size, identity.sha256, identity.version, true) :
 				NeuralRendering::RuntimeBuild::Unknown;
+			unsupported = build == NeuralRendering::RuntimeBuild::Unknown;
+			return build;
 		}, retainedBuild);
 		if (refused) {
 			// Refuse it before any feature uses it; the next frame runs the next runtime instead.
 			RefuseNeuralRuntime(options.runtimePath, std::format("is {}", refused->description), " RTX 40 cards need a fixed build.");
 			return "NR runtime refused for this GPU; switching runtime";
+		}
+		if (unsupported && options.automaticRuntime) {
+			// Automatic chose this file only because it exists; try the next candidate.
+			RefuseNeuralRuntime(options.runtimePath, "is not a supported NR build", "");
+			return "NR runtime unsupported; switching runtime";
 		}
 		if (reason && reason != neuralReportedUnavailable_) { logger::warn("[SourceDLSSG NR] {}", reason); }
 		neuralReportedUnavailable_ = reason;
@@ -163,6 +172,13 @@ namespace TheosRenderPipeline::SourceDLSSG
             neuralSnapshot_.telemetry = neuralPass_->Telemetry();
         }
         const auto releasing = std::chrono::steady_clock::now();
+        if (!neuralPass_->NeedsResourceRecreation(options, motion_.desc.Width, motion_.desc.Height)) {
+            if (!Check(neuralPass_->RetireChangedModels(options) ? S_OK : E_FAIL,
+                "NR model creation retirement unconfirmed; relaunch required")) { return false; }
+            logger::info("[SourceDLSSG NR] model change: GPU drain {:.0f} ms, selective retirement {:.0f} ms; resources and unaffected features retained",
+                drained, since(releasing));
+            return true;
+        }
         neuralPass_.reset();
         logger::info("[SourceDLSSG NR] rebuild: GPU drain {:.0f} ms, previous feature released in {:.0f} ms",
             drained, since(releasing));
@@ -213,6 +229,10 @@ namespace TheosRenderPipeline::SourceDLSSG
         frameNeuralReset_ = neuralHistory_.ResetFor(frameNeuralOptions_, neuralEligible_,
             reset || (camera && camera->reset == sl::eTrue));
         reset |= frameNeuralReset_;
+        // The upscaler still needs to discard a history fed by a changed NR
+        // model. Keep this separate from the NR chain's per-pass reset mask.
+        frameNeuralModelChanged_ = neuralPass_ && neuralPass_->ModelChangePending(frameNeuralOptions_);
+        reset |= options.beforeUpscaling && frameNeuralModelChanged_;
         if (!options.enabled || !options.WorldOnly() || !neuralEligible_) { return true; }
 
         auto* timing = PerformanceTuning::GetSingleton();

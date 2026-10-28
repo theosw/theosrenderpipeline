@@ -75,11 +75,11 @@ namespace TheosRenderPipeline::Localization
 		// The printf conversions in a_text, in order, without %%. Labels reach
 		// ImGui::Text, tooltips, slider formats and snprintf as printf formats, where
 		// a missing or changed %s reads the wrong argument. Text with std::format
-		// fields goes through Format instead, which falls back on its own.
+		// fields goes through Format instead, which falls back on its own, but is
+		// checked too: a translation must not add conversions behind a brace.
 		std::string Conversions(std::string_view a_text)
 		{
 			std::string result;
-			if (a_text.find('{') != std::string_view::npos) { return result; }
 			for (std::size_t i = 0; i < a_text.size(); ++i) {
 				if (a_text[i] != '%') { continue; }
 				std::size_t j = i + 1;

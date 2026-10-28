@@ -64,6 +64,8 @@ namespace TheosRenderPipeline::NeuralRendering
 		// reached the caller's list. Compatibility refusals return NotSupported.
 		std::uint32_t RefusedCreation() const;
 		RuntimeBuild Build() const;
+		// Caller must first prove every list using this feature has retired.
+		bool ResetAfterRetirement();
 		std::uint64_t EvaluationsRecorded() const;
 		const std::string& Status() const;
 

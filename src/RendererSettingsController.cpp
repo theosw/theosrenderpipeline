@@ -51,10 +51,9 @@ RendererSettingsDraft RendererSettingsController::Capture([[maybe_unused]] bool 
     settingsDraft.directDLSSOutput = performanceSettings.directDLSSOutput;
     settingsDraft.sourceDLSSG = frameGen_.settings.sourceDLSSG;
     settingsDraft.appearance = Appearance::Runtime::Get().Configuration();
-#if !defined(TRP_NO_NEURAL_RENDERING)
-    // A saved NR request must not strand unrelated settings behind disabled controls.
-    settingsDraft.sourceDLSSG.neuralEnabled &= nrRuntimePresent;
-#endif
+    // An NR request whose runtime is missing stays as saved: the switch can still
+    // turn it off, its other rows are locked, validation keeps the unchanged
+    // request and Apply gates execution. Masking it here lost it on any save.
     settingsDraft.textureProviderConnected = readTextures && textures_.Read(settingsDraft.textureProviderSettings);
     return settingsDraft;
 }

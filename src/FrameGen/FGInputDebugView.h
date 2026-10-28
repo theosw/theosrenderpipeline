@@ -36,8 +36,6 @@ namespace TheosRenderPipeline
         bool failed_{ false };
         const char* status_{ "waiting for a world frame" };
         Microsoft::WRL::ComPtr<ID3D11Device> device_;
-        Microsoft::WRL::ComPtr<ID3D11DeviceContext1> context1_;
-        Microsoft::WRL::ComPtr<ID3DDeviceContextState> state_;
         Microsoft::WRL::ComPtr<ID3D11ComputeShader> shader_;
         Microsoft::WRL::ComPtr<ID3D11Buffer> constants_;
         Microsoft::WRL::ComPtr<ID3D11Texture2D> strip_, motion_, depth_;

@@ -41,11 +41,20 @@ namespace TheosRenderPipeline::SourceDLSSG
 		}
 		bool NeedsRecreation(const NeuralOptions& options, UINT guideWidth = 0, UINT guideHeight = 0) const
 		{
+			return NeedsResourceRecreation(options, guideWidth, guideHeight) || ModelsChanged(options);
+		}
+		bool ModelChangePending(const NeuralOptions& options) const { return ModelsChanged(options); }
+		bool NeedsResourceRecreation(const NeuralOptions& options, UINT guideWidth = 0, UINT guideHeight = 0) const
+		{
+			auto resources = reconstruction_;
+			resources.preset = options.reconstruction.preset;
 			return feature_.IsInitialized() && (runtimePath_ != options.runtimePath || beforeUpscaling_ != options.beforeUpscaling || worldOnly_ != options.WorldOnly() || passes_ != options.passes ||
-				!NeuralRendering::SameReconstructionResources(reconstruction_, options.reconstruction) ||
+				!NeuralRendering::SameReconstructionResources(resources, options.reconstruction) ||
 				ExtraPassesChanged(options) ||
 				((guideWidth || guideHeight) && (guideWidth != guideWidth_ || guideHeight != guideHeight_)));
 		}
+		// No list may be open. Backend drains first, just as for a full rebuild.
+		bool RetireChangedModels(const NeuralOptions& options);
 		const std::string& Status() const { return status_; }
 		// NGX refused to create Pass 1 with this runtime. Initialization then stops
 		// before Record writes to the frame's list. A refused later pass is not a
@@ -56,11 +65,20 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// Why fewer passes run than requested for the rest of this pass's life, or empty.
 		const std::string& PassNote() const { return passNote_; }
 	private:
+		bool ModelsChanged(const NeuralOptions& options) const
+		{
+			if (!corrected_) { return false; }
+			if (reconstruction_.preset != options.reconstruction.preset) { return true; }
+			for (std::size_t i = 0; i + 1 < static_cast<std::size_t>(options.passes); ++i) {
+				if (extra_[i].settings.preset != options.EffectiveExtra(i).preset) { return true; }
+			}
+			return false;
+		}
 		bool ExtraPassesChanged(const NeuralOptions& options) const
 		{
 			for (std::size_t i = 0; i + 1 < static_cast<std::size_t>(options.passes) && i < extra_.size(); ++i) {
 				const auto wanted = options.EffectiveExtra(i);
-				if (extra_[i].settings.inputScale != wanted.inputScale || extra_[i].settings.preset != wanted.preset) { return true; }
+				if (extra_[i].settings.inputScale != wanted.inputScale) { return true; }
 			}
 			return false;
 		}
@@ -111,6 +129,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			std::uint64_t evaluation{};
 			std::uint64_t cpuRecordNanoseconds{};
 			bool pending{};
+			bool modelRan{};
 		};
 		NeuralRendering::FeatureSession feature_;
 		// Passes 2 to 5. Each runs the model on the previous pass's result with its
@@ -174,6 +193,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		std::array<float, 2> rateJitter_{};
 		bool rateMask_{};
 		bool createdThisFrame_{};
+		bool firstHistoryInvalid_{};
 		NeuralRendering::Reconstruction reconstruction_;
 		std::filesystem::path runtimePath_;
 		UINT guideWidth_{}, guideHeight_{};

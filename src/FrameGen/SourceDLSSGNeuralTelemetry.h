@@ -34,6 +34,15 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// running the model, and the recent share of frames that ran it (0 to 1).
 		std::uint64_t skippedFrames{};
 		double modelRunShare{ 1 };
+		// Latest completed recorded frames, including model skips. This is the
+		// whole NR command span, not inference time divided by the model interval.
+		std::size_t frameSamples{};
+		std::uint64_t frameQueryFailures{}, frameTicksTotal{}, frameFrequency{};
+		double AverageFrameGPUMicroseconds() const
+		{
+			return frameSamples && frameFrequency ? 1'000'000.0 * static_cast<double>(frameTicksTotal) /
+				(static_cast<double>(frameSamples) * static_cast<double>(frameFrequency)) : 0.0;
+		}
 
 		double AverageGPUMicroseconds() const
 		{
@@ -64,6 +73,18 @@ namespace TheosRenderPipeline::SourceDLSSG
 	class NeuralTelemetryTracker
 	{
 	public:
+		void RecordFrame(std::uint64_t start, std::uint64_t end, std::uint64_t frequency)
+		{
+			if (!frequency || end < start || (frameFrequency_ && frequency != frameFrequency_)) {
+				++frameQueryFailures_; return;
+			}
+			frameFrequency_ = frequency;
+			frameTicksTotal_ -= frameTicks_[frameHead_];
+			frameTicks_[frameHead_] = end - start;
+			frameTicksTotal_ += end - start;
+			frameHead_ = (frameHead_ + 1) % NeuralTelemetryCapacity;
+			frameCount_ = (std::min)(frameCount_ + 1, NeuralTelemetryCapacity);
+		}
 		void Record(std::uint64_t a_evaluation, std::uint64_t a_startTick,
 			std::uint64_t a_endTick, std::uint64_t a_frequency,
 			std::uint64_t a_cpuRecordNanoseconds)
@@ -116,6 +137,10 @@ namespace TheosRenderPipeline::SourceDLSSG
 			result.cpuRecordNanosecondsMaximum = cpuRecordNanosecondsMaximum_;
 			result.skippedFrames = skippedFrames_;
 			result.modelRunShare = modelRunShare_;
+			result.frameSamples = frameCount_;
+			result.frameQueryFailures = frameQueryFailures_;
+			result.frameTicksTotal = frameTicksTotal_;
+			result.frameFrequency = frameFrequency_;
 			for (std::size_t i = 0; i < count_; ++i) {
 				result.newestFirst[i] = points_[(head_ + NeuralTelemetryCapacity - i) % NeuralTelemetryCapacity];
 			}
@@ -123,6 +148,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 		}
 
 	private:
+		std::array<std::uint64_t, NeuralTelemetryCapacity> frameTicks_{};
+		std::size_t frameHead_{}, frameCount_{};
+		std::uint64_t frameQueryFailures_{}, frameTicksTotal_{}, frameFrequency_{};
 		void RecordCPU(std::uint64_t a_nanoseconds)
 		{
 			++cpuSamples_;

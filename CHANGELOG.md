@@ -1,3 +1,59 @@
+# 0.5.5
+
+- Fix Every third frame (Lab) carrying NR's change onto the second skipped frame
+  from two frames back with only one frame of motion, so moving detail landed a
+  frame off and smeared. The first skipped frame now stores the change it
+  carried, so each skipped frame moves it one frame. Every other frame is
+  unchanged.
+- Changing a pass's NR network now replaces only that pass's model; its
+  resources and the other passes' models stay, and only that pass and those
+  after it restart their history.
+- When a pass's object controls switch on (as when Pass 2 resumes after
+  combat), only that pass and those after it restart their history; earlier
+  passes keep theirs.
+- VSync Auto now asks NVIDIA's runtime whether DLSS-G needs VSync off and, if
+  it does, turns VSync off while DLSS-G generates frames; otherwise it still
+  follows the game. The log records the requirement and NVIDIA's VSync support
+  hint, and the Frame generation panel says when Auto turned VSync off.
+- If NVIDIA's Streamline fails to start before TRP creates its presenter, the
+  game now starts with normal presentation and DLSS upscaling, and says frame
+  generation (DLSS-G and XeFG), Reflex and NR are unavailable until a restart,
+  instead of failing to start.
+- Photo Mode's TRP capture only uses a PNG the game created for that photo, held
+  against changes while TRP replaces it; two photos at once, or an older or
+  reused file, are left alone.
+- The log no longer warns every session that TRP's depth differs from the
+  game's main depth target when it is the game's own copy of depth after the
+  z-prepass, which is what TRP uses.
+- The NR panel's **NR per frame** shows NR's measured GPU time per rendered
+  frame, including skipped-frame reprojection and change storage.
+- The mouse wheel now scrolls the menu. It is taken from window messages while
+  the menu's cursor is free, and from Skyrim's own input events otherwise.
+- Underwater, the motion repair no longer swaps the game's whole D3D11 state;
+  it saves and restores just the bindings it uses.
+- Save as default no longer turns NR off when NR's runtime is missing at the
+  time (for example while its mod is disabled); the saved request stays and NR
+  resumes once the runtime is back.
+- An NR runtime that fails before NVIDIA's code runs (it does not load, a
+  different NR DLL is already loaded, or it is not a supported build) is now
+  skipped for the next runtime instead of stopping the game's presentation.
+  Automatic also moves on from a runtime file that is not a supported build.
+- Saving a new or renamed weather override no longer overwrites an existing file
+  of the same name in `Presets`, such as one the game did not load or another
+  override renamed in the same save; the save reports it instead.
+- Fix a crash when another mod validates a texture description through the
+  game's device without creating the texture.
+- A language file can no longer slip printf placeholders into plain menu text
+  behind a `{`; such an entry keeps the English.
+- An empty NR answer (as on a feature's first frame) now keeps the scene on the
+  Community Shaders colour path and with Broad/Detail tone controls, instead of
+  showing a black or brightness-shifted frame.
+- XeFG no longer refuses to start in very large load orders (over 1,024 loaded
+  modules), and its x3-x6 pacing no longer keeps bad history after pauses of
+  more than about 15 minutes.
+- The camera jitter sequence keeps cycling in sessions longer than about 39
+  hours.
+
 # 0.5.4
 
 Game-tested on an RTX 4080 SUPER (LoreRim) with the release package: Photo Mode and

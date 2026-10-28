@@ -188,8 +188,11 @@ namespace TheosRenderPipeline::NeuralRendering
 
 		const auto identity = VerifySource(a_info.runtimePath, a_info.allowReconstructionRuntime);
 		const double verified = elapsed();
+		// Failures before public NGX or the runtime's own init ran no vendor GPU work:
+		// refuse this runtime so the backend can fall back instead of stopping.
 		if (!identity.matched) {
 			state.status = "NR runtime is not a supported build (file version 310 or later, or a known runtime)";
+			state.runtimeRefused = true;
 			return false;
 		}
 		state.contract = MakeFeatureContract(MatchRuntime(identity.size, identity.sha256, identity.version, a_info.allowReconstructionRuntime),
@@ -203,6 +206,7 @@ namespace TheosRenderPipeline::NeuralRendering
 		if (const auto existing = ::GetModuleHandleW(L"nvngx_dlssnr.dll")) {
 			if (!EqualPath(ModulePath(existing), identity.path)) {
 				state.status = "a different nvngx_dlssnr.dll is already resident";
+				state.runtimeRefused = true;
 				return false;
 			}
 		}
@@ -217,10 +221,12 @@ namespace TheosRenderPipeline::NeuralRendering
 		state.ownsModule = state.module != nullptr;
 		if (!state.module) {
 			state.status = std::format("runtime LoadLibrary failed ({})", ::GetLastError());
+			state.runtimeRefused = true;
 			return false;
 		}
 		if (!EqualPath(ModulePath(state.module), identity.path)) {
 			state.status = "loaded NR module does not match the requested runtime path";
+			state.runtimeRefused = true;
 			return false;
 		}
 		if (identity.sha256 == kKernelRuntimeSha256 &&
@@ -478,6 +484,20 @@ namespace TheosRenderPipeline::NeuralRendering
 	RuntimeBuild FeatureSession::Build() const
 	{
 		return IsInitialized() ? state_->contract.build : RuntimeBuild::Unknown;
+	}
+	bool FeatureSession::ResetAfterRetirement()
+	{
+		if (state_->creationContext && !state_->creationContext->CanRelease()) { return false; }
+		if (state_->feature && state_->releaseFeature) {
+			const auto result = state_->releaseFeature(state_->feature);
+			if (NVSDK_NGX_FAILED(result)) {
+				state_->status = std::format("NR model replacement release refused (0x{:08X}); relaunch required", static_cast<std::uint32_t>(result));
+				return false; // Retain feature, parameters and module; do not create another owner.
+			}
+			state_->feature = nullptr;
+		}
+		state_.reset(new State);
+		return true;
 	}
 
 	std::uint64_t FeatureSession::EvaluationsRecorded() const

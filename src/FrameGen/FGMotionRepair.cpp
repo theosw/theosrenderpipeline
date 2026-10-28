@@ -1,4 +1,5 @@
 #include "FGMotionRepair.h"
+#include "D3D11ComputeBindings.h"
 #include <d3dcompiler.h>
 #include <cstring>
 #include <utility>
@@ -77,13 +78,7 @@ float2 CameraMotion(uint2 p) {
     bool FGMotionRepair::Initialize(ID3D11DeviceContext* context)
     {
         ComPtr<ID3D11Device> device; context->GetDevice(&device);
-        ComPtr<ID3D11Device1> device1;
-        if (!device || FAILED(device->QueryInterface(IID_PPV_ARGS(&device1))) ||
-            FAILED(context->QueryInterface(IID_PPV_ARGS(&context1_)))) { return false; }
-        const auto level = device->GetFeatureLevel();
-        const UINT flags = (device->GetCreationFlags() & D3D11_CREATE_DEVICE_SINGLETHREADED) ?
-            D3D11_1_CREATE_DEVICE_CONTEXT_STATE_SINGLETHREADED : 0;
-        if (FAILED(device1->CreateDeviceContextState(flags, &level, 1, D3D11_SDK_VERSION, __uuidof(ID3D11Device), nullptr, &state_))) { return false; }
+        if (!device) { return false; }
         for (auto [entry, shader] : { std::pair{ "Count", &count_ }, std::pair{ "Write", &write_ } }) {
             ComPtr<ID3DBlob> blob;
             if (FAILED(D3DCompile(kShader, sizeof(kShader) - 1, "TRPFGMotionRepair", nullptr, nullptr, entry, "cs_5_0",
@@ -140,9 +135,10 @@ float2 CameraMotion(uint2 p) {
         c.renderWidth = renderWidth; c.renderHeight = renderHeight; c.depthInverted = depthInverted;
         std::memcpy(mapped.pData, &c, sizeof(c));
         context->Unmap(constants_.Get(), 0);
-        // A private state block: none of the game's bindings are touched.
-        ComPtr<ID3DDeviceContextState> previous;
-        context1_->SwapDeviceContextState(state_.Get(), &previous);
+        {
+        // The game's compute bindings are saved and put back. No state swap: it
+        // rewrites the context's dispatch table and drops the UI routing hooks.
+        const D3D11ComputeBindings saved(context, 1, 2, 2);
         const UINT zero[4]{};
         context->ClearUnorderedAccessViewUint(counterUAV_.Get(), zero);
         ID3D11ShaderResourceView* inputs[2]{ motionView, depthView };
@@ -158,7 +154,7 @@ float2 CameraMotion(uint2 p) {
         ID3D11ShaderResourceView* noInputs[2]{}; ID3D11UnorderedAccessView* noOutputs[2]{};
         context->CSSetShaderResources(0, 2, noInputs);
         context->CSSetUnorderedAccessViews(0, 2, noOutputs, nullptr);
-        context1_->SwapDeviceContextState(previous.Get(), nullptr);
+        }
         // Copy this frame's counts, then read the oldest copy if the GPU is done with it.
         const auto slot = applied_ % 3;
         context->CopyResource(readback_[slot].Get(), counter_.Get());

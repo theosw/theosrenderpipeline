@@ -246,7 +246,12 @@ namespace TheosRenderPipeline::XeFGUnlock
             QueryPerformanceCounter(&q);
             return q.QuadPart;
         }
-        std::int64_t Ns(std::int64_t ticks) { return ticks * 1000000000LL / frequency.QuadPart; }
+        // Whole seconds first: ticks * 1e9 overflows after about 15 minutes at 10 MHz.
+        std::int64_t Ns(std::int64_t ticks)
+        {
+            const auto f = frequency.QuadPart;
+            return ticks / f * 1000000000LL + ticks % f * 1000000000LL / f;
+        }
         std::int64_t Ticks(std::int64_t ns) { return ns * frequency.QuadPart / 1000000000LL; }
         void Context(void* ctx)
         {
