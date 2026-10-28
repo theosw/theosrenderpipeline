@@ -1,4 +1,12 @@
-# Theo's Render Pipeline — Standard, 0.5.4
+# Theo's Render Pipeline — Standard, 0.5.5
+
+Version 0.5.5 lets the mouse wheel scroll the menu, changes one NR pass's
+network without restarting the others, and starts the game with normal
+presentation instead of failing when NVIDIA's Streamline cannot start. VSync
+Auto now follows DLSS-G's own VSync requirement. It fixes Every third frame
+(Lab) smearing moving detail, Save as default turning NR off while its runtime
+was missing, a crash with mods that check textures through the game's device,
+and XeFG refusing to start in very large load orders. See CHANGELOG.md.
 
 Version 0.5.4 fixes saves waiting until a menu opened when Skyrim's depth of
 field is off, saves Photo Mode photos with TRP's finished frame at the output
@@ -239,7 +247,7 @@ an RTX 4080 SUPER: ordinary 6.8.0.2158 and full add-on 6.8.0.2155, with
 early NR and x4. Sky Reflection Fix's ReShade registration was excluded;
 Rumble passed a separate initial test. Combined third-party add-ons,
 Standard gameplay and CS with ReShade remain unverified. These were earlier
-development builds; the exact 0.5.4 package has not been tested with ReShade.
+development builds; the exact 0.5.5 package has not been tested with ReShade.
 
 MartysMods ReGrade+ (ReShade 6.6 or newer) used to crash the game while TRP
 started ReShade: it prepares itself only in a device event that ReShade does not
@@ -300,7 +308,7 @@ rendering dimensions.
 ## With the Universal edition
 
 For the RTX 40 MFG unlock or experimental RTX 20/30 support, install the matching
-0.5.4 Universal ZIP after Standard in MO2's left pane. Let Universal win file conflicts. Universal uses
+0.5.5 Universal ZIP after Standard in MO2's left pane. Let Universal win file conflicts. Universal uses
 the NVIDIA runtimes included here, including NR.
 
 Both editions contain settings files; the later mod's files win. Switching

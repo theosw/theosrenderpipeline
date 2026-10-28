@@ -1,4 +1,4 @@
-# Unreleased
+# 0.5.5
 
 - Fix Every third frame (Lab) carrying NR's change onto the second skipped frame
   from two frames back with only one frame of motion, so moving detail landed a
