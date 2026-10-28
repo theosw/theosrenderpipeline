@@ -67,6 +67,7 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& v
             DrawSettingsValue(TR("VSync"), TRF("game {} -> presenter {}", view.vsyncIncoming ? TR("On") : TR("Off"),
                                                    view.vsyncRequested ? TR("On") : TR("Off")).c_str());
             DrawSettingsHelp(TR("What the game asked for, and what the presenter requested for presentation."));
+            if (view.vsyncRequiredOff) ImGui::TextDisabled("%s", TR("Auto: NVIDIA frame generation requires VSync off on this system."));
             if (view.vsyncFailed) ImGui::TextColored(kOchre, "%s", TR("Last presentation request failed."));
         }
         DrawSettingsValue(TR("Latency"), intel ? "XeLL (Intel)"  // not translated: product names
@@ -258,7 +259,7 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& v
             SettingRow(TR("VSync"), nullptr, false, false, [&] {
                 int index = std::clamp(static_cast<int>(draft.vsync), 0, 2);
                 const bool changed = Segmented("vsync", index, {
-                    {TR("Auto"), true, TR("Turns VSync off for available XeFG driver metering and otherwise follows the game.")},
+                    {TR("Auto"), true, TR("Turns VSync off for available XeFG driver metering, and for NVIDIA frame generation when its runtime requires it. Otherwise follows the game.")},
                     {TR("Off"), true, TR("Requests immediate presentation.")},
                     {TR("On"), true, TR("Requests VSync. Prevents XeFG driver metering.")}});
                 if (changed) { draft.vsync = static_cast<SD::VSyncMode>(index); }

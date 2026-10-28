@@ -67,7 +67,7 @@ struct OverlayUI::FrameView
     bool xefgUnlockAvailable{};
     TheosRenderPipeline::SourceDLSSG::LiteBlending::Snapshot liteBlending{};
     // Presentation VSync: what the game asked for, what the presenter requested, and the applied mode.
-    bool vsyncObserved{}, vsyncIncoming{}, vsyncRequested{}, vsyncFailed{};
+    bool vsyncObserved{}, vsyncIncoming{}, vsyncRequested{}, vsyncFailed{}, vsyncRequiredOff{};
     TheosRenderPipeline::SourceDLSSG::VSyncMode vsyncConfigured{};
     bool xefgTensorRequested{}, xefgFlipMetering{};
     float steadyRenderedFPS{}; // Steady frame limit's current cap; 0 while measuring or off.

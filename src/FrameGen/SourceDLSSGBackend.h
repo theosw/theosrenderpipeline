@@ -68,6 +68,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 		struct VSyncObservation { bool observed{}; VSyncSubmission submission{}; HRESULT result{S_FALSE}; FrameGenerationProvider provider{}; };
 		void ObserveVSync(VSyncSubmission submission, HRESULT result);
 		VSyncObservation VSyncState() const { std::scoped_lock lock(vsyncMutex_); return vsyncState_; }
+		// From slGetFeatureRequirements(DLSS-G); false when the runtime does not say.
+		bool DLSSGVSyncOffRequired() const { return dlssgVSyncOffRequired_.load(std::memory_order_relaxed); }
 		void ConfigureXeFG(XeFGOptions options)
 		{
 			options = SanitizeXeFG(options);
@@ -236,6 +238,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		bool Load(const std::filesystem::path& a_directory);
 		bool InitializeNvidia(const std::filesystem::path& directory);
 		bool UpgradeNvidiaFactory();
+		void ReadDLSSGRequirements();
 		bool PreflightProviderSwitch();
 		HRESULT CreatePresenter(FrameGenerationProvider provider, IDXGISwapChain** result);
 		bool Check(sl::Result a_result, const char* a_operation);
@@ -273,6 +276,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		PFun_slIsFeatureSupported* supported_{};
 		PFun_slGetFeatureFunction* featureFunction_{};
 		PFun_slUpgradeInterface* upgrade_{};
+		PFun_slGetFeatureRequirements* requirements_{}; // Optional: diagnostics and VSync policy only.
 		SessionAPI api_{};
 		Session session_;
 		XeFGPresenter xefg_;
@@ -292,6 +296,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 		bool providerSwitchPending_{}, cameraAvailable_{}, recreateXeFG_{}, nvidiaNeedsPresent_{};
 		sl::Result reportedStateQueryResult_{ sl::Result::eOk };
 		sl::Result reportedOptionsResult_{ sl::Result::eOk };
+		std::atomic<bool> dlssgVSyncOffRequired_{};
+		int reportedVSyncHint_{-1};
 		MFGUnlock mfgUnlock_;
 		bool rtx30LegacyDLSSG_{};
 		std::atomic<sl::ReflexMode> reflexMode_{ sl::ReflexMode::eLowLatency };

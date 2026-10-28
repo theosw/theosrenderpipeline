@@ -104,6 +104,11 @@ namespace TheosRenderPipeline::SourceDLSSG
 				}
 				reportedOptionsResult_ = s.optionsResult;
 			}
+			// NVIDIA's hint for whether to offer VSync with DLSS-G; logged for diagnosis only.
+			if (s.stateQueries && int(s.state.bIsVsyncSupportAvailable) != reportedVSyncHint_) {
+				reportedVSyncHint_ = int(s.state.bIsVsyncSupportAvailable);
+				logger::info("[SourceDLSSG] DLSS-G reports VSync support available={} frame={}", reportedVSyncHint_ != 0, s.frameIndex);
+			}
 			return true;
 		}
 		const auto detail = std::format("session {} failure={} result={} frame={}",
@@ -155,6 +160,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			!load(featureFunction_, "slGetFeatureFunction") || !load(upgrade_, "slUpgradeInterface") ||
 			!load(api_.newFrameToken, "slGetNewFrameToken") || !load(api_.setConstants, "slSetConstants") ||
 			!load(api_.setTag, "slSetTag")) { return false; }
+		requirements_ = reinterpret_cast<PFun_slGetFeatureRequirements*>(::GetProcAddress(interposer_, "slGetFeatureRequirements"));
 		const wchar_t* paths[]{ directory_.c_str() };
 		const sl::Feature features[]{ sl::kFeatureReflex, sl::kFeatureDLSS_G };
 		sl::Preferences preferences{};
@@ -209,6 +215,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			logger::info("[SourceDLSSG] startup stage={}", operation);
 			if (!Check(supported_(feature, info), operation.c_str())) { return false; }
 		}
+		ReadDLSSGRequirements();
 		for (std::size_t index = 0; index < kStreamlineModules.size(); ++index) {
 			const auto* name = kStreamlineModules[index];
 			runtimeModules_[index] = TheosRenderPipeline::PluginPaths::RetainLoadedModule(directory_ / name);
@@ -248,6 +255,24 @@ namespace TheosRenderPipeline::SourceDLSSG
 			!resolve(sl::kFeatureDLSS_G, "slDLSSGSetOptions", api_.setOptions)) { return false; }
 		mfgUnlock_.BindWrapper(reinterpret_cast<const void*>(api_.setOptions));
 		nvidiaInitialized_ = true; return true;
+	}
+	void Backend::ReadDLSSGRequirements()
+	{
+		sl::FeatureRequirements requirements{};
+		const auto result = requirements_ ? requirements_(sl::kFeatureDLSS_G, requirements) : sl::Result::eErrorMissingOrInvalidAPI;
+		if (result != sl::Result::eOk) {
+			logger::info("[SourceDLSSG] DLSS-G requirements unavailable result={}; VSync Auto follows the game", static_cast<int>(result));
+			return;
+		}
+		using Flags = sl::FeatureRequirementFlags;
+		const auto has = [&](Flags flag) { return requirements.flags & flag; };
+		dlssgVSyncOffRequired_.store(has(Flags::eVSyncOffRequired), std::memory_order_relaxed);
+		logger::info("[SourceDLSSG] DLSS-G requirements flags=0x{:X} vsyncOffRequired={} hardwareSchedulingRequired={} "
+			"driver={} (requires {}) OS={} (requires {}); VSync Auto {}",
+			static_cast<std::uint32_t>(requirements.flags), has(Flags::eVSyncOffRequired), has(Flags::eHardwareSchedulingRequired),
+			requirements.driverVersionDetected.toStr(), requirements.driverVersionRequired.toStr(),
+			requirements.osVersionDetected.toStr(), requirements.osVersionRequired.toStr(),
+			has(Flags::eVSyncOffRequired) ? "turns VSync off while DLSS-G generates" : "follows the game");
 	}
 	bool Backend::UpgradeNvidiaFactory()
 	{
@@ -695,7 +720,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 			const auto flags = xefg_.PacingStats().flags;
 			meter = XeFGPacing::CanMeter(flags);
 		}
-		return {VSyncConfigurationMode(), meter, (presenterDesc_.Flags & DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING) != 0};
+		const bool required = provider_ == FrameGenerationProvider::NVIDIA && DLSSGVSyncOffRequired() &&
+			!startupTransport_ && session_.Snapshot().GenerationActive();
+		return {VSyncConfigurationMode(), meter, (presenterDesc_.Flags & DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING) != 0, required};
 	}
 	void Backend::ObserveVSync(VSyncSubmission submission, HRESULT result)
 	{
@@ -706,10 +733,10 @@ namespace TheosRenderPipeline::SourceDLSSG
 			vsyncState_ = {true, submission, result, provider_};
 		}
 		if (!previous.observed || previous.submission != submission || previous.provider != provider_ || previous.result != result) {
-			logger::info("[Presentation] VSync policy={} provider={} incomingSync={} incomingFlags=0x{:X} submittedSync={} submittedFlags=0x{:X} autoMetering={} result=0x{:08X}",
+			logger::info("[Presentation] VSync policy={} provider={} incomingSync={} incomingFlags=0x{:X} submittedSync={} submittedFlags=0x{:X} autoMetering={} dlssgRequiresOff={} result=0x{:08X}",
 				VSyncName(submission.mode), provider_ == FrameGenerationProvider::XeFG ? "XeFG" : "NVIDIA",
 				submission.incomingSync, submission.incomingFlags, submission.sync, submission.flags,
-				submission.autoMetering, static_cast<unsigned>(result));
+				submission.autoMetering, submission.autoRequiredOff, static_cast<unsigned>(result));
 		}
 	}
 	HRESULT Backend::BeforePresent(ID3D12Resource* a_source, ID3D12Resource* a_destination, DXGI_COLOR_SPACE_TYPE a_colorSpace)

@@ -11,6 +11,10 @@
 - When a pass's object controls switch on (as when Pass 2 resumes after
   combat), only that pass and those after it restart their history; earlier
   passes keep theirs.
+- VSync Auto now asks NVIDIA's runtime whether DLSS-G needs VSync off and, if
+  it does, turns VSync off while DLSS-G generates frames; otherwise it still
+  follows the game. The log records the requirement and NVIDIA's VSync support
+  hint, and the Frame generation panel says when Auto turned VSync off.
 - If NVIDIA's Streamline fails to start before TRP creates its presenter, the
   game now starts with normal presentation and says DLSS-G, Reflex and NR are
   unavailable until a restart, instead of failing to start.
