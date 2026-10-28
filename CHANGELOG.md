@@ -16,19 +16,21 @@
   follows the game. The log records the requirement and NVIDIA's VSync support
   hint, and the Frame generation panel says when Auto turned VSync off.
 - If NVIDIA's Streamline fails to start before TRP creates its presenter, the
-  game now starts with normal presentation and says DLSS-G, Reflex and NR are
-  unavailable until a restart, instead of failing to start.
+  game now starts with normal presentation and DLSS upscaling, and says frame
+  generation (DLSS-G and XeFG), Reflex and NR are unavailable until a restart,
+  instead of failing to start.
 - Photo Mode's TRP capture only uses a PNG the game created for that photo, held
   against changes while TRP replaces it; two photos at once, or an older or
   reused file, are left alone.
+- The log no longer warns every session that TRP's depth differs from the
+  game's main depth target when it is the game's own copy of depth after the
+  z-prepass, which is what TRP uses.
 - The NR panel's **NR per frame** shows NR's measured GPU time per rendered
   frame, including skipped-frame reprojection and change storage.
 - The mouse wheel now scrolls the menu. It is taken from window messages while
   the menu's cursor is free, and from Skyrim's own input events otherwise.
-- Underwater, the motion repair no longer swaps the game's D3D11 state. On
-  NVIDIA's driver the swap rewrote most of the context's function table, where
-  TRP's HUD routing hooks live; it now saves and restores just the bindings it
-  uses.
+- Underwater, the motion repair no longer swaps the game's whole D3D11 state;
+  it saves and restores just the bindings it uses.
 - Save as default no longer turns NR off when NR's runtime is missing at the
   time (for example while its mod is disabled); the saved request stays and NR
   resumes once the runtime is back.

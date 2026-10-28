@@ -294,7 +294,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// This is a new, explicit transport state, not a repaired Streamline
 		// session. Retain all partial SDK state; never call slInit again here.
 		fault_ = S_OK;
-		providerStatus_ = std::format("Normal presentation; DLSS-G/Reflex/NR unavailable: {}. Restart to retry.", startupFailure_);
+		providerStatus_ = std::format("Normal presentation; frame generation, Reflex and NR unavailable: {}. Restart to retry.", startupFailure_);
 		logger::warn("[FrameGeneration] {}", providerStatus_);
 		return true;
 	}
