@@ -18,30 +18,7 @@ bool NvidiaHost::EvaluateFrame(IDXGISwapChain* a_swapChain, bool a_nativeUIHando
         return false;
     }
     auto* upscaler = RenderPipeline::GetSingleton();
-    if (!upscaler->mMotionVectors.mImage || !upscaler->mDepthBuffer.mImage)
-    {
-        SetRuntimeEnabled(false);
-        status_ = "NVIDIA source upscaler waiting for motion and depth";
-        return false;
-    }
-    D3D11_TEXTURE2D_DESC motionDesc{};
-    D3D11_TEXTURE2D_DESC depthDesc{};
-    upscaler->mMotionVectors.mImage->GetDesc(&motionDesc);
-    upscaler->mDepthBuffer.mImage->GetDesc(&depthDesc);
-    if (motionDesc.Width != renderWidth_ || motionDesc.Height != renderHeight_ || depthDesc.Width != renderWidth_ ||
-        depthDesc.Height != renderHeight_)
-    {
-        SetRuntimeEnabled(false);
-        status_ = "NVIDIA source upscaler rejected stale guide extents";
-        if (!evaluationFailureLogged_)
-        {
-            evaluationFailureLogged_ = true;
-            logger::error("[NvidiaHost] guide extent mismatch motion={}x{} "
-                          "depth={}x{} expected={}x{}",
-                          motionDesc.Width, motionDesc.Height, depthDesc.Width, depthDesc.Height, renderWidth_, renderHeight_);
-        }
-        return false;
-    }
+    // Missing/stale producer guides take the color-only spatial route below.
     if (!PresentationBackendReadyForEvaluation())
     {
         SetRuntimeEnabled(false);

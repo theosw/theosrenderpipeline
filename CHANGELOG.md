@@ -10,6 +10,12 @@
   loading screen could use those 15 frames up before the world showed, and the
   fade's close restarted them on a visible world. The log records each scene
   reset and when it was applied.
+- Motion vectors and depth now come from the game's own motion and depth
+  targets when the world finishes drawing, instead of the last texture created
+  with a matching size and format. Another mod's texture of the same shape can
+  no longer become DLSS, NR or frame generation's input. A frame that has none
+  is scaled without DLSS, with NR and frame generation off for that frame. The
+  log records the selected pair and each change.
 - NR in a near-black scene is no longer mistaken for an empty first answer.
   NR's output is treated as missing only when it is black at every sample
   point while its input was not, so a dark scene can't switch between NR and

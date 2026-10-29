@@ -232,32 +232,6 @@ void RenderPipeline::SetJitterOffsets(float a_x, float a_y)
 	mJitterOffsets[1] = a_y;
 }
 
-void RenderPipeline::SetupDepth(ID3D11Texture2D* a_depthBuffer)
-{
-	if (!a_depthBuffer) {
-		logger::error("SetupDepth received a null texture");
-		return;
-	}
-	// Hold a real reference: the creator can release this texture later (menu
-	// or device transitions) and NGX must never see a dangling input.
-	a_depthBuffer->AddRef();
-	mDepthBuffer.Release();
-	mDepthBuffer.mImage = a_depthBuffer;
-	logger::info("Depth buffer captured");
-}
-
-void RenderPipeline::SetupMotionVector(ID3D11Texture2D* a_motionBuffer)
-{
-	if (!a_motionBuffer || !mDevice || !mContext) {
-		logger::error("SetupMotionVector received incomplete device/resource state");
-		return;
-	}
-	a_motionBuffer->AddRef();
-	mMotionVectors.Release();
-	mMotionVectors.mImage = a_motionBuffer;
-	logger::info("Motion vector buffer captured");
-}
-
 void RenderPipeline::PreInit()
 {
 	LoadINI();
