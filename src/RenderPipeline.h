@@ -53,19 +53,6 @@ inline bool GetGameTAA()
 	return singleton->unkInnerStruct->bTAA;
 }
 
-struct ImageWrapper
-{
-	ID3D11Texture2D* mImage{ nullptr };
-
-	void Release()
-	{
-		if (mImage) {
-			mImage->Release();
-			mImage = nullptr;
-		}
-	}
-};
-
 class RenderPipeline
 {
 public:
@@ -135,9 +122,6 @@ public:
 
 	std::atomic_bool mFrameGenerationTransitionBlocked{ true };
 
-	ImageWrapper         mDepthBuffer;
-	ImageWrapper         mMotionVectors;
-
 	IDXGISwapChain*      mSwapChain{ nullptr };
 	ID3D11Device*        mDevice{ nullptr };
 	ID3D11DeviceContext* mContext{ nullptr };
@@ -163,8 +147,6 @@ public:
 	int JitterPhaseCount() const;
 	void SetJitterOffsets(float a_x, float a_y);
 
-	void SetupDepth(ID3D11Texture2D* a_depthBuffer);
-	void SetupMotionVector(ID3D11Texture2D* a_motionBuffer);
 	void PreInit();
 	void InitUpscaler();
 };

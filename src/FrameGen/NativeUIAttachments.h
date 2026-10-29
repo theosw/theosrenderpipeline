@@ -44,10 +44,15 @@ namespace TheosRenderPipeline
         HRESULT Ensure(ID3D11Device* device, ID3D11DeviceContext* context,
             ID3D11Texture2D* motion, ID3D11Texture2D* depth, UINT width, UINT height)
         {
-            if (!device || !context || !motion || !depth || !width || !height) { return E_INVALIDARG; }
+            if (!device || !context || !width || !height || bool(motion) != bool(depth)) { return E_INVALIDARG; }
             D3D11_TEXTURE2D_DESC motionDesc{}, depthDesc{};
-            motion->GetDesc(&motionDesc); depth->GetDesc(&depthDesc);
-            // The source host captures this depth family and single-sample RG16 motion.
+            // A spatial frame still draws native UI. Its companions have the
+            // same fixed format contract, without borrowing an old world guide.
+            motionDesc.Format = DXGI_FORMAT_R16G16_FLOAT;
+            depthDesc.Format = DXGI_FORMAT_R24G8_TYPELESS;
+            motionDesc.SampleDesc.Count = depthDesc.SampleDesc.Count = 1;
+            if (motion) { motion->GetDesc(&motionDesc); depth->GetDesc(&depthDesc); }
+            // Qualified native guides use this depth family and single-sample RG16 motion.
             if (motionDesc.SampleDesc.Count != 1 || depthDesc.SampleDesc.Count != 1 ||
                 motionDesc.Format != DXGI_FORMAT_R16G16_FLOAT ||
                 (depthDesc.Format != DXGI_FORMAT_R24G8_TYPELESS && depthDesc.Format != DXGI_FORMAT_D24_UNORM_S8_UINT)) {

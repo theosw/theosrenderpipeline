@@ -14,42 +14,6 @@
 #include "NeuralCombatMode.h"
 #include "WeatherAppearanceRuntime.h"
 
-namespace
-{
-    // Motion and depth are captured by format and size as the game creates them,
-    // and a later matching texture replaces the capture. Another mod creating one
-    // would silently become DLSS and frame generation's motion or depth. Compare
-    // with the engine's declared targets and report each new disagreement once.
-    void ReportGuideCapture(ID3D11Texture2D* motion, ID3D11Texture2D* depth)
-    {
-        auto* renderer = RE::BSGraphics::Renderer::GetSingleton();
-        if (!renderer) { return; }
-        auto* declaredMotion = reinterpret_cast<ID3D11Texture2D*>(renderer->GetRuntimeData().renderTargets[RE::RENDER_TARGETS::kMOTION_VECTOR].texture);
-        auto* declaredDepth = reinterpret_cast<ID3D11Texture2D*>(renderer->GetDepthStencilData().depthStencils[RE::RENDER_TARGETS_DEPTHSTENCIL::kMAIN].texture);
-        static ID3D11Texture2D* reportedMotion{};
-        static ID3D11Texture2D* reportedDepth{};
-        if (declaredMotion && motion && declaredMotion != motion && reportedMotion != motion) {
-            reportedMotion = motion;
-            logger::warn("[Guides] captured motion vectors {} differ from the engine's motion-vector target {}; another mod may have created a matching texture",
-                static_cast<void*>(motion), static_cast<void*>(declaredMotion));
-        }
-        if (declaredDepth && depth && declaredDepth != depth && reportedDepth != depth) {
-            reportedDepth = depth;
-            // Skyrim's own copy of depth after the z-prepass is expected here; it held
-            // the same scene as the main depth target on 99.5-99.9% of pixels in testing.
-            auto* zPrepassCopy = reinterpret_cast<ID3D11Texture2D*>(
-                renderer->GetDepthStencilData().depthStencils[RE::RENDER_TARGETS_DEPTHSTENCIL::kPOST_ZPREPASS_COPY].texture);
-            if (depth == zPrepassCopy) {
-                logger::info("[Guides] depth {} is the engine's post-z-prepass copy, not its main depth target {}",
-                    static_cast<void*>(depth), static_cast<void*>(declaredDepth));
-            } else {
-                logger::warn("[Guides] captured depth {} is not one of the engine's depth targets (main {}); another mod may have created a matching texture",
-                    static_cast<void*>(depth), static_cast<void*>(declaredDepth));
-            }
-        }
-    }
-}
-
 struct NvidiaHost::SourceNvidiaEvaluationOperations
 {
     NvidiaHost& host;
@@ -156,7 +120,7 @@ struct NvidiaHost::SourceNvidiaEvaluationOperations
 
     bool EvaluateDLSS(const TheosRenderPipeline::SourceNvidiaFrameInputs& frame)
     {
-        const bool spatial = host.loadingScreenRoute_.Active(host.presentCount_);
+        const bool spatial = frame.spatialOnly || host.loadingScreenRoute_.Active(host.presentCount_);
         bool evaluated{};
         if (spatial) {
             host.loadingScreenResult_ = host.loadingScreenUpscaler_.Evaluate(host.context_.Get(), frame.input, frame.output);
@@ -164,7 +128,7 @@ struct NvidiaHost::SourceNvidiaEvaluationOperations
             if (evaluated) {
                 host.loadingScreenRoute_.SpatialSucceeded();
                 if (!host.loadingScreenLogged_) {
-                    logger::info("[LoadingScreen] spatial scaling active; native UI composition unchanged");
+                    logger::info("[SpatialUpscale] current color without temporal guides; native UI composition unchanged");
                     host.loadingScreenLogged_ = true;
                 }
             }
@@ -245,9 +209,10 @@ bool NvidiaHost::EvaluateSourceNvidiaFrame(bool nativeUIHandoff, bool resetHisto
     frame.color = gameTargets_.GameFacing();
     frame.input = gameTargets_.UpscaleInput();
     frame.output = gameTargets_.UpscaleOutput();
-    frame.motion = upscaler.mMotionVectors.mImage;
-    frame.depth = upscaler.mDepthBuffer.mImage;
-    ReportGuideCapture(frame.motion, frame.depth);
+    const auto* guides = WorldGuides();
+    frame.motion = guides ? guides->motion.Get() : nullptr;
+    frame.depth = guides ? guides->depth.Get() : nullptr;
+    frame.spatialOnly = !guides;
     // Stable tag identity is published now and filled after native UI drawing,
     // before Streamline consumes it at Present. Startup foreground is separate.
     frame.uiColorAndAlpha = nativeUIHandoff && nativeUI_.Available() ? nativeUI_.TaggedTexture() : nullptr;
@@ -274,7 +239,7 @@ bool NvidiaHost::EvaluateSourceNvidiaFrame(bool nativeUIHandoff, bool resetHisto
         SetRuntimeEnabled(false);
         const auto& backend = TheosRenderPipeline::SourceDLSSG::Backend::Get();
         if (FAILED(loadingScreenResult_)) {
-            status_ = std::format("Loading-screen scaling failed (0x{:08X}); generation held off",
+            status_ = std::format("Spatial scaling failed (0x{:08X}); generation held off",
                 static_cast<std::uint32_t>(loadingScreenResult_));
         } else {
             status_ = !backend.Ready() ? backend.Status() :

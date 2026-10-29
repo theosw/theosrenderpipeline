@@ -10,6 +10,7 @@
 #include "NativeUIAttachments.h"
 #include "NativeUIComposition.h"
 #include "NativeUIContexts.h"
+#include "NativeWorldGuides.h"
 #include "NativeUIPass.h"
 #include "NvidiaUpscalerConfiguration.h"
 #include "PresentationTargets.h"
@@ -46,6 +47,8 @@ class NvidiaHost
     bool EvaluateFrame(IDXGISwapChain* a_swapChain, bool a_nativeUIHandoff = false);
     bool FinishNativeUIPassForPresent();
     void OnBackgroundReady(TheosRenderPipeline::BackgroundBoundary boundary, bool mainOrLoading);
+    void ObserveWorldGuides(bool mainOrLoading);
+    const TheosRenderPipeline::NativeGuideSnapshot* WorldGuides() const { return worldGuides_.Current(presentCount_); }
     bool PrepareSourceFrameForPresent(IDXGISwapChain* swapChain);
     bool QueryStartupOverlay() const;
     bool BeginStartupOverlay();
@@ -146,6 +149,7 @@ class NvidiaHost
     Microsoft::WRL::ComPtr<ID3D11Device> device_;
     Microsoft::WRL::ComPtr<ID3D11DeviceContext> context_;
     TheosRenderPipeline::NativeUIContexts nativeUIContexts_;
+    TheosRenderPipeline::NativeWorldGuides worldGuides_;
     TheosRenderPipeline::GameFacingTargets gameTargets_;
     TheosRenderPipeline::CommunityShaderAdapter communityFrame_;
     TheosRenderPipeline::NativeUIComposition nativeUI_;
