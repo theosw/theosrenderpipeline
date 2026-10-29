@@ -79,6 +79,7 @@ namespace TheosRenderPipeline::Overlay
         }
         const bool hex = text.size() > 2 && text[0] == '0' && upper(text[1]) == 'X';
         if (hex) { text.remove_prefix(2); }
+        else if (text.size() > 1 && text[0] == '+') { text.remove_prefix(1); }  // strtol accepted +119
         long value = 0;
         for (const char c : text) {
             const char u = upper(c);

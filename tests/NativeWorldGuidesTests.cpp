@@ -7,7 +7,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <initializer_list>
 #include <thread>
+#include <utility>
 #include <vector>
 
 using namespace TheosRenderPipeline;
@@ -293,6 +295,24 @@ static void SpatialFallback(ID3D11Device* device, ID3D11DeviceContext* context)
     std::puts("PASS: missing-boundary frames show new output-sized spatial pixels, retain native UI, and never run NR/camera/FG preparation");
 }
 
+// Frames without guides use the spatial scaler in the game's own format; an
+// HDR or 10-bit game must not fail (and stop presentation) on such a frame.
+static void SpatialFormats(ID3D11Device* device, ID3D11DeviceContext* context)
+{
+    const UINT bindings = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+    for (const auto& [format, pixel] : {std::pair{DXGI_FORMAT_R10G10B10A2_UNORM, 0xC0100401u}, std::pair{DXGI_FORMAT_B8G8R8A8_UNORM, 0xff336699u},
+             std::pair{DXGI_FORMAT_R8G8B8A8_UNORM, 0xffcc8844u}}) {
+        LoadingScreenUpscaler scaler;
+        auto input = Texture(device, format, bindings, pixel);
+        auto output = Texture(device, format, bindings, 0, 18, 12);
+        const auto hr = scaler.Evaluate(context, input.Get(), output.Get());
+        if (format == DXGI_FORMAT_B8G8R8A8_UNORM && hr == DXGI_ERROR_UNSUPPORTED) { continue; }  // typed store is optional for BGRA8
+        Check(hr, "spatial scaler accepts the game's format");
+        AllPixels(context, output.Get(), pixel, "spatial scaling keeps the format's values");
+    }
+    std::puts("PASS: spatial scaling works in RGB10A2 and RGBA8 (and BGRA8 where the device stores it)");
+}
+
 int main()
 {
     ptrCreateTexture2D = &ID3D11Device::CreateTexture2D;
@@ -301,6 +321,7 @@ int main()
     IdentityAndRecreation(device.Get(), context.Get());
     UIBoundary(device.Get(), context.Get());
     SpatialFallback(device.Get(), context.Get());
+    SpatialFormats(device.Get(), context.Get());
     D3D11_TEXTURE2D_DESC desc{};
     desc.Width = width; desc.Height = height; desc.MipLevels = desc.ArraySize = desc.SampleDesc.Count = 1;
     desc.Format = DXGI_FORMAT_R16G16_FLOAT; desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;

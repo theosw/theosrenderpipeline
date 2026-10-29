@@ -158,6 +158,8 @@ class NvidiaHost
     enum class InterfaceRoute { Drawn, Fallback, Hidden, HiddenCleared, HiddenClearFailed };
     InterfaceRoute interfaceRoute_{InterfaceRoute::Drawn};
     int interfaceRouteLogged_{0};
+    bool guidelessLogged_{};
+    unsigned guidelessChanges_{};
     unsigned interfaceRouteChanges_{};
     void LogInterfaceRoute();
     TheosRenderPipeline::NativeUIComposition nativeUI_;

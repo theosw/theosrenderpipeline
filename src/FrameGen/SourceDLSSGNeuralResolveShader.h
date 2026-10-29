@@ -263,13 +263,15 @@ float3 HueGuard(float3 original, float3 result) {
     return GamutClip(FromLab(r));
 }
 // Per frame, not per pixel: black is a legitimate answer (a shadow NR paints
-// over a lit surface). Only a model output with nothing anywhere on an 8x8
-// grid where NR's input had content, such as an empty first evaluation, counts
-// as no answer. A near-black scene gives near-black input, so its dark answer
-// is kept rather than switching between NR and the scene from frame to frame.
+// over a lit surface). A model output with nothing anywhere on an 8x8 grid
+// where NR's input had content, such as an empty first evaluation, is no
+// answer (0). When the input is near black on the grid too, the frame can't
+// tell (2): each pixel keeps the scene only where NR gave nothing for visible
+// input, so a dark scene keeps NR's dark answer without switching between NR
+// and the scene, and an empty answer can't black out a bright spot off the grid.
 // Every thread of the group must call this; Mode is uniform.
 groupshared uint AnswerSeen;
-bool ModelAnswered(uint index) {
+uint ModelAnswer(uint index) {
     if (index==0) AnswerSeen=0;
     GroupMemoryBarrierWithGroupSync();
     uint2 size=max(uint2(WorkWidth,WorkHeight),1);
@@ -280,7 +282,7 @@ bool ModelAnswered(uint index) {
     if (all(isfinite(a)) && max(a.r,max(a.g,a.b))>4.0/255.0) seen|=2u;
     if (seen) InterlockedOr(AnswerSeen,seen);
     GroupMemoryBarrierWithGroupSync();
-    return (AnswerSeen&1u)!=0 || (AnswerSeen&2u)==0;
+    return (AnswerSeen&1u)!=0 ? 1u : (AnswerSeen&2u)!=0 ? 0u : 2u;
 }
 // A paired range conversion in the producer's own RGB coordinates. No gamma,
 // gamut or exposure interpretation is inferred from its floating-point format.
@@ -354,7 +356,7 @@ float4 SampleSteady(float2 position) {
     return clamp(sum,low,high);
 }
 [numthreads(8,8,1)] void Ratio(uint3 p : SV_DispatchThreadID, uint index : SV_GroupIndex) {
-    const bool answered = Mode == 1 ? ModelAnswered(index) : true;
+    const uint answer = Mode == 1 ? ModelAnswer(index) : 1u;
     if (p.x >= TargetWidth || p.y >= TargetHeight) return;
     const float2 jitter=float2(JitterX,JitterY);
     const bool jittered=any(jitter!=0);
@@ -379,7 +381,7 @@ float4 SampleSteady(float2 position) {
     float4 original=Tex2.Load(int3(p.xy,0));
     // No answer at all (an empty first evaluation): keep the scene. Producer
     // restoration and the tone bands would otherwise read it as an edit.
-    if (!answered) { OutputColor[p.xy]=original; return; }
+    if (answer == 0) { OutputColor[p.xy]=original; return; }
     float3 a=0, n=0;
     uint2 size=max(uint2(WorkWidth,WorkHeight),1);
     // Where this pixel samples NR's grid; the tone bands are read there too.
@@ -402,6 +404,7 @@ float4 SampleSteady(float2 position) {
         }
         weight=abs(weight)>0.000001?weight:1; a/=weight; n/=weight;
     }
+    if (answer == 2 && max(n.r,max(n.g,n.b))<=0.00001 && max(a.r,max(a.g,a.b))>4.0/255.0) { OutputColor[p.xy]=original; return; }
     if (ProducerColor) {
         OutputColor[p.xy]=float4(Swizzle(RestoreProducer(Swizzle(original.rgb),a,n)),original.a); return;
     }
@@ -416,7 +419,7 @@ float4 SampleSteady(float2 position) {
         float chroma=length(normal.yz);
         scaled.yz=normal.yz*(chroma==0?1:length(scaled.yz)/chroma);
         result=lerp(base,GamutClip(FromLab(scaled)),TransferStrength);
-    } else if (answered) {
+    } else {
         // NR painted this pixel black: darken the original by the same ratio.
         result=lerp(base,base*(max(ny,0)+0.0001)/(max(ay,0)+0.0001),TransferStrength);
     }

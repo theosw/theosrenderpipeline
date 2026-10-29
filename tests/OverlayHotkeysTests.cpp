@@ -199,7 +199,7 @@ namespace
         }
         for (const auto& [text, key] : std::initializer_list<std::pair<const char*, int>>{
                  {"0x77", VK_F8}, {"119", VK_F8}, {"0x77 ; F8", VK_F8}, {" 0x77	# F8", VK_F8}, {"F8", VK_F8}, {"f8", VK_F8},
-                 {"F24", VK_F24}, {"k", 'K'}, {"5", VK_XBUTTON1}, {"0x23", VK_END}, {"0X79", VK_F10}}) {
+                 {"F24", VK_F24}, {"k", 'K'}, {"5", VK_XBUTTON1}, {"+119", VK_F8}, {"0x23", VK_END}, {"0X79", VK_F10}}) {
             ini.values["Hotkeys/ToggleOverlay"] = text;
             problem.reset();
             Require(LoadMenuHotkey(ini, &problem) == key && !problem, "codes, names and commented values are read");

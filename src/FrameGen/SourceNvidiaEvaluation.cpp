@@ -225,6 +225,17 @@ bool NvidiaHost::EvaluateSourceNvidiaFrame(bool nativeUIHandoff, bool resetHisto
     frame.motion = guides ? guides->motion.Get() : nullptr;
     frame.depth = guides ? guides->depth.Get() : nullptr;
     frame.spatialOnly = !guides;
+    // Unsampled, once per change, so a session stuck without guides is visible.
+    if (frame.spatialOnly != guidelessLogged_ && guidelessChanges_ < 300) {
+        guidelessLogged_ = frame.spatialOnly;
+        ++guidelessChanges_;
+        if (frame.spatialOnly) {
+            logger::warn("[Guides] frame={} has no motion/depth from a completed world draw; scaled without DLSS, NR and frame generation (changes={})",
+                presentCount_, guidelessChanges_);
+        } else {
+            logger::info("[Guides] frame={} has motion/depth again; DLSS resumes (changes={})", presentCount_, guidelessChanges_);
+        }
+    }
     // Stable tag identity is published now and filled after native UI drawing,
     // before Streamline consumes it at Present. Startup foreground is separate.
     frame.uiColorAndAlpha = nativeUIHandoff && nativeUI_.Available() ? nativeUI_.TaggedTexture() : nullptr;

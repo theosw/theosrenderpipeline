@@ -598,6 +598,9 @@ static void GuardAndShadows(ID3D11Device* device, ID3D11DeviceContext* context,
         answer[4 * width + 4] = {-0.5f, -0.5f, -0.5f, 1};
         out = run(producer, dark, answer);
         Require(luma(out[4 * width + 4]) < 0.8f * luma(dark[4 * width + 4]), "a dark scene's answer is applied");
+        // An empty answer for the same dark scene keeps the bright texel.
+        out = run(producer, dark, std::vector<Pixel>(dark.size(), Pixel{0, 0, 0, 1}));
+        Require(std::abs(luma(out[4 * width + 4]) - luma(dark[4 * width + 4])) < 0.01f, "an empty answer cannot black out a bright off-grid texel");
     }
     std::puts("Hue guard and shadows: grey stays grey, colour still moves, black answers darken, empty output kept, dark scenes answered.");
 }

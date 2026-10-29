@@ -222,7 +222,12 @@ void NvidiaHost::ObserveWorldGuides([[maybe_unused]] bool mainOrLoading)
             if (SUCCEEDED(hr)) { hr = transport.Drain(); }
             if (FAILED(hr)) { FailLifecycle(hr, "native world guide retirement"); }
             return SUCCEEDED(hr);
-        }, [] { RenderPipeline::GetSingleton()->RequestHistoryReset("guide resources changed"); });
+        }, [this] {
+            // This frame already uses the new pair, even on a menu or loading
+            // frame where the scene reset waits for the world.
+            resetNextEvaluation_ = true;
+            RenderPipeline::GetSingleton()->RequestHistoryReset("guide resources changed");
+        });
     using Observation = TheosRenderPipeline::NativeWorldGuides::Observation;
     if (observation == Observation::Changed) {
         const auto& guides = *WorldGuides();
@@ -233,7 +238,10 @@ void NvidiaHost::ObserveWorldGuides([[maybe_unused]] bool mainOrLoading)
     } else if (observation == Observation::Unavailable && TakeNativeUITraceSlot()) {
         logger::info("[Guides] world-complete frame={} has no qualified pair; current-color spatial route", presentCount_);
     } else if (observation == Observation::WrongThread) {
-        logger::warn("[Guides] rejected world completion on a different render thread");
+        static std::uint32_t rejected{};
+        if (++rejected <= 20 || rejected % 600 == 0) {
+            logger::warn("[Guides] rejected world completion on a different render thread (count={})", rejected);
+        }
     }
 }
 

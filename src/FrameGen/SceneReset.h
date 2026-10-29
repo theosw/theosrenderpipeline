@@ -20,6 +20,9 @@ namespace TheosRenderPipeline
             unsigned resetFrames{}, deferredFrames{};
         };
 
+        // Whether a frame starting now would reset, without starting it.
+        bool Owes(std::uint32_t generation, bool worldFrame) const { return worldFrame && generation != settled_; }
+
         // Call as a frame starts. Returns whether it must discard history.
         bool Begin(std::uint32_t generation, bool worldFrame)
         {

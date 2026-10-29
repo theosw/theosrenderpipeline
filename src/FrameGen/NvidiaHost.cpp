@@ -50,7 +50,8 @@ bool NvidiaHost::EvaluateFrame(IDXGISwapChain* a_swapChain, bool a_nativeUIHando
     // A scene cut waits for the first world frame: loading-screen frames must
     // not use up the reset owed to the world behind them.
     auto* ui = RE::UI::GetSingleton();
-    const bool worldFrame = ui && !ui->IsMenuOpen(RE::MainMenu::MENU_NAME) && !ui->IsMenuOpen(RE::LoadingMenu::MENU_NAME);
+    // A frame without guides is scaled without DLSS; it cannot take the reset either.
+    const bool worldFrame = ui && !ui->IsMenuOpen(RE::MainMenu::MENU_NAME) && !ui->IsMenuOpen(RE::LoadingMenu::MENU_NAME) && WorldGuides();
     bool resetHistory = sceneReset_.Begin(upscaler->SceneGeneration(), worldFrame) || resetNextEvaluation_;
 
     if (!EvaluateSourceNvidiaFrame(a_nativeUIHandoff, resetHistory))
