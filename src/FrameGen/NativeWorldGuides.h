@@ -42,7 +42,7 @@ namespace TheosRenderPipeline
     public:
         enum class Observation { Unavailable, Unchanged, Changed, RetirementFailed, WrongThread };
 
-        // The first world boundary establishes the owner thread. Readers on other
+        // The latest world boundary's thread owns the snapshot. Readers on other
         // threads fail closed without touching the non-atomic owning snapshot.
         const NativeGuideSnapshot* Current(std::uint64_t present) const
         {
@@ -56,12 +56,18 @@ namespace TheosRenderPipeline
             Retire&& retire, RequestReset&& requestReset)
         {
             const auto thread = GetCurrentThreadId();
-            // A loading-only callback must not claim render-thread ownership
-            // before the first eligible world producer has run.
-            if (!worldEligible && !thread_.load(std::memory_order_acquire)) { return Observation::Unavailable; }
-            DWORD unowned{};
-            thread_.compare_exchange_strong(unowned, thread, std::memory_order_acq_rel);
-            if (thread_.load(std::memory_order_acquire) != thread) { return Observation::WrongThread; }
+            const auto owner = thread_.load(std::memory_order_acquire);
+            if (owner != thread) {
+                // A non-world callback cannot claim or take over ownership.
+                if (!worldEligible) { return owner ? Observation::WrongThread : Observation::Unavailable; }
+                // Ownership follows the thread drawing the world: LoreRim draws
+                // its loading screen on a worker and gameplay on the main thread.
+                // The engine draws on one thread at a time, so the old owner has
+                // stopped; its readers fail closed from here on. The pair itself
+                // is unchanged, so this alone does not reset history.
+                thread_.store(thread, std::memory_order_release);
+                observed_ = valid_ = false;
+            }
             // Keep all consumers on one pair even if the engine repeats a boundary.
             if (observed_ && observedPresent_ == present) {
                 return valid_ ? Observation::Unchanged : Observation::Unavailable;

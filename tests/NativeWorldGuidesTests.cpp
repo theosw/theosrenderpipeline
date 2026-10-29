@@ -101,19 +101,25 @@ static void IdentityAndRecreation(ID3D11Device* device, ID3D11DeviceContext* con
         intruderMotion = Motion(device, 0x3c003c00);
         intruderDepth = Depth(device, 0x00cccccc);
         Require(owner.Current(0) == nullptr, "off-thread readers cannot borrow render-thread publication");
-        Require(owner.Observe(device, {intruderMotion.Get(), intruderDepth.Get(), nullptr}, {width, height}, 1, 101, true,
-            [] { return true; }, [] { Require(false, "worker cannot request a guide reset"); }) == Observation::WrongThread,
-            "off-thread publication is rejected");
+        Require(owner.Observe(device, slots, {width, height}, 0, 100, false,
+            [] { return true; }, [] { Require(false, "a non-world callback cannot request a guide reset"); }) == Observation::WrongThread,
+            "a non-world callback on another thread cannot take ownership");
+        // LoreRim draws its loading screen on a worker thread and gameplay on
+        // the main thread: a world boundary moves ownership with no reset.
+        Require(owner.Observe(device, slots, {width, height}, 1, 101, true,
+            [] { return true; }, [] { Require(false, "a handover with the same pair cannot reset"); }) == Observation::Unchanged &&
+            owner.Current(1) && owner.Current(1)->motion.Get() == motion.Get(), "the world-drawing thread takes over the same pair");
     });
     worker.join();
+    Require(owner.Current(1) == nullptr, "the previous owner's readers fail closed after a handover");
     Require(diagnosticCalls == callsBefore + 2 && diagnosticThread != mainThread, "actual hook forwards worker creations and inventory observation");
     D3D11_TEXTURE2D_DESC actual{}, unrelated{};
     motion->GetDesc(&actual); intruderMotion->GetDesc(&unrelated);
     Require(std::memcmp(&actual, &unrelated, sizeof(actual)) == 0, "motion intruder descriptor is identical");
     post->GetDesc(&actual); intruderDepth->GetDesc(&unrelated);
     Require(std::memcmp(&actual, &unrelated, sizeof(actual)) == 0, "depth intruder descriptor is identical");
-    Require(owner.Current(0)->motion.Get() == motion.Get() && owner.Current(0)->depth.Get() == post.Get(), "creation cannot replace published pair");
     Require(observe(1) == Observation::Unchanged && resets == 1 && retires == 0, "intruders do not create generations or resets at next boundary");
+    Require(owner.Current(1)->motion.Get() == motion.Get() && owner.Current(1)->depth.Get() == post.Get(), "creation cannot replace published pair");
     AllPixels(context, owner.Current(1)->motion.Get(), motionPixel, "later intruder does not contaminate selected pixels");
     std::puts("PASS: identical-descriptor intruders before/after selection and actual worker-thread creation hook");
 

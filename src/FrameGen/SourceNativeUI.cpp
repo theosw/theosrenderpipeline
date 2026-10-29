@@ -229,6 +229,11 @@ void NvidiaHost::ObserveWorldGuides([[maybe_unused]] bool mainOrLoading)
             RenderPipeline::GetSingleton()->RequestHistoryReset("guide resources changed");
         });
     using Observation = TheosRenderPipeline::NativeWorldGuides::Observation;
+    static DWORD guideThread{};
+    if (observation != Observation::WrongThread && renderer && state && guideThread != GetCurrentThreadId()) {
+        logger::info("[Guides] world-complete frame={} drawn on thread {} (was {})", presentCount_, GetCurrentThreadId(), guideThread);
+        guideThread = GetCurrentThreadId();
+    }
     if (observation == Observation::Changed) {
         const auto& guides = *WorldGuides();
         logger::info("[Guides] world-complete frame={} gameFrame={} generation={} depthRole={} motion={} depth={} main={} postZ={} render={}x{}",
