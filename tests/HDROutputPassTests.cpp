@@ -2,6 +2,7 @@
 // pixel with the CPU reference in HDROutput.h. The key contract is DLSS-G's
 // composition: backbuffer = UI + (1 - UI.alpha) * HUD-less, in HDR10 codes.
 #include "FrameGen/SourceDLSSGHDROutput.h"
+#include "FrameGen/SourceDLSSGHDR.h"
 #include <dxgi1_6.h>
 #include <cmath>
 #include <cstdint>
@@ -409,6 +410,33 @@ int main()
         timing.AverageUs(), timing.maxUs);
     Require(timing.samples == kCommandSlots, "each reused slot yields one GPU sample");
     Require(std::isfinite(timing.AverageUs()) && timing.maxUs >= timing.AverageUs(), "finite GPU timing");
+    // These pass caches hold real COM references to the native backbuffers.
+    // A queue drain alone does not drop them, so a provider replacement must.
+    const auto references = [](IUnknown* resource) { resource->AddRef(); return resource->Release(); };
+    const auto held = references(backbuffer.Get());
+    pass.ReleaseFrameReferencesAfterRetirement();
+    Require(references(backbuffer.Get()) + kCommandSlots == held,
+        "HDR output retirement drops every command slot's native backbuffer reference");
+    const auto released = references(backbuffer.Get());
+    Check(pass.RecordEncode(gpu.device.Get(), gpu.list.Get(), 0, constants, compositeTexture.Get(), backbuffer.Get()),
+        "reuse HDR output pipeline/views after reference retirement");
+    gpu.Submit();
+    Require(references(backbuffer.Get()) == released + 1, "HDR output reacquires only the new slot's destination");
+    pass.ReleaseFrameReferencesAfterRetirement();
+
+    HDRPass converter;
+    auto linear = gpu.Texture(DXGI_FORMAT_R16G16B16A16_FLOAT, false);
+    const auto baseline = references(backbuffer.Get());
+    for (std::size_t slot = 0; slot < kCommandSlots; ++slot) {
+        Check(converter.Record(gpu.device.Get(), gpu.list.Get(), slot, linear.Get(), backbuffer.Get()), "HDR converter lifetime recording");
+        gpu.Submit();
+    }
+    Require(references(backbuffer.Get()) == baseline + kCommandSlots, "HDR converter retains native destinations after queue retirement");
+    converter.ReleaseFrameReferencesAfterRetirement();
+    Require(references(backbuffer.Get()) == baseline, "HDR converter releases all native destinations before replacement");
+    Check(converter.Record(gpu.device.Get(), gpu.list.Get(), 0, linear.Get(), backbuffer.Get()), "reuse HDR converter after retirement");
+    gpu.Submit();
+    converter.ReleaseFrameReferencesAfterRetirement();
     Require(QuerySDRWhiteNits(L"\\\\.\\TRP-NO-SUCH-DISPLAY") == 0.0f && QuerySDRWhiteNits(nullptr) == 0.0f,
         "unknown display has no SDR white level");
     std::printf("HDR output pass checks passed\n");

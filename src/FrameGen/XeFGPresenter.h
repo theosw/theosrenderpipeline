@@ -7,6 +7,7 @@
 #include <xess_fg/xefg_swapchain_debug.h>
 #include <xell/xell_d3d12.h>
 #include <chrono>
+#include <atomic>
 #include <filesystem>
 #include <optional>
 #include <string>
@@ -14,6 +15,7 @@
 #include <vector>
 #include "XeFGOptions.h"
 #include "XeFGTensorRuntime.h"
+#include "PresenterFactory.h"
 
 namespace TheosRenderPipeline
 {
@@ -46,8 +48,12 @@ namespace TheosRenderPipeline
         void SetLogger(void (*callback)(const char*)) { log_ = callback; }
         HRESULT Create(ID3D12Device* device, ID3D12CommandQueue* queue, IDXGIFactory* factory,
             const DXGI_SWAP_CHAIN_DESC& desc, bool inverted, IDXGISwapChain** swapchain,
-            std::uint32_t lastApplicationFrame = 0, XeFGOptions options = {}, ID3D12PipelineLibrary* pipelines = nullptr);
+            std::uint32_t lastApplicationFrame = 0, XeFGOptions options = {}, ID3D12PipelineLibrary* pipelines = nullptr,
+            IDXGISwapChain* existingNative = nullptr);
         HRESULT BeginFrame();
+        IDXGISwapChain* NativeSwapChain() const { return factoryCapture_ ? factoryCapture_->Native() : nullptr; }
+        bool HasContext() const { return fg_ != nullptr; }
+        bool HasLatencyContext() const { return ll_ != nullptr; }
         // frameTime sends the measured interval between application frames as
         // frameRenderTime; otherwise Intel uses its own estimate.
         HRESULT Prepare(const sl::Constants& camera, bool frameTime = false);
@@ -101,6 +107,7 @@ namespace TheosRenderPipeline
         void Trace(const char* stage) { status_ = stage; if (log_) { log_(stage); } }
         void (*log_)(const char*){};
         bool apiReady_{};
+        Microsoft::WRL::ComPtr<PresenterFactory> factoryCapture_;
         HMODULE fgModule_{}, llModule_{};
         std::filesystem::path directory_;
         std::vector<std::pair<std::filesystem::path, HMODULE>> runtimes_; // Loaded libxess_fg copies.
@@ -150,5 +157,6 @@ namespace TheosRenderPipeline
         XeFGTensorRuntime tensor_;
         bool tensorChoiceMade_{};
         void* retiredPacingContext_{}; // Identity only, after SDK Destroy succeeds.
+        std::atomic<HRESULT> nativeCreationResult_{S_OK};
     };
 }

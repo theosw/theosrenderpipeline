@@ -1,5 +1,6 @@
 #include "XeFGPresenter.h"
 #include "XeFGUnlock.h"
+#include "PresenterReplacement.h"
 #include "../PluginPaths.h"
 #include <psapi.h>
 #include <algorithm>
@@ -208,7 +209,7 @@ namespace TheosRenderPipeline
     }
     HRESULT XeFGPresenter::Create(ID3D12Device* device, ID3D12CommandQueue* queue, IDXGIFactory* factory,
         const DXGI_SWAP_CHAIN_DESC& desc, bool inverted, IDXGISwapChain** swapchain, std::uint32_t lastApplicationFrame, XeFGOptions options,
-        ID3D12PipelineLibrary* pipelines)
+        ID3D12PipelineLibrary* pipelines, IDXGISwapChain* existingNative)
     {
         if (!swapchain) { return E_POINTER; }
         *swapchain = nullptr;
@@ -266,7 +267,12 @@ namespace TheosRenderPipeline
         Trace("connect logging");
         if (FAILED(hr = FG(xefgSwapChainSetLoggingCallback_(fg_, XEFG_SWAPCHAIN_LOGGING_LEVEL_WARNING,
             [](const char* message, xefg_swapchain_logging_level_t, void* context) {
-                const auto* owner = static_cast<XeFGPresenter*>(context); if (owner->log_) { owner->log_(message); }
+                auto* owner = static_cast<XeFGPresenter*>(context);
+                if (message) {
+                    const auto native = XeFGNativeCreationResult(message);
+                    if (native != E_FAIL) { owner->nativeCreationResult_.store(native); }
+                    if (owner->log_) { owner->log_(message); }
+                }
             }, this), "logging"))) { return hr; }
         DXGI_SWAP_CHAIN_DESC1 native{};
         native.Width = desc.BufferDesc.Width; native.Height = desc.BufferDesc.Height;
@@ -288,10 +294,16 @@ namespace TheosRenderPipeline
         init.pPipelineLibrary = pipelines;
         Microsoft::WRL::ComPtr<IDXGIFactory2> factory2;
         if (FAILED(hr = factory->QueryInterface(IID_PPV_ARGS(&factory2)))) { return hr; }
-        Trace("initialize native swapchain from descriptor");
-        if (FAILED(hr = FG(xefgSwapChainD3D12InitFromSwapChainDesc_(fg_, desc.OutputWindow, &native,
-                nullptr, queue, factory2.Get(), &init), "initialize swapchain")) ||
-            FAILED(hr = FG(xefgSwapChainD3D12GetSwapChainPtr_(fg_, __uuidof(IDXGISwapChain),
+        nativeCreationResult_.store(S_OK);
+        Trace(existingNative ? "initialize XeFG proxy with retained native HWND owner" : "initialize native swapchain from descriptor");
+        factoryCapture_.Attach(new PresenterFactory(factory2.Get(), existingNative));
+        hr = FG(xefgSwapChainD3D12InitFromSwapChainDesc_(fg_, desc.OutputWindow, &native,
+            nullptr, queue, factoryCapture_.Get(), &init), "initialize swapchain");
+        if (FAILED(hr)) {
+            const auto nativeResult = nativeCreationResult_.load();
+            return FAILED(nativeResult) ? nativeResult : hr;
+        }
+        if (FAILED(hr = FG(xefgSwapChainD3D12GetSwapChainPtr_(fg_, __uuidof(IDXGISwapChain),
                 reinterpret_cast<void**>(swapchain)), "get proxy"))) { return hr; }
         Trace("configure proxy");
         initialized_ = true; snapshot_.invertedDepth = inverted; snapshot_.enabled = false;
@@ -507,6 +519,7 @@ namespace TheosRenderPipeline
     }
     HRESULT XeFGPresenter::Destroy()
     {
+        if (factoryCapture_) { factoryCapture_->ReleaseNative(); }
         if (fg_) {
             const auto hr = FG(xefgSwapChainDestroy_(fg_), "destroy presenter and internal work");
             if (FAILED(hr)) { return hr; }
@@ -529,6 +542,7 @@ namespace TheosRenderPipeline
         snapshot_.tensorModel = snapshot_.tensorActive = false;
         snapshot_.pacing = tensor_.PacingStats();
         snapshot_.prepared = snapshot_.enabled = false; needsReset_ = true;
+        factoryCapture_.Reset();
         return S_OK;
     }
 }
