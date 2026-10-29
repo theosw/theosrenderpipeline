@@ -18,8 +18,9 @@ namespace TheosRenderPipeline
         Ptr<ID3D11ShaderResourceView> srv_;
         Ptr<ID3D11UnorderedAccessView> uav_;
         UINT inputWidth_{}, inputHeight_{}, outputWidth_{}, outputHeight_{};
+        DXGI_FORMAT format_{DXGI_FORMAT_UNKNOWN};
 
-        HRESULT Initialize(ID3D11Device* device, UINT iw, UINT ih, UINT ow, UINT oh)
+        HRESULT Initialize(ID3D11Device* device, UINT iw, UINT ih, UINT ow, UINT oh, DXGI_FORMAT format)
         {
             static constexpr char source[] = R"(
 Texture2D<float4> inputImage : register(t0);
@@ -47,7 +48,9 @@ void main(uint3 id : SV_DispatchThreadID) {
             if (FAILED(hr)) { return hr; }
             D3D11_TEXTURE2D_DESC desc{};
             desc.Width = iw; desc.Height = ih; desc.MipLevels = desc.ArraySize = 1;
-            desc.SampleDesc.Count = 1; desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+            // Scratch textures take the game's own format, so spatial scaling keeps
+            // its transfer and range (SDR, 10-bit or FP16 HDR).
+            desc.SampleDesc.Count = 1; desc.Format = format;
             desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
             Ptr<ID3D11Texture2D> input, output;
             Ptr<ID3D11ShaderResourceView> srv; Ptr<ID3D11UnorderedAccessView> uav;
@@ -62,6 +65,7 @@ void main(uint3 id : SV_DispatchThreadID) {
             if (FAILED(hr)) { return hr; }
             shader_ = shader; source_ = input; result_ = output; srv_ = srv; uav_ = uav;
             inputWidth_ = iw; inputHeight_ = ih; outputWidth_ = ow; outputHeight_ = oh;
+            format_ = format;
             return S_OK;
         }
     public:
@@ -70,17 +74,23 @@ void main(uint3 id : SV_DispatchThreadID) {
             if (!context || !input || !output || input == output ||
                 context->GetType() != D3D11_DEVICE_CONTEXT_IMMEDIATE) { return E_INVALIDARG; }
             D3D11_TEXTURE2D_DESC in{}, out{}; input->GetDesc(&in); output->GetDesc(&out);
-            // The game-facing upscaler resources use single-sample RGBA8 textures.
-            if (in.Format != DXGI_FORMAT_R8G8B8A8_UNORM || out.Format != in.Format ||
+            // Any single-sample game format the device can store through a typed
+            // UAV: RGBA8, BGRA8 (where supported), RGB10A2 and FP16.
+            if (out.Format != in.Format ||
                 in.MipLevels != 1 || out.MipLevels != 1 || in.ArraySize != 1 || out.ArraySize != 1 ||
                 in.SampleDesc.Count != 1 || out.SampleDesc.Count != 1) { return E_INVALIDARG; }
             if (!shader_) {
                 Ptr<ID3D11Device> device; context->GetDevice(&device);
-                const auto hr = Initialize(device.Get(), in.Width, in.Height, out.Width, out.Height);
+                UINT support{};
+                D3D11_FEATURE_DATA_FORMAT_SUPPORT2 typed{in.Format};
+                if (FAILED(device->CheckFormatSupport(in.Format, &support)) || !(support & D3D11_FORMAT_SUPPORT_TYPED_UNORDERED_ACCESS_VIEW) ||
+                    FAILED(device->CheckFeatureSupport(D3D11_FEATURE_FORMAT_SUPPORT2, &typed, sizeof(typed))) ||
+                    !(typed.OutFormatSupport2 & D3D11_FORMAT_SUPPORT2_UAV_TYPED_STORE)) { return DXGI_ERROR_UNSUPPORTED; }
+                const auto hr = Initialize(device.Get(), in.Width, in.Height, out.Width, out.Height, in.Format);
                 if (FAILED(hr)) { return hr; }
             }
             if (in.Width != inputWidth_ || in.Height != inputHeight_ || out.Width != outputWidth_ ||
-                out.Height != outputHeight_) { return E_INVALIDARG; }
+                out.Height != outputHeight_ || in.Format != format_) { return E_INVALIDARG; }
             Ptr<ID3D11ComputeShader> oldShader;
             std::array<ID3D11ClassInstance*, 256> instances{}; UINT count = static_cast<UINT>(instances.size());
             context->CSGetShader(&oldShader, instances.data(), &count);

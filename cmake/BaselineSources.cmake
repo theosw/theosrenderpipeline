@@ -204,6 +204,8 @@ set(ARP_BASELINE_SOURCES
     src/FrameGen/NeuralObjectCapture.cpp
     src/UpscalerHooks.cpp
     src/UpscalerHooks.h
+    src/UpscalerTextureHook.cpp
+    src/UpscalerTextureHook.h
     src/UpscalerDeviceHooks.cpp
     src/StartupHints.cpp
     src/UpscalerDeviceHooks.h

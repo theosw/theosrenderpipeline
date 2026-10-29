@@ -53,19 +53,6 @@ inline bool GetGameTAA()
 	return singleton->unkInnerStruct->bTAA;
 }
 
-struct ImageWrapper
-{
-	ID3D11Texture2D* mImage{ nullptr };
-
-	void Release()
-	{
-		if (mImage) {
-			mImage->Release();
-			mImage = nullptr;
-		}
-	}
-};
-
 class RenderPipeline
 {
 public:
@@ -119,14 +106,16 @@ public:
 	// Frames the game rendered through the pre-UI hook (diverges from the
 	// presented frame count once frame generation exists).
 	uint64_t mRenderedFrameCount{ 0 };
-	// Frames left that should evaluate with the DLSS reset flag (history
-	// flush after loading screens, where stale accumulation looks wrong).
-	// Window is wide because the fader can close while the loading screen is
-	// still evaluating, burning reset frames before the world is visible.
-	// Set by menu events and SKSE messages, counted down by frame evaluation.
-	std::atomic<int> mPendingHistoryResets{ 0 };
+	// Scene cuts from menu events and SKSE messages (loads, the map, character
+	// editing). Each request starts a new generation; the upscaler and the
+	// Community Shaders frame each reset on their first world frame of the
+	// newest one (FrameGen/SceneReset.h), however long the loading screen runs.
+	std::atomic<std::uint32_t> mSceneGeneration{ 0 };
+	std::atomic<const char*> mSceneResetReason{ "" };
 
-	void RequestHistoryReset() { mPendingHistoryResets.store(15, std::memory_order_relaxed); }
+	void RequestHistoryReset(const char* a_reason = "requested");
+	std::uint32_t SceneGeneration() const { return mSceneGeneration.load(std::memory_order_acquire); }
+	const char* SceneResetReason() const { return mSceneResetReason.load(std::memory_order_acquire); }
 	void SetFrameGenerationTransitionBlocked(bool a_blocked);
 	bool FrameGenerationTransitionBlocked() const
 	{
@@ -134,9 +123,6 @@ public:
 	}
 
 	std::atomic_bool mFrameGenerationTransitionBlocked{ true };
-
-	ImageWrapper         mDepthBuffer;
-	ImageWrapper         mMotionVectors;
 
 	IDXGISwapChain*      mSwapChain{ nullptr };
 	ID3D11Device*        mDevice{ nullptr };
@@ -163,8 +149,6 @@ public:
 	int JitterPhaseCount() const;
 	void SetJitterOffsets(float a_x, float a_y);
 
-	void SetupDepth(ID3D11Texture2D* a_depthBuffer);
-	void SetupMotionVector(ID3D11Texture2D* a_motionBuffer);
 	void PreInit();
 	void InitUpscaler();
 };

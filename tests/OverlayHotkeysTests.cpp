@@ -6,6 +6,7 @@
 #include <initializer_list>
 #include <map>
 #include <string>
+#include <utility>
 
 using namespace TheosRenderPipeline::Overlay;
 namespace
@@ -60,16 +61,18 @@ namespace
 
     struct IniFixture
     {
-        std::map<std::string, long> values;
+        std::map<std::string, std::string> values;
         bool hex{};
-        long GetLongValue(const char* section, const char* key, long fallback) const
+        const char* GetValue(const char* section, const char* key, const char* fallback) const
         {
             const auto found = values.find(std::string(section) + "/" + key);
-            return found == values.end() ? fallback : found->second;
+            return found == values.end() ? fallback : found->second.c_str();
         }
         void SetLongValue(const char* section, const char* key, long value, const char*, bool useHex)
         {
-            values[std::string(section) + "/" + key] = value;
+            char text[16];
+            std::snprintf(text, sizeof(text), useHex ? "0x%lX" : "%ld", value);
+            values[std::string(section) + "/" + key] = text;
             hex = useHex;
         }
     };
@@ -186,11 +189,22 @@ namespace
 
         IniFixture ini;
         Require(LoadMenuHotkey(ini) == VK_END, "missing ToggleOverlay defaults to End");
-        for (long invalid : {0L, -1L, 0xFFL, 0x1FFL}) {
+        std::optional<std::string> problem;
+        Require(LoadMenuHotkey(ini, &problem) == VK_END && !problem, "a missing value is not reported");
+        for (const char* invalid : {"0", "-1", "0xFF", "0x1FF", "", "F25", "F0", "End key", "0xZZ", "99999999999"}) {
             ini.values["Hotkeys/ToggleOverlay"] = invalid;
-            Require(LoadMenuHotkey(ini) == VK_END, "invalid ToggleOverlay falls back to End");
+            problem.reset();
+            Require(LoadMenuHotkey(ini, &problem) == VK_END, "invalid ToggleOverlay falls back to End");
+            Require(problem == std::string(invalid), "invalid ToggleOverlay is reported");
         }
-        ini.values["Hotkeys/ToggleOverlay"] = VK_XBUTTON1;
+        for (const auto& [text, key] : std::initializer_list<std::pair<const char*, int>>{
+                 {"0x77", VK_F8}, {"119", VK_F8}, {"0x77 ; F8", VK_F8}, {" 0x77	# F8", VK_F8}, {"F8", VK_F8}, {"f8", VK_F8},
+                 {"F24", VK_F24}, {"k", 'K'}, {"5", VK_XBUTTON1}, {"+119", VK_F8}, {"0x23", VK_END}, {"0X79", VK_F10}}) {
+            ini.values["Hotkeys/ToggleOverlay"] = text;
+            problem.reset();
+            Require(LoadMenuHotkey(ini, &problem) == key && !problem, "codes, names and commented values are read");
+        }
+        ini.values["Hotkeys/ToggleOverlay"] = std::to_string(VK_XBUTTON1);
         Require(LoadMenuHotkey(ini) == VK_XBUTTON1, "existing INI mouse binding preserved");
         StoreMenuHotkey(ini, VK_F10);
         Require(ini.hex && LoadMenuHotkey(ini) == VK_F10, "saved key round trips as hex");

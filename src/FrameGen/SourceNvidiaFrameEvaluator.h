@@ -12,6 +12,9 @@ namespace TheosRenderPipeline
         ID3D11Texture2D* input{};
         ID3D11Texture2D* output{};
         float sharpness{}, motionScaleX{}, motionScaleY{};
+        // No qualified producer this frame: display current color, without
+        // advancing camera/NR/FG histories or consuming stale guide pixels.
+        bool spatialOnly{};
     };
 
     struct SourceNvidiaFrameResult
@@ -28,14 +31,22 @@ namespace TheosRenderPipeline
         {
             context->OMSetRenderTargets(0, nullptr, nullptr);
             operations.CopyInput(context, frame);
+            // A camera cut (the map, a teleport) must reset the upscaler on this
+            // frame, with or without NR. The camera history commits after DLSS.
+            if (!frame.spatialOnly) { frame.reset |= operations.PreviewCamera(frame); }
             // Completes the optional D3D12 NR round trip before D3D11 DLSS can
             // read input. Settings/re-entry resets apply to both stages.
-            if (!operations.EvaluateNeuralBeforeDLSS(frame)) { return {}; }
+            if (!frame.spatialOnly && !operations.EvaluateNeuralBeforeDLSS(frame)) { return {}; }
             operations.RenderReShade(frame, true);
             if (!operations.EvaluateDLSS(frame)) { return {}; }
             operations.UpscaleSucceeded();
             // Finish external effects before Prepare snapshots HUD-less color.
             operations.RenderReShade(frame, false);
+
+            if (frame.spatialOnly) {
+                operations.PublishGeneration(false);
+                return {true, false, false};
+            }
 
             const auto preparation = SourceNvidiaFramePreparation::PrepareCompletedFrame(frame, operations);
             return {true, preparation.cameraValid, preparation.prepared};

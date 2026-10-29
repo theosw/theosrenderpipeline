@@ -3,6 +3,7 @@
 #include "LoadingArtwork.h"
 #include <chrono>
 #include "RenderPipeline.h"
+#include "SourceDLSSGBackend.h"
 #include "PerformanceTuning.h"
 #include <utility>
 
@@ -86,10 +87,11 @@ void NvidiaHost::LogNativeUIState(const char* stage, bool mainOrLoading)
         nativeUIPass_.Frame().UIDrawn(), nativeUIPass_.Active(), evaluationCount_, count,
         vp.TopLeftX, vp.TopLeftY, vp.Width, vp.Height, vp.MinDepth, vp.MaxDepth);
     auto* upscaler = RenderPipeline::GetSingleton();
-    logger::info("[NativeUIRoute] frame={} guides motion={} depth={} input={} reconstructed={} render={}x{} output={}x{} jitter=({:.4f},{:.4f}) pendingHistoryResets={}",
-        presentCount_, static_cast<void*>(upscaler->mMotionVectors.mImage), static_cast<void*>(upscaler->mDepthBuffer.mImage),
+    const auto* guides = WorldGuides();
+    logger::info("[NativeUIRoute] frame={} guides motion={} depth={} input={} reconstructed={} render={}x{} output={}x{} jitter=({:.4f},{:.4f}) sceneGeneration={}",
+        presentCount_, static_cast<void*>(guides ? guides->motion.Get() : nullptr), static_cast<void*>(guides ? guides->depth.Get() : nullptr),
         static_cast<void*>(gameTargets_.GameFacing()), static_cast<void*>(gameTargets_.UpscaleOutput()), renderWidth_, renderHeight_, outputWidth_, outputHeight_,
-        upscaler->mJitterOffsets[0], upscaler->mJitterOffsets[1], upscaler->mPendingHistoryResets.load());
+        upscaler->mJitterOffsets[0], upscaler->mJitterOffsets[1], upscaler->SceneGeneration());
     const auto describe = [&](const char* role, UINT slot, ID3D11View* view) {
         if (!view) { return; }
         Microsoft::WRL::ComPtr<ID3D11Resource> resource;
@@ -117,9 +119,9 @@ bool NvidiaHost::PrepareSourceNativeUITargets()
     sourceUIBufferIndex_ = chain->GetCurrentBackBufferIndex();
     InternalOperation internal(sourceUIInternal_);
     if (!PrepareNativeUITarget(sourceUIBufferIndex_)) { return false; }
-    auto* upscaler = RenderPipeline::GetSingleton();
+    const auto* guides = WorldGuides();
     const auto hr = nativeUIAttachments_.Ensure(device_.Get(), context_.Get(),
-        upscaler->mMotionVectors.mImage, upscaler->mDepthBuffer.mImage, outputWidth_, outputHeight_);
+        guides ? guides->motion.Get() : nullptr, guides ? guides->depth.Get() : nullptr, outputWidth_, outputHeight_);
     if (FAILED(hr) && TakeNativeUITraceSlot()) {
         logger::warn("[NativeUIRoute] native attachments unavailable result=0x{:08X}; keep background eligible for Present", static_cast<unsigned>(hr));
     }
@@ -168,12 +170,21 @@ struct NvidiaHost::SourceFrameOperations
     bool InterfaceHidden()
     {
         auto* ui = RE::UI::GetSingleton();
-        return ui && !ui->IsShowingMenus() && !MainOrLoading() && host.nativeUI_.Dedicated();
+        host.interfaceRoute_ = ui && !ui->IsShowingMenus() && !MainOrLoading() && host.nativeUI_.Dedicated() ?
+            InterfaceRoute::Hidden : InterfaceRoute::Fallback;
+        const bool hidden = host.interfaceRoute_ == InterfaceRoute::Hidden;
+        // With menus hidden the engine skips the world-completion boundary.
+        // Nothing draws between the world and Present, so the engine's motion
+        // and depth still hold this frame: observe them here instead.
+        if (hidden) { host.ObserveWorldGuides(false); }
+        return hidden;
     }
     bool ClearNativeUI()
     {
         InternalOperation internal(host.sourceUIInternal_);
-        return host.nativeUI_.ClearTagged(host.context_.Get());
+        const bool cleared = host.nativeUI_.ClearTagged(host.context_.Get());
+        host.interfaceRoute_ = cleared ? InterfaceRoute::HiddenCleared : InterfaceRoute::HiddenClearFailed;
+        return cleared;
     }
     bool ComposeNativeUI()
     {
@@ -189,6 +200,60 @@ struct NvidiaHost::SourceFrameOperations
     }
     void Trace(const char* stage) { host.LogNativeUIState(stage, MainOrLoading()); }
 };
+
+void NvidiaHost::ObserveWorldGuides([[maybe_unused]] bool mainOrLoading)
+{
+    if (!StartupConfigured() || !proxyActive_ || !UpscalerReady() || !context_) { return; }
+    auto* renderer = RE::BSGraphics::Renderer::GetSingleton();
+    auto* state = reinterpret_cast<BSGraphics::State*>(RE::BSGraphics::State::GetSingleton());
+    TheosRenderPipeline::NativeGuideSources sources;
+    if (renderer) {
+        sources.motion = reinterpret_cast<ID3D11Texture2D*>(
+            renderer->GetRuntimeData().renderTargets[RE::RENDER_TARGETS::kMOTION_VECTOR].texture);
+        auto& depths = renderer->GetDepthStencilData().depthStencils;
+        sources.postZDepth = reinterpret_cast<ID3D11Texture2D*>(depths[RE::RENDER_TARGETS_DEPTHSTENCIL::kPOST_ZPREPASS_COPY].texture);
+        sources.mainDepth = reinterpret_cast<ID3D11Texture2D*>(depths[RE::RENDER_TARGETS_DEPTHSTENCIL::kMAIN].texture);
+    }
+    const auto observation = worldGuides_.Observe(device_.Get(), sources, {renderWidth_, renderHeight_},
+        // The main menu and loading screens draw through the same world pass and
+        // keep DLSS; NR and frame generation exclude them separately.
+        presentCount_, state ? state->GetFrameCount() : 0, renderer && state,
+        [&] {
+            // NR/FG copy native guides into their own resources. Only queued
+            // D3D11 reads of the engine pair must finish before its replacement;
+            // do not tear down vendor features or the presentation session.
+            auto& transport = TheosRenderPipeline::SourceDLSSG::Backend::Get().Transport();
+            auto hr = transport.SignalD3D11(TheosRenderPipeline::SourceDLSSG::Work::SwapChain);
+            if (SUCCEEDED(hr)) { hr = transport.Drain(); }
+            if (FAILED(hr)) { FailLifecycle(hr, "native world guide retirement"); }
+            return SUCCEEDED(hr);
+        }, [this] {
+            // This frame already uses the new pair, even on a menu or loading
+            // frame where the scene reset waits for the world.
+            resetNextEvaluation_ = true;
+            RenderPipeline::GetSingleton()->RequestHistoryReset("guide resources changed");
+        });
+    using Observation = TheosRenderPipeline::NativeWorldGuides::Observation;
+    static DWORD guideThread{};
+    if (observation != Observation::WrongThread && renderer && state && guideThread != GetCurrentThreadId()) {
+        logger::info("[Guides] world-complete frame={} drawn on thread {} (was {})", presentCount_, GetCurrentThreadId(), guideThread);
+        guideThread = GetCurrentThreadId();
+    }
+    if (observation == Observation::Changed) {
+        const auto& guides = *WorldGuides();
+        logger::info("[Guides] world-complete frame={} gameFrame={} generation={} depthRole={} motion={} depth={} main={} postZ={} render={}x{}",
+            guides.present, guides.gameFrame, guides.generation, TheosRenderPipeline::NativeDepthRoleName(guides.depthRole),
+            static_cast<void*>(guides.motion.Get()), static_cast<void*>(guides.depth.Get()),
+            static_cast<void*>(sources.mainDepth), static_cast<void*>(sources.postZDepth), renderWidth_, renderHeight_);
+    } else if (observation == Observation::Unavailable && TakeNativeUITraceSlot()) {
+        logger::info("[Guides] world-complete frame={} has no qualified pair; current-color spatial route", presentCount_);
+    } else if (observation == Observation::WrongThread) {
+        static std::uint32_t rejected{};
+        if (++rejected <= 20 || rejected % 600 == 0) {
+            logger::warn("[Guides] rejected world completion on a different render thread (count={})", rejected);
+        }
+    }
+}
 
 void NvidiaHost::OnBackgroundReady(TheosRenderPipeline::BackgroundBoundary boundary, bool mainOrLoading)
 {
@@ -216,7 +281,32 @@ bool NvidiaHost::PrepareSourceFrameForPresent(IDXGISwapChain* swapChain)
         if (startupOverlay_.Active()) { return false; }
     }
     SourceFrameOperations operations{*this};
-    return sourceFrameCoordinator_.PrepareForPresent(context_.Get(), operations);
+    interfaceRoute_ = InterfaceRoute::Drawn;
+    const bool prepared = sourceFrameCoordinator_.PrepareForPresent(context_.Get(), operations);
+    LogInterfaceRoute();
+    return prepared;
+}
+
+// Unsampled: each time the game hides or shows its menus (tm, a mod hiding
+// the HUD), and each route change while hidden, so a log shows whether hidden
+// menus still reach NR and frame generation as a frame without UI.
+void NvidiaHost::LogInterfaceRoute()
+{
+    auto* ui = RE::UI::GetSingleton();
+    const bool hidden = ui && !ui->IsShowingMenus();
+    const int state = hidden ? 1 + static_cast<int>(interfaceRoute_) : 0;
+    if (state == interfaceRouteLogged_ || interfaceRouteChanges_ >= 300) { return; }
+    interfaceRouteLogged_ = state;
+    ++interfaceRouteChanges_;
+    const char* route = "";
+    switch (interfaceRoute_) {
+    case InterfaceRoute::Drawn: route = "UI pass ran"; break;
+    case InterfaceRoute::Fallback: route = "no UI pass; Present evaluated without UI tags"; break;
+    case InterfaceRoute::Hidden: route = "no UI pass; UI tags not cleared"; break;
+    case InterfaceRoute::HiddenCleared: route = "no UI pass; Present evaluated with an empty UI tag"; break;
+    case InterfaceRoute::HiddenClearFailed: route = "no UI pass; clearing the UI tag failed, Present evaluated without UI tags"; break;
+    }
+    logger::info("[NativeUIRoute] frame={} menus {} ({})", presentCount_, hidden ? "hidden" : "shown", route);
 }
 
 bool NvidiaHost::FinishSourceFrameForPresent()

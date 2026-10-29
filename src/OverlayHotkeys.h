@@ -4,7 +4,9 @@
 #include <Windows.h>
 #include <array>
 #include <mutex>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace TheosRenderPipeline::Overlay
@@ -56,11 +58,47 @@ namespace TheosRenderPipeline::Overlay
     // extended flags so End is not shown as Num 1.
     std::string HotkeyName(UINT key);
 
-    template<class Ini>
-    int LoadMenuHotkey(const Ini& ini)
+    // A virtual-key code in decimal or 0x hex, or a key name: F1-F24 or a
+    // letter. A trailing ; or # comment is ignored. Digits stay codes, as before
+    // (5 is mouse button 4).
+    inline std::optional<int> ParseMenuHotkey(std::string_view text)
     {
-        const auto key = ini.GetLongValue("Hotkeys", "ToggleOverlay", VK_END);
-        return key > 0 && key <= 0xFE ? static_cast<int>(key) : VK_END;
+        if (const auto comment = text.find_first_of(";#"); comment != text.npos) { text = text.substr(0, comment); }
+        while (!text.empty() && (text.front() == ' ' || text.front() == '	')) { text.remove_prefix(1); }
+        while (!text.empty() && (text.back() == ' ' || text.back() == '	')) { text.remove_suffix(1); }
+        if (text.empty()) { return std::nullopt; }
+        const auto upper = [](char c) { return c >= 'a' && c <= 'z' ? static_cast<char>(c - 'a' + 'A') : c; };
+        if (text.size() == 1 && ((upper(text[0]) >= 'A' && upper(text[0]) <= 'Z'))) { return upper(text[0]); }
+        if (text.size() >= 2 && upper(text[0]) == 'F' && text[1] >= '1' && text[1] <= '9') {
+            int number = 0;
+            for (const char c : text.substr(1)) {
+                if (c < '0' || c > '9') { return std::nullopt; }
+                number = number * 10 + (c - '0');
+            }
+            return number >= 1 && number <= 24 ? std::optional<int>(VK_F1 + number - 1) : std::nullopt;
+        }
+        const bool hex = text.size() > 2 && text[0] == '0' && upper(text[1]) == 'X';
+        if (hex) { text.remove_prefix(2); }
+        else if (text.size() > 1 && text[0] == '+') { text.remove_prefix(1); }  // strtol accepted +119
+        long value = 0;
+        for (const char c : text) {
+            const char u = upper(c);
+            const int digit = u >= '0' && u <= '9' ? u - '0' : hex && u >= 'A' && u <= 'F' ? u - 'A' + 10 : -1;
+            if (digit < 0 || value > 0xFFFF) { return std::nullopt; }
+            value = value * (hex ? 16 : 10) + digit;
+        }
+        return value > 0 && value <= 0xFE ? std::optional<int>(static_cast<int>(value)) : std::nullopt;
+    }
+
+    // An unreadable value falls back to End and is returned through unreadable.
+    template<class Ini>
+    int LoadMenuHotkey(const Ini& ini, std::optional<std::string>* unreadable = nullptr)
+    {
+        const char* raw = ini.GetValue("Hotkeys", "ToggleOverlay", nullptr);
+        if (!raw) { return VK_END; }
+        if (const auto key = ParseMenuHotkey(raw)) { return *key; }
+        if (unreadable) { *unreadable = raw; }
+        return VK_END;
     }
 
     template<class Ini>

@@ -67,6 +67,7 @@ namespace TheosRenderPipeline::CommunityShaders
             auto* state = reinterpret_cast<BSGraphics::State*>(RE::BSGraphics::State::GetSingleton());
             auto* pipeline = RenderPipeline::GetSingleton();
             CommunityShaderAdapter::Input input{};
+            const auto sceneGeneration = pipeline->SceneGeneration();
             if (renderer && state && host->UpscalerReady()) {
                 auto& data = state->GetRuntimeData();
                 const auto width = data.dynamicResolutionWidthRatio * host->OutputWidth();
@@ -84,9 +85,9 @@ namespace TheosRenderPipeline::CommunityShaders
                 input.frame = state->GetFrameCount(); input.jittered = GetGameTAA();
                 input.jitterX = state->jitter[0] * input.render.width / 2.0f;
                 input.jitterY = -state->jitter[1] * input.render.height / 2.0f;
-                input.reset = pipeline->mPendingHistoryResets > 0;
                 auto* ui = RE::UI::GetSingleton();
                 input.worldEligible = ui && !ui->IsMenuOpen(RE::MainMenu::MENU_NAME) && !ui->IsMenuOpen(RE::LoadingMenu::MENU_NAME);
+                input.reset = host->CommunitySceneReset().Owes(sceneGeneration, input.worldEligible);
                 pipeline->mGraphicsState = state;
                 pipeline->mRenderedFrameCount = input.frame;
                 pipeline->mRenderSizeX = input.render.width; pipeline->mRenderSizeY = input.render.height;
@@ -94,6 +95,9 @@ namespace TheosRenderPipeline::CommunityShaders
             }
             const bool previous = worldBoundary;
             worldBoundary = input.context && host->CommunityFrame().BeginWorld(input);
+            // Only the frame CS admitted takes the reset; a rejected duplicate
+            // callback must not move the tracker to a newer generation.
+            if (worldBoundary) { host->CommunitySceneReset().Begin(sceneGeneration, input.worldEligible); }
             producerOriginal(manager, effect, target, arg, flag);
             worldBoundary = previous;
         }

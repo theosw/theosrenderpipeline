@@ -137,6 +137,7 @@ HRESULT NvidiaHost::ReleaseSourceUpscaler()
     }
     TheosRenderPipeline::ReShadeIntegration::Get().ResetAfterRetirement();
     communityFrame_.ResetAfterRetirement();
+    worldGuides_.ResetAfterRetirement();
     EndNativeUIPass();
     startupOverlay_.ResetAfterRetirement();
     previewDraw_.ResetAfterRetirement();

@@ -2,6 +2,7 @@
 // (https://github.com/PureDark/Skyrim-Upscaler).
 
 #include "UpscalerHooks.h"
+#include "UpscalerTextureHook.h"
 #include "UpscalerDeviceHooks.h"
 #include "UpscalerSamplerHooks.h"
 #include "NeuralObjectHooks.h"
@@ -36,7 +37,6 @@
 #include <map>
 
 decltype(&GetClientRect)                      ptrGetClientRect;
-decltype(&ID3D11Device::CreateTexture2D)      ptrCreateTexture2D;
 decltype(&ID3D11DeviceContext::PSSetShaderResources) ptrPSSetShaderResources;
 decltype(&ID3D11DeviceContext::OMSetRenderTargets) ptrOMSetRenderTargets;
 decltype(&ID3D11DeviceContext::OMSetBlendState) ptrOMSetBlendState;
@@ -287,9 +287,8 @@ BOOL WINAPI hk_GetClientRect(HWND hWnd, LPRECT lpRect)
 	return ptrGetClientRect(hWnd, lpRect);
 }
 
-HRESULT WINAPI hk_ID3D11Device_CreateTexture2D(ID3D11Device* This, const D3D11_TEXTURE2D_DESC* pDesc, const D3D11_SUBRESOURCE_DATA* pInitialData, ID3D11Texture2D** ppTexture2D)
+void TheosRenderPipeline::ObserveInventoryTextureCreation(const D3D11_TEXTURE2D_DESC* pDesc)
 {
-	auto        hr = (This->*ptrCreateTexture2D)(pDesc, pInitialData, ppTexture2D);
 	if (pDesc && inventory3DDiagnostics.active && TakeInventory3DDiagnosticSlot()) {
 		logger::info(
 			"[Inventory3DProbe] call {} event {} CreateTexture2D {}x{} format={} bind=0x{:X} usage={} samples={}",
@@ -302,56 +301,6 @@ HRESULT WINAPI hk_ID3D11Device_CreateTexture2D(ID3D11Device* This, const D3D11_T
 			static_cast<std::uint32_t>(pDesc->Usage),
 			pDesc->SampleDesc.Count);
 	}
-	static bool locking = false;
-	// A null output pointer is a legal validation-only call (S_FALSE): nothing to capture.
-	if (locking || FAILED(hr) || !pDesc || !ppTexture2D || !*ppTexture2D) {
-		return hr;
-	}
-	auto upscaler = RenderPipeline::GetSingleton();
-	auto* nvidiaHost = NvidiaHost::GetSingleton();
-	const auto captureWidth = nvidiaHost->ProxyActive() && nvidiaHost->UpscalerReady() ?
-		nvidiaHost->RenderWidth() : static_cast<UINT>(upscaler->mDisplaySizeX);
-	const auto captureHeight = nvidiaHost->ProxyActive() && nvidiaHost->UpscalerReady() ?
-		nvidiaHost->RenderHeight() : static_cast<UINT>(upscaler->mDisplaySizeY);
-	// Native companions have the same extent as game guides in DLAA. Do not
-	// recapture our own resources while creating them through the hooked device.
-	if (nvidiaHost->NativeUIInternalBind()) { return hr; }
-	if (pDesc->Format == DXGI_FORMAT_R16G16_FLOAT && pDesc->BindFlags == (D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET)) {
-		// The game's motion-vector target is the first source-sized R16G16
-		// texture created with these bind flags.
-		if (captureWidth > 0) {
-			if (pDesc->Width != captureWidth || pDesc->Height != captureHeight) {
-				return hr;
-			}
-		}
-		// Re-capture on recreation: the owner releasing and recreating its
-		// target would otherwise leave us holding a stale texture.
-		if (upscaler->mMotionVectors.mImage != nullptr) {
-			logger::info("Motion vector candidate re-created by the game, swapping capture: {} x {}", pDesc->Width, pDesc->Height);
-		} else {
-			logger::info("Motion vector candidate found: {} x {}", pDesc->Width, pDesc->Height);
-		}
-		locking = true;
-		upscaler->SetupMotionVector(*ppTexture2D);
-		locking = false;
-	} else if (pDesc->Format >= DXGI_FORMAT_R24G8_TYPELESS && pDesc->Format <= DXGI_FORMAT_X24_TYPELESS_G8_UINT) {
-		if (pDesc->Width == captureWidth &&
-			pDesc->Height == captureHeight &&
-			pDesc->BindFlags & D3D11_BIND_DEPTH_STENCIL) {
-			if (upscaler->mDepthBuffer.mImage != nullptr) {
-				logger::info("Depth buffer candidate re-created by the game, swapping capture: {} x {}", pDesc->Width, pDesc->Height);
-				locking = true;
-				upscaler->SetupDepth(*ppTexture2D);
-				locking = false;
-				return hr;
-			}
-			logger::info("Depth buffer candidate found: {} x {}", pDesc->Width, pDesc->Height);
-			locking = true;
-			upscaler->SetupDepth(*ppTexture2D);
-			locking = false;
-		}
-	}
-	return hr;
 }
 
 // UI-at-native: while the source coordinator redirects the game UI pass, rebinds of the fake backbuffer are remapped to the
@@ -365,8 +314,9 @@ void WINAPI hk_ID3D11DeviceContext_PSSetShaderResources(ID3D11DeviceContext* Thi
 		Microsoft::WRL::ComPtr<ID3D11Resource> backgroundDepth;
 		if (auto* view = host->NativeUIBackgroundDepth()) { view->GetResource(&backgroundDepth); }
 		ID3D11ShaderResourceView* replacements[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT]{};
+		const auto* guides = host->WorldGuides();
 		const auto replaced = host->UIAttachments().SubstituteDepths(NumViews, views, replacements,
-			RenderPipeline::GetSingleton()->mDepthBuffer.mImage, backgroundDepth.Get());
+			guides ? guides->depth.Get() : nullptr, backgroundDepth.Get());
 		if (replaced) {
 			static unsigned logged = 0;
 			if (logged < 3) {
@@ -713,7 +663,8 @@ namespace
 			!host->NativeUITargetBound() || host->NativeUIInternalBind()) { original(); return; }
 		Microsoft::WRL::ComPtr<ID3D11Resource> backgroundDepth;
 		if (auto* view = host->NativeUIBackgroundDepth()) { view->GetResource(&backgroundDepth); }
-		auto* guide = RenderPipeline::GetSingleton()->mDepthBuffer.mImage;
+		const auto* guides = host->WorldGuides();
+		auto* guide = guides ? guides->depth.Get() : nullptr;
 		auto* renderer = RE::BSGraphics::Renderer::GetSingleton();
 		auto* declaredMain = renderer ? renderer->GetDepthStencilData().depthStencils[RE::RENDER_TARGET_DEPTHSTENCIL::kMAIN].texture : nullptr;
 		const auto result = host->PreviewDraw().Draw(context, host->NativeUIRenderRTV(), original,
@@ -970,8 +921,7 @@ struct UpscalerHooks
 		static void thunk(std::uint64_t a1, std::uint32_t a2)
 		{
 			func(a1, a2);
-			NvidiaHost::GetSingleton()->OnBackgroundReady(
-				TheosRenderPipeline::BackgroundBoundary::World, MainOrLoadingMenuOpen());
+			TheosRenderPipeline::ObserveNativeWorldCompletion(*NvidiaHost::GetSingleton(), MainOrLoadingMenuOpen());
 		}
 		static inline REL::Relocation<decltype(thunk)> func;
 	};

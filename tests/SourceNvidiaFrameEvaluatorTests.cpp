@@ -61,8 +61,8 @@ struct Operations
     int warmup;
     unsigned upscales{}, cameras{}, prepares{}, decisions{};
     bool generation{};
-    bool neuralOK{true}, earlyNR{}, neuralReset{};
-    unsigned neuralCalls{}, dlssCalls{}, reShadeCalls{};
+    bool neuralOK{true}, earlyNR{}, neuralReset{}, cameraCut{};
+    unsigned previews{}, neuralCalls{}, dlssCalls{}, reShadeCalls{};
     bool reShade{}, reShadeBefore{};
     const std::array<float, 4> shaded{0.5f, 0.125f, 0.25f, 1};
     std::array<float, 4> ExpectedInput() const { return reShade && reShadeBefore ? shaded : earlyNR ? neuralScene : scene; }
@@ -74,9 +74,19 @@ struct Operations
     void CopyInput(ID3D11DeviceContext* copyContext, const SourceNvidiaFrameInputs& frame)
     { copyContext->CopyResource(frame.input, frame.color); }
 
+    // A cut found here must reach DLSS even when NR is off or skipped.
+    bool PreviewCamera(const SourceNvidiaFrameGuides& frame)
+    {
+        ++previews;
+        Require(!neuralCalls && !dlssCalls && !cameras && !prepares, "camera preview precedes NR, DLSS and the committed capture");
+        Require(frame.reset == expected.reset, "camera preview sees the caller's reset");
+        return cameraCut;
+    }
+
     bool EvaluateNeuralBeforeDLSS(SourceNvidiaFrameInputs& frame)
     {
         ++neuralCalls;
+        Require(previews == 1 && frame.reset == (expected.reset || cameraCut), "a camera cut reaches NR before DLSS");
         Require(Pixel(context, frame.input) == scene, "NR receives the frozen world before DLSS");
         Require(!upscales && !cameras && !prepares, "NR precedes reconstruction and history consumption");
         if (!neuralOK) { return false; }
@@ -106,7 +116,7 @@ struct Operations
             frame.outputWidth == outputDesc.Width && frame.outputHeight == outputDesc.Height,
             "render/output extents match their resources for scaled DLSS and native DLAA");
         Require(frame.sharpness == 0.25f && frame.jitterX == -0.375f && frame.jitterY == 0.125f && frame.motionScaleX == 12 && frame.motionScaleY == 8, "evaluation scalars preserved");
-        Require(frame.reset == (expected.reset || neuralReset) && frame.jitterEnabled, "NR appearance reset reaches DLSS");
+        Require(frame.reset == (expected.reset || neuralReset || cameraCut) && frame.jitterEnabled, "camera cuts and NR appearance resets reach DLSS");
         // A later producer can overwrite the outer color; the frozen DLSS input
         // must retain the original frame rather than aliasing that resource.
         world.Paint(context, {1, 0, 0, 1});
@@ -132,7 +142,7 @@ struct Operations
     {
         Require(upscales == 1 && decisions == 0, "upscale counted before camera history advances");
         Require(Pixel(context, output.texture.Get()) == ExpectedOutput(), "camera capture follows completed reconstruction");
-        Require(frame.reset == (expected.reset || neuralReset), "reset from reconstruction reaches camera history");
+        Require(frame.reset == (expected.reset || neuralReset || cameraCut), "reset from reconstruction reaches camera history");
         ++cameras;
         return cameraOK;
     }
@@ -209,7 +219,7 @@ static void TestExtent(bool nativeResolution)
     Surface output(device.Get(), outputWidth, outputHeight), ui(device.Get(), outputWidth, outputHeight);
     // Include disabled FG, warm-up and transition blocks independently of vendor
     // outcomes; all three must retain Prepare/NR and a completed DLSS image.
-    for (unsigned mask = 0; mask < 8192; ++mask) {
+    for (unsigned mask = 0; mask < 16384; ++mask) {
         const bool neuralOK = !(mask & 256), earlyNR = mask & 512, neuralReset = mask & 1024;
         const bool dlss = (mask & 1) && neuralOK, camera = mask & 2, prepare = mask & 4;
         const bool requested = mask & 8, blocked = mask & 16, warming = mask & 32, tagged = mask & 64, reset = mask & 128;
@@ -228,13 +238,13 @@ static void TestExtent(bool nativeResolution)
         frame.motionScaleX = 12; frame.motionScaleY = 8; frame.reset = reset; frame.jitterEnabled = true;
         Operations ops{context.Get(), world, output, frame, dlss, camera, prepare, requested, blocked, warming ? 3 : 0};
         ops.reShade = mask & 2048; ops.reShadeBefore = mask & 4096;
-        ops.neuralOK = neuralOK; ops.earlyNR = earlyNR; ops.neuralReset = neuralReset;
+        ops.neuralOK = neuralOK; ops.earlyNR = earlyNR; ops.neuralReset = neuralReset; ops.cameraCut = mask & 8192;
         const auto result = SourceNvidiaFrameEvaluator::Evaluate(context.Get(), frame, ops);
         Require(result.upscaled == dlss && result.cameraValid == (dlss && camera) && result.prepared == (dlss && camera && prepare), "separate reconstruction/camera/preparation outcomes");
         Require(ops.upscales == unsigned(dlss) && ops.cameras == unsigned(dlss) && ops.prepares == unsigned(dlss && camera) && ops.decisions == unsigned(dlss), "failed upscale leaves camera/preparation/generation untouched");
-        Require(ops.neuralCalls == 1 && ops.dlssCalls == unsigned(neuralOK), "failed NR stops DLSS and all later stages");
+        Require(ops.previews == 1 && ops.neuralCalls == 1 && ops.dlssCalls == unsigned(neuralOK), "failed NR stops DLSS and all later stages");
         Require(ops.reShadeCalls == unsigned(ops.reShade && neuralOK && (ops.reShadeBefore || dlss)), "selected effect stage runs once and skips failed producers");
-        Require(frame.reset == reset, "per-frame NR resets do not mutate the caller's input snapshot");
+        Require(frame.reset == reset, "per-frame camera and NR resets do not mutate the caller's input snapshot");
         Require(ops.generation == (dlss && camera && prepare && requested && !blocked && !warming), "generation gate with preparation independent of checkbox");
         Require(Pixel(context.Get(), output.texture.Get()) == (dlss ? ops.ExpectedOutput() : std::array<float, 4>{0, 0, 0, 0}), "real output survives preparation failure");
     }
@@ -265,7 +275,7 @@ static void TestExtent(bool nativeResolution)
             Pixel(context.Get(), input.texture.Get()) == std::array<float, 4>{0, 0, 0, 0},
             "supplied frame path does not touch native reconstruction surfaces");
     }
-    std::puts("PASS: 8192 native and 256 supplied-frame ordering/failure/reset/generation combinations");
+    std::puts("PASS: 16384 native and 256 supplied-frame ordering/failure/reset/generation combinations");
 }
 
 int main()
