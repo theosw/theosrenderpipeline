@@ -124,7 +124,8 @@ public:
 		kLoadingMenu = 2,
 		kRaceMenu = 3,
 		kFaderMenu = 4,
-		kFocusOrSuspend = 5
+		kFocusOrSuspend = 5,
+		kMapMenu = 6
 	};
 
 	struct TraceHeaderV1

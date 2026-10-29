@@ -70,7 +70,11 @@ bool NvidiaHost::EvaluateFrame(IDXGISwapChain* a_swapChain, bool a_nativeUIHando
         return false;
     }
 
-    bool resetHistory = resetNextEvaluation_ || upscaler->mPendingHistoryResets > 0;
+    // A scene cut waits for the first world frame: loading-screen frames must
+    // not use up the reset owed to the world behind them.
+    auto* ui = RE::UI::GetSingleton();
+    const bool worldFrame = ui && !ui->IsMenuOpen(RE::MainMenu::MENU_NAME) && !ui->IsMenuOpen(RE::LoadingMenu::MENU_NAME);
+    bool resetHistory = sceneReset_.Begin(upscaler->SceneGeneration(), worldFrame) || resetNextEvaluation_;
 
     if (!EvaluateSourceNvidiaFrame(a_nativeUIHandoff, resetHistory))
     {
@@ -83,11 +87,12 @@ bool NvidiaHost::EvaluateFrame(IDXGISwapChain* a_swapChain, bool a_nativeUIHando
         context_->CopyResource(presentation_.Buffers()[currentIndex].Get(), gameTargets_.UpscaleOutput());
     }
     resetNextEvaluation_ = false;
-    if (upscaler->mPendingHistoryResets > 0)
-    {
-        --upscaler->mPendingHistoryResets;
-    }
     ++evaluationCount_;
+    if (const auto settled = sceneReset_.Succeeded())
+    {
+        logger::info("[Transitions] scene {} ({}): upscaler reset at evaluation {} after {} failed and {} loading-screen frame(s)",
+                     settled->generation, upscaler->SceneResetReason(), evaluationCount_, settled->resetFrames - 1, settled->deferredFrames);
+    }
     evaluationFailureLogged_ = false;
     if (StartupConfigured())
     {
@@ -142,7 +147,10 @@ bool NvidiaHost::PrepareCommunityFrameForPresent()
         renderWidth_ = communityFrame_.RenderExtent().width;
         renderHeight_ = communityFrame_.RenderExtent().height;
         ++evaluationCount_;
-        if (pipeline->mPendingHistoryResets > 0) { --pipeline->mPendingHistoryResets; }
+        if (const auto settled = communitySceneReset_.Succeeded()) {
+            logger::info("[Transitions] scene {} ({}): Community Shaders frame reset at present {} after {} unprepared and {} loading-screen frame(s)",
+                settled->generation, pipeline->SceneResetReason(), presentCount_, settled->resetFrames - 1, settled->deferredFrames);
+        }
     }
     status_ = communityFrame_.Status();
     if (presentCount_ < 3 || presentCount_ % 600 == 0) {

@@ -1,3 +1,30 @@
+# 0.5.6
+
+- Opening and closing the world map now reset DLSS, NR and frame generation
+  history, so the first frames back in the world no longer blend in the map.
+- A camera cut now resets DLSS or XeSS on the same frame even with NR off.
+  Before, only NR before upscaling passed it on in time; otherwise DLSS kept
+  the old view's history for a frame.
+- After a load, DLSS (and frame generation on Community Shaders) resets on the
+  first frame of the world instead of for 15 frames from the request. A long
+  loading screen could use those 15 frames up before the world showed, and the
+  fade's close restarted them on a visible world. The log records each scene
+  reset and when it was applied.
+- NR in a near-black scene is no longer mistaken for an empty first answer.
+  NR's output is treated as missing only when it is black at every sample
+  point while its input was not, so a dark scene can't switch between NR and
+  the original image from frame to frame.
+- `ToggleOverlay` in the INI also accepts key names (`F8`, `K`) and a
+  trailing `;` comment, and the log warns when a value can't be read instead of
+  silently using End. The INI notes that a key saved from the menu goes to
+  `TheosRenderPipeline.User.ini`, which wins over it.
+- A second Skyrim running at the same time (MO2 multi-launch, Nucleus Co-op)
+  now writes its own `TheosRenderPipeline-<process id>.log` instead of
+  truncating and interleaving with the first one's log. Each log names its
+  process.
+- The log records each time the game hides or shows its menus (`tm`) and
+  whether NR and frame generation still received the frame without UI.
+
 # 0.5.5
 
 - Fix Every third frame (Lab) carrying NR's change onto the second skipped frame

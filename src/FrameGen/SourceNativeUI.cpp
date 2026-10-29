@@ -86,10 +86,10 @@ void NvidiaHost::LogNativeUIState(const char* stage, bool mainOrLoading)
         nativeUIPass_.Frame().UIDrawn(), nativeUIPass_.Active(), evaluationCount_, count,
         vp.TopLeftX, vp.TopLeftY, vp.Width, vp.Height, vp.MinDepth, vp.MaxDepth);
     auto* upscaler = RenderPipeline::GetSingleton();
-    logger::info("[NativeUIRoute] frame={} guides motion={} depth={} input={} reconstructed={} render={}x{} output={}x{} jitter=({:.4f},{:.4f}) pendingHistoryResets={}",
+    logger::info("[NativeUIRoute] frame={} guides motion={} depth={} input={} reconstructed={} render={}x{} output={}x{} jitter=({:.4f},{:.4f}) sceneGeneration={}",
         presentCount_, static_cast<void*>(upscaler->mMotionVectors.mImage), static_cast<void*>(upscaler->mDepthBuffer.mImage),
         static_cast<void*>(gameTargets_.GameFacing()), static_cast<void*>(gameTargets_.UpscaleOutput()), renderWidth_, renderHeight_, outputWidth_, outputHeight_,
-        upscaler->mJitterOffsets[0], upscaler->mJitterOffsets[1], upscaler->mPendingHistoryResets.load());
+        upscaler->mJitterOffsets[0], upscaler->mJitterOffsets[1], upscaler->SceneGeneration());
     const auto describe = [&](const char* role, UINT slot, ID3D11View* view) {
         if (!view) { return; }
         Microsoft::WRL::ComPtr<ID3D11Resource> resource;
@@ -168,12 +168,16 @@ struct NvidiaHost::SourceFrameOperations
     bool InterfaceHidden()
     {
         auto* ui = RE::UI::GetSingleton();
-        return ui && !ui->IsShowingMenus() && !MainOrLoading() && host.nativeUI_.Dedicated();
+        host.interfaceRoute_ = ui && !ui->IsShowingMenus() && !MainOrLoading() && host.nativeUI_.Dedicated() ?
+            InterfaceRoute::Hidden : InterfaceRoute::Fallback;
+        return host.interfaceRoute_ == InterfaceRoute::Hidden;
     }
     bool ClearNativeUI()
     {
         InternalOperation internal(host.sourceUIInternal_);
-        return host.nativeUI_.ClearTagged(host.context_.Get());
+        const bool cleared = host.nativeUI_.ClearTagged(host.context_.Get());
+        host.interfaceRoute_ = cleared ? InterfaceRoute::HiddenCleared : InterfaceRoute::HiddenClearFailed;
+        return cleared;
     }
     bool ComposeNativeUI()
     {
@@ -216,7 +220,32 @@ bool NvidiaHost::PrepareSourceFrameForPresent(IDXGISwapChain* swapChain)
         if (startupOverlay_.Active()) { return false; }
     }
     SourceFrameOperations operations{*this};
-    return sourceFrameCoordinator_.PrepareForPresent(context_.Get(), operations);
+    interfaceRoute_ = InterfaceRoute::Drawn;
+    const bool prepared = sourceFrameCoordinator_.PrepareForPresent(context_.Get(), operations);
+    LogInterfaceRoute();
+    return prepared;
+}
+
+// Unsampled: each time the game hides or shows its menus (tm, a mod hiding
+// the HUD), and each route change while hidden, so a log shows whether hidden
+// menus still reach NR and frame generation as a frame without UI.
+void NvidiaHost::LogInterfaceRoute()
+{
+    auto* ui = RE::UI::GetSingleton();
+    const bool hidden = ui && !ui->IsShowingMenus();
+    const int state = hidden ? 1 + static_cast<int>(interfaceRoute_) : 0;
+    if (state == interfaceRouteLogged_ || interfaceRouteChanges_ >= 300) { return; }
+    interfaceRouteLogged_ = state;
+    ++interfaceRouteChanges_;
+    const char* route = "";
+    switch (interfaceRoute_) {
+    case InterfaceRoute::Drawn: route = "UI pass ran"; break;
+    case InterfaceRoute::Fallback: route = "no UI pass; Present evaluated without UI tags"; break;
+    case InterfaceRoute::Hidden: route = "no UI pass; UI tags not cleared"; break;
+    case InterfaceRoute::HiddenCleared: route = "no UI pass; Present evaluated with an empty UI tag"; break;
+    case InterfaceRoute::HiddenClearFailed: route = "no UI pass; clearing the UI tag failed, Present evaluated without UI tags"; break;
+    }
+    logger::info("[NativeUIRoute] frame={} menus {} ({})", presentCount_, hidden ? "hidden" : "shown", route);
 }
 
 bool NvidiaHost::FinishSourceFrameForPresent()

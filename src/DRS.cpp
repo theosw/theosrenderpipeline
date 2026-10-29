@@ -63,6 +63,9 @@ RE::BSEventNotifyControl MenuOpenCloseEventHandler::ProcessEvent(const RE::MenuO
 	} else if (a_event->menuName == RE::FaderMenu::MENU_NAME) {
 		boundary = MenuRenderBoundary::Fader;
 		boundaryReason = FrameTrace::BoundaryReason::kFaderMenu;
+	} else if (a_event->menuName == RE::MapMenu::MENU_NAME) {
+		boundary = MenuRenderBoundary::Map;
+		boundaryReason = FrameTrace::BoundaryReason::kMapMenu;
 	} else {
 		transitionEvent = false;
 	}
@@ -71,7 +74,12 @@ RE::BSEventNotifyControl MenuOpenCloseEventHandler::ProcessEvent(const RE::MenuO
 		const bool resetHistory = menuState.OnEvent(boundary, a_event->opening);
 		DRS::GetSingleton()->reset = menuState.SuspendJitter();
 		if (resetHistory) {
-			RenderPipeline::GetSingleton()->RequestHistoryReset();
+			// Indexed by MenuRenderBoundary, then by opening.
+			static constexpr const char* reasons[][2]{
+				{ "main menu closed", "main menu opened" }, { "loading screen closed", "loading screen opened" },
+				{ "character editing closed", "character editing opened" }, { "fade closed", "fade opened" },
+				{ "map closed", "map opened" } };
+			RenderPipeline::GetSingleton()->RequestHistoryReset(reasons[static_cast<int>(boundary)][a_event->opening]);
 		}
 		FrameTrace::GetSingleton()->Record(
 			FrameTrace::EventType::kBoundary,
@@ -105,7 +113,8 @@ RE::BSEventNotifyControl MenuOpenCloseEventHandler::ProcessEvent(const RE::MenuO
 	if (a_event->menuName == RE::MainMenu::MENU_NAME ||
 		a_event->menuName == RE::LoadingMenu::MENU_NAME ||
 		a_event->menuName == RE::RaceSexMenu::MENU_NAME ||
-		a_event->menuName == RE::FaderMenu::MENU_NAME) {
+		a_event->menuName == RE::FaderMenu::MENU_NAME ||
+		a_event->menuName == RE::MapMenu::MENU_NAME) {
 		// Stable markers for the automated test harness.
 		logger::info("[Menu] {} {}", a_event->menuName.c_str(), a_event->opening ? "opened" : "closed");
 	}

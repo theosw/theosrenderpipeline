@@ -588,7 +588,18 @@ static void GuardAndShadows(ID3D11Device* device, ID3D11DeviceContext* context,
             Require(std::abs(luma(out[i]) - luma(lit[i])) < 0.01f, "an empty model output keeps the original");
         }
     }
-    std::puts("Hue guard and shadows: grey stays grey, colour still moves, black answers darken, empty output kept.");
+    // A near-black scene whose NR answer is black at every grid point is still an
+    // answer: the input is black there too. NR's edit of the one bright texel off
+    // the grid (grid points are odd coordinates at 16x16) applies on both routes.
+    for (const bool producer : {false, true}) {
+        std::vector<Pixel> dark(lit.size(), Pixel{0.0003f, 0.0003f, 0.0003f, 1});
+        dark[4 * width + 4] = {0.8f, 0.7f, 0.6f, 1};
+        std::vector<Pixel> answer(dark.size(), Pixel{0, 0, 0, 1});
+        answer[4 * width + 4] = {-0.5f, -0.5f, -0.5f, 1};
+        out = run(producer, dark, answer);
+        Require(luma(out[4 * width + 4]) < 0.8f * luma(dark[4 * width + 4]), "a dark scene's answer is applied");
+    }
+    std::puts("Hue guard and shadows: grey stays grey, colour still moves, black answers darken, empty output kept, dark scenes answered.");
 }
 
 // Broad and Detail. NR's change in stops is split into its edge-aware blur

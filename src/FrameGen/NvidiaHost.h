@@ -23,6 +23,7 @@
 #include "LoadingFadeIn.h"
 #include "PresentationFade.h"
 #include "ReShadeIntegration.h"
+#include "SceneReset.h"
 #include <atomic>
 #include <cstdint>
 #include <filesystem>
@@ -42,6 +43,7 @@ class NvidiaHost
     HRESULT CreateSwapChain(IDXGIFactory* a_factory, ID3D11Device* a_device, DXGI_SWAP_CHAIN_DESC* a_desc, IDXGISwapChain** a_swapChain);
     bool CompleteStartupAfterDeviceCreation();
     TheosRenderPipeline::CommunityShaderAdapter& CommunityFrame() { return communityFrame_; }
+    TheosRenderPipeline::SceneResetTracker& CommunitySceneReset() { return communitySceneReset_; }
     bool PrepareCommunityFrameForPresent();
     bool EvaluateFrame(IDXGISwapChain* a_swapChain, bool a_nativeUIHandoff = false);
     bool FinishNativeUIPassForPresent();
@@ -148,6 +150,12 @@ class NvidiaHost
     TheosRenderPipeline::NativeUIContexts nativeUIContexts_;
     TheosRenderPipeline::GameFacingTargets gameTargets_;
     TheosRenderPipeline::CommunityShaderAdapter communityFrame_;
+    TheosRenderPipeline::SceneResetTracker sceneReset_, communitySceneReset_;
+    enum class InterfaceRoute { Drawn, Fallback, Hidden, HiddenCleared, HiddenClearFailed };
+    InterfaceRoute interfaceRoute_{InterfaceRoute::Drawn};
+    int interfaceRouteLogged_{0};
+    unsigned interfaceRouteChanges_{};
+    void LogInterfaceRoute();
     TheosRenderPipeline::NativeUIComposition nativeUI_;
     TheosRenderPipeline::PresentationTargets presentation_;
     TheosRenderPipeline::NativeUIPass nativeUIPass_;

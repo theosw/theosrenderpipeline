@@ -28,6 +28,9 @@ namespace TheosRenderPipeline
         {
             context->OMSetRenderTargets(0, nullptr, nullptr);
             operations.CopyInput(context, frame);
+            // A camera cut (the map, a teleport) must reset the upscaler on this
+            // frame, with or without NR. The camera history commits after DLSS.
+            frame.reset |= operations.PreviewCamera(frame);
             // Completes the optional D3D12 NR round trip before D3D11 DLSS can
             // read input. Settings/re-entry resets apply to both stages.
             if (!operations.EvaluateNeuralBeforeDLSS(frame)) { return {}; }

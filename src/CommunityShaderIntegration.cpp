@@ -84,9 +84,9 @@ namespace TheosRenderPipeline::CommunityShaders
                 input.frame = state->GetFrameCount(); input.jittered = GetGameTAA();
                 input.jitterX = state->jitter[0] * input.render.width / 2.0f;
                 input.jitterY = -state->jitter[1] * input.render.height / 2.0f;
-                input.reset = pipeline->mPendingHistoryResets > 0;
                 auto* ui = RE::UI::GetSingleton();
                 input.worldEligible = ui && !ui->IsMenuOpen(RE::MainMenu::MENU_NAME) && !ui->IsMenuOpen(RE::LoadingMenu::MENU_NAME);
+                input.reset = host->CommunitySceneReset().Begin(pipeline->SceneGeneration(), input.worldEligible);
                 pipeline->mGraphicsState = state;
                 pipeline->mRenderedFrameCount = input.frame;
                 pipeline->mRenderSizeX = input.render.width; pipeline->mRenderSizeY = input.render.height;

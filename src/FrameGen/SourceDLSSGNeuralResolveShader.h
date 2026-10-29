@@ -264,18 +264,23 @@ float3 HueGuard(float3 original, float3 result) {
 }
 // Per frame, not per pixel: black is a legitimate answer (a shadow NR paints
 // over a lit surface). Only a model output with nothing anywhere on an 8x8
-// grid, such as an empty first evaluation, counts as no answer. Every thread of
-// the group must call this; Mode and ProducerColor are uniform.
+// grid where NR's input had content, such as an empty first evaluation, counts
+// as no answer. A near-black scene gives near-black input, so its dark answer
+// is kept rather than switching between NR and the scene from frame to frame.
+// Every thread of the group must call this; Mode is uniform.
 groupshared uint AnswerSeen;
 bool ModelAnswered(uint index) {
     if (index==0) AnswerSeen=0;
     GroupMemoryBarrierWithGroupSync();
     uint2 size=max(uint2(WorkWidth,WorkHeight),1);
     uint2 q=min(uint2((float2(index%8,index/8)+0.5)*float2(size)/8.0),size-1);
-    float3 n=Tex1.Load(int3(q,0)).rgb;
-    if (all(isfinite(n)) && max(n.r,max(n.g,n.b))>0.00001) InterlockedOr(AnswerSeen,1u);
+    float3 n=Tex1.Load(int3(q,0)).rgb, a=Tex0.Load(int3(q,0)).rgb;
+    uint seen=0;
+    if (all(isfinite(n)) && max(n.r,max(n.g,n.b))>0.00001) seen|=1u;
+    if (all(isfinite(a)) && max(a.r,max(a.g,a.b))>4.0/255.0) seen|=2u;
+    if (seen) InterlockedOr(AnswerSeen,seen);
     GroupMemoryBarrierWithGroupSync();
-    return AnswerSeen!=0;
+    return (AnswerSeen&1u)!=0 || (AnswerSeen&2u)==0;
 }
 // A paired range conversion in the producer's own RGB coordinates. No gamma,
 // gamut or exposure interpretation is inferred from its floating-point format.

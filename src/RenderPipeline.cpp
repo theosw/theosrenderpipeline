@@ -24,6 +24,13 @@ void RenderPipeline::SetFrameGenerationTransitionBlocked(bool a_blocked)
 	TheosRenderPipeline::SourceDLSSG::Backend::Get().SetTransitionBlocked(a_blocked);
 }
 
+void RenderPipeline::RequestHistoryReset(const char* a_reason)
+{
+	mSceneResetReason.store(a_reason, std::memory_order_release);
+	const auto generation = mSceneGeneration.fetch_add(1, std::memory_order_acq_rel) + 1;
+	logger::info("[Transitions] scene {} requested: {}", generation, a_reason);
+}
+
 void RenderPipeline::LoadINI()
 {
 	CSimpleIniA ini;
@@ -57,7 +64,12 @@ void RenderPipeline::LoadINI()
 		logger::error(
 			"[DynRes] ignored unsupported DynamicResolution request: TheosRenderPipeline's scaled-proxy path upscales at Present and requires a fixed full proxy input");
 	}
-	mToggleOverlayHotkey = TheosRenderPipeline::Overlay::LoadMenuHotkey(ini);
+	std::optional<std::string> unreadableHotkey;
+	mToggleOverlayHotkey = TheosRenderPipeline::Overlay::LoadMenuHotkey(ini, &unreadableHotkey);
+	if (unreadableHotkey) {
+		logger::warn("[Overlay Input] ToggleOverlay=\"{}\" is not a virtual-key code (such as 0x79 for F10) or a key name (F1-F24 or a letter); using End",
+			*unreadableHotkey);
+	}
 	mEnableNRHotkeys = TheosRenderPipeline::Overlay::LoadNRHotkeysEnabled(ini);
 	logger::info("[Overlay Input] NR shortcuts enabled={}", mEnableNRHotkeys);
 	// [Overlay] Language picks the dictionary the menu's labels are read from. The
@@ -181,7 +193,7 @@ void RenderPipeline::MessageHandler(SKSE::MessagingInterface::Message* a_msg)
 		// first visible frames do not blend with loading-screen content.
 		// Also the harness's definitive world-entry marker.
 		logger::info("[AutoTest] world entered (kPostLoadGame)");
-		RequestHistoryReset();
+		RequestHistoryReset("save loaded");
 		// No further auto-load attempts once a save is in.
 		break;
 	}

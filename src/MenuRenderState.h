@@ -2,7 +2,7 @@
 
 namespace TheosRenderPipeline
 {
-    enum class MenuRenderBoundary { Main, Loading, Character, Fader };
+    enum class MenuRenderBoundary { Main, Loading, Character, Fader, Map };
 
     // Menu events overlap: Loading can close after Main opens, and character
     // creation can open before the load-to-world fade finishes.
@@ -35,6 +35,10 @@ namespace TheosRenderPipeline
             case MenuRenderBoundary::Fader:
                 faderOpen_ = opening;
                 return !opening && !suspendJitter_;
+            case MenuRenderBoundary::Map:
+                // The map is drawn from its own camera above the world. Both
+                // edges are camera cuts; jitter, FG and NR carry on.
+                return true;
             }
             return false;
         }

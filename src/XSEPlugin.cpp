@@ -43,7 +43,12 @@ namespace
 		if (!path) {
 			util::report_and_fail("Failed to find standard logging directory"sv);
 		}
-		*path /= std::format("{}.log"sv, Plugin::NAME);
+		// A second Skyrim running at the same time (MO2 multi-launch, Nucleus
+		// Co-op) would truncate the first one's log and interleave with it. The
+		// session-wide mutex lives as long as the process that owns the log.
+		const auto pid = ::GetCurrentProcessId();
+		const bool sharedLog = ::CreateMutexW(nullptr, FALSE, L"Local\\TheosRenderPipeline.log") && ::GetLastError() == ERROR_ALREADY_EXISTS;
+		*path /= sharedLog ? std::format("{}-{}.log"sv, Plugin::NAME, pid) : std::format("{}.log"sv, Plugin::NAME);
 		sinks.push_back(std::make_shared<spdlog::sinks::basic_file_sink_mt>(path->string(), true));
 
 #ifndef NDEBUG
@@ -58,6 +63,11 @@ namespace
 
 		spdlog::set_default_logger(std::move(log));
 		spdlog::set_pattern("[%H:%M:%S.%e] [%l] %v"s);
+		if (sharedLog) {
+			logger::info("Process {}: another Skyrim with {} is running and owns {}.log; this process logs here", pid, Plugin::NAME, Plugin::NAME);
+		} else {
+			logger::info("Process {}", pid);
+		}
 	}
 
 	std::filesystem::path GetPluginDirectory()

@@ -56,6 +56,8 @@ struct NvidiaHost::SourceNvidiaEvaluationOperations
     RenderPipeline& upscaler;
     TheosRenderPipeline::SourceDLSSG::NeuralOptions neuralOptions;
     sl::Constants constants{};
+    sl::Constants preview{};
+    bool previewValid{};
     ID3D11Texture2D* repairedMotion{};
 
     // Underwater frames carry no real motion; NR and generation get camera
@@ -128,18 +130,31 @@ struct NvidiaHost::SourceNvidiaEvaluationOperations
             options.WorldOnly(), ui != nullptr, menu, frame.hudLessColor != nullptr, frame.uiColorAndAlpha != nullptr);
     }
 
+    // Reads the camera without advancing its history. Returns whether it cut
+    // since the last committed frame; NR and XeSS reuse the same constants.
+    bool PreviewCamera(const TheosRenderPipeline::SourceNvidiaFrameGuides& frame)
+    {
+        previewValid = TheosRenderPipeline::SourceDLSSG::CaptureCameraConstants(upscaler.mGraphicsState,
+            frame.renderWidth, frame.renderHeight, frame.jitterX, frame.jitterY,
+            frame.reset, frame.jitterEnabled, preview, false);
+        const bool cut = previewValid && preview.reset == sl::eTrue;
+        if (cut && !frame.reset) {
+            static std::uint32_t logged{};
+            if (++logged <= 50 || logged % 100 == 0) {
+                logger::info("[Transitions] camera cut resets the upscaler at evaluation {} (cuts={})", host.evaluationCount_, logged);
+            }
+        }
+        return cut;
+    }
+
     bool EvaluateNeuralBeforeDLSS(TheosRenderPipeline::SourceNvidiaFrameInputs& frame)
     {
 #if !defined(TRP_NO_NEURAL_RENDERING)
         auto& backend = TheosRenderPipeline::SourceDLSSG::Backend::Get();
         auto& options = neuralOptions;
-        sl::Constants preview{};
         const bool eligible = NeuralEligible(frame, options);
         TheosRenderPipeline::NeuralRendering::ApplyCombatMode(options, eligible);
-        const bool cameraValid = options.enabled && options.beforeUpscaling && eligible &&
-            TheosRenderPipeline::SourceDLSSG::CaptureCameraConstants(upscaler.mGraphicsState,
-                frame.renderWidth, frame.renderHeight, frame.jitterX, frame.jitterY,
-                frame.reset, frame.jitterEnabled, preview, false);
+        const bool cameraValid = options.enabled && options.beforeUpscaling && eligible && previewValid;
         return backend.EvaluateNeuralBeforeUpscaling(options, cameraValid ? &preview : nullptr,
             eligible, frame.input, cameraValid ? Motion(frame, preview) : frame.motion, frame.depth, {frame.renderWidth, frame.renderHeight}, frame.reset);
 #else
@@ -172,11 +187,8 @@ struct NvidiaHost::SourceNvidiaEvaluationOperations
             if (host.XeSSActive()) {
                 ScopedD3D11PerformanceStage timer{host.context_.Get(), PerformanceTuning::D3D11Stage::kDLSS};
                 auto& backend = TheosRenderPipeline::SourceDLSSG::Backend::Get();
-                sl::Constants preview{};
-                const bool camera = TheosRenderPipeline::SourceDLSSG::CaptureCameraConstants(upscaler.mGraphicsState,
-                    frame.renderWidth, frame.renderHeight, frame.jitterX, frame.jitterY, frame.reset, frame.jitterEnabled, preview, false);
                 const auto hr = backend.XeSS().Evaluate(host.context_.Get(), frame.input, frame.motion, frame.depth,
-                    frame.output, frame.jitterX, frame.jitterY, frame.reset, camera ? preview.depthInverted == sl::eTrue : true, frame.sharpness);
+                    frame.output, frame.jitterX, frame.jitterY, frame.reset, previewValid ? preview.depthInverted == sl::eTrue : true, frame.sharpness);
                 evaluated = SUCCEEDED(hr);
                 if (!evaluated) { logger::error("[XeSS] evaluation failed {} hr=0x{:08X}", backend.XeSS().Status(), static_cast<unsigned>(hr)); }
                 if (evaluated && backend.XeSS().Frames() % 600 == 0) { logger::info("[XeSS] evaluatedFrames={} historyReset={} render={}x{}", backend.XeSS().Frames(), frame.reset, frame.renderWidth, frame.renderHeight); }
