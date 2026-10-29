@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.21)
 
 project(
 	TheosRenderPipeline
-	VERSION 0.5.5
+	VERSION 0.5.6
 	LANGUAGES C CXX
 )
 
