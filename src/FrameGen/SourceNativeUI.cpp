@@ -172,7 +172,12 @@ struct NvidiaHost::SourceFrameOperations
         auto* ui = RE::UI::GetSingleton();
         host.interfaceRoute_ = ui && !ui->IsShowingMenus() && !MainOrLoading() && host.nativeUI_.Dedicated() ?
             InterfaceRoute::Hidden : InterfaceRoute::Fallback;
-        return host.interfaceRoute_ == InterfaceRoute::Hidden;
+        const bool hidden = host.interfaceRoute_ == InterfaceRoute::Hidden;
+        // With menus hidden the engine skips the world-completion boundary.
+        // Nothing draws between the world and Present, so the engine's motion
+        // and depth still hold this frame: observe them here instead.
+        if (hidden) { host.ObserveWorldGuides(false); }
+        return hidden;
     }
     bool ClearNativeUI()
     {
