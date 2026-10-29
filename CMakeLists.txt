@@ -480,9 +480,25 @@ if(TRP_BUILD_COMPATIBILITY_TESTS)
     target_compile_features(TRPReShadeIntegrationTests PRIVATE cxx_std_23)
     target_compile_definitions(TRPReShadeIntegrationTests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
     target_include_directories(TRPReShadeIntegrationTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src" "${CMAKE_CURRENT_SOURCE_DIR}/include")
-    target_link_libraries(TRPReShadeIntegrationTests PRIVATE d3d11 d3d12 d3dcompiler dxgi)
+    target_link_libraries(TRPReShadeIntegrationTests PRIVATE TRPD3D11EntryObservers d3d11 d3d12 d3dcompiler dxgi windowscodecs ole32)
     add_test(NAME ReShadeAbsent COMMAND TRPReShadeIntegrationTests)
     add_subdirectory(tests/reshade-lifecycle)
+    # Optional: the integration fixture beside the supplied ReShade, including
+    # the game-device route, and with ReGrade+ when it is supplied too.
+    set(TRP_RESHADE_TEST_REGRADE_ADDON "" CACHE FILEPATH "Supplied MartysMods_ReGradePlus.addon64")
+    set(TRP_RESHADE_TEST_REGRADE_SHADERS "" CACHE PATH "Folder holding MartysMods_REGRADE+.fx")
+    if(TRP_RESHADE_TEST_RUNTIME)
+        find_package(Python3 3.10 REQUIRED COMPONENTS Interpreter)
+        set(regrade)
+        if(TRP_RESHADE_TEST_REGRADE_ADDON)
+            set(regrade --regrade-addon "${TRP_RESHADE_TEST_REGRADE_ADDON}" --regrade-shaders "${TRP_RESHADE_TEST_REGRADE_SHADERS}")
+        endif()
+        add_test(NAME ReShadeIntegrationRuntime COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/reshade-integration/run.py"
+            --exe "$<TARGET_FILE:TRPReShadeIntegrationTests>" --runtime "${TRP_RESHADE_TEST_RUNTIME}" ${regrade}
+            --output "${CMAKE_CURRENT_BINARY_DIR}/reshade-integration/$<CONFIG>")
+        set_tests_properties(ReShadeIntegrationRuntime PROPERTIES TIMEOUT 900 RUN_SERIAL TRUE LABELS "ReShade;runtime")
+    endif()
     add_executable(TRPSourceDLSSGInteropFenceTests tests/SourceDLSSGInteropFenceTests.cpp
         src/FrameGen/SourceDLSSGInterop.cpp src/FrameGen/D3D12StageTimer.cpp)
     target_compile_features(TRPSourceDLSSGInteropFenceTests PRIVATE cxx_std_23)

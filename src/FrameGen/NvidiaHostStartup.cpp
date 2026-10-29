@@ -49,6 +49,7 @@ HRESULT NvidiaHost::CreateSwapChain(IDXGIFactory* a_factory, ID3D11Device* a_dev
     // Preserve the tested two-buffer native presentation contract. The outer
     // wrapper publishes one stable render-sized buffer independently of it.
     outputWindow_ = a_desc->OutputWindow;
+    TheosRenderPipeline::ReShadeIntegration::Get().UseGameDevice(upscalerSettings->mReShadeGameDevice);
     TheosRenderPipeline::ReShadeIntegration::Get().Discover(outputWindow_);
     logger::info("[ReShade] {}", TheosRenderPipeline::ReShadeIntegration::Get().Status());
     const auto requestedBufferCount = a_desc->BufferCount;

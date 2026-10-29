@@ -249,6 +249,22 @@ Optional before-effects and overlay copies are unchanged. ENB's screenshot key
 sees the image before DLSS and NR; Steam or Windows capture can capture the
 displayed image without this replacement delay.
 
+### ReShade on the game's device (experimental)
+
+Set `ReShadeGameDevice=true` under `[Compatibility]` in TheosRenderPipeline.ini
+and restart. ReShade then starts the way it does without TRP, on the game's own
+D3D11 device, so add-ons see the game's device, its draws and one ordinary
+Present per frame. ReGrade+ works without the workaround described above.
+ReShade's back buffer is the whole frame, the world with the HUD over it, so a
+screenshot that TRP keeps as ReShade saved it (for example with the overlay
+open) shows the world as well. ReShade's own menu is still drawn over the HUD.
+
+This needs ReShade with add-on support. It was checked offline with the full
+add-on build of ReShade 6.8.0.2155 and ReGrade+; HDR, Community Shaders and
+other add-ons are untested with it. If it cannot start, ReShade's effects and
+menu stay off, and the TRP log and **Advanced** say why; set it back to `false`
+to use TRP's usual ReShade route.
+
 The shared ReShade integration passed offline checks in both editions.
 ReShade 6.8 was tested with Universal on Skyrim 1.6.1170, Cabbage ENB and
 an RTX 4080 SUPER: ordinary 6.8.0.2158 and full add-on 6.8.0.2155, with

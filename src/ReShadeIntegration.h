@@ -18,6 +18,10 @@ namespace TheosRenderPipeline
         // give it the device events ReShade sends only to devices it created.
         // Returns a short description for the log.
         const char* PrepareAddonBridge();
+        // [Compatibility] ReShadeGameDevice, before Discover. ReShade's own
+        // factory then creates the runtime on the game's device, so add-ons see
+        // the device, draws and Present they would see without TRP.
+        void UseGameDevice(bool enabled);
         void Discover(HWND window);
         HRESULT CreateSourceDevice(IUnknown* adapter, D3D_FEATURE_LEVEL minimum, ID3D12Device** out);
         void Configure(ID3D11Device* device, ID3D11DeviceContext* context, FrameExtent output);
@@ -27,7 +31,9 @@ namespace TheosRenderPipeline
         // Called at the host UI boundary even when TRP's own overlay is hidden.
         // Updates ReShade input/reloads and draws its GUI, with effects already
         // consumed or explicitly skipped. UI color is never an effect input.
-        HRESULT FinishUI(ID3D11Texture2D* ui);
+        // On the game's device ReShade's back buffer is the whole frame:
+        // `scene`, with `ui` over it when `uiLayer` (otherwise `ui` is `scene`).
+        HRESULT FinishUI(ID3D11Texture2D* ui, ID3D11Texture2D* scene = nullptr, bool uiLayer = false);
         void PresentCompleted();
         void ResetAfterRetirement();
         // The owned runtime's back buffer is the native UI layer, so ReShade's
@@ -47,6 +53,7 @@ namespace TheosRenderPipeline
         // An incompatible add-on is loaded and the bridge could not cover it,
         // so the owned runtime is withheld.
         bool Blocked() const;
+        bool GameDeviceActive() const;
         const std::string& Status() const;
         struct Counters { std::uint64_t effects{}, updates{}, failures{}; };
         Counters Snapshot() const;

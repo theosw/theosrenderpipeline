@@ -1,3 +1,13 @@
+# 0.5.7
+
+- Experimental: `ReShadeGameDevice=true` under `[Compatibility]` in
+  TheosRenderPipeline.ini runs ReShade on the game's own device, the way it runs
+  without TRP. Add-ons then see the game's device, draws and frames, so
+  add-ons such as ReGrade+ work without TRP's ReGrade+ workaround, and
+  ReShade's back buffer is the whole frame instead of only the HUD. If it
+  cannot start, ReShade stays off and the log says why. Off by default; restart
+  after changing it.
+
 # 0.5.6
 
 - Opening and closing the world map now reset DLSS, NR and frame generation

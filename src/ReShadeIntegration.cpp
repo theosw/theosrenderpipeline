@@ -1,6 +1,7 @@
 #include "ReShadeIntegration.h"
 #include "ScreenshotWorker.h"
 #include "ReShadeSwapChain.h"
+#include "ReShadeGameDevice.h"
 #include "FrameGen/D3D11ContextIsolation.h"
 #include "HookSafety.h"
 #include <Psapi.h>
@@ -44,6 +45,13 @@ namespace TheosRenderPipeline
         ComPtr<ID3D11UnorderedAccessView> displayDepthUAV;
         ComPtr<ID3D11ComputeShader> depthScale;
         ComPtr<IDXGISwapChain> facade;
+        // [Compatibility] ReShadeGameDevice: ReShade's own factory wraps the
+        // facade, and the chain it returns owns the runtime (ReShadeGameDevice.h).
+        ComPtr<IDXGISwapChain> chain;
+        ReShadeGameDevice::FrameImage frame;
+        ComPtr<ID3D11RenderTargetView> uiRTV;
+        bool gameDevice{}, adopted{}, presented{};
+        static thread_local bool wrapping;
         D3D11ContextIsolation isolation;
         D3D11FrameCopy::Depth depthCopy;
         FrameExtent output{};
@@ -74,6 +82,26 @@ namespace TheosRenderPipeline
                 native->QueryInterface(IID_PPV_ARGS(capturingDevice->ReleaseAndGetAddressOf()));
             }
         }
+        // Game-device route only. ReShade creates its runtime inside Wrap; it is
+        // ours if its back buffer is our frame image.
+        static void AdoptRuntime(api::effect_runtime* value)
+        {
+            auto& s = Data();
+            if (wrapping && !s.runtime && value->get_device()->get_api() == api::device_api::d3d11 &&
+                value->get_current_back_buffer().handle == reinterpret_cast<uint64_t>(s.frame.Texture())) { s.runtime = value; }
+        }
+        static void ForgetRuntime(api::effect_runtime* value)
+        {
+            auto& s = Data();
+            if (s.adopted && value == s.runtime) { s.overlayRuntime = nullptr; s.overlayOpen = false; s.runtime = nullptr; }
+        }
+        // After ReShade's GUI, at the end of its Present.
+        static void Presented(api::effect_runtime* value)
+        { auto& s = Data(); if (s.adopted && value == s.runtime) { s.presented = true; } }
+        static void BeginEffects(api::effect_runtime*, api::command_list*, api::resource_view, api::resource_view)
+        { ReShadeGameDevice::BeginEffects(); }
+        static void FinishEffects(api::effect_runtime*, api::command_list*, api::resource_view, api::resource_view)
+        { ReShadeGameDevice::FinishEffects(); }
         static bool Open(api::effect_runtime* value, bool open, api::input_source)
         {
             auto& s = Data();
@@ -286,6 +314,8 @@ namespace TheosRenderPipeline
         }
         bool BlockIncompatibleAddon()
         {
+            // On the game's device ReGrade+ receives its device events as usual.
+            if (gameDevice) { return blocked; }
             if (blocked) { return true; }
             for (const auto candidate : LoadedModules()) {
                 if (!AddonNamed(candidate, regrade)) { continue; }
@@ -376,7 +406,10 @@ namespace TheosRenderPipeline
         void ReleaseRuntime()
         {
             overlayRuntime = nullptr;
-            if (runtime) { destroy(runtime); runtime = nullptr; }
+            // Releasing the chain destroys an adopted runtime (ForgetRuntime).
+            if (chain) { chain.Reset(); runtime = nullptr; }
+            else if (runtime) { destroy(runtime); runtime = nullptr; }
+            adopted = false; frame.Reset(); uiRTV.Reset();
             overlayOpen = false;
             {
                 std::scoped_lock lock(screenshotMutex);
@@ -401,6 +434,7 @@ namespace TheosRenderPipeline
             if (BlockIncompatibleAddon()) { return S_FALSE; }
             auto hr = EnsureTexture(ui, output, StorageFormat(format), D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET);
             if (FAILED(hr)) { return hr; }
+            if (gameDevice) { return CreateOnGameDevice(format); }
             facade.Attach(new ReShadeSwapChain(device.Get(), ui.Get(), window));
             creating = true;
             const bool created = create(api::device_api::d3d11, device.Get(), context.Get(), facade.Get(), config.c_str(), &runtime);
@@ -412,10 +446,57 @@ namespace TheosRenderPipeline
             status = bridged ? "ReShade source-frame stage active; ReGrade+ device events bridged" : "ReShade source-frame stage active";
             return S_OK;
         }
+        HRESULT CreateOnGameDevice(DXGI_FORMAT format)
+        {
+            const auto typed = static_cast<DXGI_FORMAT>(api::format_to_default_typed(static_cast<api::format>(format), 0));
+            D3D11_RENDER_TARGET_VIEW_DESC view{}; view.Format = typed; view.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
+            auto hr = frame.Initialize(device.Get(), output.width, output.height, StorageFormat(format), typed);
+            if (SUCCEEDED(hr)) { hr = device->CreateRenderTargetView(ui.Get(), &view, &uiRTV); }
+            if (FAILED(hr)) { frame.Reset(); uiRTV.Reset(); return hr; }
+            const char* failure{};
+            if (!ReShadeGameDevice::InstallGUIRoute(context.Get())) {
+                failure = "its GUI route could not be installed";
+            } else {
+                facade.Attach(new ReShadeSwapChain(device.Get(), frame.Texture(), window, true));
+                wrapping = true;
+                hr = ReShadeGameDevice::Wrap(device.Get(), facade.Get(), chain);
+                wrapping = false;
+                if (FAILED(hr) || !runtime) { failure = "ReShade's factory did not create its runtime"; }
+            }
+            if (failure) {
+                // Off for the session rather than a half-working mix of routes.
+                chain.Reset(); runtime = nullptr; facade.Reset(); frame.Reset(); uiRTV.Reset();
+                blocked = true;
+                status = std::string("ReShade effects off: ReShadeGameDevice failed, ") + failure +
+                    ". Set ReShadeGameDevice=false in TheosRenderPipeline.ini for TRP's usual ReShade route";
+                return S_FALSE;
+            }
+            adopted = true;
+            overlayRuntime = runtime;
+            status = "ReShade source-frame stage active on the game's device";
+            return S_OK;
+        }
+        // ReShade's own Present on the game's device: input, GUI, screenshots and
+        // the add-on present events, once per source frame. Add-ons see the
+        // whole frame; the GUI is routed into the UI layer. The surface under
+        // the chain presents nothing.
+        HRESULT PresentOnGameDevice(ID3D11Texture2D* scene, bool uiLayer)
+        {
+            auto hr = frame.Capture(context.Get(), scene, ui.Get(), uiLayer);
+            if (FAILED(hr)) { return Failed(hr, "ReShade frame image capture failed"); }
+            ReShadeGameDevice::GUIRoute route{context.Get(), frame.Texture(), uiRTV.Get()};
+            if (!route) { return Failed(E_FAIL, "ReShade GUI route unavailable"); }
+            presented = false;
+            hr = chain->Present(0, 0);
+            if (FAILED(hr)) { return Failed(hr, "ReShade Present on the game's device failed"); }
+            runtime->get_command_queue()->flush_immediate_command_list();
+            return presented ? S_OK : Failed(E_FAIL, "ReShade skipped its frame on the game's device");
+        }
     };
 
     thread_local bool ReShadeIntegration::State::internal{};
     thread_local bool ReShadeIntegration::State::creating{};
+    thread_local bool ReShadeIntegration::State::wrapping{};
     thread_local ComPtr<ID3D12Device>* ReShadeIntegration::State::capturingDevice{};
     ReShadeIntegration& ReShadeIntegration::Get() { static ReShadeIntegration value; return value; }
     ReShadeIntegration::State& ReShadeIntegration::Data()
@@ -435,6 +516,7 @@ namespace TheosRenderPipeline
         }
         return "ReShade not loaded";
     }
+    void ReShadeIntegration::UseGameDevice(bool enabled) { auto& s = Data(); if (!s.module) { s.gameDevice = enabled; } }
     void ReShadeIntegration::Discover(HWND window)
     {
         auto& s = Data(); s.window = window;
@@ -470,6 +552,13 @@ namespace TheosRenderPipeline
             registerEvent(Event::init_device, reinterpret_cast<void*>(&State::InitDevice));
             registerEvent(Event::reshade_open_overlay, reinterpret_cast<void*>(&State::Open));
             registerEvent(Event::reshade_screenshot, reinterpret_cast<void*>(&State::Screenshot));
+            if (s.gameDevice) {
+                registerEvent(Event::init_effect_runtime, reinterpret_cast<void*>(&State::AdoptRuntime));
+                registerEvent(Event::destroy_effect_runtime, reinterpret_cast<void*>(&State::ForgetRuntime));
+                registerEvent(Event::reshade_begin_effects, reinterpret_cast<void*>(&State::BeginEffects));
+                registerEvent(Event::reshade_finish_effects, reinterpret_cast<void*>(&State::FinishEffects));
+                registerEvent(Event::reshade_present, reinterpret_cast<void*>(&State::Presented));
+            }
             s.status = s.disabled ? "ReShade disabled in ReShade.ini" : "ReShade API 14 registered; waiting for source color";
             return;
         }
@@ -490,7 +579,8 @@ namespace TheosRenderPipeline
         if (FAILED(result)) { return result; }
         s.nativeOutput = native != nullptr;
         if (s.module && s.nativeOutput && !s.disabled) {
-            s.status = "ReShade native output isolated; waiting for source UI";
+            s.status = s.gameDevice ? "ReShade native output isolated; will run on the game's device; waiting for source UI" :
+                "ReShade native output isolated; waiting for source UI";
             // ReShade's device hooks have loaded its add-ons by now, so the
             // startup log reports the block. EnsureRuntime checks again.
             if (!s.BlockIncompatibleAddon() && s.bridged) {
@@ -587,7 +677,7 @@ namespace TheosRenderPipeline
         return s.Failed(s.CopyColor(s.color.Get(), color, colorExtent), "ReShade output copy failed");
     }
 
-    HRESULT ReShadeIntegration::FinishUI(ID3D11Texture2D* ui)
+    HRESULT ReShadeIntegration::FinishUI(ID3D11Texture2D* ui, ID3D11Texture2D* scene, bool uiLayer)
     {
         auto& s = Data();
         if (!s.module || s.updated || !ui) { return S_FALSE; }
@@ -606,7 +696,8 @@ namespace TheosRenderPipeline
         // Opening/closing can occur during the update. Conservatively keep
         // ReShade's normal file if either boundary sees the overlay open.
         s.screenshotOverlay = s.overlayOpen.load();
-        s.update(s.runtime);
+        if (!s.adopted) { s.update(s.runtime); }
+        else if (FAILED(hr = s.PresentOnGameDevice(scene, uiLayer))) { return hr; }
         s.screenshotOverlay = s.screenshotOverlay || s.overlayOpen.load();
         s.updated = true; ++s.counts.updates;
         return s.Failed(s.CopyColor(s.ui.Get(), ui, s.output), "ReShade UI output copy failed");
@@ -640,6 +731,7 @@ namespace TheosRenderPipeline
     bool ReShadeIntegration::Internal() const { return Data().internal; }
     bool ReShadeIntegration::OverlayOpen() const { return Data().overlayOpen; }
     bool ReShadeIntegration::Blocked() const { return Data().blocked; }
+    bool ReShadeIntegration::GameDeviceActive() const { return Data().adopted; }
     const std::string& ReShadeIntegration::Status() const { return Data().status; }
     ReShadeIntegration::Counters ReShadeIntegration::Snapshot() const
     { return Data().counts; }

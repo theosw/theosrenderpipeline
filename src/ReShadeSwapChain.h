@@ -8,13 +8,14 @@
 namespace TheosRenderPipeline
 {
     // An explicitly managed ReShade runtime needs a swapchain-shaped resource
-    // provider. This object has no presentation/resize capability and never
-    // enters DXGI factory hooks. The runtime retains views of this stable image.
+    // provider. This object has no display or resize capability. The runtime
+    // retains views of this stable image. On the game's device ReShade's own
+    // chain wraps it and calls its Present, which accepts and shows nothing.
     class ReShadeSwapChain final : public IDXGISwapChain
     {
     public:
-        ReShadeSwapChain(ID3D11Device* device, ID3D11Texture2D* color, HWND window) :
-            device_(device), color_(color), window_(window) {}
+        ReShadeSwapChain(ID3D11Device* device, ID3D11Texture2D* color, HWND window, bool wrapped = false) :
+            device_(device), color_(color), window_(window), wrapped_(wrapped) {}
         HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, void** out) override
         {
             if (!out) { return E_POINTER; }
@@ -32,7 +33,7 @@ namespace TheosRenderPipeline
         HRESULT STDMETHODCALLTYPE GetParent(REFIID, void** out) override
         { if (out) { *out = nullptr; } return E_NOINTERFACE; }
         HRESULT STDMETHODCALLTYPE GetDevice(REFIID iid, void** out) override { return device_->QueryInterface(iid, out); }
-        HRESULT STDMETHODCALLTYPE Present(UINT, UINT) override { return DXGI_ERROR_INVALID_CALL; }
+        HRESULT STDMETHODCALLTYPE Present(UINT, UINT) override { return wrapped_ ? S_OK : DXGI_ERROR_INVALID_CALL; }
         HRESULT STDMETHODCALLTYPE GetBuffer(UINT index, REFIID iid, void** out) override
         { if (!out) { return E_POINTER; } *out = nullptr; return index ? DXGI_ERROR_INVALID_CALL : color_->QueryInterface(iid, out); }
         HRESULT STDMETHODCALLTYPE SetFullscreenState(BOOL, IDXGIOutput*) override { return DXGI_ERROR_INVALID_CALL; }
@@ -59,5 +60,6 @@ namespace TheosRenderPipeline
         Microsoft::WRL::ComPtr<ID3D11Device> device_;
         Microsoft::WRL::ComPtr<ID3D11Texture2D> color_;
         HWND window_{};
+        bool wrapped_{};
     };
 }
