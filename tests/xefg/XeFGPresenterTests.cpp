@@ -3,10 +3,13 @@
 #include "FrameGen/PresentationVSync.h"
 #include "NvidiaPresenterFixture.h"
 #include "FrameGen/PipelineCache.h"
+#include "FrameGen/PresenterReleaseProbe.h"
+#include "FrameGen/PresenterReplacement.h"
 #include "PluginPaths.h"
 #include <dbghelp.h>
 #include <chrono>
 #include <algorithm>
+#include "PresenterRebuildCases.h"
 
 static void PrintTiming(const char* label, std::vector<double> values)
 {
@@ -37,6 +40,7 @@ int wmain(int argc, wchar_t** argv)
     Require(argc == 2 || argc == 3, "Intel runtime directory, optional NVIDIA runtime directory");
     const bool profile = GetEnvironmentVariableW(L"TRP_XEFG_PROFILE", nullptr, 0) != 0;
     const bool tensorRequested = GetEnvironmentVariableW(L"TRP_XEFG_TENSOR_TEST", nullptr, 0) != 0;
+    const bool debugEnabled = (!tensorRequested || GetEnvironmentVariableW(L"TRP_XEFG_REBUILD_TEST", nullptr, 0)) && GetEnvironmentVariableW(L"TRP_XEFG_NO_DEBUG", nullptr, 0) == 0;
     const bool fullscreen = GetEnvironmentVariableW(L"TRP_XEFG_METER_FULLSCREEN", nullptr, 0) != 0;
     MONITORINFO monitor{sizeof(monitor)};
     Require(GetMonitorInfoW(MonitorFromPoint(POINT{0,0}, MONITOR_DEFAULTTOPRIMARY), &monitor) != 0, "primary monitor");
@@ -44,8 +48,10 @@ int wmain(int argc, wchar_t** argv)
     const unsigned height = fullscreen ? monitor.rcMonitor.bottom-monitor.rcMonitor.top : profile ? 1440 : 360;
     std::vector<double> presentTimes, retirementTimes, sleepTimes;
     ComPtr<ID3D12Debug> debug;
-    Check(D3D12GetDebugInterface(IID_PPV_ARGS(&debug)), "debug");
-    if (!tensorRequested) debug->EnableDebugLayer();
+    if (debugEnabled) {
+        Check(D3D12GetDebugInterface(IID_PPV_ARGS(&debug)), "debug");
+        debug->EnableDebugLayer();
+    }
     ComPtr<IDXGIFactory4> factory;
     ComPtr<IDXGIAdapter1> adapter;
     Check(CreateDXGIFactory1(IID_PPV_ARGS(&factory)), "factory");
@@ -58,7 +64,7 @@ int wmain(int argc, wchar_t** argv)
         "D3D11");
     Check(D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(&d12)), "D3D12");
     ComPtr<ID3D12InfoQueue> messages;
-    if (!tensorRequested) Check(d12.As(&messages), "debug messages");
+    if (debugEnabled) Check(d12.As(&messages), "debug messages");
     D3D12_COMMAND_QUEUE_DESC qd{};
     ComPtr<ID3D12CommandQueue> queue;
     Check(d12->CreateCommandQueue(&qd, IID_PPV_ARGS(&queue)), "queue");
@@ -98,6 +104,11 @@ int wmain(int argc, wchar_t** argv)
     TheosRenderPipeline::XeFGPresenter presenter;
     presenter.SetLogger([](const char* text) { std::printf("[Owner] %s\n", text); });
     Check(presenter.Probe(d12.Get(), std::filesystem::absolute(argv[1]), tensorRequested), "production admission");
+    if (GetEnvironmentVariableW(L"TRP_XEFG_REBUILD_TEST", nullptr, 0)) {
+        ExercisePresenterRebuild(presenter, factory.Get(), d11.Get(), c11.Get(), d12.Get(), queue.Get(), interop, desc, std::filesystem::absolute(argv[1]), tensorRequested, nvidia.get());
+        DestroyWindow(window); UnregisterClassW(wc.lpszClassName, wc.hInstance);
+        return 0;
+    }
     const std::string cacheName = presenter.PipelineCacheName();
     const auto runtimeDirectory = TheosRenderPipeline::PluginPaths::ModulePath(presenter.RuntimeModule()).parent_path();
     const bool optionalRuntime = TheosRenderPipeline::PluginPaths::EqualPath(runtimeDirectory,
@@ -411,10 +422,20 @@ int wmain(int argc, wchar_t** argv)
             if (completed.tensorActive) Require(completed.tensorLaunches > tensorBefore.launches && completed.tensorFallbacks == 0,
                 "actual tensor dispatch and no unexpected fallback");
             Check(interop.Drain(), "retire shared resources");
+            Require(presenter.NativeSwapChain() != nullptr, "actual DXGI chain captured beneath Intel proxy");
+            TheosRenderPipeline::PresenterReleaseProbe releaseProbe(presenter.NativeSwapChain());
             proxy1.Reset();
             proxy3.Reset();
             proxy.Reset();
             Check(presenter.Destroy(), "SDK private retirement");
+            releaseProbe.Release([](UINT i, void* identity, HRESULT hr, ULONG remaining) {
+                std::printf("release_probe buffer=%u ptr=%p hr=%08X remaining=%lu\n", i, identity, unsigned(hr), remaining);
+            }, [](void* identity, ULONG remaining) {
+                std::printf("release_probe chain=%p remaining=%lu\n", identity, remaining);
+            });
+            c11->ClearState(); c11->Flush();
+            Check(interop.WaitForInputReaders(nullptr, 0), "post-destruction queue bridge");
+            Check(interop.Drain(), "post-destruction drain");
             Require(presenter.PipelineCacheName() == cacheName, "Destroy cannot erase the selected bundle's cache scope");
             Require(!(presenter.PacingStats().flags & TheosRenderPipeline::XeFGPacing::Registered),"no retained pacing owner after successful SDK retirement");
         }

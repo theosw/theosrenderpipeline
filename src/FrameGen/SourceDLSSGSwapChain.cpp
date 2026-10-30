@@ -16,12 +16,17 @@ SwapChain::SwapChain(
 		inner_.As(&inner2_);
 		inner_.As(&inner3_);
 		inner_.As(&inner4_);
+		supportsSwapChain4_ = inner4_ != nullptr;
 	}
 }
 
 SwapChain::~SwapChain()
 {
-	if (!backend_.Quiesce()) {
+	// Successful facade teardown must retire the SDK and the captured native
+	// owner too: Backend itself intentionally lives until process exit.
+	const bool retired = backend_.Quiesce();
+	if (retired) { backend_.replacementNative_.Reset(); }
+	if (!retired || !backend_.Check(backend_.ReleasePresenter(*this), "shutdown presenter release")) {
 		// A timed-out reader may still own these resources. Retain until exit.
 		for (auto& pair : buffers_) { pair.texture11.Detach(); pair.texture12.Detach(); }
 		for (auto& resource : nativeBuffers_) { resource.Detach(); }
@@ -41,10 +46,8 @@ HRESULT STDMETHODCALLTYPE SwapChain::QueryInterface(REFIID a_iid, void** a_objec
 		a_iid == __uuidof(IDXGIDeviceSubObject) ||
 		a_iid == __uuidof(IDXGISwapChain);
 	const bool supportedSwapChain = base ||
-		(a_iid == __uuidof(IDXGISwapChain1) && inner1_) ||
-		(a_iid == __uuidof(IDXGISwapChain2) && inner2_) ||
-		(a_iid == __uuidof(IDXGISwapChain3) && inner3_) ||
-		(a_iid == __uuidof(IDXGISwapChain4) && inner4_);
+		a_iid == __uuidof(IDXGISwapChain1) || a_iid == __uuidof(IDXGISwapChain2) ||
+		a_iid == __uuidof(IDXGISwapChain3) || (a_iid == __uuidof(IDXGISwapChain4) && supportsSwapChain4_);
 	if (supportedSwapChain) {
 		*a_object = static_cast<IDXGISwapChain4*>(this);
 		AddRef();
@@ -98,6 +101,12 @@ template<class InnerPresent> HRESULT SwapChain::PresentThrough(InnerPresent&& a_
 	using Clock = std::chrono::steady_clock;
 	const auto ms = [](Clock::time_point a, Clock::time_point b) { return std::chrono::duration<double, std::milli>(b - a).count(); };
 	const auto start = Clock::now();
+	if (backend_.PresenterRecoveryPending()) {
+		if (!backend_.ApplyProviderSwitch(*this)) { return E_FAIL; }
+		// Let the game produce another frame without exposing a missing inner
+		// chain as INVALID_CALL. Each call advances at most one creation attempt.
+		if (backend_.PresenterRecoveryPending()) { return S_OK; }
+	}
 	const auto prepared = BeginPresent();
 	if (FAILED(prepared)) { return prepared; }
 	const auto submitted = Clock::now();
@@ -111,7 +120,7 @@ template<class InnerPresent> HRESULT SwapChain::PresentThrough(InnerPresent&& a_
 
 HRESULT STDMETHODCALLTYPE SwapChain::Present(UINT a_syncInterval, UINT a_flags)
 {
-	if (a_flags & DXGI_PRESENT_TEST) { return inner_ ? inner_->Present(a_syncInterval, a_flags) : E_UNEXPECTED; }
+	if (a_flags & DXGI_PRESENT_TEST) { return inner_ ? inner_->Present(a_syncInterval, a_flags) : backend_.PresenterRecoveryPending() ? S_OK : E_UNEXPECTED; }
 	return PresentThrough([&] {
 		const auto options = SelectVSync(a_syncInterval, a_flags);
 		const auto result = inner_->Present(options.sync, options.flags);
@@ -151,7 +160,9 @@ HRESULT STDMETHODCALLTYPE SwapChain::GetFullscreenState(BOOL* a_fullscreen, IDXG
 
 HRESULT STDMETHODCALLTYPE SwapChain::GetDesc(DXGI_SWAP_CHAIN_DESC* a_desc)
 {
-	const auto result = inner_ ? inner_->GetDesc(a_desc) : E_UNEXPECTED;
+	if (!a_desc) { return E_POINTER; }
+	const auto result = inner_ ? inner_->GetDesc(a_desc) : backend_.PresenterRecoveryPending() ?
+		(*a_desc = backend_.presenterDesc_, S_OK) : E_UNEXPECTED;
 	if (SUCCEEDED(result)) { a_desc->BufferDesc.Format = gameFormat_; }
 	return result;
 }
@@ -163,6 +174,7 @@ HRESULT STDMETHODCALLTYPE SwapChain::ResizeBuffers(
 	DXGI_FORMAT a_format,
 	UINT a_flags)
 {
+	if (!inner_) { return DXGI_ERROR_WAS_STILL_DRAWING; }
 	if (!backend_.Quiesce()) { return E_FAIL; }
 	buffers_ = {}; nativeBuffers_ = {};
 	const auto gameFormat = a_format == DXGI_FORMAT_UNKNOWN ? gameFormat_ : a_format;
@@ -227,9 +239,9 @@ HRESULT STDMETHODCALLTYPE SwapChain::Present1(
 	UINT a_flags,
 	const DXGI_PRESENT_PARAMETERS* a_parameters)
 {
-	if (!inner1_) { return E_NOINTERFACE; }
-	if (a_flags & DXGI_PRESENT_TEST) { return inner1_->Present1(a_syncInterval, a_flags, a_parameters); }
+	if (a_flags & DXGI_PRESENT_TEST) { return inner1_ ? inner1_->Present1(a_syncInterval, a_flags, a_parameters) : backend_.PresenterRecoveryPending() ? S_OK : E_NOINTERFACE; }
 	return PresentThrough([&] {
+		if (!inner1_) { return E_NOINTERFACE; }
 		const auto options = SelectVSync(a_syncInterval, a_flags);
 		const auto result = inner1_->Present1(options.sync, options.flags, a_parameters);
 		backend_.ObserveVSync(options, result);

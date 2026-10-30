@@ -20,6 +20,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 	public:
 		HRESULT Record(ID3D12Device* device, ID3D12GraphicsCommandList* list, std::size_t slot,
 			ID3D12Resource* source, ID3D12Resource* destination);
+		// Preserve PSOs/heaps; the next Record writes fresh views for its slot.
+		void ReleaseFrameReferencesAfterRetirement() { source_ = {}; destination_ = {}; }
+		unsigned FrameReferenceCount() const { unsigned n{}; for (const auto& p : source_) { n += p != nullptr; } for (const auto& p : destination_) { n += p != nullptr; } return n; }
 	private:
 		HRESULT Initialize(ID3D12Device* device);
 		Microsoft::WRL::ComPtr<ID3D12RootSignature> root_;

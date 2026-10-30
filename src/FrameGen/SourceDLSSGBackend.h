@@ -22,6 +22,7 @@
 #include "SourceDLSSGPresentationFeedback.h"
 #include "SourceDLSSGRuntimeDiagnostics.h"
 #include "FrameGenerationProvider.h"
+#include "PresenterReplacement.h"
 #include "XeFGPresenter.h"
 #include "XeSSUpscaler.h"
 #include "SlowPresentGate.h"
@@ -81,10 +82,11 @@ namespace TheosRenderPipeline::SourceDLSSG
 			return {(value & 0x100u) != 0, value & 0xffu};
 		}
 		const std::string& ProviderStatus() const { return providerStatus_; }
-		bool GenerationActive() const { return Ready() && !startupTransport_ && (provider_ == FrameGenerationProvider::XeFG ? xefg_.Snapshot().enabled : session_.Snapshot().GenerationActive()); }
-		unsigned EffectiveMultiplier() const { return startupTransport_ ? 1 : provider_ == FrameGenerationProvider::XeFG ? xefg_.Snapshot().generatedFrames+1 : session_.Snapshot().options.numFramesToGenerate + 1; }
-		std::uint32_t FrameIndex() const { return startupTransport_ ? transportFrame_ : provider_ == FrameGenerationProvider::XeFG ? xefg_.Snapshot().frameId : nvidiaNeedsPresent_ ? xefg_.Snapshot().frameId + 1 : session_.Snapshot().frameIndex; }
+		bool GenerationActive() const { return Ready() && !startupTransport_ && !nativePresenterFallback_ && !presenterReplacement_.Pending() && (provider_ == FrameGenerationProvider::XeFG ? xefg_.Snapshot().enabled : session_.Snapshot().GenerationActive()); }
+		unsigned EffectiveMultiplier() const { return startupTransport_ || nativePresenterFallback_ ? 1 : provider_ == FrameGenerationProvider::XeFG ? xefg_.Snapshot().generatedFrames+1 : session_.Snapshot().options.numFramesToGenerate + 1; }
+		std::uint32_t FrameIndex() const { return startupTransport_ ? transportFrame_ : nativePresenterFallback_ || presenterReplacement_.Pending() ? replacementFrame_ : provider_ == FrameGenerationProvider::XeFG ? xefg_.Snapshot().frameId : nvidiaNeedsPresent_ ? xefg_.Snapshot().frameId + 1 : session_.Snapshot().frameIndex; }
 		bool ApplyProviderSwitch(SwapChain& wrapper);
+		bool PresenterRecoveryPending() const { return presenterReplacement_.Pending(); }
 		// A live switch to NVIDIA would be refused: NR initialized NGX before
 		// Streamline in this session. Saving NVIDIA and restarting resolves it.
 		bool NvidiaSwitchBlocked() const;
@@ -294,6 +296,11 @@ namespace TheosRenderPipeline::SourceDLSSG
 		DXGI_SWAP_CHAIN_DESC presenterDesc_{};
 		std::string providerStatus_{"NVIDIA presenter"};
 		bool providerSwitchPending_{}, cameraAvailable_{}, recreateXeFG_{}, nvidiaNeedsPresent_{};
+		bool nativePresenterFallback_{}, fallbackPrepared_{};
+		PresenterReplacement presenterReplacement_;
+		FrameGenerationProvider replacementProvider_{FrameGenerationProvider::XeFG};
+		std::uint32_t replacementFrame_{};
+		HRESULT ReleasePresenter(SwapChain& wrapper);
 		sl::Result reportedStateQueryResult_{ sl::Result::eOk };
 		sl::Result reportedOptionsResult_{ sl::Result::eOk };
 		std::atomic<bool> dlssgVSyncOffRequired_{};
@@ -350,6 +357,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 		Microsoft::WRL::ComPtr<ID3D12Device> upgradedDevice12_;
 		Microsoft::WRL::ComPtr<ID3D12CommandQueue> queue_;
 		Microsoft::WRL::ComPtr<IDXGISwapChain> retainedNative_;
+		// Same-provider XeFG rebuilds keep the actual HWND owner, independent of
+		// the retired Intel proxy. Also supplies a native fallback on SDK refusal.
+		Microsoft::WRL::ComPtr<IDXGISwapChain> replacementNative_;
 		SharedTexture motion_, depth_, ui_, hudless_, earlyNeuralColor_, objectMask_;
         bool objectMaskCurrent_{};
         bool objectMaskRefused_{}; // Its shared texture could not be created; normal NR for the session.
