@@ -55,7 +55,8 @@ namespace TheosRenderPipeline
         bool Blocked() const;
         bool GameDeviceActive() const;
         const std::string& Status() const;
-        struct Counters { std::uint64_t effects{}, updates{}, failures{}; };
+        // overlaps: calls turned away because another thread was inside.
+        struct Counters { std::uint64_t effects{}, updates{}, failures{}, overlaps{}; };
         Counters Snapshot() const;
     private:
         ReShadeIntegration() = default;

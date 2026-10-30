@@ -11,6 +11,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string_view>
+#include <thread>
 
 using Microsoft::WRL::ComPtr;
 using TheosRenderPipeline::ReShadeIntegration;
@@ -27,6 +28,11 @@ static bool depthExtentMatched{};
 static api::device* gameAPI{};
 static unsigned runtimeInits{}, runtimeDestroys{}, sourcePresents{};
 static bool grading{};
+// Overlap probe: while ReShade runs our effects, a second thread's UI call must
+// be turned away at once rather than wait on the first.
+static bool probeOverlap{};
+static ID3D11Texture2D* overlapUI{};
+static HRESULT overlapResult{S_OK};
 static float exposure{};
 static void DeviceInit(api::device* device) { if (!gameAPI && device->get_api() == api::device_api::d3d11) { gameAPI = device; } }
 static void RuntimeDestroy(api::effect_runtime* runtime) { if (runtime == owned) { ++runtimeDestroys; } }
@@ -38,6 +44,11 @@ static void Draw(api::effect_runtime* runtime, api::command_list*, api::resource
 {
     if (runtime != owned) { ++automaticDraws; return; }
     ++draws;
+    if (probeOverlap) {
+        probeOverlap = false;
+        std::thread second([] { overlapResult = ReShadeIntegration::Get().FinishUI(overlapUI); });
+        second.join();
+    }
     if (grading) {
         // Real ReGrade+ uniforms, set after its own callback has run.
         const auto value = runtime->find_uniform_variable("MartysMods_REGRADE+.fx", "E_EXPOSURE");
@@ -276,6 +287,19 @@ int main(int argc, char** argv)
         effects.PresentCompleted(); Sleep(10);
     }
     Require(owned && draws, "actual effect compiled and executed");
+    {
+        probeOverlap = true; overlapUI = ui.texture.Get();
+        const auto before = effects.Snapshot().overlaps;
+        // ReShade may reload after its first draw; wait for the next one.
+        for (unsigned frame = 0; frame < 300 && probeOverlap; ++frame) {
+            Check(effects.Render(color.texture.Get(), depth.texture.Get(), {outputWidth, outputHeight}, {renderWidth, renderHeight}, false), "overlap probe effects");
+            if (probeOverlap) { Check(finish(), "overlap probe wait"); effects.PresentCompleted(); Sleep(10); }
+        }
+        std::printf("overlap probe pending=%d draws=%u result=0x%08X overlaps=%llu\n", int(probeOverlap), draws, static_cast<unsigned>(overlapResult), static_cast<unsigned long long>(effects.Snapshot().overlaps - before));
+        Require(!probeOverlap && overlapResult == HRESULT_FROM_WIN32(ERROR_BUSY) && effects.Snapshot().overlaps == before + 1,
+            "a second thread is turned away while the first is inside ReShade");
+        Check(finish(), "UI after the overlap probe"); effects.PresentCompleted();
+    }
     owned->open_overlay(false, api::input_source::none);
     // Validate both placements and live switching. The shader adds 1/8 to red
     // and reads our depth into green; a duplicate render adds another 1/8.
@@ -335,9 +359,14 @@ int main(int argc, char** argv)
             ComPtr<ID3D11RenderTargetView> result; native->OMGetRenderTargets(1, &result, nullptr);
             return result.Get();
         };
+        // ReShade draws with protection on; bind the way its Present does.
+        ComPtr<ID3D11Multithread> protection; Check(native.As(&protection), "native multithread");
+        const auto wasProtected = protection->SetMultithreadProtected(TRUE);
         {
             TheosRenderPipeline::ReShadeGameDevice::GUIRoute route{context.Get(), image, ui.rtv.Get()};
             Require(bool(route), "GUI route starts");
+            TheosRenderPipeline::ReShadeGameDevice::RouteGUITable();
+            Require(route.Routed(), "the table ReShade draws with is patched");
             Require(bound(imageView.Get()) == ui.rtv.Get(), "image bind goes to the UI layer");
             TheosRenderPipeline::ReShadeGameDevice::BeginEffects();
             Require(bound(imageView.Get()) == imageView.Get(), "effect passes keep their target");
@@ -345,6 +374,7 @@ int main(int argc, char** argv)
             Require(bound(color.rtv.Get()) == color.rtv.Get(), "other targets are never redirected");
         }
         Require(bound(imageView.Get()) == imageView.Get(), "no redirection after the route ends");
+        protection->SetMultithreadProtected(wasProtected);
         native->ClearState();
     }
     PostMessageW(window, WM_KEYDOWN, VK_F8, 1);

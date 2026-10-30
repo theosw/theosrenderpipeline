@@ -16,10 +16,14 @@ namespace TheosRenderPipeline::ReShadeGameDevice
     HRESULT Wrap(ID3D11Device* device, IDXGISwapChain* surface, Microsoft::WRL::ComPtr<IDXGISwapChain>& chain);
 
     // ReShade draws its GUI on its own native context, bypassing the game's
-    // wrapped one, so the route patches the native OMSetRenderTargets entries
-    // (both multithread-protection modes) for the process lifetime. Calls
-    // outside a GUIRoute pass straight through. Install outside any bind.
-    bool InstallGUIRoute(ID3D11DeviceContext* context);
+    // wrapped one, so the route patches the native OMSetRenderTargets entry for
+    // the process lifetime. Calls outside a GUIRoute pass straight through.
+    bool PrepareGUIRoute(ID3D11DeviceContext* context);
+    // From ReShade's `present` event inside a GUIRoute's Present. ReShade turns
+    // multithread protection on and holds the device lock from there until its
+    // GUI is drawn, so the context's current table is the one the GUI uses; it
+    // is patched then, never by switching protection on the live context.
+    void RouteGUITable();
 
     // While alive on this thread, a single-target bind of `image` on this
     // context's native object draws into `target` instead, except inside
@@ -32,14 +36,18 @@ namespace TheosRenderPipeline::ReShadeGameDevice
         GUIRoute(const GUIRoute&) = delete;
         GUIRoute& operator=(const GUIRoute&) = delete;
         explicit operator bool() const { return active_ == this; }
+        // The table ReShade drew with was patched during this route's Present.
+        bool Routed() const { return routed_; }
     private:
         friend struct Router;
+        friend void RouteGUITable();
         friend void BeginEffects();
         friend void FinishEffects();
         Microsoft::WRL::ComPtr<ID3D11DeviceContext> context_;
         ID3D11Resource* image_{};
         ID3D11RenderTargetView* target_{};
         unsigned effects_{};
+        bool routed_{};
         static thread_local GUIRoute* active_;
     };
     // reshade_begin_effects / reshade_finish_effects.

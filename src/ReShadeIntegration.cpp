@@ -51,6 +51,30 @@ namespace TheosRenderPipeline
         ReShadeGameDevice::FrameImage frame;
         ComPtr<ID3D11RenderTargetView> uiRTV;
         bool gameDevice{}, adopted{}, presented{};
+        unsigned gameDeviceFaults{};
+        // Render and FinishUI share the runtime, context and saved state. One
+        // thread at a time: a second thread is turned away rather than racing
+        // the first, or waiting on locks ReShade takes in the other order.
+        std::atomic<DWORD> owner{};
+        struct Admission
+        {
+            State& state;
+            bool held{}, nested{};
+            explicit Admission(State& s) : state(s)
+            {
+                const auto self = ::GetCurrentThreadId();
+                DWORD expected{};
+                held = state.owner.compare_exchange_strong(expected, self, std::memory_order_acq_rel);
+                nested = !held && expected == self;
+            }
+            ~Admission() { if (held) { state.owner.store(0, std::memory_order_release); } }
+            explicit operator bool() const { return held || nested; }
+        };
+        HRESULT TurnedAway()
+        {
+            ++counts.overlaps;
+            return Failed(HRESULT_FROM_WIN32(ERROR_BUSY), "ReShade call skipped: another thread was inside TRP's ReShade stage");
+        }
         static thread_local bool wrapping;
         D3D11ContextIsolation isolation;
         D3D11FrameCopy::Depth depthCopy;
@@ -98,10 +122,12 @@ namespace TheosRenderPipeline
         // After ReShade's GUI, at the end of its Present.
         static void Presented(api::effect_runtime* value)
         { auto& s = Data(); if (s.adopted && value == s.runtime) { s.presented = true; } }
-        static void BeginEffects(api::effect_runtime*, api::command_list*, api::resource_view, api::resource_view)
-        { ReShadeGameDevice::BeginEffects(); }
-        static void FinishEffects(api::effect_runtime*, api::command_list*, api::resource_view, api::resource_view)
-        { ReShadeGameDevice::FinishEffects(); }
+        static void BeginEffects(api::effect_runtime* value, api::command_list*, api::resource_view, api::resource_view)
+        { if (value == Data().runtime) { ReShadeGameDevice::BeginEffects(); } }
+        static void FinishEffects(api::effect_runtime* value, api::command_list*, api::resource_view, api::resource_view)
+        { if (value == Data().runtime) { ReShadeGameDevice::FinishEffects(); } }
+        static void RouteGUI(api::command_queue*, api::swapchain*, const api::rect*, const api::rect*, uint32_t, const api::rect*)
+        { ReShadeGameDevice::RouteGUITable(); }
         static bool Open(api::effect_runtime* value, bool open, api::input_source)
         {
             auto& s = Data();
@@ -454,8 +480,8 @@ namespace TheosRenderPipeline
             if (SUCCEEDED(hr)) { hr = device->CreateRenderTargetView(ui.Get(), &view, &uiRTV); }
             if (FAILED(hr)) { frame.Reset(); uiRTV.Reset(); return hr; }
             const char* failure{};
-            if (!ReShadeGameDevice::InstallGUIRoute(context.Get())) {
-                failure = "its GUI route could not be installed";
+            if (!ReShadeGameDevice::PrepareGUIRoute(context.Get())) {
+                failure = "its GUI route could not be prepared";
             } else {
                 facade.Attach(new ReShadeSwapChain(device.Get(), frame.Texture(), window, true));
                 wrapping = true;
@@ -483,14 +509,37 @@ namespace TheosRenderPipeline
         HRESULT PresentOnGameDevice(ID3D11Texture2D* scene, bool uiLayer)
         {
             auto hr = frame.Capture(context.Get(), scene, ui.Get(), uiLayer);
-            if (FAILED(hr)) { return Failed(hr, "ReShade frame image capture failed"); }
+            if (FAILED(hr)) { return Fault(hr, "its frame image could not be captured"); }
             ReShadeGameDevice::GUIRoute route{context.Get(), frame.Texture(), uiRTV.Get()};
-            if (!route) { return Failed(E_FAIL, "ReShade GUI route unavailable"); }
+            if (!route) { return Fault(E_FAIL, "its GUI route was unavailable"); }
             presented = false;
             hr = chain->Present(0, 0);
-            if (FAILED(hr)) { return Failed(hr, "ReShade Present on the game's device failed"); }
+            if (FAILED(hr)) { return Fault(hr, "its Present failed"); }
             runtime->get_command_queue()->flush_immediate_command_list();
-            return presented ? S_OK : Failed(E_FAIL, "ReShade skipped its frame on the game's device");
+            // Without the patched table ReShade's GUI went into the frame image,
+            // which is never shown: the menu would be invisible.
+            if (!route.Routed()) { return Fault(E_FAIL, "its GUI could not be routed to the UI layer", true); }
+            if (!presented) { return Fault(E_FAIL, "ReShade skipped its frame"); }
+            gameDeviceFaults = 0;
+            return S_OK;
+        }
+        // A failing frame is presented without ReShade. Repeated failures, or one
+        // that cannot recover, turn the route off for the session.
+        HRESULT Fault(HRESULT hr, const char* what, bool fatal = false)
+        {
+            const std::string reason = std::string("ReShade effects off: ReShadeGameDevice stopped, ") + what +
+                ". Set ReShadeGameDevice=false in TheosRenderPipeline.ini for TRP's usual ReShade route";
+            if (!fatal && ++gameDeviceFaults < 3) {
+                Failed(hr, "ReShade frame on the game's device failed");
+                status += std::string(": ") + what;
+                return hr;
+            }
+            runtime->get_command_queue()->wait_idle();
+            ReleaseRuntime();
+            blocked = true;
+            Failed(hr, "ReShade effects off");
+            status = reason;
+            return hr;
         }
     };
 
@@ -558,6 +607,7 @@ namespace TheosRenderPipeline
                 registerEvent(Event::reshade_begin_effects, reinterpret_cast<void*>(&State::BeginEffects));
                 registerEvent(Event::reshade_finish_effects, reinterpret_cast<void*>(&State::FinishEffects));
                 registerEvent(Event::reshade_present, reinterpret_cast<void*>(&State::Presented));
+                registerEvent(Event::present, reinterpret_cast<void*>(&State::RouteGUI));
             }
             s.status = s.disabled ? "ReShade disabled in ReShade.ini" : "ReShade API 14 registered; waiting for source color";
             return;
@@ -602,6 +652,9 @@ namespace TheosRenderPipeline
     {
         auto& s = Data();
         if (!s.runtime || s.attempted || s.updated || before != s.before || !color) { return S_FALSE; }
+        State::Admission admission{s};
+        if (!admission) { return s.TurnedAway(); }
+        if (!s.runtime) { return S_FALSE; }
         State::InternalScope internal{s};
         D3D11ContextIsolation::Scope isolation{s.isolation, s.context.Get()};
         if (!isolation) { return s.Failed(E_FAIL, "ReShade context isolation failed"); }
@@ -681,6 +734,8 @@ namespace TheosRenderPipeline
     {
         auto& s = Data();
         if (!s.module || s.updated || !ui) { return S_FALSE; }
+        State::Admission admission{s};
+        if (!admission) { return s.TurnedAway(); }
         State::InternalScope internal{s};
         D3D11ContextIsolation::Scope isolation{s.isolation, s.context.Get()};
         if (!isolation) { return s.Failed(E_FAIL, "ReShade UI context unavailable"); }
@@ -696,11 +751,14 @@ namespace TheosRenderPipeline
         // Opening/closing can occur during the update. Conservatively keep
         // ReShade's normal file if either boundary sees the overlay open.
         s.screenshotOverlay = s.overlayOpen.load();
+        // One ReShade Present per source frame, even when this one fails.
         if (!s.adopted) { s.update(s.runtime); }
-        else if (FAILED(hr = s.PresentOnGameDevice(scene, uiLayer))) { return hr; }
+        else if (FAILED(hr = s.PresentOnGameDevice(scene, uiLayer))) { s.updated = true; return hr; }
         s.screenshotOverlay = s.screenshotOverlay || s.overlayOpen.load();
-        s.updated = true; ++s.counts.updates;
-        return s.Failed(s.CopyColor(s.ui.Get(), ui, s.output), "ReShade UI output copy failed");
+        s.updated = true;
+        hr = s.CopyColor(s.ui.Get(), ui, s.output);
+        if (SUCCEEDED(hr)) { ++s.counts.updates; }
+        return s.Failed(hr, "ReShade UI output copy failed");
     }
     void ReShadeIntegration::PresentCompleted() { auto& s = Data(); s.attempted = s.updated = false; }
     bool ReShadeIntegration::TakeScreenshotRequest(ScreenshotRequest& request)

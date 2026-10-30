@@ -115,47 +115,41 @@ namespace TheosRenderPipeline::ReShadeGameDevice
         return S_OK;
     }
 
-    bool InstallGUIRoute(ID3D11DeviceContext* context)
+    bool PrepareGUIRoute(ID3D11DeviceContext* context)
     {
-        if (bindDepth) { return false; }
+        // The route needs ReShade's wrapped immediate context.
         ComPtr<ID3D11DeviceContext> native;
-        ComPtr<ID3D11Multithread> multithread;
-        if (!Unwrap(context, native) || native->GetType() != D3D11_DEVICE_CONTEXT_IMMEDIATE || FAILED(native.As(&multithread))) { return false; }
+        if (!Unwrap(context, native) || native.Get() == context || native->GetType() != D3D11_DEVICE_CONTEXT_IMMEDIATE) { return false; }
         std::lock_guard lock(installMutex);
         static const auto initialized = MH_Initialize();
-        if (initialized != MH_OK && initialized != MH_ERROR_ALREADY_INITIALIZED) { return false; }
+        return initialized == MH_OK || initialized == MH_ERROR_ALREADY_INITIALIZED;
+    }
+
+    void RouteGUITable()
+    {
+        auto* route = GUIRoute::active_;
+        if (!route || route->routed_ || bindDepth) { return; }
         static const auto hooks = Router::Hooks(std::make_index_sequence<Capacity>{});
-        const auto install = [&](void* target) {
-            for (std::size_t i = 0; i < Capacity; ++i) {
-                auto& entry = bindEntries[i];
-                if (entry.target && entry.target != target) { continue; }
-                if (!entry.target) {
-                    void* original{};
-                    if (MH_CreateHook(target, reinterpret_cast<void*>(hooks[i]), &original) != MH_OK) { return false; }
-                    entry.target = target;
-                    // Publish before enabling; never destroy live trampolines.
-                    entry.original.store(reinterpret_cast<Bind>(original), std::memory_order_release);
-                }
-                if (!entry.enabled) { entry.enabled = MH_EnableHook(target) == MH_OK; }
-                return entry.enabled;
+        // D3D11 keeps one table per protection mode and moves to the new one on
+        // the next call after a change, so settle it before reading.
+        D3D11_PRIMITIVE_TOPOLOGY topology{};
+        route->context_->IAGetPrimitiveTopology(&topology);
+        auto* target = (*reinterpret_cast<void***>(route->context_.Get()))[33];
+        std::lock_guard lock(installMutex);
+        for (std::size_t i = 0; i < Capacity; ++i) {
+            auto& entry = bindEntries[i];
+            if (entry.target && entry.target != target) { continue; }
+            if (!entry.target) {
+                void* original{};
+                if (MH_CreateHook(target, reinterpret_cast<void*>(hooks[i]), &original) != MH_OK) { return; }
+                entry.target = target;
+                // Publish before enabling; never destroy live trampolines.
+                entry.original.store(reinterpret_cast<Bind>(original), std::memory_order_release);
             }
-            return false;
-        };
-        // D3D11 switches the context's table with its protection mode; ReShade
-        // may draw in either. Both entries must install.
-        multithread->Enter();
-        const auto previous = multithread->GetMultithreadProtected();
-        bool ready = true;
-        for (const BOOL mode : {FALSE, TRUE}) {
-            multithread->SetMultithreadProtected(mode);
-            // Any call makes the context settle on the table for this mode.
-            D3D11_PRIMITIVE_TOPOLOGY topology{};
-            native->IAGetPrimitiveTopology(&topology);
-            ready = install((*reinterpret_cast<void***>(native.Get()))[33]) && ready;
+            if (!entry.enabled) { entry.enabled = MH_EnableHook(target) == MH_OK; }
+            route->routed_ = entry.enabled;
+            return;
         }
-        multithread->SetMultithreadProtected(previous);
-        multithread->Leave();
-        return ready;
     }
 
     GUIRoute::GUIRoute(ID3D11DeviceContext* context, ID3D11Resource* image, ID3D11RenderTargetView* target)
