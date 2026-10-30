@@ -8,6 +8,7 @@
 #include "NeuralObjectBlend.h"
 #include "NeuralObjectControl.h"
 #include "NeuralModelRate.h"
+#include "XeFGModelBeat.h"
 #include <chrono>
 #include <array>
 
@@ -31,6 +32,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		ID3D12Resource* Composed() const { return composed_.Get(); }
 		ID3D12Resource* Corrected() const { return corrected_.Get(); }
 		NeuralTelemetrySnapshot Telemetry() const { return telemetry_.Snapshot(); }
+		NRModelActivity ModelActivity() const { return modelActivity_; }
 		void RetireTelemetry();
 		NeuralRendering::RuntimeBuild RetainedRuntimeBuild(const std::filesystem::path& request) const
 		{
@@ -210,6 +212,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		std::uint64_t timestampFrequency_{};
 		bool telemetryAttempted_{};
 		NeuralTelemetryTracker telemetry_;
+		NRModelActivity modelActivity_{};
 		std::string status_;
 		StatusKey statusKey_{};
 		std::string successStatus_;

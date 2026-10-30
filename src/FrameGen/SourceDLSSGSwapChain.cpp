@@ -114,7 +114,9 @@ template<class InnerPresent> HRESULT SwapChain::PresentThrough(InnerPresent&& a_
 	ObservePresentationFeedback(presented);
 	const auto returned = Clock::now();
 	const auto result = FinishPresent(presented);
-	backend_.ObservePresentTiming(ms(start, submitted), ms(submitted, returned), ms(returned, Clock::now()));
+	backend_.ObservePresentTiming(ms(start, submitted), ms(submitted, returned), ms(returned, Clock::now()),
+		std::chrono::duration<double, std::micro>(start.time_since_epoch()).count(),
+		std::chrono::duration<double, std::micro>(submitted.time_since_epoch()).count());
 	return result;
 }
 

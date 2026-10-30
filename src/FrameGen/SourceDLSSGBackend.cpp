@@ -20,6 +20,7 @@
 #include "StartupFallback.h"
 #include <d3dcompiler.h>
 #include <chrono>
+#include <thread>
 #if !defined(TRP_NO_NEURAL_RENDERING)
 #include "NeuralRenderingFeatureSession.h"
 #endif
@@ -887,8 +888,33 @@ namespace TheosRenderPipeline::SourceDLSSG
 				frameOutputLimit_, XeFGConfiguration().generatedFrames))) { return fault_; }
 			marks.End(D3D12Stage::kXeFGInputs);
 		}
+		xefgFrameId_ = xefg_.Snapshot().frameId;
+		xefgFrameModel_ = NRModelActivity::Unknown;
+		xefgFrameAlternate_ = false;
+#if !defined(TRP_NO_NEURAL_RENDERING)
+		if (active && neuralPass_) {
+			xefgFrameModel_ = neuralPass_->ModelActivity();
+			xefgFrameAlternate_ = NeuralRendering::EffectiveModelRate(options.reconstruction.modelRate) == NeuralRendering::ModelRate::EveryOtherFrame;
+		}
+#endif
 		if (!Check(outputResult, "record native output copy/conversion") ||
 			!Check(interop_.Submit(Work::SwapChain), "submit native output copy")) { return fault_; }
+		xefgSubmitTime_ = std::chrono::steady_clock::now();
+		xefgBeatPaced_ = false; xefgBeatHoldMs_ = 0;
+		if (provider_ == FrameGenerationProvider::XeFG && XeFGModelBeatRequested() &&
+			!XeFGModelBeatUnavailable() && xefgFrameAlternate_ && xefg_.Snapshot().enabled &&
+			xefgFrameModel_ != NRModelActivity::Unknown && !frameNeuralReset_ && !frameNeuralModelChanged_) {
+			const auto decision = xefgModelBeat_.Plan(
+				std::chrono::duration<double, std::micro>(xefgSubmitTime_.time_since_epoch()).count(), xefgFrameModel_);
+			xefgBeatPaced_ = decision.paced;
+			if (decision.deadlineUs > 0) {
+				std::this_thread::sleep_until(std::chrono::steady_clock::time_point(
+					std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<double, std::micro>(decision.deadlineUs))));
+			}
+			const auto released = std::chrono::steady_clock::now();
+			xefgBeatHoldMs_ = std::chrono::duration<double, std::milli>(released - xefgSubmitTime_).count();
+			xefgModelBeat_.Released(std::chrono::duration<double, std::micro>(released.time_since_epoch()).count());
+		} else xefgModelBeat_.Reset();
 		if (screenshotRecorded_) {
 			screenshotRecorded_ = false;
 			ScreenshotBoundary([&] {
@@ -985,7 +1011,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 			const auto reuseStart = std::chrono::steady_clock::now();
 			if (!Check(gpuInputWait ? interop_.WaitD3D11(Work::SwapChain) : interop_.Drain(),
 				gpuInputWait ? "Intel ONLY_NOW input reuse GPU wait" : "retire Intel ONLY_NOW input copies")) { return fault_; }
-			xefgReuseMs_.push_back(std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - reuseStart).count());
+			xefgFrameReuseMs_ = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - reuseStart).count();
+			xefgReuseMs_.push_back(static_cast<float>(xefgFrameReuseMs_));
 			const auto& intel = xefg_.Snapshot();
 			xefgSleepMs_.push_back(intel.sleepMs);
 			if (xefgReuseMs_.size() >= 600) {
@@ -1130,6 +1157,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 	}
 	bool Backend::Quiesce(RetirementPurpose purpose)
 	{
+		xefgModelBeat_.Reset(); xefgBeatPaced_ = false;
 		enabled_ = false;
 		ResetPresentationFeedback();
 		if (FAILED(fault_)) { return false; } // Never destroy a failed, unsubmitted NR recording.
@@ -1577,9 +1605,56 @@ namespace TheosRenderPipeline::SourceDLSSG
 		}
 		return cache.Library();
 	}
-	void Backend::ObservePresentTiming(double a_prepareMs, double a_presentMs, double a_finishMs)
+	const char* Backend::XeFGModelBeatUnavailable() const
+	{
+		if (provider_ != FrameGenerationProvider::XeFG) return "Select Intel XeFG.";
+		if (!ready_ || !enabled_) return "Enable frame generation.";
+		if (xefg_.TensorInUse()) return "Requires plain XeFG; turn off the tensor model and Apply.";
+		if (xefg_.Snapshot().generatedFrames != 1) return "This experiment is for XeFG x2 only.";
+		if (XeFGGpuInputWait()) return "Turn off Input reuse: GPU fence wait for this experiment.";
+		if (static_cast<FrameLimitMode>(frameLimit_.load(std::memory_order_relaxed)) != FrameLimitMode::Off)
+			return "Set Frame limit to Off for this experiment.";
+#if !defined(TRP_NO_NEURAL_RENDERING)
+		const auto options = NeuralConfiguration();
+		if (!options.enabled) return "Enable Neural Rendering and Apply.";
+		if (NeuralRendering::EffectiveModelRate(options.reconstruction.modelRate) != NeuralRendering::ModelRate::EveryOtherFrame)
+			return "Select Model rate: Every other frame and Apply.";
+		if (options.compare.freeze) return "Turn off Freeze frame.";
+		{ std::scoped_lock lock(neuralMutex_);
+			if (!neuralSnapshot_.active) return "Requires NR running in the world.";
+		}
+		return nullptr;
+#else
+		return "Neural Rendering is unavailable in this build.";
+#endif
+	}
+	void Backend::ObservePresentTiming(double a_prepareMs, double a_presentMs, double a_finishMs, double hostStartUs, double innerStartUs)
 	{
 		++presenterPresents_;
+		if (provider_ == FrameGenerationProvider::XeFG && !xefg_.TensorInUse() && !presenterReplaced_) {
+			// Correlate actual model activity with this host frame; never infer it
+			// from frame parity or the (delayed) telemetry query results. Bound log
+			// work to 48 consecutive frames per 600, also with the experiment off.
+			const double interval = xefgPreviousHostUs_ ? (hostStartUs - xefgPreviousHostUs_) / 1000 : 0;
+			const double innerInterval = xefgPreviousInnerUs_ ? (innerStartUs - xefgPreviousInnerUs_) / 1000 : 0;
+			xefgPreviousHostUs_ = hostStartUs; xefgPreviousInnerUs_ = innerStartUs;
+			if (!xefgFrameAlternate_ || xefgTraceRequested_ != XeFGModelBeatRequested()) xefgTraceFrames_ = 0;
+			xefgTraceRequested_ = XeFGModelBeatRequested();
+			if (xefgFrameAlternate_ && xefgTraceFrames_++ % 600 < 48) {
+				const auto& s = xefg_.Snapshot();
+				const auto vsync = VSyncState();
+				logger::info("[XeFG beat] epoch={} frame={} model={} hostDtMs={:.3f} innerDtMs={:.3f} innerPresentMs={:.3f} reuse={} reuseCpuMs={:.3f} "
+					"submitUs={} holdMs={:.3f} targetMs={:.3f} phaseSkewMs={:.3f} pairSamples={} requested={} paced={} xellSleepMs={:.3f} outputs={} "
+					"vsync={} incomingSync={} submittedSync={} flags=0x{:X} batchStart=unavailable outputSpacing=unavailable",
+					s.epoch, xefgFrameId_, ModelActivityName(xefgFrameModel_), interval, innerInterval, a_presentMs,
+					XeFGGpuInputWait() ? "gpu-fence" : "cpu-drain", xefgFrameReuseMs_,
+					std::chrono::duration_cast<std::chrono::microseconds>(xefgSubmitTime_.time_since_epoch()).count(),
+					xefgBeatHoldMs_, xefgModelBeat_.TargetUs() / 1000, xefgModelBeat_.PhaseDifferenceUs() / 1000,
+					xefgModelBeat_.PairSamples(), XeFGModelBeatRequested(), xefgBeatPaced_, s.sleepMs,
+					s.framesPresented, VSyncName(vsync.submission.mode), vsync.submission.incomingSync,
+					vsync.submission.sync, vsync.submission.flags);
+			}
+		} else { xefgPreviousHostUs_ = xefgPreviousInnerUs_ = 0; xefgTraceFrames_ = 0; }
 		// Intel stores pipelines as it first uses them; persist what has grown.
 		if (presenterPresents_ % 600 == 0) {
 			for (auto* cache : {&xefgPipelines_, &xefgTensorPipelines_, &xessPipelines_}) {

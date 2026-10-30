@@ -91,6 +91,17 @@ void OverlayUI::DrawLabXeFGControls()
 void OverlayUI::DrawLabGenerationControls(const FrameView& view)
 {
     auto& sourceBackend = TheosRenderPipeline::SourceDLSSG::Backend::Get();
+    const auto* beatReason = sourceBackend.XeFGModelBeatUnavailable();
+    bool beat = sourceBackend.XeFGModelBeatRequested();
+    ImGui::BeginDisabled(beatReason != nullptr);
+    if (ImGui::Checkbox(TR("Even NR pacing (plain XeFG x2, Lab)"), &beat))
+        sourceBackend.ConfigureXeFGModelBeat(beat);
+    ImGui::EndDisabled();
+    if (beatReason) DrawSettingsHelp(TR(beatReason));
+    DrawSettingsHelp(TR("Off by default, not saved. Learns 16 model/skip pairs, then holds each frame after its GPU work is queued. "
+        "Only holds when a persistent timing difference follows the model phase. "
+        "Adds delay to fast frames; screen pacing and FPS need testing. "
+        "Turn off and on to learn a new scene. Frame limit must be Off."));
     if (view.provider != TheosRenderPipeline::FrameGenerationProvider::XeFG)
     {
         // Session-only diagnostic: an artifact only in generated frames comes from generation.

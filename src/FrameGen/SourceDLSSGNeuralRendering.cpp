@@ -392,6 +392,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		const D3D12StageMarks& marks, ID3D12Resource* objectMask, std::array<float,2> objectMaskGuideOffset,
 		std::array<float,2> colorJitter)
 	{
+		modelActivity_ = NRModelActivity::Unknown;
 		if (!device || !list || slot >= heaps_.size() || options.passes < 1 || options.passes > NeuralRendering::kMaxNeuralPasses || !SameSize(motion, depth) ||
 			!Texture(hudless) || (options.WorldOnly() ? (ui || composed || options.tuning.uiCorrection) :
 			(!SameSize(hudless, composed) || !SameSize(ui, hudless) || hudless == composed)) ||
@@ -417,6 +418,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		std::uint64_t modelCPUTime{};
 		bool modelRecorded{};
 		auto finishTiming = [&] {
+			modelActivity_ = modelRecorded ? NRModelActivity::Ran : NRModelActivity::Skipped;
 			if (!gpuTiming) { return; }
 			list->EndQuery(timestampHeap_.Get(), D3D12_QUERY_TYPE_TIMESTAMP, query + 3);
 			// Skipped frames never wrote the inference pair; do not resolve/read it.

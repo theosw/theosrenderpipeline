@@ -1,5 +1,6 @@
 #pragma once
 #include "SteadyPacing.h"
+#include "XeFGModelBeat.h"
 #include <chrono>
 #include "SourceRetirementPolicy.h"
 #include "PresentationVSync.h"
@@ -94,7 +95,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		bool StartupTransport() const { return startupTransport_; }
 		// CPU time of one host Present split into its phases: input/output
 		// recording, the presenter's own Present, and retirement/replacement.
-		void ObservePresentTiming(double prepareMs, double presentMs, double finishMs);
+		void ObservePresentTiming(double prepareMs, double presentMs, double finishMs, double hostStartUs, double innerStartUs);
 		// After AfterPresent: a switch will replace the presenter at this boundary.
 		bool ProviderSwitchPending() const { return providerSwitchPending_; }
 		void ConfigureMFGUnlock(bool requested) { if (!attempted_) { mfgUnlock_.Configure(requested); } }
@@ -156,6 +157,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// input copies instead of draining every host lane on the CPU.
 		void ConfigureXeFGGpuInputWait(bool a_enabled) { xefgGpuInputWait_.store(a_enabled, std::memory_order_relaxed); }
 		bool XeFGGpuInputWait() const { return xefgGpuInputWait_.load(std::memory_order_relaxed); }
+		void ConfigureXeFGModelBeat(bool enabled) { xefgModelBeatRequested_.store(enabled, std::memory_order_relaxed); }
+		bool XeFGModelBeatRequested() const { return xefgModelBeatRequested_.load(std::memory_order_relaxed); }
+		const char* XeFGModelBeatUnavailable() const;
 		// Lab A/B, not saved: NVIDIA's next frame waits for frame generation's
 		// inputs only where TRP first writes a shared texture, not at its start.
 		void ConfigureNvidiaOverlapNextFrame(bool a_enabled) { nvidiaOverlapNextFrame_.store(a_enabled, std::memory_order_relaxed); }
@@ -317,6 +321,16 @@ namespace TheosRenderPipeline::SourceDLSSG
 		std::uint64_t frameGenerationTimingKey_{ ~0ull }; // Present thread; the configuration being timed.
 		// Per-window CPU samples for the input-reuse A/B; logged and cleared every 600 presents.
 		std::vector<float> xefgReuseMs_, xefgSleepMs_;
+		std::atomic<bool> xefgModelBeatRequested_{};
+		XeFGModelBeat xefgModelBeat_;
+		NRModelActivity xefgFrameModel_{};
+		std::uint32_t xefgFrameId_{};
+		bool xefgBeatPaced_{}, xefgFrameAlternate_{};
+		double xefgBeatHoldMs_{}, xefgFrameReuseMs_{};
+		std::chrono::steady_clock::time_point xefgSubmitTime_{};
+		double xefgPreviousHostUs_{}, xefgPreviousInnerUs_{};
+		std::uint64_t xefgTraceFrames_{};
+		bool xefgTraceRequested_{};
 		bool xefgReuseWindowGpu_{};
 		SlowPresentGate slowPresent_;
 		ID3D12PipelineLibrary* IntelPipelines(PipelineCache& cache, const char* name, HMODULE runtime);
