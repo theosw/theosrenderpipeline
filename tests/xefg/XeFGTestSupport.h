@@ -27,7 +27,8 @@ static void Require(bool ok, const char* stage)
 }
 static void Check(HRESULT hr, const char* stage)
 {
-    std::printf("HRESULT stage=%s result=0x%08lX\n", stage, static_cast<unsigned long>(hr));
+    static const bool quiet = GetEnvironmentVariableW(L"TRP_XEFG_BEAT_TEST", nullptr, 0) != 0;
+    if (!quiet || FAILED(hr)) std::printf("HRESULT stage=%s result=0x%08lX\n", stage, static_cast<unsigned long>(hr));
     Require(SUCCEEDED(hr), stage);
 }
 static void FG(xefg_swapchain_result_t r, const char* stage)
