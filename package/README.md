@@ -1,10 +1,10 @@
 # Theo's Render Pipeline — Universal, 0.5.7
 
 Version 0.5.7 adds an experimental option, `ReShadeGameDevice`, that runs
-ReShade on the game's own device, so add-ons such as ReGrade+ work the way
-they do without TRP (see **ReShade on the game's device**). It also fixes
-a freeze when XeFG's multiplier changed from x2 to x3-x6, or its
-tensor model or depth changed, during play. See CHANGELOG.md.
+ReShade on the game's own device, so add-ons work the way they do without TRP
+(see **ReShade on the game's device**). It also fixes a freeze when XeFG's
+multiplier changed from x2 to x3-x6, or its tensor model or depth changed,
+during play. See CHANGELOG.md.
 
 Version 0.5.6 resets DLSS, NR and frame generation history when the world
 map opens or closes and on the first frame of the world after a load, and
@@ -397,16 +397,16 @@ displayed image without this replacement delay.
 Set `ReShadeGameDevice=true` under `[Compatibility]` in TheosRenderPipeline.ini
 and restart. ReShade then starts the way it does without TRP, on the game's own
 D3D11 device, so add-ons see the game's device, its draws and one ordinary
-Present per frame. ReGrade+ works without the workaround described above.
-ReShade's back buffer is the whole frame, the world with the HUD over it, so a
-screenshot that TRP keeps as ReShade saved it (for example with the overlay
-open) shows the world as well. ReShade's own menu is still drawn over the HUD.
+Present per frame. ReShade's back buffer is the whole frame, the world with the
+HUD over it, so a screenshot that TRP keeps as ReShade saved it (for example
+with the overlay open) shows the world as well. ReShade's own menu is still
+drawn over the HUD.
 
 This needs ReShade with add-on support. It was tested with the full add-on
-build of ReShade 6.8.0.2155 and ReGrade+, offline and in game on an RTX 40
-card; HDR, Community Shaders and other add-ons are untested with it. If it
-cannot start, or its frames keep failing, ReShade's effects and menu turn off
-for the session, and the TRP log and **Advanced** say why; set it back to
+build of ReShade 6.8.0.2155 with an add-on loaded, offline and in game on an
+RTX 40 card; HDR, Community Shaders and other add-ons are untested with it. If
+it cannot start, or its frames keep failing, ReShade's effects and menu turn
+off for the session, and the TRP log and **Advanced** say why; set it back to
 `false` to use TRP's usual ReShade route.
 
 The renderer was tested with and without ReShade 6.3.3.1921 on Skyrim 1.6.1170,
