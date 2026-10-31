@@ -247,12 +247,12 @@ namespace TheosRenderPipeline::NeuralRendering
 #if defined(TRP_STANDARD_RESEARCH)
         if (!research) { return {false, false, "NR 310.9.16 on RTX 20/30/40 needs the Universal edition"}; }
 #endif
-        const bool pascal = !research && packPath.filename() == kPascalPackName;
+        const bool pascalPack = !research && packPath.filename() == kPascalPackName;
         std::scoped_lock lock(installationMutex);
         WinMemory memory(module);
         if (auto it = installations.find(module); it != installations.end()) {
             auto& installed = it->second;
-            if (!research && installed.digest != (pascal ? kPascalPackSha256 : kKernelPackSha256)) {
+            if (!research && installed.digest != (pascalPack ? kPascalPackSha256 : kKernelPackSha256)) {
                 return {false, false, "a different NR compatibility pack is already installed; restart required"};
             }
             if (installed.result.applied) {
@@ -272,12 +272,12 @@ namespace TheosRenderPipeline::NeuralRendering
         filename.resize(length);
         File runtime(filename, 266424944);
         std::error_code sizeError;
-        const auto packSize = research ? static_cast<std::size_t>(std::filesystem::file_size(packPath, sizeError)) : (pascal ? kPascalPackBytes : PackSize);
+        const auto packSize = research ? static_cast<std::size_t>(std::filesystem::file_size(packPath, sizeError)) : (pascalPack ? kPascalPackBytes : PackSize);
         if (sizeError || packSize < 512 || packSize > ULONG_MAX) { return {false, false, "NR compatibility kernel pack is missing or outside supported size bounds"}; }
         File pack(packPath, packSize);
         if (!runtime.data || !HashIs(runtime.Bytes(), kKernelRuntimeSha256)) { return {false, false, "loaded NR file is not the pinned NVIDIA 310.9.16 runtime"}; }
         // Research packs are unpinned; production packs must match their pinned hash.
-        if (!pack.data || (!research && !HashIs(pack.Bytes(), pascal ? kPascalPackSha256 : kKernelPackSha256))) { return {false, false, "NR compatibility kernel pack is missing or its SHA-256 differs"}; }
+        if (!pack.data || (!research && !HashIs(pack.Bytes(), pascalPack ? kPascalPackSha256 : kKernelPackSha256))) { return {false, false, "NR compatibility kernel pack is missing or its SHA-256 differs"}; }
         if (!OriginalImage(memory, runtime.Bytes())) { return {false, false, "loaded NR image headers or original kernels differ"}; }
         auto storage = NearbyStorage(reinterpret_cast<std::uintptr_t>(module), packSize);
         if (!storage) { return {false, false, "no memory available within NR bundle instruction reach"}; }
@@ -290,7 +290,7 @@ namespace TheosRenderPipeline::NeuralRendering
         pending.digest = Digest(pack.Bytes());
         if (pending.digest.size() != 64) { return {false, false, "NR kernel pack hashing failed; NR off"}; }
         if (!MakePlan(pack.Bytes(), reinterpret_cast<std::uintptr_t>(module), reinterpret_cast<std::uintptr_t>(storage.get()),
-                pending.plan, pending.result.status, packSize, research || pascal)) { return pending.result; }
+                pending.plan, pending.result.status, packSize, research || pascalPack)) { return pending.result; }
         std::uint32_t version{};
         std::memcpy(&version, pack.data+8, 4);
         if (version == 2) {
