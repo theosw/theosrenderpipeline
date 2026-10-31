@@ -3,7 +3,16 @@
 Rendering integration for Skyrim: NVIDIA DLSS/DLAA and frame generation,
 experimental Intel XeSS upscaling and XeFG frame generation, optional Neural
 Rendering (NR), and native-resolution menus and HUD. Current version:
-**0.5.7**. See [CHANGELOG.md](CHANGELOG.md) for release changes.
+**0.6.0**. See [CHANGELOG.md](CHANGELOG.md) for release changes.
+
+Universal adds experimental Neural Rendering on GTX 10 (Pascal, sm_61), using
+NVIDIA NR 310.9.16 and Universal's compatibility pack. Tested on a GTX 1070 Ti;
+other GTX 10 cards are untested, please report your results. Use driver 582.78 or
+a newer compatible Pascal (R580) driver. NR stays off by default: select Runtime
+Automatic, enable NR and Apply. Start with one pass before upscaling. There is no
+fixed VRAM minimum, but a live memory check may refuse NR on smaller cards and
+explain why. Standard shows the reason to install Universal. DLSS, DLAA and
+DLSS-G still require RTX hardware; use XeSS and optionally XeFG on Pascal.
 
 ## Features
 
@@ -93,8 +102,8 @@ settings. While XeFG is active, Intel XeLL handles latency instead of Reflex.
 On a GPU other than NVIDIA, TRP starts XeFG directly without loading NVIDIA's
 runtimes, with XeSS or with Community Shaders' upscaling (FSR on AMD). There,
 a saved DLSS mode runs as XeSS at the same quality and DLAA as XeSS Ultra
-Quality; **Save as default** then stores XeSS. DLSS, DLAA, DLSS-G and NR
-require NVIDIA RTX hardware; on NVIDIA, NR also works with XeSS.
+Quality; **Save as default** then stores XeSS. DLSS, DLAA and DLSS-G require NVIDIA RTX hardware. Universal also offers
+experimental sm_61 NR; on NVIDIA, NR works with XeSS.
 
 XeFG uses Intel's official x2 by default. With the Universal edition the
 multiplier list also offers x3-x6, marked experimental, which patch

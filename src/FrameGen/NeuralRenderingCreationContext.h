@@ -4,6 +4,7 @@
 #include <wrl/client.h>
 #include <cstdint>
 #include <limits>
+#include "NeuralLaunchSubmission.h"
 
 namespace TheosRenderPipeline::NeuralRendering
 {
@@ -40,6 +41,7 @@ namespace TheosRenderPipeline::NeuralRendering
 		CreationContext& operator=(const CreationContext&) = delete;
 		~CreationContext()
 		{
+			RejectedNeuralLists::Get().Discard(commandList.Get());
 			if (fenceEvent) { ::CloseHandle(fenceEvent); }
 		}
 
@@ -69,7 +71,7 @@ namespace TheosRenderPipeline::NeuralRendering
 			}
 			if (FAILED(commandList->Close())) { return false; }
 			ID3D12CommandList* lists[]{ commandList.Get() };
-			queue->ExecuteCommandLists(1, lists);
+			if (!ExecuteHealthyNeuralList(commandList.Get(), [&] { queue->ExecuteCommandLists(1, lists); })) { return false; }
 			submitted_ = true;
 			if (FAILED(completion.Signal(queue.Get(), fence.Get(), kFenceValue))) { return false; }
 			signalQueued_ = true;

@@ -114,7 +114,9 @@ RE::BSEventNotifyControl MenuOpenCloseEventHandler::ProcessEvent(const RE::MenuO
 		a_event->menuName == RE::LoadingMenu::MENU_NAME ||
 		a_event->menuName == RE::RaceSexMenu::MENU_NAME ||
 		a_event->menuName == RE::FaderMenu::MENU_NAME ||
-		a_event->menuName == RE::MapMenu::MENU_NAME) {
+		a_event->menuName == RE::MapMenu::MENU_NAME ||
+        a_event->menuName == RE::StatsMenu::MENU_NAME ||
+        a_event->menuName == RE::MagicMenu::MENU_NAME) {
 		// Stable markers for the automated test harness.
 		logger::info("[Menu] {} {}", a_event->menuName.c_str(), a_event->opening ? "opened" : "closed");
 	}

@@ -1,5 +1,7 @@
 #include "FrameGen/LoadingFadeIn.h"
 #include "FrameGen/PresentationFade.h"
+#include "HookSafety.h"
+#include "D3D11ContextSlots.h"
 #include <d3d11.h>
 #include <cmath>
 #include <cstdint>
@@ -12,6 +14,14 @@ using Microsoft::WRL::ComPtr;
 using TheosRenderPipeline::LoadingFadeIn;
 static void Require(bool ok, const char* why) { if (!ok) { std::fprintf(stderr, "FAIL: %s\n", why); std::exit(1); } }
 static void Check(HRESULT hr, const char* why) { Require(SUCCEEDED(hr), why); }
+
+using SetTargets = void(WINAPI*)(ID3D11DeviceContext*,UINT,ID3D11RenderTargetView* const*,ID3D11DepthStencilView*);
+static SetTargets originalTargets{};
+static unsigned targetCalls{};
+static void WINAPI RoutedTargets(ID3D11DeviceContext* context, UINT count, ID3D11RenderTargetView* const* targets, ID3D11DepthStencilView* depth)
+{
+    ++targetCalls; originalTargets(context,count,targets,depth);
+}
 
 static void Policy()
 {
@@ -38,11 +48,14 @@ static void Policy()
     Require(fade.Update(true, 30.1) == 1.0f, "reset clears a pending request");
 }
 
-static void Pass()
+static void Pass(bool extended)
 {
+    targetCalls=0;
     ComPtr<ID3D11Device> device; ComPtr<ID3D11DeviceContext> context;
-    Check(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION,
+    const D3D_FEATURE_LEVEL levels[]{D3D_FEATURE_LEVEL_11_1,D3D_FEATURE_LEVEL_11_0};
+    Check(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0, extended ? levels : nullptr, extended ? 2 : 0, D3D11_SDK_VERSION,
         &device, nullptr, &context), "WARP device");
+    const UINT lastUAV=device->GetFeatureLevel() >= D3D_FEATURE_LEVEL_11_1 ? 63 : 7;
     constexpr UINT W = 16, H = 8;
     std::vector<std::uint32_t> pixels(W * H);
     for (UINT i = 0; i < W * H; ++i) {
@@ -65,6 +78,37 @@ static void Pass()
     const D3D11_VIEWPORT producerViewport{ 1, 2, 5, 3, 0, 1 };
     context->RSSetViewports(1, &producerViewport);
 
+    ComPtr<ID3D11ShaderResourceView> frameSRV;
+    Check(device->CreateShaderResourceView(frame.Get(),nullptr,&frameSRV),"producer frame SRV");
+    auto* source=frameSRV.Get();
+    context->VSSetShaderResources(3,1,&source); context->PSSetShaderResources(3,1,&source);
+    context->GSSetShaderResources(3,1,&source); context->HSSetShaderResources(3,1,&source);
+    context->DSSetShaderResources(3,1,&source); context->CSSetShaderResources(3,1,&source);
+    D3D11_BUFFER_DESC streamDesc{}; streamDesc.ByteWidth=256; streamDesc.BindFlags=D3D11_BIND_STREAM_OUTPUT;
+    ComPtr<ID3D11Buffer> stream;
+    Check(device->CreateBuffer(&streamDesc,nullptr,&stream),"producer stream output");
+    auto* streamRaw=stream.Get(); const UINT streamOffset=0;
+    context->SOSetTargets(1,&streamRaw,&streamOffset);
+    D3D11_TEXTURE2D_DESC unorderedDesc{};
+    unorderedDesc.Width=unorderedDesc.Height=4;
+    unorderedDesc.MipLevels=unorderedDesc.ArraySize=unorderedDesc.SampleDesc.Count=1;
+    unorderedDesc.Format=DXGI_FORMAT_R32_UINT; unorderedDesc.BindFlags=D3D11_BIND_UNORDERED_ACCESS;
+    ComPtr<ID3D11Texture2D> omStorage,csStorage;
+    ComPtr<ID3D11UnorderedAccessView> omView,csView;
+    Check(device->CreateTexture2D(&unorderedDesc,nullptr,&omStorage),"producer OM storage");
+    Check(device->CreateTexture2D(&unorderedDesc,nullptr,&csStorage),"producer CS storage");
+    Check(device->CreateUnorderedAccessView(omStorage.Get(),nullptr,&omView),"producer OM UAV");
+    Check(device->CreateUnorderedAccessView(csStorage.Get(),nullptr,&csView),"producer CS UAV");
+    auto* omRaw=omView.Get(); auto* csRaw=csView.Get(); const UINT keep=~0u;
+    // Same native (non-debug) table patched by the game's UI routing hooks.
+    TheosRenderPipeline::HookSafety::SlotRegistry hooks;
+    auto* table = *reinterpret_cast<std::uintptr_t**>(context.Get());
+    auto* slot = table + TheosRenderPipeline::D3D11ContextSlots::kOMSetRenderTargets;
+    Require(hooks.Install(slot,reinterpret_cast<std::uintptr_t>(&RoutedTargets),originalTargets),"install target routing hook");
+    context->OMSetRenderTargets(1,&bound,nullptr);
+    Require(targetCalls==1,"routing hook receives producer bind");
+    context->OMSetRenderTargetsAndUnorderedAccessViews(D3D11_KEEP_RENDER_TARGETS_AND_DEPTH_STENCIL,nullptr,nullptr,lastUAV,1,&omRaw,&keep);
+    context->CSSetUnorderedAccessViews(lastUAV,1,&csRaw,&keep);
     TheosRenderPipeline::PresentationFade fade;
     Require(!fade.Apply(context.Get(), frame.Get(), 1.0f), "factor 1 is a no-op");
     Require(!fade.Apply(context.Get(), frame.Get(), std::numeric_limits<float>::quiet_NaN()), "non-finite factor rejected");
@@ -75,6 +119,25 @@ static void Pass()
     Require(after.Get() == producerView.Get(), "producer render target restored");
     Require(count == 1 && viewport.TopLeftX == 1 && viewport.Width == 5 && viewport.Height == 3, "producer viewport restored");
 
+#define CHECK_STAGE(prefix) { \
+    ComPtr<ID3D11ShaderResourceView> restored; context->prefix##GetShaderResources(3,1,&restored); \
+    Require(restored.Get()==frameSRV.Get(),"producer " #prefix " resource restored after output hazard"); }
+    CHECK_STAGE(VS) CHECK_STAGE(PS) CHECK_STAGE(GS) CHECK_STAGE(HS) CHECK_STAGE(DS) CHECK_STAGE(CS)
+#undef CHECK_STAGE
+    ComPtr<ID3D11Buffer> restoredStream; context->SOGetTargets(1,&restoredStream);
+    Require(restoredStream.Get()==stream.Get(),"producer stream output restored");
+    ComPtr<ID3D11UnorderedAccessView> restoredOM,restoredCS;
+    context->OMGetRenderTargetsAndUnorderedAccessViews(0,nullptr,nullptr,lastUAV,1,&restoredOM);
+    context->CSGetUnorderedAccessViews(lastUAV,1,&restoredCS);
+    Require(restoredOM.Get()==omView.Get() && restoredCS.Get()==csView.Get(),"highest producer OM/CS UAV slots restored");
+    const auto calls = targetCalls;
+    context->OMSetRenderTargets(1,&bound,nullptr);
+    Require(targetCalls==calls+1 && *slot==reinterpret_cast<std::uintptr_t>(&RoutedTargets),
+        "fade preserves native UI target hook for subsequent menu draws");
+    DWORD protection{}, ignored{};
+    Require(VirtualProtect(slot,sizeof(*slot),PAGE_EXECUTE_READWRITE,&protection)!=FALSE,"unprotect test hook");
+    *slot=reinterpret_cast<std::uintptr_t>(originalTargets);
+    Require(VirtualProtect(slot,sizeof(*slot),protection,&ignored)!=FALSE,"restore test hook");
     desc.Usage = D3D11_USAGE_STAGING; desc.BindFlags = 0; desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
     ComPtr<ID3D11Texture2D> staging; Check(device->CreateTexture2D(&desc, nullptr, &staging), "staging");
     context->CopyResource(staging.Get(), frame.Get());
@@ -98,7 +161,8 @@ static void Pass()
 int main()
 {
     Policy();
-    Pass();
+    Pass(false);
+    Pass(true);
     std::printf("loading fade checks passed\n");
     return 0;
 }

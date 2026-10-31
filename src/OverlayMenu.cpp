@@ -132,7 +132,7 @@ void OverlayUI::BuildUI()
     }
 
     requestedPage = SettingsPage::None;
-    DrawSettingsActions();
+    DrawSettingsActions(view);
 
     ImGui::End();
 }
@@ -175,7 +175,7 @@ void OverlayUI::DrawPipelineSummary(const FrameView& view)
     }
 }
 
-void OverlayUI::DrawSettingsActions()
+void OverlayUI::DrawSettingsActions(const FrameView& view)
 {
     ImGui::Separator();
     const int stagedChanges = CountStagedChanges();
@@ -210,7 +210,7 @@ void OverlayUI::DrawSettingsActions()
         }
         ImGui::EndDisabled();
         ImGui::SameLine();
-        ImGui::BeginDisabled(stagedChanges == 0 || capturingHotkey);
+        ImGui::BeginDisabled((stagedChanges == 0 && !view.sourceNeural.retryable) || capturingHotkey);
         if (ImGui::Button(TR("Apply"), ImVec2(Px(100.0f), 0.0f)))
         {
             ApplySettingsDraft(false);

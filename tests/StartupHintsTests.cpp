@@ -61,6 +61,14 @@ int main()
         Has(Hint(Failure::StreamlineOwnedElsewhere, standard), "ENB Anti-Aliasing"), "names the other owner when known");
     Require(Has(Hint(Failure::SwapchainNotAcquired, Facts{.communityShaders = true}), "Community Shaders' frame generation") &&
         Has(Hint(Failure::SwapchainNotAcquired, standard), "ENB frame generation"), "CS route vs other swapchain owners");
+    const auto cs = Hint(Failure::SwapchainNotAcquired, Facts{.communityShaders = true});
+    Require(Has(cs, "Presets > Baseline") && Has(cs, "\"Theo's Render Pipeline\"") && Has(cs, "CS 1.9.1") &&
+        Has(cs, "under Upscaling") && Has(cs, "temporarily disable TRP") && Has(cs, "re-enable TRP and restart"),
+        "both CS generations and the inaccessible-menu recovery path");
+    Require(!Has(Hint(Failure::SwapchainNotAcquired, standard), "Presets > Baseline"), "CS help requires observed CS");
+    const auto translated = Hint(Failure::SwapchainNotAcquired, Facts{.communityShaders = true},
+        [](const char*) -> const char* { return "translated"; });
+    Require(!Has(translated, "Skyrim") && Has(translated, "translated- translated"), "CS prose and heading reach the dictionary");
     Require(Has(Hint(Failure::CompatibilityRuntimeChanged, standard), "Apocrypha Menu Framework"), "import rewriting mods");
     for (auto failure : {Failure::CompetingFrameGeneration, Failure::StreamlineOwnedElsewhere, Failure::FrameGenerationUnavailable,
              Failure::StreamlineModuleMissing, Failure::SwapchainNotAcquired, Failure::CompatibilityRuntimeMissing,

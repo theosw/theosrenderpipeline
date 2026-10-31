@@ -1,5 +1,6 @@
 #include "OverlayPreview.h"
 #include "FrameGen/NeuralRuntimeFiles.h"
+#include "FrameGen/NeuralAdmission.h"
 
 #include <cmath>
 
@@ -430,6 +431,39 @@ PreviewScenario Intel()
     return scenario;
 }
 
+PreviewScenario NRFriendly()
+{
+    auto scenario = Intel();
+    scenario.name = "nr-friendly";
+    scenario.summary = "Pascal research XeSS Quality reserves the NR extent while NR starts off";
+    auto& view = scenario.view;
+    view.nvidiaAdapter = true;
+    view.nvidiaFeatures = view.nvidiaFrameGeneration = false;
+    view.nrFriendlyRenderSizeActive = true;
+    view.outputWidth = view.displaySizeX = 1280;
+    view.outputHeight = view.displaySizeY = 720;
+    view.renderWidth = view.renderSizeX = 768;
+    view.renderHeight = view.renderSizeY = 432;
+    view.neuralApplied.enabled = false;
+    view.neuralApplied.beforeUpscaling = true;
+    scenario.applied.sourceDLSSG.neuralEnabled = false;
+    scenario.applied.sourceDLSSG.neuralBeforeUpscaling = true;
+    scenario.draft = scenario.applied;
+    return scenario;
+}
+
+PreviewScenario Pascal(const char* name, const char* reason)
+{
+    auto scenario = NRFriendly();
+    scenario.name = name;
+    scenario.summary = "Experimental Universal sm_61 NR admission";
+    scenario.view.neuralPascal = true;
+    scenario.view.neuralAdmissionReason = reason;
+    scenario.view.neuralRuntimePath = "Data/SKSE/Plugins/TheosRenderPipeline/NVIDIA/nvngx_dlssnr_310.9.16.dll";
+    scenario.view.neuralRuntimes = {"Automatic"};
+    return scenario;
+}
+
 PreviewScenario Lab()
 {
     auto scenario = Healthy();
@@ -450,5 +484,10 @@ PreviewScenario Lab()
 
 std::vector<PreviewScenario> PreviewScenarios()
 {
-    return {Healthy(), NROff(), Presets(), CommunityShaders(), HostUnavailable(), Objects(), FivePasses(), Compare(), Exposure(), Steady(), ModelRate(), ModelRateLab(), Intel(), TensorRefused(), Lab()};
+    return {Healthy(), NROff(), Presets(), CommunityShaders(), HostUnavailable(), Objects(), FivePasses(), Compare(), Exposure(), Steady(), ModelRate(), ModelRateLab(), Intel(), TensorRefused(), NRFriendly(),
+        Pascal("pascal-universal", ""),
+        Pascal("pascal-standard", NeuralRendering::kPascalEditionReason),
+        Pascal("pascal-driver", NeuralRendering::kPascalDriverReason),
+        Pascal("pascal-missing-pack", NeuralRendering::kPascalAssetReason),
+        Pascal("pascal-low-budget", NeuralRendering::kPascalBudgetReason), Lab()};
 }

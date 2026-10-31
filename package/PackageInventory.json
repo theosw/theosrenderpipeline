@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "files": [
+    {
+      "path": "SKSE/Plugins/CommunityShaders/Overrides/TheosRenderPipeline_Upscaling.json",
+      "editions": [
+        "Standard",
+        "Universal"
+      ],
+      "policy": "replace"
+    },
+    {
+      "path": "SKSE/Plugins/CommunityShaders/Presets/Theos Render Pipeline/Baseline/TheosRenderPipeline_Upscaling.json",
+      "editions": [
+        "Standard",
+        "Universal"
+      ],
+      "policy": "replace"
+    },
+    {
+      "path": "SKSE/Plugins/CommunityShaders/Presets/Theos Render Pipeline/Theos Render Pipeline.json",
+      "editions": [
+        "Standard",
+        "Universal"
+      ],
+      "policy": "replace"
+    },
+    {
+      "path": "SKSE/Plugins/TheosRenderPipeline/Lang/zh-CN.ini",
+      "editions": [
+        "Standard",
+        "Universal"
+      ],
+      "policy": "preserve"
+    },
+    {
+      "path": "SKSE/Plugins/TheosRenderPipeline/RCAS.hlsl",
+      "editions": [
+        "Standard",
+        "Universal"
+      ],
+      "policy": "replace"
+    },
+    {
+      "path": "SKSE/Plugins/TheosRenderPipeline.ini",
+      "editions": [
+        "Standard",
+        "Universal"
+      ],
+      "policy": "preserve"
+    },
+    {
+      "path": "SKSE/Plugins/TheosRenderPipelineImGui.ini",
+      "editions": [
+        "Standard",
+        "Universal"
+      ],
+      "policy": "preserve"
+    }
+  ]
+}

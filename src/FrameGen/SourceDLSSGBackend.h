@@ -1,5 +1,8 @@
 #pragma once
 #include "SteadyPacing.h"
+#include "NeuralAdmission.h"
+#include "NeuralRecovery.h"
+#include "XeFGModelBeat.h"
 #include <chrono>
 #include "SourceRetirementPolicy.h"
 #include "PresentationVSync.h"
@@ -49,7 +52,12 @@ namespace TheosRenderPipeline::SourceDLSSG
 	{
 	public:
 		static Backend& Get();
-		void RequestProvider(FrameGenerationProvider provider) { if (ValidProvider(static_cast<int>(provider))) { requestedProvider_.store(provider); } }
+		void RequestProvider(FrameGenerationProvider provider) {
+			if (ValidProvider(static_cast<int>(provider))) {
+				requestedProvider_.store(nativePresenterFallback_ ? provider_ :
+					NormalizeProviderRequest(provider, !providerCapabilitiesKnown_ || NvidiaFrameGenerationAvailable()));
+			}
+		}
 		FrameGenerationProvider Provider() const { return provider_; }
 		FrameGenerationProvider RequestedProvider() const { return requestedProvider_.load(); }
 		const XeFGSnapshot& XeFGState() const { return xefg_.Snapshot(); }
@@ -94,7 +102,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		bool StartupTransport() const { return startupTransport_; }
 		// CPU time of one host Present split into its phases: input/output
 		// recording, the presenter's own Present, and retirement/replacement.
-		void ObservePresentTiming(double prepareMs, double presentMs, double finishMs);
+		void ObservePresentTiming(double prepareMs, double presentMs, double finishMs, double hostStartUs, double innerStartUs);
 		// After AfterPresent: a switch will replace the presenter at this boundary.
 		bool ProviderSwitchPending() const { return providerSwitchPending_; }
 		void ConfigureMFGUnlock(bool requested) { if (!attempted_) { mfgUnlock_.Configure(requested); } }
@@ -112,6 +120,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			ID3D11Texture2D* a_depth, ID3D11Texture2D* a_ui, ID3D11Texture2D* a_hudless,
 			FrameExtent a_renderExtent, UINT a_displayWidth, UINT a_displayHeight, bool a_neuralEligible = true);
 		void ConfigureNeuralRendering(NeuralOptions a_options);
+		void RequestNeuralRetry(); // Apply only; consumed at the next render boundary.
 		// Freeze NR settings before DLSS, optionally replace its D3D11 input, and
 		// return a shared history reset. A null camera skips the early NR stage.
 		bool EvaluateNeuralBeforeUpscaling(const NeuralOptions& options, const sl::Constants* camera,
@@ -125,6 +134,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		void ConfigureNeuralCompare(NeuralRendering::CompareSettings a_compare);
 		NeuralRendering::CompareSettings NeuralCompare() const;
 		int NeuralComputeCapability() const;
+        NeuralRendering::NeuralCapability CheckNeuralAdmission(const NeuralOptions& options, unsigned width, unsigned height, bool log = false);
 		NeuralSnapshot NeuralState() const;
 		bool ConfigureReflex(sl::ReflexMode a_mode)
 		{
@@ -156,6 +166,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// input copies instead of draining every host lane on the CPU.
 		void ConfigureXeFGGpuInputWait(bool a_enabled) { xefgGpuInputWait_.store(a_enabled, std::memory_order_relaxed); }
 		bool XeFGGpuInputWait() const { return xefgGpuInputWait_.load(std::memory_order_relaxed); }
+		void ConfigureXeFGModelBeat(bool enabled) { xefgModelBeatRequested_.store(enabled, std::memory_order_relaxed); }
+		bool XeFGModelBeatRequested() const { return xefgModelBeatRequested_.load(std::memory_order_relaxed); }
+		const char* XeFGModelBeatUnavailable() const;
 		// Lab A/B, not saved: NVIDIA's next frame waits for frame generation's
 		// inputs only where TRP first writes a shared texture, not at its start.
 		void ConfigureNvidiaOverlapNextFrame(bool a_enabled) { nvidiaOverlapNextFrame_.store(a_enabled, std::memory_order_relaxed); }
@@ -222,6 +235,15 @@ namespace TheosRenderPipeline::SourceDLSSG
 		const XeSSUpscaler& XeSS() const { return xess_; }
 		ID3D12Device* Device12() const { return device12_.Get(); }
 		bool NvidiaAdapter() const { return adapterVendor_ == 0x10DE; }
+		bool NvidiaFeaturesAvailable() const {
+#if !defined(TRP_NO_NEURAL_RENDERING)
+            return neuralCapability_.NvidiaFeatures();
+#else
+            return NvidiaAdapter() && !pascalResearch_;
+#endif
+        }
+		bool NvidiaFrameGenerationAvailable() const { return NvidiaFeaturesAvailable() && !FrameGenerationUnsupportedReported(); }
+		bool PascalResearchActive() const { return pascalResearch_; }
 		HRESULT BeforePresent(ID3D12Resource* a_source, ID3D12Resource* a_destination, DXGI_COLOR_SPACE_TYPE a_colorSpace);
 		HRESULT AfterPresent(HRESULT a_result);
 #if defined(ARP_DEVELOPER_DIAGNOSTICS)
@@ -237,6 +259,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		bool startupTransport_{}, presenterAttempted_{};
 		std::uint32_t transportFrame_{};
 		std::string startupFailure_;
+		bool pascalResearch_{};
 		bool Load(const std::filesystem::path& a_directory);
 		bool InitializeNvidia(const std::filesystem::path& directory);
 		bool UpgradeNvidiaFactory();
@@ -253,9 +276,10 @@ namespace TheosRenderPipeline::SourceDLSSG
 			DXGI_FORMAT a_format = DXGI_FORMAT_UNKNOWN, FrameExtent a_extent = {}, bool a_optional = false);
 		bool CopyDepth(ID3D11Texture2D* a_depth);
 		void ReleaseGuides();
-		bool RecreateNeuralIfNeeded(const NeuralOptions& options);
-		bool FailNeuralRecording();
-		const char* NeuralUnavailableReason(const NeuralOptions& options);
+		bool RecreateNeuralIfNeeded(const NeuralOptions& options, FrameExtent guideExtent = {});
+		bool FailNeuralRecording(std::string failure = {});
+		void ApplyNeuralRetry(const NeuralOptions& options, FrameExtent sceneExtent = {});
+		const char* NeuralUnavailableReason(const NeuralOptions& options, FrameExtent sceneExtent = {});
 		void RecordPresentationFeedback(std::uint32_t a_presentCount,
 			std::int64_t a_observedQpc, std::int64_t a_syncQpc);
 		void ResetPresentationFeedback();
@@ -296,7 +320,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		DXGI_SWAP_CHAIN_DESC presenterDesc_{};
 		std::string providerStatus_{"NVIDIA presenter"};
 		bool providerSwitchPending_{}, cameraAvailable_{}, recreateXeFG_{}, nvidiaNeedsPresent_{};
-		bool nativePresenterFallback_{}, fallbackPrepared_{};
+		bool providerCapabilitiesKnown_{}, nativePresenterFallback_{}, fallbackPrepared_{};
 		PresenterReplacement presenterReplacement_;
 		FrameGenerationProvider replacementProvider_{FrameGenerationProvider::XeFG};
 		std::uint32_t replacementFrame_{};
@@ -317,6 +341,16 @@ namespace TheosRenderPipeline::SourceDLSSG
 		std::uint64_t frameGenerationTimingKey_{ ~0ull }; // Present thread; the configuration being timed.
 		// Per-window CPU samples for the input-reuse A/B; logged and cleared every 600 presents.
 		std::vector<float> xefgReuseMs_, xefgSleepMs_;
+		std::atomic<bool> xefgModelBeatRequested_{};
+		XeFGModelBeat xefgModelBeat_;
+		NRModelActivity xefgFrameModel_{};
+		std::uint32_t xefgFrameId_{};
+		bool xefgBeatPaced_{}, xefgFrameAlternate_{};
+		double xefgBeatHoldMs_{}, xefgFrameReuseMs_{};
+		std::chrono::steady_clock::time_point xefgSubmitTime_{};
+		double xefgPreviousHostUs_{}, xefgPreviousInnerUs_{};
+		std::uint64_t xefgTraceFrames_{};
+		bool xefgTraceRequested_{};
 		bool xefgReuseWindowGpu_{};
 		SlowPresentGate slowPresent_;
 		ID3D12PipelineLibrary* IntelPipelines(PipelineCache& cache, const char* name, HMODULE runtime);
@@ -372,6 +406,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// Each refused runtime with the note shown while it stays selected.
 		std::vector<std::pair<std::filesystem::path, std::string>> neuralRefusedRuntimes_; // Protected by neuralMutex_.
 		int neuralComputeCapability_{ -1 };
+        NeuralRendering::NeuralCapability neuralCapability_{};
+        NeuralRendering::NeuralAdmissionCache neuralAdmissionCache_;
+        std::string neuralAdmissionReason_;
 		std::filesystem::path neuralLoggedRuntime_; // Last runtime Automatic or a fallback chose.
 		// Requires neuralMutex_. Picks Automatic's runtime for this GPU once the
 		// device exists, and replaces a refused runtime with Automatic's choice.
@@ -381,7 +418,6 @@ namespace TheosRenderPipeline::SourceDLSSG
 		void RefuseNeuralRuntime(const std::filesystem::path& runtime, const std::string& reason, std::string_view advice);
 		// After a failed NR Record: true when NGX refused to create the feature,
 		// so nothing was recorded and NR moves to the next runtime instead of failing.
-		bool RefuseNeuralCreation(const std::filesystem::path& runtime);
 #endif
 		std::unique_ptr<HDRPass> hdrPass_;
 		// Renderer-owned HDR output (render thread except the guarded settings/state).
@@ -412,9 +448,12 @@ namespace TheosRenderPipeline::SourceDLSSG
 		NeuralRendering::CompareSettings neuralCompare_; // Protected by neuralMutex_.
 		NeuralOptions frameNeuralOptions_;
 		NeuralSnapshot neuralSnapshot_;
+		NeuralRendering::Recovery neuralRecovery_;
+		std::atomic<bool> neuralRetryRequested_{};
 		sl::Constants frameConstants_{};
 		bool neuralEligible_{};
 		bool frameNeuralReset_{};
+		bool neuralRecoveryReset_{};
 		bool frameNeuralModelChanged_{};
 		bool neuralFrameBegun_{}, neuralEvaluatedEarly_{};
 		Microsoft::WRL::ComPtr<ID3D11Texture2D> uiSource_;

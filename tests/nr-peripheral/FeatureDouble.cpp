@@ -1,5 +1,7 @@
 #include "FrameGen/NeuralRenderingFeatureSession.h"
 #include "FeatureDouble.h"
+#include "FrameGen/NeuralFaultInjection.h"
+#include "FrameGen/NeuralLaunchSubmission.h"
 #include <cstdio>
 #include <cstdlib>
 #include <utility>
@@ -129,10 +131,16 @@ bool FeatureSession::RecordEvaluation(const EvaluationInput& in) {
     for (auto& v:b) std::swap(v.Transition.StateBefore,v.Transition.StateAfter);
     in.commandList->ResourceBarrier(2,b);
     }
+    if (FaultInjection::Hit(FaultInjection::Point::Evaluate)) {
+        RejectedNeuralLists::Get().Reject(in.commandList);
+        state_->status="injected Evaluate refusal"; return false;
+    }
     ++state_->evaluations; ++Fixture::evaluations; Fixture::resets+=in.reset; Fixture::motions.push_back(in.motionVectors);
     Fixture::evaluatedFeatures.emplace_back(state_->index, in.reset);
     return true;
 }
+bool FeatureSession::RecoverySafe() const { return !Fixture::uncertainCreation; }
+bool FeatureSession::ReleaseAfterRetirement() { return !Fixture::refuseRetirement; }
 bool FeatureSession::IsInitialized() const {return state_->initialized;}
 std::uint32_t FeatureSession::RefusedCreation() const {return state_->refused?0xBAD00002u:0u;}
 RuntimeBuild FeatureSession::Build() const {return RuntimeBuild::Nexus3108;}

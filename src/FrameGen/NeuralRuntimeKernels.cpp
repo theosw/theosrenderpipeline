@@ -1,5 +1,8 @@
 #include "NeuralRuntimeKernels.h"
+#include "NeuralAdmission.h"
 #include "NeuralRuntimeKernelsInternal.h"
+#include "NeuralRuntimeKernelRegistry.h"
+#include "NeuralFaultInjection.h"
 
 #include <bcrypt.h>
 #include <algorithm>
@@ -19,9 +22,8 @@ namespace TheosRenderPipeline::NeuralRendering
         using namespace KernelPacks;
         // Pinning the image also prevents HMODULE address reuse. The raw storage
         // intentionally has process lifetime, including failed feature retirement.
-        struct Installation { void* storage{}; std::vector<Patch> plan; RuntimeKernelResult result; };
         std::mutex installationMutex;
-        std::map<HMODULE, Installation> installations;
+        InstallationRegistry installations;
 
         bool Copy(void* destination, const void* source, std::size_t size)
         {
@@ -75,14 +77,18 @@ namespace TheosRenderPipeline::NeuralRendering
                 if (!ok) { failedOperation = "protection readback"; failedRva = page; error = GetLastError(); observed = info.Protect; expected = protection; }
                 return ok;
             }
-            bool Flush() override { return FlushInstructionCache(GetCurrentProcess(), base, ImageSize) != 0; }
+            bool Flush() override
+            {
+                if (FaultInjection::Hit(FaultInjection::Point::KernelPublication)) { return false; }
+                return FlushInstructionCache(GetCurrentProcess(), base, ImageSize) != 0;
+            }
         };
 
-        bool HashIs(std::span<const std::uint8_t> bytes, std::string_view expected)
+        std::string Digest(std::span<const std::uint8_t> bytes)
         {
             BCRYPT_ALG_HANDLE algorithm{};
             BCRYPT_HASH_HANDLE hash{};
-            if (bytes.size() > ULONG_MAX || BCryptOpenAlgorithmProvider(&algorithm, BCRYPT_SHA256_ALGORITHM, nullptr, 0) < 0) { return false; }
+            if (bytes.size() > ULONG_MAX || BCryptOpenAlgorithmProvider(&algorithm, BCRYPT_SHA256_ALGORITHM, nullptr, 0) < 0) { return {}; }
             std::array<std::uint8_t, 32> digest{};
             bool ok = BCryptCreateHash(algorithm, &hash, nullptr, 0, nullptr, 0, 0) >= 0;
             if (ok) { ok = BCryptHashData(hash, const_cast<PUCHAR>(bytes.data()), static_cast<ULONG>(bytes.size()), 0) >= 0; }
@@ -90,12 +96,14 @@ namespace TheosRenderPipeline::NeuralRendering
             if (hash) { BCryptDestroyHash(hash); }
             BCryptCloseAlgorithmProvider(algorithm, 0);
             constexpr char hex[] = "0123456789ABCDEF";
-            if (!ok || expected.size() != digest.size()*2) { return false; }
+            if (!ok) { return {}; }
+            std::string result(64, '0');
             for (std::size_t i = 0; i < digest.size(); ++i) {
-                if (hex[digest[i] >> 4] != expected[2*i] || hex[digest[i] & 15] != expected[2*i+1]) { return false; }
+                result[2*i] = hex[digest[i] >> 4]; result[2*i+1] = hex[digest[i] & 15];
             }
-            return true;
+            return result;
         }
+        bool HashIs(std::span<const std::uint8_t> bytes, std::string_view expected) { return expected.size() == 64 && Digest(bytes) == expected; }
 
         struct File
         {
@@ -176,7 +184,7 @@ namespace TheosRenderPipeline::NeuralRendering
 
         struct FreeStorage { void operator()(void* address) const { if (address) { VirtualFree(address, 0, MEM_RELEASE); } } };
         using Storage = std::unique_ptr<void, FreeStorage>;
-        Storage NearbyStorage(std::uintptr_t module)
+        Storage NearbyStorage(std::uintptr_t module, std::size_t PackSize)
         {
             SYSTEM_INFO system{};
             GetSystemInfo(&system);
@@ -208,54 +216,103 @@ namespace TheosRenderPipeline::NeuralRendering
         }
     }
 
-    bool RuntimeKernelsSupported() { return true; }
+    bool RuntimeKernelsSupported() {
+#if defined(TRP_STANDARD_RESEARCH)
+        return false;
+#else
+        return true;
+#endif
+    }
 
-    RuntimeKernelResult ApplyRuntimeKernels(HMODULE module, const std::filesystem::path& packPath, bool newlyLoaded)
+    LaunchRequirements RuntimeLaunchRequirements(HMODULE module)
+    {
+        std::scoped_lock lock(installationMutex);
+        const auto* installed = installations.Find(module);
+        return installed && installed->result.applied ? installed->launches : LaunchRequirements{};
+    }
+
+    int RuntimeKernelBundle(HMODULE module, const void* data, std::uint32_t bytes)
+    {
+        std::scoped_lock lock(installationMutex);
+        const auto* installed = installations.Find(module);
+        if (!installed || !installed->result.applied) { return -1; }
+        const auto* pack = static_cast<const std::uint8_t*>(installed->storage);
+        for (int i=0; i<15; ++i) {
+            std::uint64_t offset{}, size{};
+            std::memcpy(&offset, pack+48+i*24+8, 8);
+            std::memcpy(&size, pack+48+i*24+16, 8);
+            if (data == pack+offset && size == bytes) { return i; }
+        }
+        return -1;
+    }
+
+    RuntimeKernelResult ApplyRuntimeKernels(HMODULE module, const std::filesystem::path& packPath, bool newlyLoaded, bool research)
     {
         using namespace KernelPacks;
+#if defined(TRP_STANDARD_RESEARCH)
+        if (!research) { return {false, false, "NR 310.9.16 on RTX 20/30/40 needs the Universal edition"}; }
+#endif
+        const bool pascalPack = !research && packPath.filename() == kPascalPackName;
         std::scoped_lock lock(installationMutex);
         WinMemory memory(module);
-        if (auto it = installations.find(module); it != installations.end()) {
-            auto& installed = it->second;
+        return installations.Apply(module, newlyLoaded, [&](Installation& installed) -> std::optional<RuntimeKernelResult> {
+            if (!research && installed.digest != (pascalPack ? kPascalPackSha256 : kKernelPackSha256)) {
+                return RuntimeKernelResult{false, false, "a different NR compatibility pack is already installed; restart required"};
+            }
             if (installed.result.applied) {
                 MEMORY_BASIC_INFORMATION info{};
                 if (!Matches(memory, installed.plan, true) || !VirtualQuery(installed.storage, &info, sizeof(info)) ||
-                    info.State != MEM_COMMIT || info.Protect != PAGE_READONLY || info.RegionSize < PackSize ||
-                    !HashIs({static_cast<const std::uint8_t*>(installed.storage), PackSize}, kKernelPackSha256)) {
+                    info.State != MEM_COMMIT || info.Protect != PAGE_READONLY || info.RegionSize < installed.storageBytes ||
+                    !HashIs({static_cast<const std::uint8_t*>(installed.storage), installed.storageBytes}, installed.digest)) {
                     installed.result = {false, true, "installed NR runtime or storage changed; relaunch required"};
                 }
             }
-            return installed.result;
-        }
-        if (!module || !newlyLoaded) { return {false, false, "NR installation needs exclusive ownership of a fresh runtime; restart required"}; }
+            return std::nullopt;
+        }, [&](Installation*) -> RuntimeKernelResult {
         std::wstring filename(32768, L'\0');
         const auto length = GetModuleFileNameW(module, filename.data(), static_cast<DWORD>(filename.size()));
         if (!length || length >= filename.size()) { return {false, false, "cannot identify the loaded NR module"}; }
         filename.resize(length);
         File runtime(filename, 266424944);
-        File pack(packPath, PackSize);
+        std::error_code sizeError;
+        const auto packSize = research ? static_cast<std::size_t>(std::filesystem::file_size(packPath, sizeError)) : (pascalPack ? kPascalPackBytes : PackSize);
+        if (sizeError || packSize < 512 || packSize > ULONG_MAX) { return {false, false, "NR compatibility kernel pack is missing or outside supported size bounds"}; }
+        File pack(packPath, packSize);
         if (!runtime.data || !HashIs(runtime.Bytes(), kKernelRuntimeSha256)) { return {false, false, "loaded NR file is not the pinned NVIDIA 310.9.16 runtime"}; }
-        if (!pack.data || !HashIs(pack.Bytes(), kKernelPackSha256)) { return {false, false, "NR compatibility kernel pack is missing or its SHA-256 differs"}; }
+        // Research packs are unpinned; production packs must match their pinned hash.
+        if (!pack.data || (!research && !HashIs(pack.Bytes(), pascalPack ? kPascalPackSha256 : kKernelPackSha256))) { return {false, false, "NR compatibility kernel pack is missing or its SHA-256 differs"}; }
         if (!OriginalImage(memory, runtime.Bytes())) { return {false, false, "loaded NR image headers or original kernels differ"}; }
-        auto storage = NearbyStorage(reinterpret_cast<std::uintptr_t>(module));
+        auto storage = NearbyStorage(reinterpret_cast<std::uintptr_t>(module), packSize);
         if (!storage) { return {false, false, "no memory available within NR bundle instruction reach"}; }
-        std::memcpy(storage.get(), pack.data, PackSize);
+        std::memcpy(storage.get(), pack.data, packSize);
         DWORD old{};
-        if (!VirtualProtect(storage.get(), PackSize, PAGE_READONLY, &old)) { return {false, false, "NR compatibility kernel storage could not be made read-only"}; }
+        if (!VirtualProtect(storage.get(), packSize, PAGE_READONLY, &old)) { return {false, false, "NR compatibility kernel storage could not be made read-only"}; }
         Installation pending;
-        if (!MakePlan(pack.Bytes(), reinterpret_cast<std::uintptr_t>(module), reinterpret_cast<std::uintptr_t>(storage.get()), pending.plan, pending.result.status)) { return pending.result; }
+        pending.storageBytes = packSize;
+        pending.research = research;
+        pending.digest = Digest(pack.Bytes());
+        if (pending.digest.size() != 64) { return {false, false, "NR kernel pack hashing failed; NR off"}; }
+        if (!MakePlan(pack.Bytes(), reinterpret_cast<std::uintptr_t>(module), reinterpret_cast<std::uintptr_t>(storage.get()),
+                pending.plan, pending.result.status, packSize, research || pascalPack)) { return pending.result; }
+        std::uint32_t version{};
+        std::memcpy(&version, pack.data+8, 4);
+        if (version == 2) {
+            std::uint64_t offset{}, bytes{};
+            std::memcpy(&offset, pack.data+48+14*24+8, 8);
+            std::memcpy(&bytes, pack.data+48+14*24+16, 8);
+            if (!ReadLaunchRequirements(pack.Bytes().subspan(static_cast<std::size_t>(offset+bytes)), pending.launches, pending.result.status)) { return pending.result; }
+        }
         if (!Matches(memory, pending.plan, false)) { return {false, false, "original NR patch bytes differ"}; }
         // Allocate registry/status before publication. Pin before the first write
         // so both successful and uncertain transactions can retain all targets.
         pending.result.status.reserve(128);
-        auto [entry, inserted] = installations.emplace(module, std::move(pending));
-        HMODULE pinned{};
-        if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN,
-                reinterpret_cast<LPCWSTR>(module), &pinned) || pinned != module) {
-            installations.erase(entry);
-            return {false, false, "NR runtime could not be retained for the process lifetime"};
-        }
-        auto& installed = entry->second;
+        auto* entry = installations.Retain(module, std::move(pending), [&] {
+            HMODULE pinned{};
+            return GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN,
+                reinterpret_cast<LPCWSTR>(module), &pinned) && pinned == module;
+        });
+        if (!entry) { return {false, false, "NR runtime could not be retained for the process lifetime"}; }
+        auto& installed = *entry;
         const auto result = Publish(memory, installed.plan, installed.result.status);
         installed.result.applied = result == Publication::Applied;
         installed.result.unsafe = result == Publication::Unsafe;
@@ -265,5 +322,6 @@ namespace TheosRenderPipeline::NeuralRendering
                 memory.failedOperation, memory.failedRva, memory.error, memory.observed, memory.expected);
         }
         return installed.result;
+        });
     }
 }

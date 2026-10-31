@@ -10,6 +10,9 @@
 #include <chrono>
 #include <algorithm>
 #include "PresenterRebuildCases.h"
+#include "AlternatingLoad.h"
+#include "FrameGen/XeFGModelBeat.h"
+#include <thread>
 
 static void PrintTiming(const char* label, std::vector<double> values)
 {
@@ -39,6 +42,10 @@ int wmain(int argc, wchar_t** argv)
     std::setvbuf(stdout, nullptr, _IONBF, 0);
     Require(argc == 2 || argc == 3, "Intel runtime directory, optional NVIDIA runtime directory");
     const bool profile = GetEnvironmentVariableW(L"TRP_XEFG_PROFILE", nullptr, 0) != 0;
+    wchar_t beatText[32]{};
+    const bool beatTest = GetEnvironmentVariableW(L"TRP_XEFG_BEAT_TEST", beatText, 32) != 0;
+    const unsigned beatMode = beatTest ? std::wcstoul(beatText, nullptr, 10) : 0;
+    Require(beatMode <= 3, "beat mode 0=drain, 1=GPU wait, 2=queued beat, 3=drain beat");
     const bool tensorRequested = GetEnvironmentVariableW(L"TRP_XEFG_TENSOR_TEST", nullptr, 0) != 0;
     const bool debugEnabled = (!tensorRequested || GetEnvironmentVariableW(L"TRP_XEFG_REBUILD_TEST", nullptr, 0)) && GetEnvironmentVariableW(L"TRP_XEFG_NO_DEBUG", nullptr, 0) == 0;
     const bool fullscreen = GetEnvironmentVariableW(L"TRP_XEFG_METER_FULLSCREEN", nullptr, 0) != 0;
@@ -56,6 +63,9 @@ int wmain(int argc, wchar_t** argv)
     ComPtr<IDXGIAdapter1> adapter;
     Check(CreateDXGIFactory1(IID_PPV_ARGS(&factory)), "factory");
     Check(factory->EnumAdapters1(0, &adapter), "adapter");
+    DXGI_ADAPTER_DESC1 adapterDescription{};
+    Check(adapter->GetDesc1(&adapterDescription), "adapter identity");
+    std::printf("BEAT_ADAPTER vendor=%04X device=%04X flags=%u\n", adapterDescription.VendorId, adapterDescription.DeviceId, adapterDescription.Flags);
     ComPtr<ID3D11Device> d11;
     ComPtr<ID3D11DeviceContext> c11;
     ComPtr<ID3D12Device> d12;
@@ -63,6 +73,12 @@ int wmain(int argc, wchar_t** argv)
               adapter.Get(), D3D_DRIVER_TYPE_UNKNOWN, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION, &d11, nullptr, &c11),
         "D3D11");
     Check(D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(&d12)), "D3D12");
+    AlternatingLoad load;
+    if (beatTest) {
+        const double ms = GetEnvironmentVariableW(L"TRP_XEFG_BEAT_GPU_MS", beatText, 32) ? std::wcstod(beatText, nullptr) : 33;
+        Require(ms > 0 && ms <= 50, "short bounded load");
+        load.Initialize(d11.Get(), c11.Get(), ms);
+    }
     ComPtr<ID3D12InfoQueue> messages;
     if (debugEnabled) Check(d12.As(&messages), "debug messages");
     D3D12_COMMAND_QUEUE_DESC qd{};
@@ -149,7 +165,7 @@ int wmain(int argc, wchar_t** argv)
         Require(cycles >= 2 && cycles <= 8, "bounded lifecycle cycle count");
     }
     // Production Lab A/B: queue a D3D11 GPU wait for the input copies instead of CPU drains.
-    const bool gpuInputWait = GetEnvironmentVariableW(L"TRP_XEFG_GPU_INPUT_WAIT", nullptr, 0) != 0;
+    const bool gpuInputWait = GetEnvironmentVariableW(L"TRP_XEFG_GPU_INPUT_WAIT", nullptr, 0) != 0 || (beatTest && beatMode == 1);
     // Pacing experiment (TRP_XEFG_STALL_TEST, round 0, prints Present times; not asserted):
     // 1 = six 500 ms frames while generating (9-14); 2 = the same during passthrough
     // before generation (2-7); 3 = like 1, then passthrough for frames 15-24.
@@ -160,6 +176,8 @@ int wmain(int argc, wchar_t** argv)
     std::printf("owner cycles=%u releaseRetiredNvidia=%u experimental=%u inputReuse=%s\n", cycles, releaseNvidia,
         experimental, gpuInputWait ? "gpu-fence" : "cpu-drain");
     for (unsigned round = 0; round < cycles; ++round) {
+        TheosRenderPipeline::XeFGModelBeat beat;
+        std::chrono::steady_clock::time_point previousPresent{};
         if (expectedUpdateFailure) SetEnvironmentVariableW(L"TRP_XEFG_PACING_FAULT",nullptr);
         ComPtr<IDXGISwapChain> native;
         Check(presentingFactory->CreateSwapChain(queue.Get(), &desc, &native), "native before Intel");
@@ -205,7 +223,7 @@ int wmain(int argc, wchar_t** argv)
                     TranslateMessage(&message);
                     DispatchMessageW(&message);
                 }
-                if (!gpuInputWait) Check(interop.Drain(), "producer reuse");
+                if (!gpuInputWait && !(beatTest && beatMode == 2 && beat.TargetUs() > 0)) Check(interop.Drain(), "producer reuse");
                 input.Paint(c11.Get(), frame);
                 std::vector<uint16_t> motions(width * height * 2, 0);
                 for (size_t i = 0; i < motions.size(); i += 2)
@@ -229,6 +247,14 @@ int wmain(int argc, wchar_t** argv)
                 camera.depthInverted = round == 1 ? sl::eTrue : sl::eFalse;
                 camera.reset = frame == 8 || frame == 45 ? sl::eTrue : sl::eFalse;
                 // Round 1 sends the measured frame time; round 0 leaves Intel's estimate.
+                if (beatTest) {
+                    if (!(frame % 2)) {
+                        load.Record(c11.Get());
+                        c11->Flush(); // Start the load before the overlapping CPU interval.
+                    }
+                    // CPU game work overlaps the queued synthetic model.
+                    Sleep(14);
+                }
                 Check(presenter.Prepare(camera, round == 1), "production camera");
                 Require(presenter.Snapshot().prepared, "depth convention");
                 // Intervals over 250 ms (a slow profile frame, or a multiplier change that
@@ -271,12 +297,23 @@ int wmain(int argc, wchar_t** argv)
                 const unsigned rising = std::min(1u + frame / 18u, maximum);
                 const unsigned count = !experimental ? 1u : round == 0 && frame >= 80 ? (frame < 96 ? 1u : 3u) : rising;
                 Check(presenter.BeforePresent(list, input.motion.texture12.Get(), input.depth.texture12.Get(),
-                          input.hudless.texture12.Get(), ui, enable, true, profile ? 0 : 60, count),
+                          input.hudless.texture12.Get(), ui, enable, true, profile || beatTest ? 0 : 60, count),
                     "production preparation");
                 Require(presenter.Snapshot().uiTexture == uiExpected,
                     "UI layer tagged only when it matches the HUD-less layer");
                 if (uiExpected) ++uiTagged;
                 Check(interop.Submit(Work::SwapChain), "submit SDK copies");
+                double holdMs{};
+                if (beatTest && (beatMode == 2 || beatMode == 3) && enable) {
+                    const auto ready = std::chrono::steady_clock::now();
+                    const auto d = beat.Plan(std::chrono::duration<double, std::micro>(ready.time_since_epoch()).count(),
+                        frame % 2 ? TheosRenderPipeline::NRModelActivity::Skipped : TheosRenderPipeline::NRModelActivity::Ran);
+                    std::this_thread::sleep_until(std::chrono::steady_clock::time_point(
+                        std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<double, std::micro>(d.deadlineUs))));
+                    const auto released = std::chrono::steady_clock::now();
+                    holdMs = std::chrono::duration<double, std::milli>(released - ready).count();
+                    beat.Released(std::chrono::duration<double, std::micro>(released.time_since_epoch()).count());
+                } else if (beatTest && !enable) beat.Reset();
                 back.Reset();
                 Check(presenter.FinalizePresent(), "markers after queue submission");
                 if (round == 0 && ((stallMode == 1 || stallMode == 3) ? frame >= 9 && frame < 15 : stallMode == 2 && frame >= 2 && frame < 8))
@@ -347,9 +384,20 @@ int wmain(int argc, wchar_t** argv)
                     SetEnvironmentVariableW(L"TRP_XEFG_PACING_FAULT",nullptr);
                 }
                 const auto retirementStart = std::chrono::steady_clock::now();
-                Check(gpuInputWait ? interop.WaitD3D11(Work::SwapChain) : interop.Drain(),
+                const bool queued = gpuInputWait || (beatTest && beatMode == 2 && beat.TargetUs() > 0);
+                Check(queued ? interop.WaitD3D11(Work::SwapChain) : interop.Drain(),
                     gpuInputWait ? "ONLY_NOW input reuse GPU wait" : "retire ONLY_NOW copies");
                 const auto retirementEnd = std::chrono::steady_clock::now();
+                if (beatTest) {
+                    const auto cadence = previousPresent == std::chrono::steady_clock::time_point{} ? 0. :
+                        std::chrono::duration<double, std::milli>(presentStart - previousPresent).count();
+                    previousPresent = presentStart;
+                    std::printf("BEAT_FRAME round=%u frame=%u model=%s queued=%u cadenceMs=%.3f presentMs=%.3f reuseMs=%.3f beginSleepMs=%.3f holdMs=%.3f targetMs=%.3f outputs=%u batchStart=unavailable outputSpacing=unavailable\n",
+                        round, frame, frame % 2 ? "skipped" : "ran", queued, cadence,
+                        std::chrono::duration<double, std::milli>(presentEnd - presentStart).count(),
+                        std::chrono::duration<double, std::milli>(retirementEnd - retirementStart).count(), presenter.Snapshot().sleepMs, holdMs,
+                        beat.TargetUs()/1000, presenter.Snapshot().framesPresented);
+                }
                 if (profile && enable && frame >= 24) {
                     presentTimes.push_back(
                         std::chrono::duration<double, std::milli>(presentEnd - presentStart).count());
@@ -360,7 +408,7 @@ int wmain(int argc, wchar_t** argv)
                 Require(state.framesPresented >= 1 && state.framesPresented <= state.generatedFrames + 1,
                     "selected count bounds");
                 if (!enable) Require(state.framesPresented == 1, "off passthrough");
-                Require(state.frameLimitUs == (profile ? 0 : 16667), "output cap remains independent of ratio");
+                Require(state.frameLimitUs == (profile || beatTest ? 0 : 16667), "output cap remains independent of ratio");
                 Require(state.maxGeneratedFrames == (state.tensorModel || (experimental && !expectRefusal && round < 2) ? maximum : 1u),
                     "opt-in capacity, including disable after resident unlock");
                 if (expectRefusal)

@@ -58,6 +58,16 @@ namespace TheosRenderPipeline::SourceDLSSG
 		bool operator==(const NeuralOptions&) const = default;
 	};
 
+    inline NeuralOptions NormalizeNeuralRoute(NeuralOptions options, bool communityShaders)
+    {
+        options.worldOnly = communityShaders;
+        if (communityShaders) {
+            options.tuning.uiCorrection = false;
+            options.reconstruction.producerColor = options.beforeUpscaling;
+        }
+        return options;
+    }
+
 	inline NeuralOptions SanitizeNeuralOptions(NeuralOptions options)
 	{
 		options.tuning = NeuralRendering::SanitizeBuild14Tuning(options.tuning);
@@ -78,6 +88,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 	struct NeuralSnapshot
 	{
 		bool active{ false }, failed{ false };
+		// Post-admission status only; requested/saved options are never masked.
+		bool sessionDisabled{}, retryable{};
+		std::string reason;
 		int effectivePasses{1};
 		NeuralRendering::PassOverride passOverride{NeuralRendering::PassOverride::None};
 		std::uint64_t evaluations{}, resets{};

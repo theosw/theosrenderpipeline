@@ -1,4 +1,6 @@
 #include "RendererSettings.h"
+#include "FrameGen/NeuralAdmission.h"
+#include "FrameGen/NeuralRecovery.h"
 #include "RendererSettingsAction.h"
 #include <SimpleIni.h>
 #include <iostream>
@@ -8,6 +10,60 @@
 using namespace TheosRenderPipeline;
 namespace {
 void Require(bool value, const char* message) { if (!value) { throw std::runtime_error(message); } }
+void PascalAdmission()
+{
+    using namespace SourceDLSSG;
+    RendererSettingsDraft current; current.valid = true; current.upscaleType = XeSS;
+    current.sourceDLSSG.neuralEnabled = true;
+    current.sourceDLSSG.neuralPasses = 3;
+    RendererSettingsCapabilities capabilities{true, true, true, false};
+    capabilities.nvidiaFeatures = false;
+    for (const auto* reason : {NeuralRendering::kPascalEditionReason, NeuralRendering::kPascalDriverReason,
+            NeuralRendering::kPascalAssetReason, NeuralRendering::kPascalBudgetReason}) {
+        capabilities.neuralAdmissionReason = reason;
+        Require(NeuralSettingsUnavailable(XeSS, capabilities) == reason, "menu and Apply use the same admission reason");
+        Require(!CanEditNeuralEnabled(false, NeuralSettingsUnavailable(XeSS, capabilities) == nullptr), "unavailable NR Enable row is greyed");
+        Require(!ValidateRendererSettings(current, capabilities, &current), "unchanged unavailable preference allows unrelated save");
+        CSimpleIniA ini;
+        StorePreferences(ini, current.sourceDLSSG);
+        const auto saved = LoadPreferences(ini);
+        Require(saved.neuralEnabled && saved.neuralPasses == 3, "unavailable NR preference survives save/reload");
+        auto draft = current; draft.sourceDLSSG.neuralPasses = 4;
+        Require(ValidateRendererSettings(draft, capabilities, &current) == reason, "unavailable pass edits refuse with capability reason");
+        draft = current; draft.sourceDLSSG.neuralEnabled = false;
+        Require(!ValidateRendererSettings(draft, capabilities, &current), "turning unavailable NR off still applies");
+    }
+    capabilities.neuralAdmissionReason = nullptr;
+    current.sourceDLSSG.neuralEnabled = false;
+    auto draft = current; draft.sourceDLSSG.neuralEnabled = true;
+    Require(!ValidateRendererSettings(draft, capabilities, &current), "Enable applies independently of NVIDIA FG availability");
+    Require(draft.sourceDLSSG.neuralPasses == current.sourceDLSSG.neuralPasses &&
+        draft.sourceDLSSG.provider == current.sourceDLSSG.provider &&
+        draft.sourceDLSSG.neuralBeforeUpscaling == current.sourceDLSSG.neuralBeforeUpscaling &&
+        draft.sourceDLSSG.neuralReconstruction.modelRate == current.sourceDLSSG.neuralReconstruction.modelRate,
+        "NR enable preserves passes, placement, provider and model rate");
+}
+void AdmissionRefusedRetry()
+{
+    using namespace NeuralRendering;
+    RendererSettingsDraft current; current.valid = true; current.upscaleType = XeSS;
+    current.sourceDLSSG.neuralEnabled = true;
+    const auto draft = current;
+    RendererSettingsCapabilities capabilities{true,true,true,false};
+    Recovery recovery;
+    Require(recovery.Refuse("Evaluate refused", [] { return true; }, [] { return true; }, [] { return true; }, [] { return true; }),
+        "safe runtime refusal retires owner");
+    capabilities.neuralAdmissionReason = kPascalBudgetReason;
+    Require(!ValidateRendererSettings(draft, capabilities, &current), "unchanged draft allows unrelated settings action");
+    Require(!ShouldRequestNeuralRetry(false, true, XeSS, capabilities), "admission-refused Apply does not queue retry");
+    Require(!recovery.Retry(NeuralSettingsUnavailable(XeSS,capabilities) == nullptr) && recovery.Retryable() && recovery.reason == "Evaluate refused",
+        "refused admission retains the runtime failure and retry affordance");
+    Require(CountRendererSettingsChanges(draft,current) == 0 && recovery.Retryable(), "unchanged Apply stays available");
+    capabilities.neuralAdmissionReason = nullptr;
+    Require(!ShouldRequestNeuralRetry(true,true,XeSS,capabilities) && recovery.Retryable(), "Save-only never requests or consumes recovery");
+    Require(ShouldRequestNeuralRetry(false,true,XeSS,capabilities) && recovery.Retry(true), "recovered admission allows unchanged Apply to retry");
+    Require(!recovery.Disabled() && recovery.reason.empty() && draft.sourceDLSSG.neuralEnabled, "successful retry preserves requested preference");
+}
 void Feedback()
 {
     for (const bool save : {false, true}) {
@@ -131,6 +187,16 @@ void Neural()
         draft.sourceDLSSG.neuralEnabled = false; draft.upscaleType = DLSS;
         Require(ValidateRendererSettings(draft, amd), "unsupported DLSS startup cannot be saved on a non-NVIDIA GPU");
     }
+    {
+        RendererSettingsDraft draft; draft.valid = true; draft.upscaleType = XeSS;
+        draft.sourceDLSSG.neuralEnabled = true;
+        RendererSettingsCapabilities pascalHost{true, true, true, false};
+        pascalHost.nvidiaFeatures = false;
+        Require(!ValidateRendererSettings(draft, pascalHost), "research NR with XeSS applies without DLSS services");
+        Require(!NeuralSettingsUnavailable(XeSS, pascalHost), "NR controls stay usable independently of DLSS availability");
+        draft.upscaleType = DLSS;
+        Require(ValidateRendererSettings(draft, pascalHost), "unavailable DLSS cannot apply on research GTX host");
+    }
     RendererSettingsDraft current; current.valid = true; current.sourceDLSSG.neuralEnabled = true;
     auto draft = current; draft.upscaleType = DLAA; draft.qualityLevel = 4;
     RendererSettingsCapabilities lostUI{true,true,false,false};
@@ -161,6 +227,6 @@ void Neural()
 }
 int main()
 {
-    try { Feedback(); Generation(); MenuKey(); Neural(); std::cout << "PASS: visible/logged rejection, generation round trips, menu key and NR capability loss\n"; return 0; }
+    try { AdmissionRefusedRetry(); PascalAdmission(); Feedback(); Generation(); MenuKey(); Neural(); std::cout << "PASS: visible/logged rejection, generation round trips, menu key and NR capability loss\n"; return 0; }
     catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }

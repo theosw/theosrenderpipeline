@@ -66,6 +66,9 @@ namespace TheosRenderPipeline::NeuralRendering
 		RuntimeBuild Build() const;
 		// Caller must first prove every list using this feature has retired.
 		bool ResetAfterRetirement();
+		bool RecoverySafe() const;
+		// Release the complete vendor owner, retaining it on ANY teardown refusal.
+		bool ReleaseAfterRetirement();
 		std::uint64_t EvaluationsRecorded() const;
 		const std::string& Status() const;
 

@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <string>
 #include <string_view>
+#include "NeuralLaunchRequirements.h"
 
 namespace TheosRenderPipeline::NeuralRendering
 {
@@ -24,7 +25,8 @@ namespace TheosRenderPipeline::NeuralRendering
 		return capability == 75 || capability == 86 || capability == 89;
 	}
 
-	// False in Standard, which never patches the runtime.
+	// False in Standard, including its opt-in Pascal research build; only an
+	// explicit research installation may bypass Standard's normal refusal.
 	bool RuntimeKernelsSupported();
 
 	struct RuntimeKernelResult
@@ -39,5 +41,9 @@ namespace TheosRenderPipeline::NeuralRendering
 	// newlyLoaded must be false if the image was resident before its LoadLibrary.
 	// Only a fresh module or our recorded installation is accepted. Installed
 	// modules and read-only packs stay resident for the process lifetime.
-	RuntimeKernelResult ApplyRuntimeKernels(HMODULE a_module, const std::filesystem::path& a_pack, bool newlyLoaded);
+	// research: an unpinned pack (TRP_NR_PASCAL_PACK) and GTX 10 admission.
+	RuntimeKernelResult ApplyRuntimeKernels(HMODULE a_module, const std::filesystem::path& a_pack, bool newlyLoaded,
+		bool research = false);
+	LaunchRequirements RuntimeLaunchRequirements(HMODULE module);
+	int RuntimeKernelBundle(HMODULE module, const void* data, std::uint32_t bytes);
 }

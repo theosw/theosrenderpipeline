@@ -3,6 +3,8 @@
 #include <SimpleIni.h>
 #include "OverlayHotkeys.h"
 #include "NvidiaBaselinePolicy.h"
+#include "FrameGen/NRRenderSize.h"
+#include <cmath>
 #include <iostream>
 #include <stdexcept>
 
@@ -25,6 +27,32 @@ void CheckRoute(bool requested, midpoint_fix::AdapterKind adapter,
 int main(int argc, char** argv)
 {
     try {
+        {
+            using namespace TheosRenderPipeline;
+            using namespace NeuralRendering;
+            CSimpleIniA ini;
+            Require(ini.LoadFile(argv[1]) >= 0, "load packaged startup defaults for NR-off allocation");
+            auto preferences = SourceDLSSG::LoadPreferences(ini);
+            Require(!preferences.neuralEnabled, "packaged NR starts off");
+            struct Placement { bool enabled, beforeUpscaling; } nr{preferences.neuralEnabled, preferences.neuralBeforeUpscaling};
+            const FrameExtent nominal{753,424}, output{1280,720};
+            const UpscalerInputResolution range{nominal,{640,360},output};
+            const auto allocated = SelectNRFriendlyRenderSize(nominal,output,range,StartupRenderSizePolicy(true,true,nr,2));
+            Require(allocated.width == 768 && allocated.height == 432, "NR-off startup reserves qualified extent");
+            const auto bias = std::log2(float(allocated.width) / output.width);
+            for (const bool enabled : {false,true,false}) {
+                preferences.neuralEnabled = enabled;
+                SourceDLSSG::StorePreferences(ini,preferences);
+                std::string bytes; ini.Save(bytes);
+                CSimpleIniA reload; Require(reload.LoadData(bytes.c_str()) >= 0,"reload startup preferences");
+                preferences = SourceDLSSG::LoadPreferences(reload);
+                const auto restored = ReloadNRRenderSizeMipBias(0.0f,true,true,true,bias);
+                Require(preferences.neuralEnabled == enabled && std::abs(restored - std::log2(0.6f)) < 0.00001f &&
+                    allocated.width == 768 && allocated.height == 432, "NR off/on/reload preserves allocation and XeSS bias");
+                Require(ReloadNRRenderSizeMipBias(-0.25f,false,true,true,bias) == -0.25f, "manual mip bias survives reload");
+                Require(ReloadNRRenderSizeMipBias(0.0f,true,true,false,bias) == 0.0f, "pending upscaler cannot publish computed bias");
+            }
+        }
         CSimpleIniA intel;
         intel.SetLongValue("Settings", "UpscaleType", XeSS);
         Require(!TheosRenderPipeline::ValidateNvidiaBaseline(intel), "XeSS is admitted without selecting a legacy renderer");

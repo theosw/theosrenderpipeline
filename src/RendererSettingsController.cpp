@@ -50,6 +50,10 @@ RendererSettingsDraft RendererSettingsController::Capture([[maybe_unused]] bool 
     settingsDraft.directRCASOutput = performanceSettings.directRCASOutput;
     settingsDraft.directDLSSOutput = performanceSettings.directDLSSOutput;
     settingsDraft.sourceDLSSG = frameGen_.settings.sourceDLSSG;
+    if (host_.StartupConfigured() && !SourceDLSSG::Backend::Get().NvidiaFrameGenerationAvailable()) {
+        // Present the session choice without changing the loaded/saved defaults.
+        settingsDraft.sourceDLSSG.provider = NormalizeProviderRequest(settingsDraft.sourceDLSSG.provider, false);
+    }
     settingsDraft.appearance = Appearance::Runtime::Get().Configuration();
     // An NR request whose runtime is missing stays as saved: the switch can still
     // turn it off, its other rows are locked, validation keeps the unchanged
@@ -90,13 +94,25 @@ RendererSettingsResult RendererSettingsController::Apply(const RendererSettingsD
     const bool sourceUpscaler = host_.StartupConfigured();
     RendererSettingsCapabilities capabilities{sourceUpscaler, false, host_.DedicatedUITextureMode(), CommunityShaders::Active()};
     capabilities.nvidiaAdapter = SourceDLSSG::Backend::Get().NvidiaAdapter();
+    capabilities.nvidiaFeatures = SourceDLSSG::Backend::Get().NvidiaFeaturesAvailable();
 #if !defined(TRP_NO_NEURAL_RENDERING)
     // The draft may select a different runtime file; check the one it selects.
     const auto draftRuntime = TheosRenderPipeline::SourceDLSSG::ResolveNeuralRuntimeSetting(
         settingsDraft.sourceDLSSG.neuralRuntime, PluginPaths::Directory(),
         SourceDLSSG::Backend::Get().NeuralComputeCapability(), NeuralRendering::RuntimeKernelsSupported()).string();
     capabilities.neuralRuntime = TheosRenderPipeline::SourceDLSSG::NeuralRuntimePresent(draftRuntime);
-    capabilities.neuralOperational = SourceDLSSG::Backend::Get().Ready() && !SourceDLSSG::Backend::Get().NeuralState().failed;
+    auto admissionOptions = SourceDLSSG::Backend::Get().NeuralConfiguration();
+    admissionOptions.runtimePath = draftRuntime;
+    admissionOptions.passes = settingsDraft.sourceDLSSG.neuralPasses;
+    admissionOptions.beforeUpscaling = settingsDraft.sourceDLSSG.neuralBeforeUpscaling;
+    admissionOptions.reconstruction = settingsDraft.sourceDLSSG.neuralReconstruction;
+    admissionOptions.extraPasses = settingsDraft.sourceDLSSG.neuralExtraPasses;
+    admissionOptions = TheosRenderPipeline::SourceDLSSG::NormalizeNeuralRoute(std::move(admissionOptions), capabilities.externalWorld);
+    const auto admission = SourceDLSSG::Backend::Get().CheckNeuralAdmission(admissionOptions,
+        admissionOptions.beforeUpscaling ? host_.RenderWidth() : host_.OutputWidth(),
+        admissionOptions.beforeUpscaling ? host_.RenderHeight() : host_.OutputHeight(), true);
+    capabilities.neuralAdmissionReason = admission.Refusal();
+    capabilities.neuralOperational = SourceDLSSG::Backend::Get().Ready() && (!SourceDLSSG::Backend::Get().NeuralState().failed || SourceDLSSG::Backend::Get().NeuralState().retryable);
 #endif
     const auto current = Capture(capabilities.neuralRuntime, false);
     if (const char* error = ValidateRendererSettings(settingsDraft, capabilities, &current))
@@ -179,6 +195,8 @@ RendererSettingsResult RendererSettingsController::Apply(const RendererSettingsD
         options.passes = frameGen_.settings.sourceDLSSG.neuralPasses;
         options.combat = frameGen_.settings.sourceDLSSG.neuralCombat;
         source.ConfigureNeuralRendering(std::move(options));
+        if (ShouldRequestNeuralRetry(a_saveAsDefault, settingsDraft.sourceDLSSG.neuralEnabled,
+                settingsDraft.upscaleType, capabilities)) { source.RequestNeuralRetry(); }
     }
     Appearance::Runtime::Get().Configure(settingsDraft.appearance);
     if (a_saveAsDefault)
@@ -247,6 +265,10 @@ RendererSettingsResult RendererSettingsController::SetNeuralRenderingEnabled(boo
             PluginPaths::Directory(), backend.NeuralComputeCapability(), NeuralRendering::RuntimeKernelsSupported());
         options.automaticRuntime = SourceDLSSG::IsAutomaticNeuralRuntime(frameGen_.settings.configuredRuntimePaths.neural);
         options.enabled = enabled;
+        const auto admission = backend.CheckNeuralAdmission(options,
+            options.beforeUpscaling ? host_.RenderWidth() : host_.OutputWidth(),
+            options.beforeUpscaling ? host_.RenderHeight() : host_.OutputHeight(), true);
+        if (enabled && admission.Refusal()) { return {admission.Refusal(), true}; }
         if (enabled && !TheosRenderPipeline::SourceDLSSG::NeuralRuntimePresent(options.runtimePath))
         {
             return {"No NR runtime is available for this selection and GPU. Install the matching runtime package or select another runtime.",

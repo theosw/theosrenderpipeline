@@ -1,4 +1,18 @@
-# Theo's Render Pipeline — Universal, 0.5.7
+# Theo's Render Pipeline — Universal, 0.6.0
+
+Version 0.6.0 adds experimental GTX 10 NR in Universal, NR failure recovery
+with Apply retry, the CS / Bottled Shaders Baseline pack, loading/menu fixes and
+Even NR pacing under Lab (off by default). See CHANGELOG.md and the setup notes
+below.
+
+Universal adds experimental Neural Rendering on GTX 10 (Pascal, sm_61), using
+NVIDIA NR 310.9.16 and Universal's compatibility pack. Tested on a GTX 1070 Ti;
+other GTX 10 cards are untested, please report your results. Use driver 582.78 or
+a newer compatible Pascal (R580) driver. NR stays off by default: select Runtime
+Automatic, enable NR and Apply. Start with one pass before upscaling. There is no
+fixed VRAM minimum, but a live memory check may refuse NR on smaller cards and
+explain why. Standard shows the reason to install Universal. DLSS, DLAA and
+DLSS-G still require RTX hardware; use XeSS and optionally XeFG on Pascal.
 
 Version 0.5.7 adds an experimental option, `ReShadeGameDevice`, that runs
 ReShade on the game's own device, so add-ons work the way they do without TRP
@@ -138,7 +152,7 @@ This package includes the full renderer, configuration and sharpening shader.
 It requires no other Theo's Render Pipeline package. NVIDIA DLLs are supplied
 separately: download the SR/FG files below, and the NR runtime if you want NR.
 Alternatively, install Standard first and Universal after it in MO2; Standard
-0.5.7 supplies the complete NVIDIA and Intel runtime bundles, including the
+0.6.0 supplies the complete NVIDIA and Intel runtime bundles, including the
 original NR 310.9.16 and the retained older NR runtime. Universal adds the
 compatibility pack and legacy INT8 alternative. In that setup,
 skip the runtime downloads below.
@@ -177,7 +191,8 @@ first error and requires a restart instead of retrying every frame. Include
 Use **Neural Rendering > Runtime > Automatic** for the default selection.
 Standard supplies two NR DLLs: legacy `nvngx_dlssnr.dll` (310.8) and original
 NVIDIA `nvngx_dlssnr_310.9.16.dll`. Universal supplies the adjacent
-`nvngx_dlssnr_310.9.16.trpk` and legacy `nvngx_dlssnr_int8.dll`.
+`nvngx_dlssnr_310.9.16.trpk`, the experimental GTX 10 asset
+`nvngx_dlssnr_310.9.16_pascal_v1.trpk`, and legacy `nvngx_dlssnr_int8.dll`.
 
 On RTX 20/30/40, Universal first tries the original 310.9.16 DLL with the
 pack. RTX 20/30 use the community FP16 compatibility kernels; RTX 40 uses
@@ -313,11 +328,30 @@ upscaler mods off. NR requires NVIDIA RTX hardware.
 
 ENB is optional. With Community Shaders, keep CS upscaling enabled. TRP provides
 FG/Reflex/NR while CS retains upscaling, render scale, sharpening and colour.
-This package includes a CS settings override that turns CS frame generation and
-CS Reflex off at startup, even if your saved CS settings enable them; it appears
-in CS's Overrides tab as Theo's Render Pipeline. If your CS has no Overrides tab,
-or you disable the override there, turn CS frame generation and CS Reflex off
-yourself. Assign CS a separate menu key,
+Both editions include these Community Shaders files:
+
+- CS 1.9.1: `SKSE/Plugins/CommunityShaders/Overrides/TheosRenderPipeline_Upscaling.json`.
+  This override keeps CS frame generation and Reflex off at startup. If you disable
+  it in CS's Overrides tab, turn Frame Generation and Reflex off under CS Upscaling.
+- Newer CS / Bottled Shaders: `SKSE/Plugins/CommunityShaders/Presets/Theos Render Pipeline/Theos Render Pipeline.json`
+  and `SKSE/Plugins/CommunityShaders/Presets/Theos Render Pipeline/Baseline/TheosRenderPipeline_Upscaling.json`.
+  Enable **Theo's Render Pipeline** under **Presets > Baseline** once, then restart
+  Skyrim. The pack keeps CS frame generation and Reflex off and leaves CS upscaling
+  unchanged. You can instead turn Frame Generation and Reflex off under CS Upscaling
+  and restart.
+
+Newer CS ignores the old Overrides file and may report it as an incompatible
+old-format override. Both formats are included until CS's next stable release so
+CS 1.9.1 still works. On newer CS, installing the files alone does not enable the
+Baseline pack. If CS frame generation stays on or is forced, TRP may be unable to
+start rendering and Skyrim closes after an explanation. If that prevents you from
+opening CS, temporarily disable TRP, start Skyrim and turn Frame Generation off
+under CS Upscaling. Close Skyrim, re-enable TRP and restart. You can then enable
+the Baseline pack on newer CS and restart again. TRP does not change CS's settings files.
+
+Bottled Shaders' default post-processing preset turns on Depth of Field, lens flare and colour grading; if near objects look blurred, turn off Depth of Field under Post Processing.
+
+Assign CS a separate menu key,
 such as F8, avoiding keys already assigned to ReShade or capture tools. TRP keeps End
 unless you change it under Advanced > Menu key.
 With CS, HDR is experimental and works only through CS HDR Display (tested with CS 1.9.1,
@@ -362,7 +396,7 @@ an RTX 4080 SUPER: ordinary 6.8.0.2158 and full add-on 6.8.0.2155, with
 early NR and x4. Sky Reflection Fix's ReShade registration was excluded;
 Rumble passed a separate initial test. Combined third-party add-ons,
 Standard gameplay and CS with ReShade remain unverified. These were earlier
-development builds; the exact 0.5.7 package has not been tested with ReShade.
+development builds; the exact 0.6.0 package has not been tested with ReShade.
 
 MartysMods ReGrade+ (ReShade 6.6 or newer) used to crash the game while TRP
 started ReShade: it prepares itself only in a device event that ReShade does not

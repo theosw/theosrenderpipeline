@@ -64,7 +64,10 @@ bool NvidiaHost::TakeNativeUITraceSlot()
     static unsigned previousMenus = ~0u, slots{};
     auto* ui = RE::UI::GetSingleton();
     const unsigned menus = ui ? unsigned(ui->IsMenuOpen(RE::MainMenu::MENU_NAME)) |
-        (unsigned(ui->IsMenuOpen(RE::LoadingMenu::MENU_NAME)) << 1) : 0;
+        (unsigned(ui->IsMenuOpen(RE::LoadingMenu::MENU_NAME)) << 1) |
+        (RenderPipeline::GetSingleton()->mLogMenuMetrics ?
+            (unsigned(ui->IsMenuOpen(RE::StatsMenu::MENU_NAME)) << 2) |
+            (unsigned(ui->IsMenuOpen(RE::MagicMenu::MENU_NAME)) << 3) : 0) : 0;
     if (menus != previousMenus) { previousMenus = menus; untilFrame = presentCount_ + 3; }
     if (lastFrame != presentCount_) { lastFrame = presentCount_; slots = 0; }
     return StartupConfigured() && (presentCount_ < 6 || presentCount_ <= untilFrame || presentCount_ % 600 == 0) && slots++ < 48;
@@ -92,6 +95,20 @@ void NvidiaHost::LogNativeUIState(const char* stage, bool mainOrLoading)
         presentCount_, static_cast<void*>(guides ? guides->motion.Get() : nullptr), static_cast<void*>(guides ? guides->depth.Get() : nullptr),
         static_cast<void*>(gameTargets_.GameFacing()), static_cast<void*>(gameTargets_.UpscaleOutput()), renderWidth_, renderHeight_, outputWidth_, outputHeight_,
         upscaler->mJitterOffsets[0], upscaler->mJitterOffsets[1], upscaler->SceneGeneration());
+    auto* ui = RE::UI::GetSingleton();
+    if (upscaler->mLogMenuMetrics && ui && (ui->IsMenuOpen(RE::StatsMenu::MENU_NAME) || ui->IsMenuOpen(RE::MagicMenu::MENU_NAME))) {
+        auto& backend = TheosRenderPipeline::SourceDLSSG::Backend::Get();
+        const auto nr = backend.NeuralState();
+        Microsoft::WRL::ComPtr<ID3D11Predicate> predicate; BOOL predicateValue{};
+        context_->GetPredication(&predicate, &predicateValue);
+        auto** table = *reinterpret_cast<void***>(context_.Get());
+        logger::info("[MenuRoute] frame={} stage={} stats={} magic={} paused={} showing={} NRrequested={} NRactive={} NRdisabled={} transition={} guideCurrent={} internal={} targetBound={} predicate={} predicateValue={} context={} OMSetRT={} PSSetSRV={} RSSetVP={} Draw={} DrawIndexed={}",
+            presentCount_, stage, ui->IsMenuOpen(RE::StatsMenu::MENU_NAME), ui->IsMenuOpen(RE::MagicMenu::MENU_NAME),
+            ui->GameIsPaused(), ui->IsShowingMenus(), backend.NeuralConfiguration().enabled, nr.active, nr.sessionDisabled,
+            backend.TransitionBlocked(), guides != nullptr, NativeUIInternalBind(), NativeUITargetBound(),
+            static_cast<void*>(predicate.Get()), bool(predicateValue), static_cast<void*>(context_.Get()),
+            table[33], table[8], table[44], table[13], table[12]);
+    }
     const auto describe = [&](const char* role, UINT slot, ID3D11View* view) {
         if (!view) { return; }
         Microsoft::WRL::ComPtr<ID3D11Resource> resource;

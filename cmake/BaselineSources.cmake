@@ -241,7 +241,9 @@ set(ARP_NEURAL_SOURCES
     src/NeuralCombatMode.cpp
     src/NeuralCombatMode.h
     src/NeuralCombatPolicy.h
+    src/FrameGen/NeuralAdmission.cpp
     src/FrameGen/NeuralRenderingFeatureSession.cpp
+    src/FrameGen/NeuralLaunchHook.cpp
     src/FrameGen/NeuralRenderingModulePathHook.cpp
     src/FrameGen/NeuralRenderingRuntimeIdentity.cpp
     src/FrameGen/NeuralObjectBlend.cpp

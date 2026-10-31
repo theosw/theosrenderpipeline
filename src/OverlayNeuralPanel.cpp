@@ -17,6 +17,7 @@ using namespace TheosRenderPipeline::Overlay;
 #include "NeuralRenderingMode.h"
 #include "FrameGen/NeuralObjectMask.h"
 #include "FrameGen/NeuralRuntimeFiles.h"
+#include "FrameGen/NeuralAdmission.h"
 
 namespace
 {
@@ -54,6 +55,8 @@ void DrawNRAppliedPasses(const OverlayUI::FrameView& view, const TheosRenderPipe
 // Why NR cannot run now, or null. Shown above Base's controls.
 const char* NeuralUnavailableReason(const OverlayUI::FrameView& view, int upscaleType, bool nrRuntimePresent)
 {
+    if (!view.neuralAdmissionReason.empty()) { return TR(view.neuralAdmissionReason.c_str()); }
+    if (view.neuralState.sessionDisabled && !view.neuralState.reason.empty()) { return view.neuralState.reason.c_str(); }
     if (view.sourceReady && !view.nvidiaAdapter) { return TR("Neural Rendering requires NVIDIA RTX hardware. XeSS upscaling and XeFG remain available."); }
     if (view.neuralRuntimePath.empty())
     {
@@ -68,7 +71,7 @@ const char* NeuralUnavailableReason(const OverlayUI::FrameView& view, int upscal
     {
         return TR("The NVIDIA host is not ready. Check runtime status and restart Skyrim.");
     }
-    if (view.neuralState.failed)
+    if (view.neuralState.failed && !view.neuralState.retryable)
     {
         return TR("NR failed. See the error in the left column.");
     }
@@ -592,6 +595,9 @@ void DrawNeuralSettings(const OverlayUI::FrameView& view, TheosRenderPipeline::S
 {
     namespace NR = TheosRenderPipeline::NeuralRendering;
     auto& reconstruction = draft.neuralReconstruction;
+    // While NR is off, let a budget-limited request reduce its demand before
+    // enabling again. Hardware/edition/driver/asset refusals keep these rows grey.
+    const bool editDemand = !draft.neuralEnabled && view.neuralAdmissionReason == NR::kPascalBudgetReason;
     const bool cs = view.communityShaders;
     const bool producerColor = cs && draft.neuralBeforeUpscaling;
     const float label = LabelWidth({TR("Scene normalization")});
@@ -623,7 +629,7 @@ void DrawNeuralSettings(const OverlayUI::FrameView& view, TheosRenderPipeline::S
             }
             return changed;
         });
-        SettingRow(TR("Placement"), "BeforeUpscaling", true, unavailable, [&] {
+        SettingRow(TR("Placement"), "BeforeUpscaling", true, unavailable && !editDemand, [&] {
             int placement = draft.neuralBeforeUpscaling ? 0 : 1;
             const bool changed = Segmented("placement", placement, {
                 {TR("Before upscaling"), true, TR("NR runs on the render-resolution scene, before DLSS or XeSS.")},
@@ -763,7 +769,7 @@ void DrawNeuralSettings(const OverlayUI::FrameView& view, TheosRenderPipeline::S
     const auto reset = extraIndex < 0 ? PassReset::None
                        : !draft.neuralExtraPasses[extraIndex].linked && (decor || tabChanged[selected]) ? PassReset::Available
                                                                                                          : PassReset::Nothing;
-    const auto action = DrawPassTabs(view, selected, draft.neuralPasses, !unavailable,
+    const auto action = DrawPassTabs(view, selected, draft.neuralPasses, !unavailable || editDemand,
         decor && decor->EditingTime() ? TRF("editing {}", decor->EditingTime()) : std::string(), tabChanged,
         reset);
     // + adds the next pass and the remove mark takes off the last; a removed
@@ -1134,8 +1140,11 @@ bool DrawNeuralRuntimeCombo(const OverlayUI::FrameView& view, TheosRenderPipelin
     ImGui::SetNextItemWidth(width);
     if (ImGui::BeginCombo("##runtime", nullptr, ImGuiComboFlags_CustomPreview))
     {
-        for (const auto& runtime : view.neuralRuntimes)
+        for (std::size_t i = 0; i < view.neuralRuntimes.size(); ++i)
         {
+            const auto& runtime = view.neuralRuntimes[i];
+            const auto reason = i < view.neuralRuntimeReasons.size() ? view.neuralRuntimeReasons[i] : std::string{};
+            ImGui::BeginDisabled(!reason.empty());
             ImGui::PushID(runtime.c_str());
             const bool selected = runtime == draft.neuralRuntime;
             if (ImGui::Selectable(NeuralRuntimeLabel(runtime).c_str(), selected) && !selected)
@@ -1144,7 +1153,10 @@ bool DrawNeuralRuntimeCombo(const OverlayUI::FrameView& view, TheosRenderPipelin
                 changed = true;
             }
             if (selected) { ImGui::SetItemDefaultFocus(); }
-            if (ImGui::IsItemHovered()) { ImGui::SetTooltip(TR("File: %s"), runtime.c_str()); }
+            ImGui::EndDisabled();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+                ImGui::SetTooltip("%s%s%s", runtime.c_str(), reason.empty() ? "" : "\n", reason.empty() ? "" : TR(reason.c_str()));
+            }
             ImGui::PopID();
         }
         ImGui::EndCombo();
@@ -1180,6 +1192,7 @@ void DrawSourceNeuralControls(const OverlayUI::FrameView& view, TheosRenderPipel
                               bool& sharpening, float& sharpness, int upscaleType, bool nrRuntimePresent)
 {
     const auto& state = view.neuralState;
+    if (view.neuralPascal) { ImGui::TextWrapped("%s", TR("GTX 10 compatibility kernels (experimental)")); }
     const char* unavailableReason = NeuralUnavailableReason(view, upscaleType, nrRuntimePresent);
     const bool unavailable = unavailableReason != nullptr;
     const auto& applied = view.neuralApplied;

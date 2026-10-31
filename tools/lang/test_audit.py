@@ -9,11 +9,16 @@ AUDIT = Path(__file__).with_name('audit.py').resolve()
 
 
 class AuditCLI(unittest.TestCase):
-    def run_audit(self, source, flags=('--check',)):
+    def run_audit(self, source, flags=('--check',), admission=None, startup=None):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / 'src').mkdir()
             (root / 'src/OverlayTest.cpp').write_text(source, encoding='utf-8')
+            if startup is not None:
+                (root / 'src/StartupHints.h').write_text(startup, encoding='utf-8')
+            if admission is not None:
+                (root / 'src/FrameGen').mkdir()
+                (root / 'src/FrameGen/NeuralAdmission.h').write_text(admission, encoding='utf-8')
             dictionary = root / 'dictionary.ini'
             dictionary.write_text('[Strings]\n', encoding='utf-8')
             before = dictionary.read_bytes()
@@ -21,6 +26,16 @@ class AuditCLI(unittest.TestCase):
                                     cwd=root, capture_output=True, text=True)
             self.assertEqual(dictionary.read_bytes(), before, 'checks must not edit dictionaries')
             return result
+
+    def test_dynamic_admission_reasons_are_audited(self):
+        result = self.run_audit('TR(view.reason);', admission='inline constexpr const char* reason = "GTX 10 admission reason";')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('1 missing', result.stdout)
+
+    def test_cs_startup_help_is_audited(self):
+        result = self.run_audit('', startup='if (facts.communityShaders) { line("CS recovery steps"); } else { line("Other owner"); }')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('2 missing', result.stdout)  # CS instructions and their heading
 
     def test_unwrapped_prose_fails(self):
         result = self.run_audit('ImGui::TextWrapped("New menu prose");')

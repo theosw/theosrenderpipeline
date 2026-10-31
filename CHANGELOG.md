@@ -1,3 +1,32 @@
+# 0.6.0
+
+- Universal adds experimental GTX 10 (Pascal, sm_61) Neural Rendering with
+  NVIDIA NR 310.9.16. Tested on a GTX 1070 Ti; other GTX 10 cards are untested,
+  please report your results. Requires driver 582.78 or a newer compatible
+  Pascal (R580) driver. Start with one pass before upscaling. NR stays off by
+  default. There is no fixed VRAM minimum, but a live memory check may refuse
+  NR on smaller cards. Standard explains that GTX 10 NR needs Universal.
+- NR runtime failures now turn NR off for the session while normal rendering
+  continues where safe. Apply retries through the normal runtime, driver,
+  compatibility-pack and memory checks without changing the saved NR preference.
+  Unsafe GPU or runtime ownership still requires a restart.
+- Both editions include the Community Shaders / Bottled Shaders Baseline pack.
+  Enable Theo's Render Pipeline under Presets > Baseline once and restart.
+  Installing the pack alone does not enable it. CS upscaling is unchanged;
+  the pack turns CS frame generation and Reflex off for TRP. The legacy Overrides
+  file stays for CS 1.9.1 until CS's next stable release; newer CS ignores it
+  and may show an old-format warning. On CS 1.9.1, turn Frame Generation off
+  under Upscaling and restart. If CS frame generation prevents startup, the
+  message explains how to disable TRP temporarily, turn CS frame generation
+  off, close Skyrim, re-enable TRP and restart. Bottled's default post-processing
+  preset enables Depth of Field, lens flare and colour grading; turn off Depth
+  of Field under Post Processing if nearby objects look blurred.
+- Loading-artwork fades now preserve native UI hooks, fixing a route that
+  could hide Skills and Magic menus after a fade.
+- Starting with NR saved on now waits for the first world size before admission
+  and caches the result, avoiding repeated runtime and pack checks during loading.
+- Lab adds Even NR pacing, an opt-in experiment that defaults off.
+
 # 0.5.7
 
 - Changing XeFG's multiplier from x2 to x3-x6 (Universal), its tensor model or

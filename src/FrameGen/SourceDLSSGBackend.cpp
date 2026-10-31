@@ -20,8 +20,13 @@
 #include "StartupFallback.h"
 #include <d3dcompiler.h>
 #include <chrono>
+#include <thread>
 #if !defined(TRP_NO_NEURAL_RENDERING)
 #include "NeuralRenderingFeatureSession.h"
+#include "NeuralResearch.h"
+#include "NeuralAdmission.h"
+#include "NeuralRuntimeKernels.h"
+#include "NeuralRuntimeCompatibility.h"
 #endif
 
 namespace TheosRenderPipeline::SourceDLSSG
@@ -197,7 +202,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 	bool Backend::InitializeNvidia(const std::filesystem::path& directory)
 	{
 		if (nvidiaInitialized_) { return true; }
-		if (!NvidiaAdapter()) { return Check(DXGI_ERROR_UNSUPPORTED, "NVIDIA provider requires NVIDIA hardware"); }
+		if (!NvidiaFeaturesAvailable()) { return Check(DXGI_ERROR_UNSUPPORTED, "NVIDIA provider requires RTX hardware"); }
 		MFGUnlock::StartupScope startupScope(mfgUnlock_);
 		if (!Load(directory)) { return false; }
 		void* upgraded = device12_.Get();
@@ -339,14 +344,21 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (ReShadeIntegration::Get().Blocked()) { logger::warn("[ReShade] {}", ReShadeIntegration::Get().Status()); }
 		else { logger::info("[ReShade] {}", ReShadeIntegration::Get().Status()); }
 		adapterVendor_ = adapterDesc.VendorId;
+#if !defined(TRP_NO_NEURAL_RENDERING)
+        neuralCapability_ = NeuralRendering::QueryNeuralHardware(adapterDesc.AdapterLuid, NeuralRendering::RuntimeKernelsSupported());
+        neuralComputeCapability_ = neuralCapability_.architecture;
+        pascalResearch_ = neuralCapability_.Pascal();
+        if (pascalResearch_) { logger::info("[NR Pascal] native presentation via Intel host; DLSS-G unavailable; research pack={}", NeuralRendering::PascalConfiguration().pack.string()); }
+#endif
 		adapterDevice_ = adapterDesc.DeviceId;
+		providerCapabilitiesKnown_ = true;
 		if (FAILED(adapter->CheckInterfaceSupport(__uuidof(IDXGIDevice), &adapterDriver_))) { adapterDriver_ = {}; }
 		nativeFactory_ = a_factory;
 		// With Community Shaders, CS upscales; UpscaleType only selects TRP's own upscaler.
 		const bool communityShaders = CommunityShaders::Active();
 		// The host has already replaced DLSS/DLAA with XeSS on other GPUs.
 		const bool xeSSStartup = !communityShaders && RenderPipeline::GetSingleton()->mUpscaleType == ::XeSS;
-		const auto startup = SelectProviderStartup(xeSSStartup, NvidiaAdapter(), RequestedProvider());
+		const auto startup = SelectProviderStartup(xeSSStartup, NvidiaFrameGenerationAvailable(), RequestedProvider());
 		RequestProvider(startup.requested);
 		provider_ = startup.presenter;
 		const bool intelStartup = provider_ == FrameGenerationProvider::XeFG;
@@ -567,6 +579,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			frameNeuralReset_ |= a_constants.reset == sl::eTrue;
 			if (!neuralEligible_) { neuralHistory_.Invalidate(); }
 		}
+		frameNeuralReset_ |= std::exchange(neuralRecoveryReset_, false);
 #if !defined(TRP_NO_NEURAL_RENDERING)
 		if (frameNeuralOptions_.enabled && neuralEligible_ && neuralPass_ &&
 			neuralPass_->NeedsResourceRecreation(frameNeuralOptions_, motion_.desc.Width, motion_.desc.Height)) { frameNeuralReset_ = true; }
@@ -779,13 +792,15 @@ namespace TheosRenderPipeline::SourceDLSSG
 			if (uiSource_ && !Check(interop_.CopyInput(uiSource_.Get(), ui_), "late UI copy")) { return fault_; }
 		}
 #if !defined(TRP_NO_NEURAL_RENDERING)
+		if (!neuralFrameBegun_) { ApplyNeuralRetry(NeuralConfiguration()); }
 		const auto options = prepared ? frameNeuralOptions_ : NeuralConfiguration();
 		auto unavailable = NeuralUnavailableReason(options);
 		const bool eligible = prepared && neuralEligible_ && !unavailable;
 		bool active = options.enabled && eligible && (!options.WorldOnly() || neuralEvaluatedEarly_);
-		const bool lateActive = active && !options.WorldOnly();
+		bool lateActive = active && !options.WorldOnly();
 		const bool reset = prepared ? frameNeuralReset_ : neuralHistory_.ResetFor(options, false, false);
 		if (lateActive && !RecreateNeuralIfNeeded(options)) { return fault_; }
+		if (neuralRecovery_.Disabled()) { lateActive = active = false; }
 #endif
 		ID3D12GraphicsCommandList* list = nullptr;
 		if (!Check(interop_.SignalD3D11(Work::SwapChain), "native D3D11 output ready") ||
@@ -793,20 +808,26 @@ namespace TheosRenderPipeline::SourceDLSSG
 		auto* realSource = a_source;
 #if !defined(TRP_NO_NEURAL_RENDERING)
 		if (lateActive) {
+            bool recorded{};
+            std::string failure;
+            try {
 			if (!neuralPass_) { neuralPass_ = std::make_unique<NeuralPass>(); }
-			if (!neuralPass_->Record(device12_.Get(), list, interop_.CurrentSlot(Work::SwapChain), options,
+			recorded = neuralPass_->Record(device12_.Get(), list, interop_.CurrentSlot(Work::SwapChain), options,
 				reset, frameConstants_.depthInverted == sl::eTrue,
 				frameConstants_.mvecScale.x * motion_.desc.Width, frameConstants_.mvecScale.y * motion_.desc.Height,
 				motion_.texture12.Get(), depth_.texture12.Get(), ui_.texture12.Get(), hudless_.texture12.Get(), a_source,
 				neuralTimestampFrequency_, interop_.Marks(Work::SwapChain), objectMaskCurrent_ ? objectMask_.texture12.Get() : nullptr,
-                {frameConstants_.jitterOffset.x,frameConstants_.jitterOffset.y})) {
-				if (!RefuseNeuralCreation(options.runtimePath)) {
-					FailNeuralRecording();
-					return fault_; // Retain all objects and the unsubmitted list on unknown NGX failure.
-				}
-				// This frame presents without NR; the next one uses the next runtime.
-				active = false;
-				unavailable = "NR runtime refused for this GPU; switching runtime";
+                {frameConstants_.jitterOffset.x,frameConstants_.jitterOffset.y});
+            } catch (const std::bad_alloc&) {
+                failure = "NR CPU allocation failed";
+            }
+            if (!recorded) {
+                if (!FailNeuralRecording(std::move(failure))) { return fault_; }
+                // Discarded commands never changed source/UI/shared guides.
+                // Reopen an entirely fresh list before ordinary copy/HDR/FG.
+                if (!Check(interop_.Begin(Work::SwapChain, &list), "begin NR-off output after refusal")) { return fault_; }
+                active = false;
+                unavailable = "NR disabled for this session";
 			} else {
 				realSource = neuralPass_->Composed();
 			}
@@ -887,8 +908,33 @@ namespace TheosRenderPipeline::SourceDLSSG
 				frameOutputLimit_, XeFGConfiguration().generatedFrames))) { return fault_; }
 			marks.End(D3D12Stage::kXeFGInputs);
 		}
+		xefgFrameId_ = xefg_.Snapshot().frameId;
+		xefgFrameModel_ = NRModelActivity::Unknown;
+		xefgFrameAlternate_ = false;
+#if !defined(TRP_NO_NEURAL_RENDERING)
+		if (active && neuralPass_) {
+			xefgFrameModel_ = neuralPass_->ModelActivity();
+			xefgFrameAlternate_ = NeuralRendering::EffectiveModelRate(options.reconstruction.modelRate) == NeuralRendering::ModelRate::EveryOtherFrame;
+		}
+#endif
 		if (!Check(outputResult, "record native output copy/conversion") ||
 			!Check(interop_.Submit(Work::SwapChain), "submit native output copy")) { return fault_; }
+		xefgSubmitTime_ = std::chrono::steady_clock::now();
+		xefgBeatPaced_ = false; xefgBeatHoldMs_ = 0;
+		if (provider_ == FrameGenerationProvider::XeFG && XeFGModelBeatRequested() &&
+			!XeFGModelBeatUnavailable() && xefgFrameAlternate_ && xefg_.Snapshot().enabled &&
+			xefgFrameModel_ != NRModelActivity::Unknown && !frameNeuralReset_ && !frameNeuralModelChanged_) {
+			const auto decision = xefgModelBeat_.Plan(
+				std::chrono::duration<double, std::micro>(xefgSubmitTime_.time_since_epoch()).count(), xefgFrameModel_);
+			xefgBeatPaced_ = decision.paced;
+			if (decision.deadlineUs > 0) {
+				std::this_thread::sleep_until(std::chrono::steady_clock::time_point(
+					std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<double, std::micro>(decision.deadlineUs))));
+			}
+			const auto released = std::chrono::steady_clock::now();
+			xefgBeatHoldMs_ = std::chrono::duration<double, std::milli>(released - xefgSubmitTime_).count();
+			xefgModelBeat_.Released(std::chrono::duration<double, std::micro>(released.time_since_epoch()).count());
+		} else xefgModelBeat_.Reset();
 		if (screenshotRecorded_) {
 			screenshotRecorded_ = false;
 			ScreenshotBoundary([&] {
@@ -934,7 +980,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 			if (active) { ++neuralSnapshot_.evaluations; }
 			if (reset) { ++neuralSnapshot_.resets; }
 			if (active) { neuralSnapshot_.telemetry = neuralPass_->Telemetry(); }
-			neuralSnapshot_.status = unavailable ? unavailable : active ? neuralPass_->Status() : options.enabled ?
+			if (active) { neuralRecovery_.Enabled(); }
+			neuralSnapshot_.status = neuralSnapshot_.sessionDisabled ? neuralSnapshot_.reason : unavailable ? unavailable : active ? neuralPass_->Status() : options.enabled ?
 				"NR waiting for world inputs and dedicated native UI; standard DLSS active" : "standard DLSS; source NR is off";
 			if (changed || (active && (reset || neuralSnapshot_.evaluations % 600 == 0))) {
 				logger::info("[SourceDLSSG NR] frame={} active={} evaluations={} reset={} style={} fgRequested={} {}",
@@ -985,7 +1032,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 			const auto reuseStart = std::chrono::steady_clock::now();
 			if (!Check(gpuInputWait ? interop_.WaitD3D11(Work::SwapChain) : interop_.Drain(),
 				gpuInputWait ? "Intel ONLY_NOW input reuse GPU wait" : "retire Intel ONLY_NOW input copies")) { return fault_; }
-			xefgReuseMs_.push_back(std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - reuseStart).count());
+			xefgFrameReuseMs_ = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - reuseStart).count();
+			xefgReuseMs_.push_back(static_cast<float>(xefgFrameReuseMs_));
 			const auto& intel = xefg_.Snapshot();
 			xefgSleepMs_.push_back(intel.sleepMs);
 			if (xefgReuseMs_.size() >= 600) {
@@ -1130,6 +1178,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 	}
 	bool Backend::Quiesce(RetirementPurpose purpose)
 	{
+		xefgModelBeat_.Reset(); xefgBeatPaced_ = false;
 		enabled_ = false;
 		ResetPresentationFeedback();
 		if (FAILED(fault_)) { return false; } // Never destroy a failed, unsubmitted NR recording.
@@ -1154,10 +1203,13 @@ namespace TheosRenderPipeline::SourceDLSSG
 		}
 #endif
 		}, [&] {
-		ReleaseGuides();
 #if !defined(TRP_NO_NEURAL_RENDERING)
-		neuralPass_.reset(); // The presenting queue and NVIDIA input readers are retired.
+		if (neuralPass_ && !neuralPass_->ReleaseAfterRetirement()) {
+            if (!FailNeuralRecording()) { return; }
+        }
+        neuralPass_.reset(); // The presenting queue and NVIDIA input readers are retired.
 #endif
+        ReleaseGuides();
 		hdrPass_.reset();
 		hdrOutputPass_.reset();
 		}, [&] {
@@ -1168,7 +1220,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		{
 			std::scoped_lock lock(neuralMutex_);
 			neuralSnapshot_.active = false;
-			neuralSnapshot_.status = purpose == RetirementPurpose::Resize ?
+			neuralSnapshot_.status = neuralSnapshot_.sessionDisabled ? neuralSnapshot_.reason : purpose == RetirementPurpose::Resize ?
 				"NR retired for resize; next eligible frame recreates the feature" :
 				"NR retained for fixed-size upscaler replacement; next eligible frame resets history";
 		}
@@ -1384,11 +1436,14 @@ namespace TheosRenderPipeline::SourceDLSSG
 	bool Backend::PreflightProviderSwitch()
 	{
 		if (nativePresenterFallback_ || presenterReplacement_.Pending()) { return false; }
+		// Normalize before transition/camera gates, including a later Apply of a
+		// saved NVIDIA default on unsupported hardware. No INI is written here.
+		RequestProvider(RequestedProvider());
 		if (nvidiaNeedsPresent_) { return false; }
 		const auto request = RequestedProvider();
 		if ((request == provider_ && !recreateXeFG_) || !cameraAvailable_ || TransitionBlocked()) { return false; }
-		if (request == FrameGenerationProvider::NVIDIA && !NvidiaAdapter()) {
-			providerStatus_ = "NVIDIA frame generation requires NVIDIA hardware; Intel presenter retained";
+		if (request == FrameGenerationProvider::NVIDIA && !NvidiaFrameGenerationAvailable()) {
+			providerStatus_ = "NVIDIA frame generation unavailable; Intel presenter retained";
 			RequestProvider(provider_); return false;
 		}
 		if (request == FrameGenerationProvider::NVIDIA && NvidiaSwitchBlocked()) {
@@ -1577,9 +1632,56 @@ namespace TheosRenderPipeline::SourceDLSSG
 		}
 		return cache.Library();
 	}
-	void Backend::ObservePresentTiming(double a_prepareMs, double a_presentMs, double a_finishMs)
+	const char* Backend::XeFGModelBeatUnavailable() const
+	{
+		if (provider_ != FrameGenerationProvider::XeFG) return "Select Intel XeFG.";
+		if (!ready_ || !enabled_) return "Enable frame generation.";
+		if (xefg_.TensorInUse()) return "Requires plain XeFG; turn off the tensor model and Apply.";
+		if (xefg_.Snapshot().generatedFrames != 1) return "This experiment is for XeFG x2 only.";
+		if (XeFGGpuInputWait()) return "Turn off Input reuse: GPU fence wait for this experiment.";
+		if (static_cast<FrameLimitMode>(frameLimit_.load(std::memory_order_relaxed)) != FrameLimitMode::Off)
+			return "Set Frame limit to Off for this experiment.";
+#if !defined(TRP_NO_NEURAL_RENDERING)
+		const auto options = NeuralConfiguration();
+		if (!options.enabled) return "Enable Neural Rendering and Apply.";
+		if (NeuralRendering::EffectiveModelRate(options.reconstruction.modelRate) != NeuralRendering::ModelRate::EveryOtherFrame)
+			return "Select Model rate: Every other frame and Apply.";
+		if (options.compare.freeze) return "Turn off Freeze frame.";
+		{ std::scoped_lock lock(neuralMutex_);
+			if (!neuralSnapshot_.active) return "Requires NR running in the world.";
+		}
+		return nullptr;
+#else
+		return "Neural Rendering is unavailable in this build.";
+#endif
+	}
+	void Backend::ObservePresentTiming(double a_prepareMs, double a_presentMs, double a_finishMs, double hostStartUs, double innerStartUs)
 	{
 		++presenterPresents_;
+		if (provider_ == FrameGenerationProvider::XeFG && !xefg_.TensorInUse() && !presenterReplaced_) {
+			// Correlate actual model activity with this host frame; never infer it
+			// from frame parity or the (delayed) telemetry query results. Bound log
+			// work to 48 consecutive frames per 600, also with the experiment off.
+			const double interval = xefgPreviousHostUs_ ? (hostStartUs - xefgPreviousHostUs_) / 1000 : 0;
+			const double innerInterval = xefgPreviousInnerUs_ ? (innerStartUs - xefgPreviousInnerUs_) / 1000 : 0;
+			xefgPreviousHostUs_ = hostStartUs; xefgPreviousInnerUs_ = innerStartUs;
+			if (!xefgFrameAlternate_ || xefgTraceRequested_ != XeFGModelBeatRequested()) xefgTraceFrames_ = 0;
+			xefgTraceRequested_ = XeFGModelBeatRequested();
+			if (xefgFrameAlternate_ && xefgTraceFrames_++ % 600 < 48) {
+				const auto& s = xefg_.Snapshot();
+				const auto vsync = VSyncState();
+				logger::info("[XeFG beat] epoch={} frame={} model={} hostDtMs={:.3f} innerDtMs={:.3f} innerPresentMs={:.3f} reuse={} reuseCpuMs={:.3f} "
+					"submitUs={} holdMs={:.3f} targetMs={:.3f} phaseSkewMs={:.3f} pairSamples={} requested={} paced={} xellSleepMs={:.3f} outputs={} "
+					"vsync={} incomingSync={} submittedSync={} flags=0x{:X} batchStart=unavailable outputSpacing=unavailable",
+					s.epoch, xefgFrameId_, ModelActivityName(xefgFrameModel_), interval, innerInterval, a_presentMs,
+					XeFGGpuInputWait() ? "gpu-fence" : "cpu-drain", xefgFrameReuseMs_,
+					std::chrono::duration_cast<std::chrono::microseconds>(xefgSubmitTime_.time_since_epoch()).count(),
+					xefgBeatHoldMs_, xefgModelBeat_.TargetUs() / 1000, xefgModelBeat_.PhaseDifferenceUs() / 1000,
+					xefgModelBeat_.PairSamples(), XeFGModelBeatRequested(), xefgBeatPaced_, s.sleepMs,
+					s.framesPresented, VSyncName(vsync.submission.mode), vsync.submission.incomingSync,
+					vsync.submission.sync, vsync.submission.flags);
+			}
+		} else { xefgPreviousHostUs_ = xefgPreviousInnerUs_ = 0; xefgTraceFrames_ = 0; }
 		// Intel stores pipelines as it first uses them; persist what has grown.
 		if (presenterPresents_ % 600 == 0) {
 			for (auto* cache : {&xefgPipelines_, &xefgTensorPipelines_, &xessPipelines_}) {

@@ -86,8 +86,24 @@ int main()
     }
     Require(SelectProviderStartup(false, false, static_cast<FrameGenerationProvider>(42)).presenter == FrameGenerationProvider::XeFG, "invalid provider on non-NVIDIA still starts XeFG");
     Require(SelectProviderStartup(true, true, static_cast<FrameGenerationProvider>(42)).requested == FrameGenerationProvider::NVIDIA, "invalid provider keeps configured default policy");    // 2026-10-03: XeSS start, NR on, then Intel -> NVIDIA failed MFG verification fatally.
+    for (const bool enabled : {false, true}) {
+        CSimpleIniA ini;
+        ini.SetLongValue("FrameGeneration", "Provider", 0);
+        ini.SetBoolValue("FrameGeneration", "Enabled", enabled);
+        const auto saved = SourceDLSSG::LoadPreferences(ini);
+        auto session = SelectProviderStartup(true, false, saved.provider);
+        // Applying another setting must not requeue the unavailable saved default.
+        session.requested = NormalizeProviderRequest(saved.provider, false);
+        Require(session.requested == session.presenter && session.requested == FrameGenerationProvider::XeFG,
+            "Pascal/non-NVIDIA startup and later Apply have no pending unavailable provider, even with FG off");
+        Require(saved.provider == FrameGenerationProvider::NVIDIA && ini.GetLongValue("FrameGeneration", "Provider", -1) == 0,
+            "session/menu normalization does not rewrite saved NVIDIA defaults");
+    }
     Require(!XeFGStartupInvertedDepth(false), "native Skyrim's first forward-Z camera needs no startup recreation");
     Require(XeFGStartupInvertedDepth(true), "external CS projection retains its provisional startup convention");
+    Require(NormalizeProviderRequest(FrameGenerationProvider::NVIDIA, true) == FrameGenerationProvider::NVIDIA &&
+        NormalizeProviderRequest(FrameGenerationProvider::XeFG, true) == FrameGenerationProvider::XeFG,
+        "available NVIDIA keeps both live provider choices");
     Require(NvidiaSwitchNeedsRestart(false, true), "NR-initialized NGX before Streamline refuses the live NVIDIA switch");
     Require(!NvidiaSwitchNeedsRestart(false, false), "XeSS start without NR still switches to NVIDIA live");
     Require(!NvidiaSwitchNeedsRestart(true, true), "Streamline initialized before NR keeps live switching");

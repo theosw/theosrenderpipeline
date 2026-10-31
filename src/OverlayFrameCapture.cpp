@@ -10,6 +10,7 @@
 #include "FrameGen/SourceDLSSGBackend.h"
 #include "FrameGen/DlssgLiteBlending.h"
 #include "FrameGen/NeuralRuntimeFiles.h"
+#include "FrameGen/NeuralRuntimeKernels.h"
 #include "FrameGen/XeFGUnlock.h"
 #include "PluginPaths.h"
 #include "NeuralObjectHooks.h"
@@ -54,6 +55,7 @@ OverlayUI::FrameView OverlayUI::CaptureFrameView()
     view.outputWidth = nvidiaHost->OutputWidth();
     view.outputHeight = nvidiaHost->OutputHeight();
     view.xessActive = nvidiaHost->XeSSActive();
+    view.nrFriendlyRenderSizeActive = nvidiaHost->NRFriendlyRenderSizeActive();
     const auto& upscalerSettings = nvidiaHost->SourceUpscalerSettings();
     view.upscaler = upscalerSettings.Effective();
     view.upscalerNeedsRestart = upscalerSettings.NeedsRestart();
@@ -94,7 +96,46 @@ OverlayUI::FrameView OverlayUI::CaptureFrameView()
 
     auto& backend = TheosRenderPipeline::SourceDLSSG::Backend::Get();
     view.sourceReady = backend.Ready();
+#if !defined(TRP_NO_NEURAL_RENDERING)
+    static TheosRenderPipeline::NeuralRendering::NeuralCapability admission;
+    static Clock::time_point admittedAt{};
+    static TheosRenderPipeline::SourceDLSSG::Preferences admittedPreferences;
+    static std::vector<std::string> runtimeReasons, admittedRuntimes;
+    if (Clock::now() - admittedAt > std::chrono::seconds(3) ||
+        admittedRuntimes != view.neuralRuntimes ||
+        admittedPreferences.neuralRuntime != settingsDraft.sourceDLSSG.neuralRuntime ||
+        !TheosRenderPipeline::SameNeuralPreferences(admittedPreferences, settingsDraft.sourceDLSSG)) {
+        auto options = backend.NeuralConfiguration();
+        const auto& draft = settingsDraft.sourceDLSSG;
+        options.runtimePath = TheosRenderPipeline::SourceDLSSG::ResolveNeuralRuntimeSetting(draft.neuralRuntime,
+            TheosRenderPipeline::PluginPaths::Directory(), backend.NeuralComputeCapability(),
+            TheosRenderPipeline::NeuralRendering::RuntimeKernelsSupported());
+        options.passes = draft.neuralPasses;
+        options.beforeUpscaling = draft.neuralBeforeUpscaling;
+        options.reconstruction = draft.neuralReconstruction;
+        options.extraPasses = draft.neuralExtraPasses;
+        options = TheosRenderPipeline::SourceDLSSG::NormalizeNeuralRoute(std::move(options), view.communityShaders);
+        admission = backend.CheckNeuralAdmission(options, options.beforeUpscaling ? view.renderWidth : view.outputWidth,
+            options.beforeUpscaling ? view.renderHeight : view.outputHeight);
+        runtimeReasons.clear();
+        for (const auto& runtime : view.neuralRuntimes) {
+            const auto path = TheosRenderPipeline::SourceDLSSG::ResolveNeuralRuntimeSetting(runtime,
+                TheosRenderPipeline::PluginPaths::Directory(), backend.NeuralComputeCapability(),
+                TheosRenderPipeline::NeuralRendering::RuntimeKernelsSupported());
+            const auto* reason = TheosRenderPipeline::NeuralRendering::NeuralRuntimeChoiceReason(admission.Pascal(),
+                !admission.Pascal() || (admission.universal && TheosRenderPipeline::NeuralRendering::VerifyPascalAssets(path)));
+            runtimeReasons.emplace_back(reason ? reason : "");
+        }
+        admittedRuntimes = view.neuralRuntimes;
+        admittedPreferences = draft; admittedAt = Clock::now();
+    }
+    view.neuralRuntimeReasons = runtimeReasons;
+    view.neuralPascal = admission.Pascal();
+    view.neuralAdmissionReason = admission.Refusal() ? admission.Refusal() : "";
+#endif
     view.nvidiaAdapter = backend.NvidiaAdapter();
+    view.nvidiaFeatures = backend.NvidiaFeaturesAvailable();
+    view.nvidiaFrameGeneration = backend.NvidiaFrameGenerationAvailable();
     view.nvidiaServicesReady = backend.NvidiaServicesReady();
     view.generationActive = backend.GenerationActive();
     view.effectiveMultiplier = backend.EffectiveMultiplier();

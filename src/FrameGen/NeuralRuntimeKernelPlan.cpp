@@ -1,5 +1,6 @@
 #include "NeuralRuntimeKernelsInternal.h"
 #include "NeuralRuntimeKernels.h"
+#include "NeuralLaunchRequirements.h"
 
 #include <algorithm>
 #include <array>
@@ -34,12 +35,13 @@ namespace TheosRenderPipeline::NeuralRendering::KernelPacks
     }
 
     bool MakePlan(std::span<const std::uint8_t> pack, std::uintptr_t module,
-        std::uintptr_t storage, std::vector<Patch>& plan, std::string& reason)
+        std::uintptr_t storage, std::vector<Patch>& plan, std::string& reason,
+        std::size_t packSize, bool admitGtx10)
     {
         plan.clear();
         const auto refuse = [&](const char* why) { reason = why; return false; };
-        if (pack.size() != PackSize || std::memcmp(pack.data(), "TRPNRK1\0", 8) ||
-            Value<std::uint32_t>(pack, 8) != 1 || Value<std::uint32_t>(pack, 12) != std::size(Bundles)) {
+        if (pack.size() < 512 || pack.size() != packSize || std::memcmp(pack.data(), "TRPNRK1\0", 8) ||
+            (Value<std::uint32_t>(pack, 8) != 1 && Value<std::uint32_t>(pack, 8) != 2) || Value<std::uint32_t>(pack, 12) != std::size(Bundles)) {
             return refuse("invalid NR compatibility kernel pack header or size");
         }
         constexpr char hex[] = "0123456789ABCDEF";
@@ -91,9 +93,18 @@ namespace TheosRenderPipeline::NeuralRendering::KernelPacks
             }
             pending.push_back({b.length, Bytes<std::uint64_t>(b.bytes), Bytes<std::uint64_t>(size)});
         }
-        if (end != pack.size()) { return refuse("NR compatibility kernel pack has trailing bytes"); }
+        if (Value<std::uint32_t>(pack, 8) == 2) {
+            LaunchRequirements rules;
+            if (!admitGtx10) { return refuse("required-launch NR packs need an admitted Pascal compatibility path"); }
+            if (!ReadLaunchRequirements(pack.subspan(static_cast<std::size_t>(end)), rules, reason)) { return false; }
+        } else if (end != pack.size()) { return refuse("NR compatibility kernel pack has trailing bytes"); }
         for (const auto site : {0x136E0u, 0x15580u}) {
-            pending.push_back({site, {0xC7,0x44,0x24,0x3C,0xB0,1,0,0}, {0xC7,0x44,0x24,0x3C,0x60,1,0,0}});
+            pending.push_back({site, {0xC7,0x44,0x24,0x3C,0xB0,1,0,0},
+                {0xC7,0x44,0x24,0x3C,static_cast<std::uint8_t>(admitGtx10 ? 0x30 : 0x60),1,0,0}});
+        }
+        if (admitGtx10) {
+            // Unlisted architectures continue when >= this compare: 0x140 -> 0x130 (GTX 10).
+            pending.push_back({0x17BEF, {0x3D,0x40,1,0,0}, {0x3D,0x30,1,0,0}});
         }
         // Same audited host admission as the pinned community runtime. Each
         // architecture entry is verified independently before publication.

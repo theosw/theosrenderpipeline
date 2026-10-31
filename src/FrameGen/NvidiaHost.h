@@ -87,6 +87,7 @@ class NvidiaHost
     void AdoptEffectiveSourceUpscalerSettings() const;
     UINT OutputWidth() const { return outputWidth_; }
     UINT OutputHeight() const { return outputHeight_; }
+    bool NRFriendlyRenderSizeActive() const { return nrFriendlyRenderSizeActive_; }
     UINT RenderWidth() const { return renderWidth_; }
     UINT RenderHeight() const { return renderHeight_; }
     HWND GameWindow() const { return outputWindow_; }
@@ -185,6 +186,7 @@ class NvidiaHost
     HWND outputWindow_{nullptr};
     UINT outputWidth_{0};
     UINT outputHeight_{0};
+    bool nrFriendlyRenderSizeActive_{};
     UINT renderWidth_{0};
     UINT renderHeight_{0};
     bool proxyActive_{false};

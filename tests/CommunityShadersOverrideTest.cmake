@@ -1,4 +1,4 @@
-# Checks the packaged Community Shaders settings override. CS reads
+# Checks the packaged Community Shaders settings override. CS 1.9.1 reads
 # {ModName}_{FeatureShortName}.json from SKSE/Plugins/CommunityShaders/Overrides,
 # merges it over the user's saved feature settings at startup and ignores keys
 # starting with "_". The file must keep CS frame generation and Reflex off and
@@ -14,6 +14,25 @@ if(NOT name STREQUAL "TheosRenderPipeline_Upscaling.json")
 endif()
 
 file(READ "${OVERRIDE_FILE}" json)
+
+# New CS uses explicitly enabled Baseline packs; stable 1.9.1 uses Overrides.
+file(READ "${PRESET_ROOT}/Theos Render Pipeline.json" metadata)
+foreach(field IN ITEMS name author version description type)
+    string(JSON value ERROR_VARIABLE error GET "${metadata}" "${field}")
+    if(error OR value STREQUAL "")
+        message(FATAL_ERROR "Missing Baseline pack metadata: ${field}")
+    endif()
+endforeach()
+string(JSON packType GET "${metadata}" type)
+string(JSON packName GET "${metadata}" name)
+if(NOT packType STREQUAL "Baseline" OR NOT packName STREQUAL "Theo's Render Pipeline")
+    message(FATAL_ERROR "CS must discover this pack as Theo's Render Pipeline, type Baseline")
+endif()
+file(SHA256 "${OVERRIDE_FILE}" overrideHash)
+file(SHA256 "${PRESET_ROOT}/Baseline/TheosRenderPipeline_Upscaling.json" baselineHash)
+if(NOT overrideHash STREQUAL baselineHash)
+    message(FATAL_ERROR "Baseline and legacy override must have identical bytes")
+endif()
 
 string(JSON type ERROR_VARIABLE error TYPE "${json}")
 if(error OR NOT type STREQUAL "OBJECT")

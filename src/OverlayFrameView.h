@@ -52,10 +52,16 @@ struct OverlayUI::FrameView
     std::string neuralRuntimePath;
     // nvngx_dlssnr*.dll files NR can switch to, refreshed every few seconds.
     std::vector<std::string> neuralRuntimes;
+    std::vector<std::string> neuralRuntimeReasons;
     bool sourceReady{};
+    std::string neuralAdmissionReason;
+    bool neuralPascal{};
     bool nvidiaServicesReady{};
     bool nvidiaAdapter{true};
+    bool nvidiaFeatures{true};
+    bool nvidiaFrameGeneration{true};
     bool xessActive{};
+    bool nrFriendlyRenderSizeActive{};
     bool generationActive{};
     unsigned effectiveMultiplier{1};
     TheosRenderPipeline::FrameGenerationProvider provider{}, requestedProvider{};

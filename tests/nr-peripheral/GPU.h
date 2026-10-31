@@ -1,5 +1,6 @@
 #pragma once
 #include "FrameGen/SourceDLSSGNeuralRendering.h"
+#include "FrameGen/NeuralLaunchSubmission.h"
 #include <d3d12sdklayers.h>
 #include <dxgi1_6.h>
 #include <DirectXPackedVector.h>
@@ -46,8 +47,13 @@ struct GPU {
     }
     ~GPU(){CloseHandle(event);}
     void Begin(){Check(allocator->Reset(),"retired allocator reset");Check(list->Reset(allocator.Get(),nullptr),"list reset");}
+    void Discard(){
+        Check(list->Close(),"close discarded recording");
+        TheosRenderPipeline::NeuralRendering::RejectedNeuralLists::Get().Discard(list.Get());
+        // No queue submission or fence increment. Begin resets this allocator.
+    }
     void End(){
-        Check(list->Close(),"close");ID3D12CommandList* lists[]{list.Get()};queue->ExecuteCommandLists(1,lists);
+        Check(list->Close(),"close");ID3D12CommandList* lists[]{list.Get()};Require(TheosRenderPipeline::NeuralRendering::ExecuteHealthyNeuralList(list.Get(),[&] { queue->ExecuteCommandLists(1,lists); }),"rejected NR list must never execute");
         Check(queue->Signal(fence.Get(),++serial),"signal");Check(fence->SetEventOnCompletion(serial,event),"completion event");
         Require(WaitForSingleObject(event,10000)==WAIT_OBJECT_0 && fence->GetCompletedValue()==serial,"GPU retirement");
         for(UINT64 i=0;info && i<info->GetNumStoredMessages();++i){

@@ -147,19 +147,19 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& v
                 {
                     for (int i = 0; i < 2; ++i)
                     {
-                        ImGui::BeginDisabled(i == 0 && !view.nvidiaAdapter);
+                        ImGui::BeginDisabled(i == 0 && !view.nvidiaFrameGeneration);
                         if (ImGui::Selectable(providers[i], provider == i) && provider != i)
                         {
                             draft.provider = static_cast<TheosRenderPipeline::FrameGenerationProvider>(i);
                             changed = true;
                         }
                         ImGui::EndDisabled();
-                        if (i == 0 && !view.nvidiaAdapter && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                            ImGui::SetTooltip("%s", TR("Needs an NVIDIA GPU."));
+                        if (i == 0 && !view.nvidiaFrameGeneration && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                            ImGui::SetTooltip("%s", !view.nvidiaFeatures ? TR("Requires NVIDIA RTX hardware.") : TR("NVIDIA's runtime reports frame generation unavailable on this system."));
                     }
                     ImGui::EndCombo();
                 }
-                DrawSettingsHelp(TR("Frame generation provider. NVIDIA DLSS-G requires NVIDIA hardware; XeFG uses "
+                DrawSettingsHelp(TR("Frame generation provider. NVIDIA DLSS-G requires NVIDIA RTX hardware; XeFG uses "
                                     "XeLL latency reduction. On NVIDIA cards XeFG costs noticeably more GPU time "
                                     "than DLSS-G; it is meant for other GPUs."));
                 ImGui::SameLine();

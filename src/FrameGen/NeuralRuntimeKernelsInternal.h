@@ -52,8 +52,10 @@ namespace TheosRenderPipeline::NeuralRendering::KernelPacks
     };
     // Pure validation and planning; never writes the module or pack. Production
     // additionally requires both pinned SHA-256 identities before calling this.
+    // admitGtx10 (research): a pack of any size, and admission down to GTX 10 (0x130).
     bool MakePlan(std::span<const std::uint8_t> pack, std::uintptr_t module,
-        std::uintptr_t storage, std::vector<Patch>& plan, std::string& reason);
+        std::uintptr_t storage, std::vector<Patch>& plan, std::string& reason,
+        std::size_t packSize = PackSize, bool admitGtx10 = false);
     bool Matches(Memory&, std::span<const Patch>, bool replacement);
     // Caller guarantees exclusive ownership before initialization. A transaction
     // here provides verified rollback, not atomic publication to running threads.

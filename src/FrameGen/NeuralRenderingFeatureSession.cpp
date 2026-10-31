@@ -4,7 +4,11 @@
 #include "NeuralRenderingModulePathHook.h"
 #include "NeuralRenderingRuntimeIdentity.h"
 #include "NeuralRuntimeKernels.h"
+#include "NeuralResearch.h"
+#include "NeuralLaunchHook.h"
+#include "NeuralFaultInjection.h"
 #include "NeuralRuntimeCompatibility.h"
+#include "NeuralAdmission.h"
 #include "NeuralRenderingSubrect.h"
 
 #include <PCH.h>
@@ -18,7 +22,13 @@
 #include <format>
 #include <limits>
 #include <mutex>
+#include <map>
+#include <set>
+#include <string>
+#include <type_traits>
+#include <unordered_map>
 #include <utility>
+#include <variant>
 
 #include <wrl/client.h>
 
@@ -34,7 +44,9 @@ namespace TheosRenderPipeline::NeuralRendering
 		std::atomic<bool> publicNGXInitialized{};
 		// Covers first load, kernel publication, public NGX and direct feature init.
 		// Subsequent passes must not observe a partly initialized shared module.
-		std::mutex initializationMutex;
+		std::recursive_mutex initializationMutex;
+		std::map<HMODULE, std::size_t> researchRuntimeUsers;
+		std::set<HMODULE> failedResearchRuntimes;
 
 		using D3D12Init = NVSDK_NGX_Result(NVSDK_CONV*)(
 			unsigned long long,
@@ -62,6 +74,81 @@ namespace TheosRenderPipeline::NeuralRendering
 			const NVSDK_NGX_Parameter*,
 			PFN_NVSDK_NGX_ProgressCallback_C);
 		using D3D12ReleaseFeature = NVSDK_NGX_Result(NVSDK_CONV*)(NVSDK_NGX_Handle*);
+
+		// The driver registers its NGX core folder under NGXCore\FullPath.
+		HMODULE LoadNgxCore()
+		{
+			wchar_t folder[MAX_PATH]{};
+			DWORD bytes = sizeof(folder);
+			if (::RegGetValueW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\NVIDIA Corporation\\Global\\NGXCore", L"FullPath",
+					RRF_RT_REG_SZ, nullptr, folder, &bytes) != ERROR_SUCCESS) {
+				return nullptr;
+			}
+			const auto path = std::filesystem::path(folder) / L"_nvngx.dll";
+			return ::LoadLibraryExW(path.c_str(), nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
+		}
+
+		// Research stand-in for NGX core's parameter map. Like the core's, Get
+		// converts between numeric types and between pointer types.
+		class ResearchParameters final : public NVSDK_NGX_Parameter
+		{
+		public:
+			void Set(const char* a_name, unsigned long long a_value) override { Put(a_name, a_value); }
+			void Set(const char* a_name, float a_value) override { Put(a_name, a_value); }
+			void Set(const char* a_name, double a_value) override { Put(a_name, a_value); }
+			void Set(const char* a_name, unsigned int a_value) override { Put(a_name, a_value); }
+			void Set(const char* a_name, int a_value) override { Put(a_name, a_value); }
+			void Set(const char* a_name, ID3D11Resource* a_value) override { Put(a_name, static_cast<void*>(a_value)); }
+			void Set(const char* a_name, ID3D12Resource* a_value) override { Put(a_name, static_cast<void*>(a_value)); }
+			void Set(const char* a_name, void* a_value) override { Put(a_name, a_value); }
+			NVSDK_NGX_Result Get(const char* a_name, unsigned long long* a_value) const override { return Number(a_name, a_value); }
+			NVSDK_NGX_Result Get(const char* a_name, float* a_value) const override { return Number(a_name, a_value); }
+			NVSDK_NGX_Result Get(const char* a_name, double* a_value) const override { return Number(a_name, a_value); }
+			NVSDK_NGX_Result Get(const char* a_name, unsigned int* a_value) const override { return Number(a_name, a_value); }
+			NVSDK_NGX_Result Get(const char* a_name, int* a_value) const override { return Number(a_name, a_value); }
+			NVSDK_NGX_Result Get(const char* a_name, ID3D11Resource** a_value) const override { return Pointer(a_name, a_value); }
+			NVSDK_NGX_Result Get(const char* a_name, ID3D12Resource** a_value) const override { return Pointer(a_name, a_value); }
+			NVSDK_NGX_Result Get(const char* a_name, void** a_value) const override { return Pointer(a_name, a_value); }
+			void Reset() override { values_.clear(); }
+			std::size_t Count() const { return values_.size(); }
+
+		private:
+			using Value = std::variant<unsigned long long, float, double, unsigned int, int, void*>;
+
+			template <class T>
+			void Put(const char* a_name, T a_value)
+			{
+				if (a_name) { values_[a_name] = a_value; }
+			}
+
+			template <class T>
+			NVSDK_NGX_Result Number(const char* a_name, T* a_value) const
+			{
+				const auto it = a_name ? values_.find(a_name) : values_.end();
+				if (it == values_.end() || !a_value || std::holds_alternative<void*>(it->second)) { return NVSDK_NGX_Result_Fail; }
+				std::visit([&](auto stored) {
+					if constexpr (!std::is_pointer_v<decltype(stored)>) { *a_value = static_cast<T>(stored); }
+				}, it->second);
+				return NVSDK_NGX_Result_Success;
+			}
+
+			template <class T>
+			NVSDK_NGX_Result Pointer(const char* a_name, T** a_value) const
+			{
+				const auto it = a_name ? values_.find(a_name) : values_.end();
+				if (it == values_.end() || !a_value || !std::holds_alternative<void*>(it->second)) { return NVSDK_NGX_Result_Fail; }
+				*a_value = static_cast<T*>(std::get<void*>(it->second));
+				return NVSDK_NGX_Result_Success;
+			}
+
+			std::unordered_map<std::string, Value> values_;
+		};
+
+		NVSDK_NGX_Result NVSDK_CONV DestroyResearchParameters(NVSDK_NGX_Parameter* a_parameters)
+		{
+			delete static_cast<ResearchParameters*>(a_parameters);
+			return NVSDK_NGX_Result_Success;
+		}
 
 		bool IsUsableInitResult(NVSDK_NGX_Result a_result)
 		{
@@ -97,6 +184,8 @@ namespace TheosRenderPipeline::NeuralRendering
 		std::unique_ptr<CreationContext> creationContext;
 		HMODULE module{ nullptr };
 		bool ownsModule{ false };
+		bool researchRuntime{};
+		NVSDK_NGX_Result(NVSDK_CONV* shutdownRuntime)(ID3D12Device*){};
 		std::unique_ptr<ModulePathHook> modulePathHook;
 		NVSDK_NGX_Parameter* parameters{ nullptr };
 		D3D12DestroyParameters destroyParameters{ nullptr };
@@ -119,34 +208,53 @@ namespace TheosRenderPipeline::NeuralRendering
 		bool attempted{ false };
 		bool initialized{ false };
 		bool runtimeRefused{ false };
+		bool unsafe{}, teardownFailed{};
 		std::string status{ "not initialized" };
 
-		~State()
-		{
-			bool released = true;
-			if (feature && releaseFeature) {
-				const auto result = releaseFeature(feature);
-				released = NVSDK_NGX_SUCCEED(result);
-				if (!released) { logger::error("[DLSSNR Source] ReleaseFeature failed (0x{:08X}); keeping the runtime module loaded", static_cast<std::uint32_t>(result)); }
-			}
-			if (parameters && destroyParameters) {
-				const auto result = destroyParameters(parameters);
-				if (NVSDK_NGX_FAILED(result)) { logger::warn("[DLSSNR Source] DestroyParameters failed (0x{:08X})", static_cast<std::uint32_t>(result)); }
-			}
-			modulePathHook.reset();
-			// Unloading the runtime while a feature it failed to release may still
-			// run would leave its code unmapped; keep it for the process lifetime.
-			if (module && ownsModule && released) {
-				::FreeLibrary(module);
-			}
-		}
+        bool Release()
+        {
+            std::scoped_lock lock(initializationMutex);
+            if (teardownFailed) { return false; }
+            auto failed = [&](const char* operation, NVSDK_NGX_Result result) {
+                teardownFailed = true;
+                failedResearchRuntimes.insert(module); // All runtimes: never admit a competing owner.
+                status = std::format("{} refused (0x{:08X}); NR owner retained; restart required", operation, static_cast<std::uint32_t>(result));
+                return false;
+            };
+            if (feature && releaseFeature) {
+                const auto result = FaultInjection::Hit(FaultInjection::Point::Release) ? NVSDK_NGX_Result_FAIL_PlatformError : releaseFeature(feature);
+                if (NVSDK_NGX_FAILED(result)) { return failed("ReleaseFeature", result); }
+                feature = nullptr;
+            }
+            if (parameters && destroyParameters) {
+                const auto result = destroyParameters(parameters);
+                if (NVSDK_NGX_FAILED(result)) { return failed("DestroyParameters", result); }
+                parameters = nullptr;
+            }
+            if (researchRuntime) {
+                auto& users = researchRuntimeUsers[module];
+                if (users == 1) {
+                    const auto result = FaultInjection::Hit(FaultInjection::Point::Shutdown) ? NVSDK_NGX_Result_FAIL_PlatformError : shutdownRuntime(device);
+                    if (NVSDK_NGX_FAILED(result)) { return failed("Shutdown1", result); }
+                }
+                if (users) { --users; }
+                researchRuntime = false;
+            }
+            modulePathHook.reset();
+            if (module && ownsModule) { ::FreeLibrary(module); }
+            module = nullptr;
+            ownsModule = false;
+            initialized = false;
+            return true;
+        }
+
 	};
 
 	void FeatureSession::StateDeleter::operator()(State* state) const
 	{
-		if (!DestroyAfterCreation(state)) {
-			logger::error("[DLSSNR Source] retaining failed feature session: creation GPU completion is unconfirmed; relaunch required");
-		}
+		if (state->unsafe || (state->creationContext && !state->creationContext->CanRelease()) || !state->Release()) {
+			logger::error("[DLSSNR Source] retaining failed feature session: creation/teardown ownership is unconfirmed; relaunch required");
+		} else { delete state; }
 	}
 
 	FeatureSession::FeatureSession() : state_(new State) {}
@@ -186,6 +294,19 @@ namespace TheosRenderPipeline::NeuralRendering
 			return false;
 		}
 
+        const auto hardware = QueryNeuralHardware(a_info.device->GetAdapterLuid(), RuntimeKernelsSupported());
+        const auto capability = hardware.architecture;
+        const bool directPascal = hardware.Pascal() && RuntimeKernelsSupported();
+        const bool research = PascalResearchFor(capability);
+        const bool directRuntime = directPascal || research;
+        if (!hardware.Pascal()) {
+            if (const auto* reason = hardware.Refusal()) { state.status = reason; state.runtimeRefused = true; return false; }
+        }
+        if (hardware.Pascal() && !research) {
+            const auto admission = QueryNeuralAdmission(a_info.device->GetAdapterLuid(), a_info.runtimePath,
+                a_info.displayWidth, a_info.displayHeight, 1, RuntimeKernelsSupported(), true);
+            if (const auto* reason = admission.Refusal()) { state.status = reason; state.runtimeRefused = true; return false; }
+        }
 		const auto identity = VerifySource(a_info.runtimePath, a_info.allowReconstructionRuntime);
 		const double verified = elapsed();
 		// Failures before public NGX or the runtime's own init ran no vendor GPU work:
@@ -229,29 +350,56 @@ namespace TheosRenderPipeline::NeuralRendering
 			state.runtimeRefused = true;
 			return false;
 		}
-		if (identity.sha256 == kKernelRuntimeSha256 &&
-			NeedsRuntimeKernels(ComputeCapability(a_info.device->GetAdapterLuid()))) {
+		if (failedResearchRuntimes.contains(state.module)) {
+			state.status = "research NR teardown previously failed; NR off until restart";
+			state.runtimeRefused = true;
+			return false;
+		}
+		if (research && (PascalConfiguration().pack.empty() || identity.sha256 != kKernelRuntimeSha256)) {
+			state.status = "Pascal research requires original NR 310.9.16 and PascalPack; NR off";
+			state.runtimeRefused = true;
+			return false;
+		}
+		if (const auto researchPack = PascalConfiguration().pack; research && !researchPack.empty() &&
+			identity.sha256 == kKernelRuntimeSha256) {
+			logger::info("[DLSSNR Source] research: kernel pack request={}", researchPack.string());
+			const auto result = ApplyRuntimeKernels(state.module, researchPack, !resident, true);
+			logger::info("[DLSSNR Source] research: kernels applied={} unsafe={} status={}", result.applied, result.unsafe, result.status);
+			if (!result.applied) {
+				state.status = result.status;
+				state.runtimeRefused = !result.unsafe;
+				state.unsafe = result.unsafe;
+				return false;
+			}
+		} else if (identity.sha256 == kKernelRuntimeSha256 &&
+			(directPascal || NeedsRuntimeKernels(capability))) {
 			// Keep the requested Data path for siblings. MO2 can resolve the DLL
 			// to Standard's physical folder while Universal supplies the pack.
 			// identity.path identifies the module, not the merged asset directory.
-			const auto packPath = a_info.runtimePath.parent_path() / std::filesystem::u8path(kKernelPackName);
+			const auto packPath = a_info.runtimePath.parent_path() / std::filesystem::u8path(directPascal ? kPascalPackName : kKernelPackName);
 			logger::info("[DLSSNR Source] compatibility kernel pack request={}", packPath.string());
 			const auto result = ApplyRuntimeKernels(state.module, packPath, !resident);
 			logger::info("[DLSSNR Source] compatibility kernels applied={} unsafe={} status={}", result.applied, result.unsafe, result.status);
 			if (!result.applied) {
 				state.status = result.status;
 				state.runtimeRefused = !result.unsafe;
+				state.unsafe = result.unsafe;
 				return false;
 			}
 		}
 
+		if (FaultInjection::Hit(FaultInjection::Point::Metadata) || FaultInjection::Hit(FaultInjection::Point::Install)) { state.status = "injected metadata/install refusal"; return false; }
+		if (!InstallLaunchHook(state.module, RuntimeLaunchRequirements(state.module), capability, state.status)) {
+			state.runtimeRefused = true;
+			return false;
+		}
 		const auto dataPath = GetDataPath();
 		const auto searchDirectory = identity.path.parent_path().wstring();
 		const wchar_t* searchPath = searchDirectory.c_str();
 		NVSDK_NGX_FeatureCommonInfo featureInfo{};
 		featureInfo.PathListInfo.Path = &searchPath;
 		featureInfo.PathListInfo.Length = 1;
-		const auto publicInitResult = NVSDK_NGX_D3D12_Init_with_ProjectID(
+		const auto publicInitResult = (directRuntime && (capability == 61 || PascalConfiguration().mode == L'2')) ? NVSDK_NGX_Result_FAIL_FeatureNotSupported : NVSDK_NGX_D3D12_Init_with_ProjectID(
 			kTheosRenderPipelineNGXProjectId,
 			NVSDK_NGX_ENGINE_TYPE_CUSTOM,
 			kTheosRenderPipelineNGXEngineVersion,
@@ -263,19 +411,28 @@ namespace TheosRenderPipeline::NeuralRendering
 			state.lastInitResult = static_cast<std::uint32_t>(publicInitResult);
 			state.status = std::format(
 				"public NGX initialization failed (0x{:08X})", state.lastInitResult);
-			return false;
+			// Research: the driver's NGX core refuses GPUs older than Turing
+			// with FeatureNotSupported. NR itself only needs the loader's path.
+			if (!directRuntime || publicInitResult != NVSDK_NGX_Result_FAIL_FeatureNotSupported) {
+				return false;
+			}
+			logger::info("[DLSSNR Source] direct bootstrap: continuing after {}", state.status);
+		} else {
+			publicNGXInitialized.store(true, std::memory_order_release);
 		}
-		publicNGXInitialized.store(true, std::memory_order_release);
 		// XeSS startup has no Streamline/DLSS bootstrap. The public NGX init
 		// above must establish NR's loader independently before we resolve the
 		// path used by the feature's scoped module-path hook.
-		const auto normalLoader = FindNormalLoader();
+		auto normalLoader = FindNormalLoader();
+		if (!normalLoader && directRuntime) {
+			normalLoader = LoadNgxCore();
+		}
 		const auto normalLoaderPath = ModulePath(normalLoader);
 		if (!normalLoader || normalLoaderPath.empty()) {
 			state.status = "normal NGX loader is not resident after public initialization";
 			return false;
 		}
-		logger::info("[DLSSNR Source] public NGX initialized result=0x{:08X} loader={}",
+		logger::info("[DLSSNR Source] loader ready; public NGX result=0x{:08X} loader={}",
 			static_cast<std::uint32_t>(publicInitResult), normalLoaderPath.string());
 
 		auto init = reinterpret_cast<D3D12Init>(
@@ -306,8 +463,14 @@ namespace TheosRenderPipeline::NeuralRendering
 			state.status = "module-path import hook could not be installed";
 			return false;
 		}
+		if (directRuntime && !publicNGXInitialized.load(std::memory_order_acquire)) {
+			state.shutdownRuntime = reinterpret_cast<decltype(state.shutdownRuntime)>(::GetProcAddress(state.module, "NVSDK_NGX_D3D12_Shutdown1"));
+			if (!state.shutdownRuntime) { state.status = "research runtime Shutdown1 export missing; NR off"; return false; }
+		}
 		auto initResult = NVSDK_NGX_Result_FAIL_NotInitialized;
-		if (init) {
+		if (state.shutdownRuntime && researchRuntimeUsers[state.module]) {
+			initResult = NVSDK_NGX_Result_Success;
+		} else if (init) {
 			initResult = init(
 				kTheosRenderPipelineGenericCmsId, dataPath.c_str(), a_info.device, kFeatureApiVersion);
 		}
@@ -326,9 +489,26 @@ namespace TheosRenderPipeline::NeuralRendering
 			return false;
 		}
 
+		if (state.shutdownRuntime) {
+			state.device = a_info.device;
+			state.researchRuntime = true;
+			++researchRuntimeUsers[state.module];
+		}
 		auto capabilityResult = NVSDK_NGX_Result_FAIL_NotInitialized;
 		if (getCapabilities && state.destroyParameters) {
 			capabilityResult = getCapabilities(&state.parameters);
+		} else if (!publicNGXInitialized.load(std::memory_order_acquire) && directRuntime) {
+			// Research: without NGX core, fill our own parameter map the way the
+			// core does, through the runtime's populate entry point.
+			using Populate = NVSDK_NGX_Result(NVSDK_CONV*)(NVSDK_NGX_Parameter*);
+			const auto populate = reinterpret_cast<Populate>(
+				::GetProcAddress(state.module, "NVSDK_NGX_D3D12_PopulateParameters_Impl"));
+			auto* parameters = new ResearchParameters;
+			capabilityResult = populate ? populate(parameters) : NVSDK_NGX_Result_FAIL_FeatureNotFound;
+			state.parameters = parameters;
+			state.destroyParameters = &DestroyResearchParameters;
+			logger::info("[DLSSNR Source] direct bootstrap: populated parameters (0x{:08X}), {} values",
+				static_cast<std::uint32_t>(capabilityResult), parameters->Count());
 		} else {
 			capabilityResult = NVSDK_NGX_D3D12_GetCapabilityParameters(&state.parameters);
 			state.destroyParameters = &NVSDK_NGX_D3D12_DestroyParameters;
@@ -354,9 +534,15 @@ namespace TheosRenderPipeline::NeuralRendering
 			state.parameters,
 			&state.feature);
 		state.lastCreateResult = static_cast<std::uint32_t>(createResult);
+		if (FaultInjection::Hit(FaultInjection::Point::Creation) || FaultInjection::Hit(FaultInjection::Point::Bind)) { state.status = "injected partial creation/bind refusal"; return false; }
+		if (!LaunchHookHealthy(state.module, state.status)) { return false; }
 		if (NVSDK_NGX_FAILED(createResult) || !state.feature) {
 			state.status = std::format(
 				"feature creation failed (0x{:08X})", state.lastCreateResult);
+			return false;
+		}
+		if (!LaunchHookReady(state.module, state.status)) {
+			state.runtimeRefused = true;
 			return false;
 		}
 		if (!creationContext.SubmitAndWait(
@@ -398,6 +584,7 @@ namespace TheosRenderPipeline::NeuralRendering
 			return false;
 		}
 
+		if (!LaunchHookReady(state.module, state.status)) { return false; }
 		auto* parameters = state.parameters;
 		parameters->Set("DLSSNR.Color", a_input.color);
 		parameters->Set("DLSSNR.MVec", a_input.motionVectors);
@@ -439,9 +626,15 @@ namespace TheosRenderPipeline::NeuralRendering
 		parameters->Set("DLSSNR.MVecScaleY", a_input.motionVectorScaleY);
 		WriteTuningParameters(*parameters, a_input.tuning, a_input.reset, a_input.depthInverted, state.contract.build);
 
+		if (!LaunchHookHealthy(state.module, state.status)) { return false; } // A rejected session never evaluates again.
 		const auto evaluateResult = state.evaluateFeature(
 			a_input.commandList, state.feature, parameters, nullptr);
 		state.lastEvaluateResult = static_cast<std::uint32_t>(evaluateResult);
+        if (FaultInjection::Hit(FaultInjection::Point::Evaluate)) {
+            RejectedNeuralLists::Get().Reject(a_input.commandList);
+            state.status = "injected Evaluate refusal after recording"; return false;
+        }
+		if (!LaunchHookHealthy(state.module, state.status)) { return false; }
 		if (NVSDK_NGX_FAILED(evaluateResult)) {
 			state.status = std::format(
 				"feature evaluation failed (0x{:08X})", state.lastEvaluateResult);
@@ -485,20 +678,20 @@ namespace TheosRenderPipeline::NeuralRendering
 	{
 		return IsInitialized() ? state_->contract.build : RuntimeBuild::Unknown;
 	}
-	bool FeatureSession::ResetAfterRetirement()
-	{
-		if (state_->creationContext && !state_->creationContext->CanRelease()) { return false; }
-		if (state_->feature && state_->releaseFeature) {
-			const auto result = state_->releaseFeature(state_->feature);
-			if (NVSDK_NGX_FAILED(result)) {
-				state_->status = std::format("NR model replacement release refused (0x{:08X}); relaunch required", static_cast<std::uint32_t>(result));
-				return false; // Retain feature, parameters and module; do not create another owner.
-			}
-			state_->feature = nullptr;
-		}
-		state_.reset(new State);
-		return true;
-	}
+    bool FeatureSession::RecoverySafe() const
+    {
+        return !state_->unsafe && (!state_->creationContext || state_->creationContext->CanRelease());
+    }
+    bool FeatureSession::ReleaseAfterRetirement()
+    {
+        return RecoverySafe() && state_->Release();
+    }
+    bool FeatureSession::ResetAfterRetirement()
+    {
+        if (!ReleaseAfterRetirement()) { return false; }
+        state_.reset(new State);
+        return true;
+    }
 
 	std::uint64_t FeatureSession::EvaluationsRecorded() const
 	{

@@ -5,7 +5,7 @@
 
 #include <bcrypt.h>
 
-#include <fstream>
+#include <atomic>
 #include <mutex>
 #include <unordered_map>
 #include <vector>
@@ -15,6 +15,7 @@ namespace TheosRenderPipeline::NeuralRenderingRuntimeIdentity
 
 	namespace
 	{
+        std::atomic_uint64_t hashCalls{};
 		std::string FileVersion(const std::filesystem::path& a_path)
 		{
 			DWORD ignored = 0;
@@ -40,8 +41,9 @@ namespace TheosRenderPipeline::NeuralRenderingRuntimeIdentity
 				LOWORD(info->dwFileVersionLS));
 		}
 
-		std::string Sha256(const std::filesystem::path& a_path)
+		std::string Sha256(HANDLE file)
 		{
+            ++hashCalls;
 			BCRYPT_ALG_HANDLE algorithm = nullptr;
 			BCRYPT_HASH_HANDLE hash = nullptr;
 			std::vector<std::byte> hashObject;
@@ -80,21 +82,18 @@ namespace TheosRenderPipeline::NeuralRenderingRuntimeIdentity
 				return {};
 			}
 
-			std::ifstream stream(a_path, std::ios::binary);
-			std::vector<char> buffer(1024 * 1024);
-			while (stream) {
-				stream.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
-				const auto count = stream.gcount();
-				if (count > 0 && !BCRYPT_SUCCESS(::BCryptHashData(
-						hash, reinterpret_cast<PUCHAR>(buffer.data()), static_cast<ULONG>(count), 0))) {
-					cleanup();
-					return {};
-				}
-			}
-			if (!stream.eof() || !BCRYPT_SUCCESS(::BCryptFinishHash(hash, digest.data(), digestSize, 0))) {
-				cleanup();
-				return {};
-			}
+            std::vector<UCHAR> buffer(1024 * 1024);
+            DWORD count{};
+            bool read{};
+            do {
+                read = ReadFile(file, buffer.data(), static_cast<DWORD>(buffer.size()), &count, nullptr) != 0;
+                if (!read || (count && !BCRYPT_SUCCESS(::BCryptHashData(hash, buffer.data(), count, 0)))) {
+                    cleanup(); return {};
+                }
+            } while (count);
+            if (!BCRYPT_SUCCESS(::BCryptFinishHash(hash, digest.data(), digestSize, 0))) {
+                cleanup(); return {};
+            }
 			cleanup();
 
 			std::string result;
@@ -111,44 +110,51 @@ namespace TheosRenderPipeline::NeuralRenderingRuntimeIdentity
 	Snapshot VerifyExpected(
 		const std::filesystem::path& a_path,
 		std::uint64_t a_expectedSize,
-		std::string_view a_expectedSha256)
+		std::string_view a_expectedSha256, bool fresh)
 	{
 		Snapshot result{};
 		result.path = Normalize(a_path);
-		std::error_code error;
-		result.present = std::filesystem::is_regular_file(result.path, error) && !error;
-		if (!result.present) {
-			return result;
-		}
-		result.size = std::filesystem::file_size(result.path, error);
-		// Hashing a 266 MB runtime through MO2's virtual file system takes
-		// seconds, and every NR rebuild verifies it again. Reuse the result while
-		// the file's path, size and modification time are unchanged.
-		struct Cached { std::uint64_t size; std::filesystem::file_time_type written; std::string version, sha256; };
-		static std::mutex cacheMutex;
-		static std::unordered_map<std::wstring, Cached> cache;
-		const auto written = std::filesystem::last_write_time(result.path, error);
-		const auto key = result.path.wstring();
-		{
-			std::scoped_lock lock(cacheMutex);
-			const auto found = cache.find(key);
-			if (!error && found != cache.end() && found->second.size == result.size && found->second.written == written) {
-				result.version = found->second.version;
-				result.sha256 = found->second.sha256;
-				result.matched = result.size == a_expectedSize && result.sha256 == a_expectedSha256;
-				return result;
-			}
-		}
-		result.version = FileVersion(result.path);
-		result.sha256 = Sha256(result.path);
-		if (!error && !result.sha256.empty()) {
-			std::scoped_lock lock(cacheMutex);
-			cache[key] = { result.size, written, result.version, result.sha256 };
-		}
-		result.matched = !error && result.size == a_expectedSize &&
-			result.sha256 == a_expectedSha256;
-		return result;
+        // Open once and deny writes/replacement through identity, hash and
+        // publication of the cache entry. Path metadata alone misses a replaced
+        // file (and TOCTOU between stat and hashing).
+        struct OpenFile {
+            HANDLE value{INVALID_HANDLE_VALUE};
+            ~OpenFile() { if (value != INVALID_HANDLE_VALUE) { CloseHandle(value); } }
+        } file{CreateFileW(result.path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+            OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr)};
+        if (file.value == INVALID_HANDLE_VALUE) { return result; }
+        BY_HANDLE_FILE_INFORMATION info{};
+        FILE_BASIC_INFO basic{};
+        if (!GetFileInformationByHandle(file.value, &info) || (info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) ||
+            !GetFileInformationByHandleEx(file.value, FileBasicInfo, &basic, sizeof(basic))) { return result; }
+        result.present = true;
+        result.size = (std::uint64_t(info.nFileSizeHigh) << 32) | info.nFileSizeLow;
+        struct Identity {
+            DWORD volume{}, high{}, low{};
+            std::uint64_t size{};
+            LONGLONG written{}, changed{};
+            bool operator==(const Identity&) const = default;
+        };
+        const Identity identity{info.dwVolumeSerialNumber, info.nFileIndexHigh, info.nFileIndexLow,
+            result.size, basic.LastWriteTime.QuadPart, basic.ChangeTime.QuadPart};
+        struct Cached { Identity identity; std::string version, sha256; };
+        static std::mutex cacheMutex;
+        static std::unordered_map<std::wstring, Cached> cache;
+        const auto key = result.path.wstring();
+        std::scoped_lock lock(cacheMutex);
+        const auto found = cache.find(key);
+        if (!fresh && found != cache.end() && found->second.identity == identity) {
+            result.version = found->second.version; result.sha256 = found->second.sha256;
+        } else {
+            result.version = FileVersion(result.path);
+            result.sha256 = Sha256(file.value);
+            if (!result.sha256.empty()) { cache[key] = {identity, result.version, result.sha256}; }
+        }
+        result.matched = result.size == a_expectedSize && result.sha256 == a_expectedSha256;
+        return result;
 	}
+
+    std::uint64_t HashInvocations() { return hashCalls.load(); }
 
 	Snapshot Verify(const std::filesystem::path& a_path)
 	{

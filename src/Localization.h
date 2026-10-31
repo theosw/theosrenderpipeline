@@ -22,8 +22,9 @@
 //
 // Text a dictionary does not translate stays English. [Strings.<context>] holds
 // the few words that need a different translation in one place (TRC). Settings
-// keys, weather override names and log lines are never translated: only the
-// menu (src/Overlay*) uses TR. LOCALIZATION.md describes the format.
+// keys, weather override names and log lines are never translated. The menu
+// uses TR; CS startup recovery uses the same dictionary before UI initialization.
+// LOCALIZATION.md describes the format.
 namespace TheosRenderPipeline::Localization
 {
 	struct Info

@@ -234,8 +234,8 @@ void OverlayUI::DrawImagePanel(float tabCardHeight, const FrameView& view)
                 SettingRow(TR("Mode"), nullptr, true, false, [&] {
                     int mode = xess ? 2 : native ? 1 : 0;
                     const bool changed = Segmented("mode", mode, {
-                        {"DLSS", true, TR("NVIDIA DLSS reconstruction at the render scale below.")},
-                        {"DLAA", true, TR("NVIDIA DLAA at native resolution.")},
+                        {"DLSS", view.nvidiaFeatures, TR("Requires NVIDIA RTX hardware.")},
+                        {"DLAA", view.nvidiaFeatures, TR("Requires NVIDIA RTX hardware.")},
                         {TR("XeSS"), true, TR("Intel XeSS (experimental). After restart it uses Intel's quality resolutions.")}});
                     if (changed) { settingsDraft.upscaleType = mode == 2 ? XeSS : mode == 1 ? DLAA : DLSS; }
                     return changed;
@@ -261,7 +261,10 @@ void OverlayUI::DrawImagePanel(float tabCardHeight, const FrameView& view)
                         }
                         ImGui::EndCombo();
                     }
-                    DrawSettingsHelp(native ? TR("DLAA renders at native resolution.") : TR("Size of the rendered world before upscaling."));
+                    const auto help = view.nrFriendlyRenderSizeActive
+                        ? TRF("Size of the rendered world before upscaling.\nNR render size this session: {} x {}.\nPreset changes take effect after restart.", view.renderWidth, view.renderHeight)
+                        : std::string(native ? TR("DLAA renders at native resolution.") : TR("Size of the rendered world before upscaling."));
+                    DrawSettingsHelp(help.c_str());
                     return changed;
                 });
             }

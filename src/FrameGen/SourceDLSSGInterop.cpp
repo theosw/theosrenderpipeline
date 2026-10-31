@@ -1,3 +1,4 @@
+#include "NeuralLaunchSubmission.h"
 #include "SourceDLSSGInterop.h"
 
 #include <dxgi1_4.h>
@@ -395,6 +396,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (FAILED(hr = work->allocators[work->slot]->Reset())) { return Check(hr); }
 		observation_.stage = "command list Reset";
 		if (FAILED(hr = work->lists[work->slot]->Reset(work->allocators[work->slot].Get(), nullptr))) { return Check(hr); }
+		NeuralRendering::RejectedNeuralLists::Get().Discard(work->lists[work->slot].Get());
 		work->recording = true;
 		*a_list = work->lists[work->slot].Get();
 		// This slot just retired; others may have too.
@@ -421,7 +423,11 @@ namespace TheosRenderPipeline::SourceDLSSG
 		work->recording = false;
 		if (FAILED(hr)) { timer_.Discard(std::exchange(record, D3D12StageTimer::kNoRecord)); return Check(hr); }
 		ID3D12CommandList* lists[]{ work->lists[work->slot].Get() };
-		queue_->ExecuteCommandLists(1, lists);
+        if (!NeuralRendering::ExecuteHealthyNeuralList(lists[0], [&] { queue_->ExecuteCommandLists(1, lists); })) {
+            timer_.Discard(std::exchange(record, D3D12StageTimer::kNoRecord));
+            NeuralRendering::RejectedNeuralLists::Get().Discard(lists[0]);
+            return Check(E_FAIL); // No signal, submitted value or slot advance.
+        }
 		observation_.stage = "D3D12 queue Signal after ExecuteCommandLists";
 		observation_.fenceValue = work->value + 1;
 		hr = queue_->Signal(work->fence12.Get(), ++work->value);
@@ -431,6 +437,19 @@ namespace TheosRenderPipeline::SourceDLSSG
 		work->slot = (work->slot + 1) % kCommandSlots;
 		return S_OK;
 	}
+
+    HRESULT Interop::Discard(Work a_work)
+    {
+        auto* work = Get(a_work);
+        if (!work) { return E_INVALIDARG; }
+        if (!work->recording) { return S_OK; }
+        const auto hr = work->lists[work->slot]->Close();
+        work->recording = false;
+        auto& record = timerRecords_[static_cast<std::size_t>(a_work)];
+        timer_.Discard(std::exchange(record, D3D12StageTimer::kNoRecord));
+        NeuralRendering::RejectedNeuralLists::Get().Discard(work->lists[work->slot].Get());
+        return FAILED(hr) ? Check(hr) : S_OK;
+    }
 
 	HRESULT Interop::Drain()
 	{

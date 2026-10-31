@@ -8,14 +8,14 @@
 #include "NeuralObjectBlend.h"
 #include "NeuralObjectControl.h"
 #include "NeuralModelRate.h"
+#include "XeFGModelBeat.h"
 #include <chrono>
 #include <array>
 
 namespace TheosRenderPipeline::SourceDLSSG
 {
 	// Render-thread owner. Destroy ONLY after Interop::Drain proves retirement.
-	// A recording failure is fatal to the backend: unknown NGX commands must not
-	// be submitted or followed by a speculative fallback using guessed states.
+	// Failed recordings must be discarded in full; shared inputs stay COMMON.
 	class NeuralPass final
 	{
 	public:
@@ -31,6 +31,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		ID3D12Resource* Composed() const { return composed_.Get(); }
 		ID3D12Resource* Corrected() const { return corrected_.Get(); }
 		NeuralTelemetrySnapshot Telemetry() const { return telemetry_.Snapshot(); }
+		NRModelActivity ModelActivity() const { return modelActivity_; }
 		void RetireTelemetry();
 		NeuralRendering::RuntimeBuild RetainedRuntimeBuild(const std::filesystem::path& request) const
 		{
@@ -55,10 +56,11 @@ namespace TheosRenderPipeline::SourceDLSSG
 		}
 		// No list may be open. Backend drains first, just as for a full rebuild.
 		bool RetireChangedModels(const NeuralOptions& options);
+		bool RecoverySafe() const;
+		bool ReleaseAfterRetirement();
 		const std::string& Status() const { return status_; }
-		// NGX refused to create Pass 1 with this runtime. Initialization then stops
-		// before Record writes to the frame's list. A refused later pass is not a
-		// runtime refusal: the passes before it keep running (see PassNote).
+		// NGX refused to create Pass 1. Every initialization/recording refusal,
+		// including a later pass, is handled by the backend recovery owner.
 		std::uint32_t RefusedCreation() const { return feature_.RefusedCreation(); }
 		// Passes whose feature was created on an earlier frame; at most these run.
 		int ReadyPasses() const { return readyPasses_; }
@@ -131,6 +133,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			bool pending{};
 			bool modelRan{};
 		};
+		std::array<Microsoft::WRL::ComPtr<ID3D12Resource>, 6> retainedInputs_;
 		NeuralRendering::FeatureSession feature_;
 		// Passes 2 to 5. Each runs the model on the previous pass's result with its
 		// own feature, history and model raster, and is restored to Pass 1's grid
@@ -210,6 +213,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		std::uint64_t timestampFrequency_{};
 		bool telemetryAttempted_{};
 		NeuralTelemetryTracker telemetry_;
+		NRModelActivity modelActivity_{};
 		std::string status_;
 		StatusKey statusKey_{};
 		std::string successStatus_;

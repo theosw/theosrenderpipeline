@@ -77,6 +77,8 @@ struct RendererSettingsCapabilities
     bool sourceHost{}, neuralRuntime{}, dedicatedUI{}, externalWorld{};
     bool neuralOperational{true};
     bool nvidiaAdapter{true};
+    bool nvidiaFeatures{true};
+    const char* neuralAdmissionReason{};
 };
 
 inline bool CanEditNeuralEnabled(bool enabled, bool available) { return enabled || available; }
@@ -92,6 +94,7 @@ inline bool SameNeuralPreferences(const SourceDLSSG::Preferences& a, const Sourc
 inline const char* NeuralSettingsUnavailable(int mode, RendererSettingsCapabilities capabilities)
 {
     if (!capabilities.nvidiaAdapter) { return "Neural Rendering requires NVIDIA RTX hardware; XeSS and XeFG remain available."; }
+    if (capabilities.neuralAdmissionReason) { return capabilities.neuralAdmissionReason; }
     if (!capabilities.neuralRuntime) {
         return "NR runtime DLL not found. Install nvngx_dlssnr.dll at the configured path and restart Skyrim.";
     }
@@ -101,6 +104,11 @@ inline const char* NeuralSettingsUnavailable(int mode, RendererSettingsCapabilit
         return "NR requires dedicated UI composition. Turn NR off to apply other changes, or set NativeUICompositionMode=0 in the INI and restart Skyrim.";
     }
     return nullptr;
+}
+
+inline bool ShouldRequestNeuralRetry(bool saveAsDefault, bool requested, int mode, RendererSettingsCapabilities capabilities)
+{
+    return !saveAsDefault && requested && NeuralSettingsUnavailable(mode, capabilities) == nullptr;
 }
 
 inline const char* ValidateRendererSettings(const RendererSettingsDraft& draft,
@@ -119,7 +127,7 @@ inline const char* ValidateRendererSettings(const RendererSettingsDraft& draft,
     {
         return "Choose DLSS, DLAA or XeSS.";
     }
-    if (!capabilities.nvidiaAdapter && !capabilities.externalWorld && draft.upscaleType != XeSS) {
+    if ((!capabilities.nvidiaAdapter || !capabilities.nvidiaFeatures) && !capabilities.externalWorld && draft.upscaleType != XeSS) {
         return "DLSS/DLAA require NVIDIA RTX hardware. Select XeSS for this GPU.";
     }
     if (!Appearance::ValidHours(draft.appearance.hours)) {

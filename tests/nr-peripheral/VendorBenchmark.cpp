@@ -1,21 +1,74 @@
 #include "GPU.h"
+#include "KernelProfiler.h"
+#include "FrameGen/NeuralAdmission.h"
+#include "FrameGen/NeuralRenderingRuntimeIdentity.h"
+#include "FrameGen/SourceDLSSGSettings.h"
+#include "VendorRecovery.h"
+#include <map>
 #include <numeric>
 #include <fstream>
+#include <string_view>
 #include <nvsdk_ngx.h>
 
 int wmain(int argc,wchar_t** argv){
-    Require(argc >= 5 && argc <= 7, "usage: benchmark absolute-NR-DLL native|uniform|peripheral|passes|coldpasses width height [preset [output-float4-file]]");
+    Require(argc >= 5, "usage: benchmark absolute-NR-DLL native|uniform|peripheral|passes|coldpasses width height [preset [output-float4-file]] [--frames measured-float4-file] [--input input-float4-file] [--skip-cleanup]");
+    std::filesystem::path frameFile,inputFile,outputFile;
+    int argument=5,preset=0;
+    if(argument<argc && !std::wstring_view(argv[argument]).starts_with(L"--"))preset=std::stoi(argv[argument++]);
+    if(argument<argc && !std::wstring_view(argv[argument]).starts_with(L"--"))outputFile=argv[argument++];
+    bool skipCleanup=false;
+    unsigned recoveryPoint=0, recoveryOccurrence=1, recoveryRoute=0, recoveryPasses=1, injectFrame=0;
+    while(argument<argc){
+        const std::wstring_view option=argv[argument++];
+        if(option==L"--skip-cleanup")skipCleanup=true;
+        else {
+            Require(argument<argc,"benchmark option requires a file");
+            if(option==L"--frames")frameFile=argv[argument++];
+            else if(option==L"--input")inputFile=argv[argument++];
+            else if(option==L"--recovery")recoveryPoint=std::stoul(argv[argument++]);
+            else if(option==L"--occurrence")recoveryOccurrence=std::stoul(argv[argument++]);
+            else if(option==L"--route")recoveryRoute=std::stoul(argv[argument++]);
+            else if(option==L"--nr-passes")recoveryPasses=std::stoul(argv[argument++]);
+            else if(option==L"--inject-frame")injectFrame=std::stoul(argv[argument++]);
+            else Require(false,"unknown benchmark option");
+        }
+    }
+    // Export is a separate quality run. Never publish its timings as NR_total_ms:
+    // readbacks and file writes between evaluations can change scheduling/clocks.
+    const bool exportFrames=!frameFile.empty();
+    std::ofstream frames;
+    if(exportFrames){frames.open(frameFile,std::ios::binary);Require(frames.good(),"open measured float4 output");}
     SetErrorMode(SEM_FAILCRITICALERRORS|SEM_NOGPFAULTERRORBOX|SEM_NOOPENFILEERRORBOX);
     const std::wstring mode=argv[2];
-    const bool coldStart = mode == L"coldpasses";
-    const bool twoPassCases = mode == L"passes" || coldStart;
-    Require(mode == L"native" || mode == L"uniform" || mode == L"peripheral" || twoPassCases, "benchmark mode");
+    const bool production = mode == L"production" || mode == L"production-startup" || mode == L"admission-low-budget";
+    const bool coldStart = mode == L"coldpasses" || production;
+    const bool twoPassCases = mode == L"passes" || mode == L"coldpasses";
+    Require(mode == L"native" || mode == L"uniform" || mode == L"peripheral" || twoPassCases || production, "benchmark mode");
     const auto w=static_cast<unsigned>(std::stoul(argv[3])),h=static_cast<unsigned>(std::stoul(argv[4]));
+#if defined(TRP_NR_PRODUCTION_ADMISSION)
+    const bool profileKernels=false;
+#else
+    const bool profileKernels=KernelProfiler::Install();
+#endif
+    struct KernelTotal{double ms{},maxMs{};unsigned count{};std::uint32_t grid[3]{},block[3]{},shared{};};
+    std::map<std::string,KernelTotal> kernelTotals;unsigned profiledFrames=0;
     Require(w>=64 && h>=64 && w<=5120 && h<=2880,"bounded benchmark dimensions");
     GPU gpu(true);
+    ComPtr<IDXGIFactory4> memoryFactory; ComPtr<IDXGIAdapter3> memoryAdapter;
+    Check(CreateDXGIFactory1(IID_PPV_ARGS(&memoryFactory)), "memory factory");
+    Check(memoryFactory->EnumAdapterByLuid(gpu.device->GetAdapterLuid(), IID_PPV_ARGS(&memoryAdapter)), "memory rendering LUID");
+    UINT64 memoryStart{}, memoryPeak{}, memoryBudget{};
+    auto sampleMemory = [&] {
+        DXGI_QUERY_VIDEO_MEMORY_INFO memory{};
+        Check(memoryAdapter->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &memory), "local budget sample");
+        memoryPeak = (std::max)(memoryPeak, memory.CurrentUsage); memoryBudget = memory.Budget;
+        return memory.CurrentUsage;
+    };
+    memoryStart = sampleMemory();
     // The legacy benchmark supplies a warm loader. coldpasses exercises the
     // production NR bootstrap without a prior DLSS/Streamline initialization.
     const auto cache=std::filesystem::absolute("out/diagnostics/ngx-cache");std::filesystem::create_directories(cache);
+    bool bootstrapInitialized=false;
     if (coldStart) {
         Require(!GetModuleHandleW(L"nvngx.dll") && !GetModuleHandleW(L"_nvngx.dll"),
             "cold NR starts without normal NGX loader");
@@ -25,15 +78,101 @@ int wmain(int argc,wchar_t** argv){
         const auto init =
             NVSDK_NGX_D3D12_Init_with_ProjectID("f1b2e5d8-9c4a-4e7b-8a36-5d2e90c47a11", NVSDK_NGX_ENGINE_TYPE_CUSTOM,
                 "nr-peripheral-benchmark", cache.c_str(), gpu.device.Get(), nullptr, NVSDK_NGX_Version_API);
-        Require(NVSDK_NGX_SUCCEED(init) || init == NVSDK_NGX_Result_FAIL_FeatureAlreadyExists, "normal NGX bootstrap");
+        bootstrapInitialized=NVSDK_NGX_SUCCEED(init) || init==NVSDK_NGX_Result_FAIL_FeatureAlreadyExists;
+        // TRP_NR_PASCAL_RESEARCH=1: the driver's NGX core refuses GTX 10 (FeatureNotSupported);
+        // the NR session then finds the loader itself.
+        wchar_t research[4]{};
+        const bool pascalResearch = GetEnvironmentVariableW(L"TRP_NR_PASCAL_RESEARCH", research, 4) == 1 && research[0] == L'1';
+        if (!NVSDK_NGX_SUCCEED(init)) { std::printf("normal NGX bootstrap result=0x%08X\n", static_cast<unsigned>(init)); }
+        Require(NVSDK_NGX_SUCCEED(init) || init == NVSDK_NGX_Result_FAIL_FeatureAlreadyExists ||
+                (pascalResearch && init == NVSDK_NGX_Result_FAIL_FeatureNotSupported), "normal NGX bootstrap");
     }
     NeuralOptions options;options.enabled=true;options.runtimePath=argv[1];options.beforeUpscaling=true;
+    if (production) {
+        // The same ordinary preferences the menu applies: NR defaults off,
+        // Automatic, one pass before upscaling. Change only Enable.
+        Preferences preferences;
+        Require(!preferences.neuralEnabled && IsAutomaticNeuralRuntime(preferences.neuralRuntime), "ordinary NR defaults off with Automatic");
+        preferences.neuralEnabled = true;
+        options.enabled = preferences.neuralEnabled;
+        options.beforeUpscaling = preferences.neuralBeforeUpscaling;
+        options.passes = preferences.neuralPasses;
+        options.reconstruction = preferences.neuralReconstruction;
+        options.tuning = preferences.neuralTuning;
+        options.automaticRuntime = IsAutomaticNeuralRuntime(preferences.neuralRuntime);
+        const auto hardware = TheosRenderPipeline::NeuralRendering::QueryNeuralHardware(gpu.device->GetAdapterLuid(), true);
+        const auto candidates = AutomaticNeuralRuntimes(hardware.architecture, true);
+        Require(!candidates.empty(), "Automatic production runtime candidates");
+        options.runtimePath = std::filesystem::path(argv[1]).parent_path() / std::filesystem::path(candidates.front()).filename();
+        using namespace TheosRenderPipeline::NeuralRendering;
+        NeuralAdmissionCache admissionCache;
+        NeuralAdmissionRequest request{options.runtimePath, mode==L"production-startup" ? 0u : w,
+            mode==L"production-startup" ? 0u : h, 1, true, true, 0};
+        auto now = NeuralAdmissionCache::Clock::now();
+        unsigned queries{};
+        auto query = [&] { ++queries; return QueryNeuralAdmission(gpu.device->GetAdapterLuid(), options.runtimePath,
+            request.width, request.height, 1, true, true); };
+        if (mode==L"production-startup") {
+            const auto hashes = TheosRenderPipeline::NeuralRenderingRuntimeIdentity::HashInvocations();
+            const auto probes = GetAdmissionMetrics();
+            const auto begin = NeuralAdmissionCache::Clock::now();
+            for(unsigned i=0;i<1000000;++i) {
+                const auto& pending=admissionCache.Get(request,now,query,QueryNeuralBudget);
+                Require(pending.extentPending && !pending.Refusal(),"saved NR pending before world extent");
+            }
+            const auto ns=std::chrono::duration<double,std::nano>(NeuralAdmissionCache::Clock::now()-begin).count()/1000000;
+            Require(queries==1 && hashes==TheosRenderPipeline::NeuralRenderingRuntimeIdentity::HashInvocations() &&
+                probes.packProbes==GetAdmissionMetrics().packProbes && probes.budgetQueries==GetAdmissionMetrics().budgetQueries,
+                "startup frames never hash assets or probe budget");
+            Require(ns<10000,"pending admission per-frame cost bound");
+            std::printf("STARTUP_PENDING frames=1000000 admissionQueries=%u hashCalls=0 packProbes=0 budgetQueries=0 nsPerFrame=%.1f\n",queries,ns);
+            request.width=w; request.height=h;
+        }
+        auto admission = admissionCache.Get(request,now,query,QueryNeuralBudget);
+        const auto hashes=TheosRenderPipeline::NeuralRenderingRuntimeIdentity::HashInvocations();
+        const auto probes=GetAdmissionMetrics();
+        const auto begin=NeuralAdmissionCache::Clock::now();
+        for(unsigned i=0;i<1000000;++i) { admissionCache.Get(request,now,query,QueryNeuralBudget); }
+        const auto ns=std::chrono::duration<double,std::nano>(NeuralAdmissionCache::Clock::now()-begin).count()/1000000;
+        Require(hashes==TheosRenderPipeline::NeuralRenderingRuntimeIdentity::HashInvocations() &&
+            probes.packProbes==GetAdmissionMetrics().packProbes && probes.budgetQueries==GetAdmissionMetrics().budgetQueries,
+            "admitted or refused frames never repeat hashing or probes");
+        Require(ns<10000,"stable admission per-frame cost bound");
+        std::printf("ADMISSION_STABLE frames=1000000 admissionQueries=%u hashCalls=0 packProbes=0 budgetQueries=0 nsPerFrame=%.1f\n",queries,ns);
+        if (mode == L"admission-low-budget") { admission.budgetKnown = true; admission.budgetBytes = admission.usageBytes + 1; }
+        if (const auto* reason = admission.Refusal()) { std::printf("ADMISSION_REFUSED %s\n", reason); return 3; }
+        std::printf("PRODUCTION_ADMITTED Automatic enabled=1 passes=1 beforeUpscaling=1 research=0 estimatedBytes=%llu\n", admission.estimateBytes);
+    }
     options.tuning.uiCorrection=false;options.reconstruction.inputScale=mode==L"uniform"?.9f:1.f;
     options.reconstruction.peripheralCompression=mode==L"peripheral";
-    if(argc>=6)options.reconstruction.preset=std::stoi(argv[5]);
+    options.reconstruction.preset=preset;
+    if(recoveryPoint) {
+        VendorRecovery(gpu,options,recoveryPoint,recoveryOccurrence,recoveryRoute,recoveryPasses,injectFrame,production);
+        if((recoveryPoint<8 || recoveryPoint==11 || recoveryPoint==12) && (bootstrapInitialized || TheosRenderPipeline::NeuralRendering::PublicNGXInitializedInProcess()))
+            Require(NVSDK_NGX_SUCCEED(NVSDK_NGX_D3D12_Shutdown1(gpu.device.Get())),"recovery public shutdown");
+        return 0;
+    }
     std::vector<Pixel> pixels(size_t(w)*h);
     for(unsigned y=0;y<h;++y)for(unsigned x=0;x<w;++x)
         pixels[y*w+x]={.1f+.6f*x/w,.1f+.6f*y/h,.2f+.3f*((x/8+y/8)%2),1};
+    if(!inputFile.empty()){
+        Require(std::filesystem::file_size(inputFile)==pixels.size()*sizeof(Pixel),"custom input must be width*height float4");
+        std::ifstream input(inputFile,std::ios::binary);
+        input.read(reinterpret_cast<char*>(pixels.data()),static_cast<std::streamsize>(pixels.size()*sizeof(Pixel)));
+        Require(input.good(),"read complete custom float4 input");
+        for(const auto& p:pixels)for(float c:p)Require(std::isfinite(c),"finite custom input");
+    }
+    auto validOutput=[&](const std::vector<Pixel>& image){
+        Require(image.size()==pixels.size(),"complete corrected output dimensions");
+        double inputEnergy=0,outputEnergy=0;
+        for(size_t i=0;i<image.size();++i)for(unsigned ch=0;ch<4;++ch){
+            Require(std::isfinite(image[i][ch]),"finite real NR output");
+            if(ch<3){inputEnergy+=std::abs(pixels[i][ch]);outputEnergy+=std::abs(image[i][ch]);}
+        }
+        // Permit dark/unchanged photographs, but reject a dead all-black result
+        // for a nonblack input. No synthetic changed-component threshold here.
+        Require(inputEnergy==0 || outputEnergy>0,"nonblack NR output for nonblack input");
+    };
     const auto format = twoPassCases ? DXGI_FORMAT_R8G8B8A8_UNORM : DXGI_FORMAT_R16G16B16A16_FLOAT;
     auto original=gpu.Texture(w,h,pixels,format);
     auto scene=gpu.Texture(w,h,{},format);
@@ -63,10 +202,20 @@ int wmain(int argc,wchar_t** argv){
             pass=std::make_unique<NeuralPass>(); // Last GPU.End completed every submission.
         }
         gpu.Begin();Check(Interop::RecordCopy(gpu.list.Get(),original.Get(),scene.Get()),"fresh scene");
+        if(profileKernels && frame>=10)KernelProfiler::BeginFrame();
         gpu.list->EndQuery(query.Get(),D3D12_QUERY_TYPE_TIMESTAMP,0);
         const bool recorded=pass->Record(gpu.device.Get(),gpu.list.Get(),frame%kCommandSlots,options,frame==0 || recreate,true,float(w),float(h),
             motion.Get(),depth.Get(),options.beforeUpscaling?nullptr:ui.Get(),scene.Get(),options.beforeUpscaling?nullptr:composed.Get(),frequency);
         if(!recorded && pass->RefusedCreation())std::printf("REFUSED 0x%08X\n",pass->RefusedCreation());
+        if (!recorded && pass->Status().find("NR launch rejected") != std::string::npos) {
+            const auto reason=pass->Status();
+            gpu.Discard(); // Earlier kernels may depend on this dropped chain.
+            Check(gpu.device->GetDeviceRemovedReason(),"device healthy after refused NR launch");
+            pass.reset();
+            std::printf("NR_OFF reason=%s device_removed=0x00000000 submitted=none frame=none clean_exit=1\n",reason.c_str());
+            return 0;
+        }
+        if (!recorded) std::printf("REFUSED_BEFORE_SUBMISSION device_removed=0x%08lX\n",static_cast<unsigned long>(gpu.device->GetDeviceRemovedReason()));
         Require(recorded,pass->Status().c_str());
         if (coldStart) {
             Require(GetModuleHandleW(L"nvngx.dll") || GetModuleHandleW(L"_nvngx.dll"),
@@ -76,8 +225,21 @@ int wmain(int argc,wchar_t** argv){
         }
         gpu.list->EndQuery(query.Get(),D3D12_QUERY_TYPE_TIMESTAMP,1);
         gpu.list->ResolveQueryData(query.Get(),D3D12_QUERY_TYPE_TIMESTAMP,0,2,timestamps.Get(),0);gpu.End();
+        if(profileKernels && frame>=10){
+            ++profiledFrames;
+            for(const auto& s:KernelProfiler::EndFrame(frequency)){
+                auto& t=kernelTotals[s.name];t.ms+=s.ms;t.maxMs=(std::max)(t.maxMs,s.ms);++t.count;
+                std::copy_n(s.grid,3,t.grid);std::copy_n(s.block,3,t.block);t.shared=s.sharedBytes;
+            }
+        }
         if(recreate)std::printf("CASE frame=%u %s\n",frame,pass->Status().c_str());
+        sampleMemory();
         pass->RetireTelemetry();
+        if(exportFrames && frame>=10){
+            const auto image=gpu.Read(pass->Corrected());validOutput(image);
+            frames.write(reinterpret_cast<const char*>(image.data()),static_cast<std::streamsize>(image.size()*sizeof(Pixel)));
+            Require(frames.good(),"write complete measured frame");
+        }
         if(frame>=10){
             void* data{};D3D12_RANGE range{0,16};Check(timestamps->Map(0,&range,&data),"query readback");
             auto* t=static_cast<UINT64*>(data);Require(t[1]>=t[0],"monotonic timestamps");total.push_back((t[1]-t[0])*1000.0/frequency);
@@ -86,9 +248,10 @@ int wmain(int argc,wchar_t** argv){
             Require(sample.gpuFrequency==frequency,"inference clock domain");inference.push_back(sample.gpuTicks*1000.0/frequency);
         }
     }
+    std::printf("MEMORY start=%llu peak=%llu incremental=%llu budget=%llu estimate=%llu (DXGI local usage, sampled after evaluation; not residency)\n", memoryStart, memoryPeak, memoryPeak-memoryStart, memoryBudget, TheosRenderPipeline::NeuralRendering::EstimatePascalMemory(w,h,options.passes));
     auto result=gpu.Read(pass->Corrected());size_t changed=0;
-    if(argc==7){
-        std::ofstream output(std::filesystem::path(argv[6]),std::ios::binary);
+    if(!outputFile.empty()){
+        std::ofstream output(outputFile,std::ios::binary);
         output.write(reinterpret_cast<const char*>(result.data()),static_cast<std::streamsize>(result.size()*sizeof(Pixel)));
         Require(output.good(),"write complete float4 output for runtime comparison");
     }
@@ -96,7 +259,8 @@ int wmain(int argc,wchar_t** argv){
         Require(std::isfinite(result[i][ch]),"finite real NR output");
         if(ch<3 && std::abs(result[i][ch]-pixels[i][ch])>.01f)++changed;
     }
-    Require(changed>result.size()/10,"real runtime must alter the image");
+    validOutput(result);
+    if(inputFile.empty())Require(changed>result.size()/10,"real runtime must alter the image");
     // A runtime without working kernels for this GPU can run and still render
     // black (community int8 v2 on RTX 40), which also "alters the image".
     double inputMean=0,outputMean=0;size_t black=0;
@@ -108,15 +272,33 @@ int wmain(int argc,wchar_t** argv){
     for(const auto& p:result)for(unsigned ch=0;ch<3;++ch){fingerprint^=static_cast<std::uint64_t>(std::llround(p[ch]*1000.0));fingerprint*=1099511628211ull;}
     std::printf("OUTPUT input_mean=%.4f output_mean=%.4f black_share=%.4f fingerprint=%016llX\n",inputMean/result.size(),outputMean/result.size(),double(black)/result.size(),static_cast<unsigned long long>(fingerprint));
     auto mean=[](const auto& v){return std::accumulate(v.begin(),v.end(),0.0)/v.size();};
-    std::printf("RESULT mode=%ls source=%ux%u model=%ux%u samples=%zu NR_total_ms=%.6f inference_ms=%.6f changed=%zu\n",mode.c_str(),w,h,
+    if(!exportFrames)std::printf("RESULT mode=%ls source=%ux%u model=%ux%u samples=%zu NR_total_ms=%.6f inference_ms=%.6f changed=%zu\n",mode.c_str(),w,h,
         TheosRenderPipeline::NeuralRendering::ModelExtent(w,options.reconstruction),TheosRenderPipeline::NeuralRendering::ModelExtent(h,options.reconstruction),
         total.size(),mean(total),mean(inference),changed);
+    else {
+        frames.close();Require(frames.good(),"close measured float4 output");
+        std::printf("QUALITY mode=%ls source=%ux%u first_frame=10 frames=40 channels=RGBA storage=float32 untimed=1\n",mode.c_str(),w,h);
+    }
     std::printf("STATE %s\n",pass->Status().c_str());
-    for(size_t i=0;i<total.size();++i)std::printf("SAMPLE %zu %.6f %.6f\n",i,total[i],inference[i]);
+    if(profileKernels){
+        std::printf("KERNELHOOK %s\n",KernelProfiler::Diagnostics().c_str());
+        std::vector<std::pair<std::string,KernelTotal>> sorted(kernelTotals.begin(),kernelTotals.end());
+        std::sort(sorted.begin(),sorted.end(),[](const auto& a,const auto& b){return a.second.ms>b.second.ms;});
+        double all=0;for(const auto& [n,t]:sorted)all+=t.ms;
+        std::printf("KERNELS frames=%u kernels=%zu sum_ms_per_frame=%.4f\n",profiledFrames,sorted.size(),profiledFrames?all/profiledFrames:0.0);
+        for(const auto& [n,t]:sorted)
+            std::printf("KERNEL %8.4f ms/frame %5.1f%% calls/frame=%.1f max=%.4f grid=%ux%ux%u block=%ux%ux%u shared=%u %s\n",
+                t.ms/profiledFrames,all>0?100.0*t.ms/all:0.0,double(t.count)/profiledFrames,t.maxMs,
+                t.grid[0],t.grid[1],t.grid[2],t.block[0],t.block[1],t.block[2],t.shared,n.c_str());
+    }
+    if(!exportFrames)for(size_t i=0;i<total.size();++i)std::printf("SAMPLE %zu %.6f %.6f\n",i,total[i],inference[i]);
+    // Research runtimes can fail/hang in NGX shutdown after successful output.
+    // Explicit opt-in only: this never qualifies normal feature teardown.
+    if(skipCleanup){std::puts("CLEANUP skipped by --skip-cleanup (shutdown untested)");std::fflush(nullptr);std::_Exit(0);}
     std::puts("CLEANUP begin: all frame work retired, releasing NeuralPass");
     std::fflush(stdout);
     } // All submissions retired before releasing the feature and normal loader.
     std::puts("CLEANUP feature released, shutting down normal NGX");std::fflush(stdout);
-    Require(NVSDK_NGX_SUCCEED(NVSDK_NGX_D3D12_Shutdown1(gpu.device.Get())),"normal NGX shutdown");
-    std::puts("CLEANUP NGX shutdown complete");std::fflush(stdout);
+    if (bootstrapInitialized || TheosRenderPipeline::NeuralRendering::PublicNGXInitializedInProcess()) Require(NVSDK_NGX_SUCCEED(NVSDK_NGX_D3D12_Shutdown1(gpu.device.Get())),"normal NGX shutdown");
+    std::puts("CLEANUP NGX shutdown complete (public shutdown only when initialized)");std::fflush(stdout);
 }

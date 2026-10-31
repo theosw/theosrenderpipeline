@@ -9,6 +9,11 @@
 #include "SourceFrameGeneration.h"
 #include "NeuralRenderingMode.h"
 #include "PluginPaths.h"
+#include "NeuralResearch.h"
+#include "NeuralAdmission.h"
+#include "NeuralRuntimeKernels.h"
+#include "NRRenderSize.h"
+#include "NeuralRuntimeCompatibility.h"
 #include <PCH.h>
 
 HRESULT NvidiaHost::CreateSwapChain(IDXGIFactory* a_factory, ID3D11Device* a_device, DXGI_SWAP_CHAIN_DESC* a_desc, IDXGISwapChain** a_swapChain)
@@ -29,7 +34,16 @@ HRESULT NvidiaHost::CreateSwapChain(IDXGIFactory* a_factory, ID3D11Device* a_dev
         DXGI_ADAPTER_DESC adapterDesc{};
         if (SUCCEEDED(a_device->QueryInterface(IID_PPV_ARGS(&dxgiDevice))) && SUCCEEDED(dxgiDevice->GetAdapter(&adapter)) &&
             SUCCEEDED(adapter->GetDesc(&adapterDesc))) {
-            const auto selected = TheosRenderPipeline::Upscaler::ForAdapter(creation, adapterDesc.VendorId == 0x10DE);
+            bool pascalResearch = false;
+            bool nvidiaFeatures = adapterDesc.VendorId == 0x10DE;
+#if !defined(TRP_NO_NEURAL_RENDERING)
+            const auto hardware = TheosRenderPipeline::NeuralRendering::QueryNeuralHardware(adapterDesc.AdapterLuid,
+                TheosRenderPipeline::NeuralRendering::RuntimeKernelsSupported());
+            pascalResearch = hardware.Pascal();
+            nvidiaFeatures = hardware.NvidiaFeatures();
+#endif
+            const auto selected = TheosRenderPipeline::Upscaler::ForAdapter(creation, nvidiaFeatures);
+            if (pascalResearch) { logger::info("[NR Pascal] sm_61: XeSS startup; DLSS/DLAA and NVIDIA frame generation require NVIDIA RTX hardware"); }
             if (selected.mode != TheosRenderPipeline::Upscaler::Sanitize(creation).mode) {
                 logger::info("[SourceUpscaler] vendor=0x{:04X} cannot run UpscaleType={}; using XeSS quality={} this session",
                              adapterDesc.VendorId, creation.mode, selected.quality);
@@ -202,6 +216,56 @@ bool NvidiaHost::CreateGameFacingResources(IDXGISwapChain* a_swapChain)
     }
     renderWidth_ = static_cast<UINT>(queriedRenderWidth);
     renderHeight_ = static_cast<UINT>(queriedRenderHeight);
+    nrFriendlyRenderSizeActive_ = false;
+#if !defined(TRP_NO_NEURAL_RENDERING)
+    auto& backend = TheosRenderPipeline::SourceDLSSG::Backend::Get();
+    const auto nr = backend.NeuralConfiguration();
+    const auto quality = sourceUpscalerSettings_.Startup().AllocationQuality();
+    const auto sizePolicy = TheosRenderPipeline::NeuralRendering::StartupRenderSizePolicy(
+        TheosRenderPipeline::NeuralRendering::PascalConfiguration().nrFriendlyRenderSize,
+        backend.PascalResearchActive(), nr, quality);
+    if (sizePolicy.Active() && !TheosRenderPipeline::CommunityShaders::Active()) {
+        TheosRenderPipeline::UpscalerInputResolution range;
+        HRESULT rangeResult = E_FAIL;
+        if (sourceUpscalerSettings_.Startup().mode == XeSS) {
+            rangeResult = backend.XeSS().QueryInputRange(outputWidth_, outputHeight_, quality, range);
+        } else {
+            auto* dlss = DLSSBackend::GetSingleton();
+            dlss->SetupDevice(device_.Get(), context_.Get());
+            rangeResult = dlss->QueryInputRange(outputWidth_, outputHeight_, quality, range);
+        }
+        if (SUCCEEDED(rangeResult)) {
+            const TheosRenderPipeline::FrameExtent nominal{renderWidth_, renderHeight_};
+            const auto selection = TheosRenderPipeline::NeuralRendering::SelectNRFriendlyRenderSizeWithDecision(
+                nominal, {outputWidth_, outputHeight_}, range, sizePolicy);
+            const auto chosen = selection.extent;
+            const auto from = TheosRenderPipeline::NeuralRendering::NRInternalSize(nominal);
+            const auto to = TheosRenderPipeline::NeuralRendering::NRInternalSize(chosen);
+            constexpr const char* names[]{"Performance", "Balanced", "Quality", "Ultra Performance", "Ultra Quality"};
+            if (selection.decision == TheosRenderPipeline::NeuralRendering::RenderSizeDecision::KeptNotQualified) {
+                logger::info("[NR render size] preset={} nominal={}x{} kept (move not quality-qualified) (NR {}x{}, T={})",
+                    names[quality], nominal.width, nominal.height, from.width, from.height, from.tokens);
+            } else if (chosen.width == nominal.width && chosen.height == nominal.height) {
+                logger::info("[NR render size] preset={} nominal={}x{} kept (no NR saving) (NR {}x{}, T={})",
+                    names[quality], nominal.width, nominal.height, from.width, from.height, from.tokens);
+            } else {
+                logger::info("[NR render size] preset={} nominal={}x{} (NR {}x{}, T={}) -> {}x{} (NR {}x{}, T={})",
+                    names[quality], nominal.width, nominal.height, from.width, from.height, from.tokens,
+                    chosen.width, chosen.height, to.width, to.height, to.tokens);
+            }
+            renderWidth_ = chosen.width; renderHeight_ = chosen.height;
+            nrFriendlyRenderSizeActive_ = chosen.width != nominal.width || chosen.height != nominal.height;
+        } else {
+            logger::warn("[NR render size] SDK range unavailable (0x{:08X}); keeping nominal {}x{}",
+                static_cast<unsigned>(rangeResult), renderWidth_, renderHeight_);
+        }
+    } else if (sizePolicy.enabled) {
+        logger::info("[NR render size] inactive: {}; keeping nominal {}x{} (NR enabled={} beforeUpscaling={} PascalResearch={} quality={})",
+            TheosRenderPipeline::CommunityShaders::Active() ? "Community Shaders owns render size" : sizePolicy.InactiveReason(),
+            renderWidth_, renderHeight_, nr.enabled, nr.beforeUpscaling, backend.PascalResearchActive(), quality);
+    }
+#endif
+
 
     const auto gameFacingDesc = TheosRenderPipeline::GameFacingTargets::GameFacingDesc(outputDesc, renderWidth_, renderHeight_);
     const auto createResult = gameTargets_.CreateGameFacingAfterRetirement(device_.Get(), outputDesc, renderWidth_, renderHeight_);
@@ -336,10 +400,19 @@ bool NvidiaHost::InitializeSourceUpscaler(const D3D11_TEXTURE2D_DESC& a_outputDe
         auto& backend = TheosRenderPipeline::SourceDLSSG::Backend::Get();
         const auto creation = sourceUpscalerSettings_.BeginSubmission();
         const auto hr = backend.XeSS().Initialize(backend.Transport(), device_.Get(),
-            {outputWidth_, outputHeight_}, creation.AllocationQuality(), a_outputDesc.Format, true, backend.XeSSPipelines());
+            {outputWidth_, outputHeight_}, creation.AllocationQuality(), a_outputDesc.Format, true, backend.XeSSPipelines(),
+            nrFriendlyRenderSizeActive_ ? TheosRenderPipeline::FrameExtent{renderWidth_, renderHeight_} : TheosRenderPipeline::FrameExtent{});
         sourceUpscalerSettings_.Completed(SUCCEEDED(hr));
         if (FAILED(hr)) { status_ = std::format("XeSS initialization failed: {} (0x{:08X})", backend.XeSS().Status(), static_cast<unsigned>(hr)); return false; }
+        // Keep ownership flags even if a successfully created SDK owner violates
+        // the prepared extent: teardown must still retire/release that owner.
         xeSSActive_ = upscalerReady_ = true;
+        const auto actual = backend.XeSS().InputSize();
+        if (actual.width != renderWidth_ || actual.height != renderHeight_) {
+            sourceUpscalerSettings_.Completed(false);
+            status_ = "XeSS disagreed with the prepared render extent";
+            return false;
+        }
         AdoptEffectiveSourceUpscalerSettings();
         if (!CreateNativeUIExtractionResources(a_outputDesc)) { logger::warn("[XeSS] native UI extraction unavailable; retaining HUD-less fallback"); }
         status_ = "XeSS upscaling ready; native UI and shared frame-generation bridge retained";

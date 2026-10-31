@@ -190,8 +190,10 @@ HRESULT WINAPI hk_D3D11CreateDeviceAndSwapChain(IDXGIAdapter* pAdapter, D3D_DRIV
         // The completion boundary has cleared failed outputs. Show the actual
         // startup error once, instead of leaving the game to fail without context.
         const auto status = nvidiaHost->Status();
-        const auto hint = TheosRenderPipeline::StartupHints::HintFor(status, TheosRenderPipeline::StartupHints::CurrentFacts(status));
-        if (!hint.empty()) { logger::info("[Startup] {}", hint); }
+        const auto facts = TheosRenderPipeline::StartupHints::CurrentFacts(status);
+        const auto englishHint = TheosRenderPipeline::StartupHints::HintFor(status, facts);
+        if (!englishHint.empty()) { logger::info("[Startup] {}", englishHint); }
+        const auto hint = TheosRenderPipeline::StartupHints::DialogHintFor(status, facts);
         util::report_and_fail(std::format("Theo's Render Pipeline could not start rendering.\n\n{}\nHRESULT: 0x{:08X}\n\n{}{}"
                                           "See TheosRenderPipeline.log for details. Skyrim will close after this message.",
                                           status, (uint32_t)hr, hint, hint.empty() ? "" : "\n"));
