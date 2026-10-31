@@ -315,7 +315,8 @@ first error and requires a restart instead of retrying every frame. Include
 Use **Neural Rendering > Runtime > Automatic** for the default selection.
 Standard supplies two NR DLLs: legacy `nvngx_dlssnr.dll` (310.8) and original
 NVIDIA `nvngx_dlssnr_310.9.16.dll`. Universal supplies the adjacent
-`nvngx_dlssnr_310.9.16.trpk` and legacy `nvngx_dlssnr_int8.dll`.
+`nvngx_dlssnr_310.9.16.trpk`, the experimental GTX 10 asset
+`nvngx_dlssnr_310.9.16_pascal_v1.trpk`, and legacy `nvngx_dlssnr_int8.dll`.
 
 On RTX 20/30/40, Universal first tries the original 310.9.16 DLL with the
 pack. RTX 20/30 use the community FP16 compatibility kernels; RTX 40 uses

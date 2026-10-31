@@ -1,5 +1,6 @@
 #include "FrameGen/NeuralAdmission.h"
 #include "FrameGen/NeuralRuntimeKernels.h"
+#include "FrameGen/NeuralResearch.h"
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
@@ -18,6 +19,12 @@ static NeuralCapability Valid()
 int wmain(int argc, wchar_t** argv)
 {
     try {
+        SetEnvironmentVariableW(L"TRP_NR_PASCAL_RESEARCH", L"2");
+        SetEnvironmentVariableW(L"TRP_NR_PASCAL_PACK", L"D:/arbitrary-research-pack.trpk");
+        const auto releaseConfig = ReadPascalConfiguration(L"missing-diagnostics.ini", L".");
+        Require(!releaseConfig.mode && releaseConfig.pack.empty(), "release admission ignores research environment");
+        SetEnvironmentVariableW(L"TRP_NR_PASCAL_RESEARCH", nullptr);
+        SetEnvironmentVariableW(L"TRP_NR_PASCAL_PACK", nullptr);
         Require(!Valid().Refusal(), "valid 2 GiB adapter can admit without a VRAM floor");
         for (int sm = 1; sm <= 128; ++sm) { auto c = Valid(); c.smCount = sm; Require(!c.Refusal(), "all positive SM counts admitted"); }
         for (int arch : {0, 50, 60, 61, 62, 75, 86, 89, 120}) {
