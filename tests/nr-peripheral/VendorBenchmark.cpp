@@ -1,6 +1,7 @@
 #include "GPU.h"
 #include "KernelProfiler.h"
 #include "FrameGen/NeuralAdmission.h"
+#include "FrameGen/SourceDLSSGSettings.h"
 #include <map>
 #include <numeric>
 #include <fstream>
@@ -80,7 +81,17 @@ int wmain(int argc,wchar_t** argv){
     }
     NeuralOptions options;options.enabled=true;options.runtimePath=argv[1];options.beforeUpscaling=true;
     if (production) {
-        options.automaticRuntime = true;
+        // The same ordinary preferences the menu applies: NR defaults off,
+        // Automatic, one pass before upscaling. Change only Enable.
+        Preferences preferences;
+        Require(!preferences.neuralEnabled && IsAutomaticNeuralRuntime(preferences.neuralRuntime), "ordinary NR defaults off with Automatic");
+        preferences.neuralEnabled = true;
+        options.enabled = preferences.neuralEnabled;
+        options.beforeUpscaling = preferences.neuralBeforeUpscaling;
+        options.passes = preferences.neuralPasses;
+        options.reconstruction = preferences.neuralReconstruction;
+        options.tuning = preferences.neuralTuning;
+        options.automaticRuntime = IsAutomaticNeuralRuntime(preferences.neuralRuntime);
         const auto hardware = TheosRenderPipeline::NeuralRendering::QueryNeuralHardware(gpu.device->GetAdapterLuid(), true);
         const auto candidates = AutomaticNeuralRuntimes(hardware.architecture, true);
         Require(!candidates.empty(), "Automatic production runtime candidates");
