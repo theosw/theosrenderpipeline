@@ -1,5 +1,12 @@
 # 0.6.0
 
+NR runtime refusals now turn NR off for the session while ordinary rendering
+continues where ownership is safe. Apply retries a transient failure through the
+normal capability, driver, runtime, compatibility-pack and memory-budget checks,
+without changing the saved NR preference. Unsafe GPU or runtime ownership still
+requires a restart. Admission refusals and runtime failures show separate reasons
+in the NR controls, which remain visible when unavailable.
+
 Universal adds GTX 10 compatibility kernels (experimental) for Neural Rendering on
 sm_61 GPUs. NR stays off by default. Install Universal and the matching NR runtimes,
 use NVIDIA driver 582.78 or a newer compatible Pascal (R580) driver, then select

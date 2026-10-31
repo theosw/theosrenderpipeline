@@ -3,6 +3,7 @@
 #include "FrameGen/NeuralFaultInjection.h"
 #include "FrameGen/NeuralLaunchHook.h"
 #include "FrameGen/NeuralAdmission.h"
+#include "FrameGen/NeuralRuntimeKernels.h"
 
 // Manual GPU fixture, compiled only in the benchmark. Uses production pass,
 // feature session, NVAPI rejection and release. No modified renderer is loaded.
