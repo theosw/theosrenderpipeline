@@ -792,7 +792,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			if (uiSource_ && !Check(interop_.CopyInput(uiSource_.Get(), ui_), "late UI copy")) { return fault_; }
 		}
 #if !defined(TRP_NO_NEURAL_RENDERING)
-		if (!neuralFrameBegun_) { ApplyNeuralRetry(); }
+		if (!neuralFrameBegun_) { ApplyNeuralRetry(NeuralConfiguration()); }
 		const auto options = prepared ? frameNeuralOptions_ : NeuralConfiguration();
 		auto unavailable = NeuralUnavailableReason(options);
 		const bool eligible = prepared && neuralEligible_ && !unavailable;

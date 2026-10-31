@@ -106,6 +106,11 @@ inline const char* NeuralSettingsUnavailable(int mode, RendererSettingsCapabilit
     return nullptr;
 }
 
+inline bool ShouldRequestNeuralRetry(bool saveAsDefault, bool requested, int mode, RendererSettingsCapabilities capabilities)
+{
+    return !saveAsDefault && requested && NeuralSettingsUnavailable(mode, capabilities) == nullptr;
+}
+
 inline const char* ValidateRendererSettings(const RendererSettingsDraft& draft,
                                             RendererSettingsCapabilities capabilities,
                                             const RendererSettingsDraft* current = nullptr)

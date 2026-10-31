@@ -1,5 +1,6 @@
 #include "RendererSettings.h"
 #include "FrameGen/NeuralAdmission.h"
+#include "FrameGen/NeuralRecovery.h"
 #include "RendererSettingsAction.h"
 #include <SimpleIni.h>
 #include <iostream>
@@ -41,6 +42,27 @@ void PascalAdmission()
         draft.sourceDLSSG.neuralBeforeUpscaling == current.sourceDLSSG.neuralBeforeUpscaling &&
         draft.sourceDLSSG.neuralReconstruction.modelRate == current.sourceDLSSG.neuralReconstruction.modelRate,
         "NR enable preserves passes, placement, provider and model rate");
+}
+void AdmissionRefusedRetry()
+{
+    using namespace NeuralRendering;
+    RendererSettingsDraft current; current.valid = true; current.upscaleType = XeSS;
+    current.sourceDLSSG.neuralEnabled = true;
+    const auto draft = current;
+    RendererSettingsCapabilities capabilities{true,true,true,false};
+    Recovery recovery;
+    Require(recovery.Refuse("Evaluate refused", [] { return true; }, [] { return true; }, [] { return true; }, [] { return true; }),
+        "safe runtime refusal retires owner");
+    capabilities.neuralAdmissionReason = kPascalBudgetReason;
+    Require(!ValidateRendererSettings(draft, capabilities, &current), "unchanged draft allows unrelated settings action");
+    Require(!ShouldRequestNeuralRetry(false, true, XeSS, capabilities), "admission-refused Apply does not queue retry");
+    Require(!recovery.Retry(NeuralSettingsUnavailable(XeSS,capabilities) == nullptr) && recovery.Retryable() && recovery.reason == "Evaluate refused",
+        "refused admission retains the runtime failure and retry affordance");
+    Require(CountRendererSettingsChanges(draft,current) == 0 && recovery.Retryable(), "unchanged Apply stays available");
+    capabilities.neuralAdmissionReason = nullptr;
+    Require(!ShouldRequestNeuralRetry(true,true,XeSS,capabilities) && recovery.Retryable(), "Save-only never requests or consumes recovery");
+    Require(ShouldRequestNeuralRetry(false,true,XeSS,capabilities) && recovery.Retry(true), "recovered admission allows unchanged Apply to retry");
+    Require(!recovery.Disabled() && recovery.reason.empty() && draft.sourceDLSSG.neuralEnabled, "successful retry preserves requested preference");
 }
 void Feedback()
 {
@@ -205,6 +227,6 @@ void Neural()
 }
 int main()
 {
-    try { PascalAdmission(); Feedback(); Generation(); MenuKey(); Neural(); std::cout << "PASS: visible/logged rejection, generation round trips, menu key and NR capability loss\n"; return 0; }
+    try { AdmissionRefusedRetry(); PascalAdmission(); Feedback(); Generation(); MenuKey(); Neural(); std::cout << "PASS: visible/logged rejection, generation round trips, menu key and NR capability loss\n"; return 0; }
     catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }

@@ -221,10 +221,15 @@ namespace TheosRenderPipeline::SourceDLSSG
     {
         neuralRetryRequested_.store(true, std::memory_order_release);
     }
-    void Backend::ApplyNeuralRetry()
+    void Backend::ApplyNeuralRetry(const NeuralOptions& options, FrameExtent sceneExtent)
     {
         if (!neuralRetryRequested_.exchange(false, std::memory_order_acq_rel)) { return; }
         if (!neuralRecovery_.Retryable()) { return; }
+        if (!options.enabled) { return; }
+        const auto width = sceneExtent.width ? sceneExtent.width : (options.beforeUpscaling ? motion_.desc.Width : presenterDesc_.BufferDesc.Width);
+        const auto height = sceneExtent.height ? sceneExtent.height : (options.beforeUpscaling ? motion_.desc.Height : presenterDesc_.BufferDesc.Height);
+        const auto admission = CheckNeuralAdmission(options, width, height, true);
+        if (admission.Refusal()) { return; } // preserve reason and unchanged-Apply affordance
         // Recovery already retired and destroyed the previous owner. No vendor
         // call or list is active here. Retained/unsafe owners never reach this.
         if (!NeuralRendering::ResetLaunchHookAfterRetirement()) { return; }
@@ -295,7 +300,8 @@ namespace TheosRenderPipeline::SourceDLSSG
         FrameExtent renderExtent, FrameExtent colorExtent, bool& reset)
     {
         if (!Ready()) { return false; }
-        ApplyNeuralRetry();
+        ApplyNeuralRetry(options, options.WorldOnly() ? colorExtent :
+            FrameExtent{presenterDesc_.BufferDesc.Width, presenterDesc_.BufferDesc.Height});
         frameNeuralOptions_ = options;
         // Preserve the saved after-DLSS preference while enforcing a world-only
         // input contract for the early stage. There are no UI pixels to correct.

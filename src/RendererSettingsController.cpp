@@ -195,7 +195,8 @@ RendererSettingsResult RendererSettingsController::Apply(const RendererSettingsD
         options.passes = frameGen_.settings.sourceDLSSG.neuralPasses;
         options.combat = frameGen_.settings.sourceDLSSG.neuralCombat;
         source.ConfigureNeuralRendering(std::move(options));
-        if (!a_saveAsDefault && settingsDraft.sourceDLSSG.neuralEnabled) { source.RequestNeuralRetry(); }
+        if (ShouldRequestNeuralRetry(a_saveAsDefault, settingsDraft.sourceDLSSG.neuralEnabled,
+                settingsDraft.upscaleType, capabilities)) { source.RequestNeuralRetry(); }
     }
     Appearance::Runtime::Get().Configure(settingsDraft.appearance);
     if (a_saveAsDefault)

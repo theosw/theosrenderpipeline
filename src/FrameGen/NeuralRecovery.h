@@ -16,9 +16,9 @@ namespace TheosRenderPipeline::NeuralRendering
         bool Disabled() const { return state == RecoveryState::SessionDisabled || state == RecoveryState::RestartRequired; }
         bool Retryable() const { return state == RecoveryState::SessionDisabled; }
         void Enabled() { if (!Disabled()) { state = RecoveryState::Enabled; } }
-        bool Retry()
+        bool Retry(bool admitted = true)
         {
-            if (!Retryable()) { return false; }
+            if (!Retryable() || !admitted) { return false; }
             state = RecoveryState::Available;
             reason.clear();
             return true;
