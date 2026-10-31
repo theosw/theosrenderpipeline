@@ -186,3 +186,33 @@ unchanged; the queue execution gate also refuses rejected lists. The benchmark
 closes/discards the list, retires the feature and reports NR_OFF with no frame.
 The game's existing unknown-recording-failure policy still latches the entire
 backend until restart: it does not promise continued native/XeSS presentation.
+
+## SM-independent scratch allocator experiment
+
+`build_sm_general.py` verifies `c37-inputs.lock.json`, prepares the twelve selected
+swinmh CUDA sources, and builds a Pascal-only pack plus a separate SM89 reference
+pack. The selected external research inputs are required; no vendor binary or
+generated PTX/cubin is stored here. Run in a new output directory:
+
+```powershell
+python -I tools/nr-runtime/build_sm_general.py --research-root <trp-pascal> --official <310.9.16.dll> --cuda12 <CUDA12.9> --cuda13 <CUDA13.4> --output out/sm-general
+python -I tools/nr-runtime/test_sm_general.py --output out/scheduling-results.json
+```
+
+The ticket ring in `sm_general_slots.cuh` removes raw SM-ID ownership and gives
+disjoint scratch lanes with generation-controlled reuse. Producer polls precede
+scratch reservation. This is **an allocator candidate, not a complete scheduling
+fix**: native/original cross-dispatch polls, same-launch split-K/Z waits, cache
+writer progress and shared-module invocation ordering remain release gates.
+The synthetic suite includes counterexamples for those waits; its 1–32 logical
+SM-count matrix does not emulate physical GPUs or WDDM. No production admission
+or runtime policy is changed by this tooling.
+
+`sm_general_probe.cu` is a developer CUDA occupancy/worker-pressure fixture.
+`run_sm_general.ps1` is a lock-respecting test-PC runner for interleaved c37/new
+timing and full RGBA float32 byte parity, including separate untimed 40-frame
+exports. Stage only in a dedicated `C:/trp-work/runs/` directory with an
+`inputs.json` SHA256 inventory. Every GPU invocation uses the existing harness
+lock; a failure or teardown hang stops the campaign. `-SkipProbe` is appropriate
+only when that separately recorded probe is unavailable or blocked; it does not
+count as passing the GPU allocator test.
