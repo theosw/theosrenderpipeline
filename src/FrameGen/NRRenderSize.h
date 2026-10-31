@@ -40,7 +40,24 @@ namespace TheosRenderPipeline::NeuralRendering
         bool enabled{}, pascalResearch{}, neuralBeforeUpscaling{};
         int quality{5}; // 0..4 scaled presets; Native/DLAA (5) is excluded.
         bool Active() const { return enabled && pascalResearch && neuralBeforeUpscaling && quality >= 0 && quality < 5; }
+        const char* InactiveReason() const {
+            return !enabled ? "switch off" : !pascalResearch ? "Pascal research inactive" :
+                !neuralBeforeUpscaling ? "NR placement after upscaling" : quality < 0 || quality >= 5 ? "native or invalid quality" : nullptr;
+        }
     };
+
+    // Allocation cannot follow a later live NR checkbox change. Reserve the
+    // qualified extent for before-upscaling placement even if NR starts off.
+    template<class NeuralOptions>
+    inline RenderSizePolicy StartupRenderSizePolicy(bool enabled, bool pascalResearch, const NeuralOptions& nr, int quality)
+    {
+        return {enabled, pascalResearch, nr.beforeUpscaling, quality};
+    }
+
+    inline float ReloadNRRenderSizeMipBias(float stored, bool optimal, bool activeAllocation, bool upscalerReady, float hostBias)
+    {
+        return optimal && activeAllocation && upscalerReady ? hostBias : stored;
+    }
 
     // SDK-independent, exhaustive selection within the admitted range and TRP's
     // existing aspect tolerance. Keep nominal exactly unless NR area strictly falls.

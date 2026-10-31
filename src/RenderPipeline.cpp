@@ -7,6 +7,7 @@
 #include "FrameGen/SourceFrameGeneration.h"
 #include "FrameGen/NvidiaHost.h"
 #include "FrameGen/SourceDLSSGBackend.h"
+#include "FrameGen/NRRenderSize.h"
 #include "PerformanceTuning.h"
 #include "UserSettings.h"
 #include "PackagedDefaults.h"
@@ -86,7 +87,8 @@ void RenderPipeline::LoadINI()
 	// computed optimal bias with the INI's stored value.
     const auto* host = NvidiaHost::GetSingleton();
     if (mUseOptimalMipLodBias && host->NRFriendlyRenderSizeActive() && host->UpscalerReady()) {
-        mMipLodBias = host->OptimalMipmapBias();
+        mMipLodBias = TheosRenderPipeline::NeuralRendering::ReloadNRRenderSizeMipBias(mMipLodBias,
+            mUseOptimalMipLodBias, host->NRFriendlyRenderSizeActive(), host->UpscalerReady(), host->OptimalMipmapBias());
     } else if (mUseOptimalMipLodBias && DLSSBackend::GetSingleton()->HasFeature()) {
 		mMipLodBias = DLSSBackend::GetSingleton()->GetOptimalMipLodBias();
 	}

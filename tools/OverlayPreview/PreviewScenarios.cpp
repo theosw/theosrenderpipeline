@@ -434,7 +434,7 @@ PreviewScenario NRFriendly()
 {
     auto scenario = Intel();
     scenario.name = "nr-friendly";
-    scenario.summary = "Pascal research XeSS Quality at the selected NR render extent";
+    scenario.summary = "Pascal research XeSS Quality reserves the NR extent while NR starts off";
     auto& view = scenario.view;
     view.nvidiaAdapter = true;
     view.nvidiaFeatures = view.nvidiaFrameGeneration = false;
@@ -443,9 +443,9 @@ PreviewScenario NRFriendly()
     view.outputHeight = view.displaySizeY = 720;
     view.renderWidth = view.renderSizeX = 768;
     view.renderHeight = view.renderSizeY = 432;
-    view.neuralApplied.enabled = true;
+    view.neuralApplied.enabled = false;
     view.neuralApplied.beforeUpscaling = true;
-    scenario.applied.sourceDLSSG.neuralEnabled = true;
+    scenario.applied.sourceDLSSG.neuralEnabled = false;
     scenario.applied.sourceDLSSG.neuralBeforeUpscaling = true;
     scenario.draft = scenario.applied;
     return scenario;

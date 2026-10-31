@@ -1,5 +1,7 @@
 #include "FrameGen/PresentationVSync.h"
 #include "FrameGen/XeFGPacingAPI.h"
+#include "FrameGen/PresenterFactory.h"
+#include "FrameGen/PresenterReleaseProbe.h"
 #include <d3d12.h>
 #include <dxgi1_6.h>
 #include <wrl/client.h>
@@ -84,5 +86,29 @@ int main(int argc, char** argv) {
     ComPtr<ID3D12Fence> fence;Check(device->CreateFence(0,D3D12_FENCE_FLAG_NONE,IID_PPV_ARGS(&fence)),"fence");
     Check(queue->Signal(fence.Get(),1),"retire fixture queue");HANDLE event=CreateEventW(nullptr,FALSE,FALSE,nullptr);Require(event!=nullptr,"event");
     Check(fence->SetEventOnCompletion(1,event),"retirement event");Require(WaitForSingleObject(event,10000)==WAIT_OBJECT_0,"retirement completed");CloseHandle(event);
-    chain.Reset();DestroyWindow(window);std::puts("PASS native Present/Present1 live Auto/On/Off transitions");
+    ComPtr<PresenterFactory> observed;
+    observed.Attach(new PresenterFactory(factory.Get(), chain.Get()));
+    ComPtr<IDXGISwapChain1> reused;
+    auto mismatch = desc; ++mismatch.Width;
+    Require(observed->CreateSwapChainForHwnd(queue.Get(),window,&mismatch,nullptr,nullptr,&reused) == E_INVALIDARG && !reused,
+        "a different allocation cannot reuse a native HWND owner");
+    desc.BufferCount = 3;
+    Check(observed->CreateSwapChainForHwnd(queue.Get(),window,&desc,nullptr,nullptr,&reused), "reuse retired native chain on presenting queue");
+    ComPtr<IUnknown> oldIdentity, newIdentity;
+    Check(chain.As(&oldIdentity), "old native identity"); Check(reused.As(&newIdentity), "reused native identity");
+    Require(oldIdentity.Get() == newIdentity.Get(), "recreation never creates a second HWND owner");
+    oldIdentity.Reset(); newIdentity.Reset(); reused.Reset();
+    Check(PresenterFactory::NativeFallbackAfterRetirement(chain.Get(),queue.Get()), "native fallback restores host queue and two buffers");
+    DXGI_SWAP_CHAIN_DESC fallbackDesc{}; Check(chain->GetDesc(&fallbackDesc), "fallback description");
+    Require(fallbackDesc.BufferCount == 2, "native fallback preserves facade buffer contract");
+    Check(chain->Present(0,0), "rebound native fallback presents");
+    Check(queue->Signal(fence.Get(),2), "retire rebound fixture");
+    event=CreateEventW(nullptr,FALSE,FALSE,nullptr);
+    Check(fence->SetEventOnCompletion(2,event), "retire rebound event");
+    Require(WaitForSingleObject(event,10000)==WAIT_OBJECT_0, "rebound fixture retired"); CloseHandle(event);
+    PresenterReleaseProbe probe(chain.Get());
+    observed->ReleaseNative(); observed.Reset(); chain.Reset();
+    probe.Release([](UINT,void*,HRESULT hr,ULONG) { Require(SUCCEEDED(hr), "all native buffer probes acquired"); },
+        [](void*,ULONG n) { Require(n==0,"native probe observes complete final release"); });
+    DestroyWindow(window);std::puts("PASS native Present/Present1 transitions, same-HWND reuse, layout refusal, native fallback and final release probes");
 }

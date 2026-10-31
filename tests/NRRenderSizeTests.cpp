@@ -52,6 +52,21 @@ int main(int argc, char** argv)
         ++count;
     }
     const FrameExtent nominal{753, 424}, output{1280, 720};
+    for (const bool enabled : {false, true}) {
+        struct Options { bool enabled, beforeUpscaling; } nr{enabled, true};
+        const auto startup = StartupRenderSizePolicy(true, true, nr, 2);
+        const UpscalerInputResolution admitted{nominal, {640,360}, {1280,720}};
+        Require(startup.Active() && !startup.InactiveReason() &&
+            Same(SelectNRFriendlyRenderSize(nominal, output, admitted, startup), {768,432}),
+            "Pascal before-upscaling startup allocates 768x432 with NR both off and on");
+        nr.beforeUpscaling = false;
+        const auto after = StartupRenderSizePolicy(true, true, nr, 2);
+        Require(!after.Active() && std::string(after.InactiveReason()) == "NR placement after upscaling" &&
+            Same(SelectNRFriendlyRenderSize(nominal, output, admitted, after), nominal), "after-upscaling placement explains inactive startup sizing");
+        Require(std::string(StartupRenderSizePolicy(true, false, nr, 2).InactiveReason()) == "Pascal research inactive", "non-Pascal inactive reason");
+        nr.beforeUpscaling = true;
+        Require(std::string(StartupRenderSizePolicy(true, true, nr, 5).InactiveReason()) == "native or invalid quality", "native quality inactive reason");
+    }
     const RenderSizePolicy on{true, true, true, 2};
     const UpscalerInputResolution fixed{nominal, nominal, nominal};
     Require(Same(SelectNRFriendlyRenderSize(nominal, output, fixed, on), nominal), "range refuses all moves");

@@ -216,9 +216,9 @@ bool NvidiaHost::CreateGameFacingResources(IDXGISwapChain* a_swapChain)
     auto& backend = TheosRenderPipeline::SourceDLSSG::Backend::Get();
     const auto nr = backend.NeuralConfiguration();
     const auto quality = sourceUpscalerSettings_.Startup().AllocationQuality();
-    const TheosRenderPipeline::NeuralRendering::RenderSizePolicy sizePolicy{
+    const auto sizePolicy = TheosRenderPipeline::NeuralRendering::StartupRenderSizePolicy(
         TheosRenderPipeline::NeuralRendering::PascalConfiguration().nrFriendlyRenderSize,
-        backend.PascalResearchActive(), nr.enabled && nr.beforeUpscaling, quality};
+        backend.PascalResearchActive(), nr, quality);
     if (sizePolicy.Active() && !TheosRenderPipeline::CommunityShaders::Active()) {
         TheosRenderPipeline::UpscalerInputResolution range;
         HRESULT rangeResult = E_FAIL;
@@ -254,6 +254,10 @@ bool NvidiaHost::CreateGameFacingResources(IDXGISwapChain* a_swapChain)
             logger::warn("[NR render size] SDK range unavailable (0x{:08X}); keeping nominal {}x{}",
                 static_cast<unsigned>(rangeResult), renderWidth_, renderHeight_);
         }
+    } else if (sizePolicy.enabled) {
+        logger::info("[NR render size] inactive: {}; keeping nominal {}x{} (NR enabled={} beforeUpscaling={} PascalResearch={} quality={})",
+            TheosRenderPipeline::CommunityShaders::Active() ? "Community Shaders owns render size" : sizePolicy.InactiveReason(),
+            renderWidth_, renderHeight_, nr.enabled, nr.beforeUpscaling, backend.PascalResearchActive(), quality);
     }
 #endif
 
