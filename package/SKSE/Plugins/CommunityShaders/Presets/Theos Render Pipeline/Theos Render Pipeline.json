@@ -1,0 +1,7 @@
+{
+    "name": "Theo's Render Pipeline",
+    "author": "Theo",
+    "version": "1.0.0",
+    "description": "Theo's Render Pipeline supplies frame generation and Reflex, so CS frame generation and CS Reflex stay off. CS upscaling is unchanged. Enable this pack once on the Presets page.",
+    "type": "Baseline"
+}

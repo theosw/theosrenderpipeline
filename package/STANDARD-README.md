@@ -213,13 +213,32 @@ the same placement, and two passes can substantially increase inference cost. Se
 
 ## Community Shaders
 
-Keep CS upscaling enabled. TRP supplies frame generation and Reflex, so this
-package includes a CS settings override that turns CS frame generation and CS
-Reflex off at startup, even if your saved CS settings enable them. It appears in
-CS's Overrides tab as Theo's Render Pipeline. If your CS has no Overrides tab, or
-you disable the override there, turn CS frame generation and CS Reflex off
-yourself. CS controls upscaling, render scale, sharpening and colour; TRP controls
-FG and NR. Assign CS a separate menu key, such as F8, to avoid End conflicts with
+Keep CS upscaling enabled. CS controls upscaling, render scale, sharpening and
+colour; TRP supplies frame generation, Reflex and NR.
+
+Both editions include these Community Shaders files:
+
+- CS 1.9.1: `SKSE/Plugins/CommunityShaders/Overrides/TheosRenderPipeline_Upscaling.json`.
+  This override keeps CS frame generation and Reflex off at startup. If you disable
+  it in CS's Overrides tab, turn Frame Generation and Reflex off under CS Upscaling.
+- Newer CS / Bottled Shaders: `SKSE/Plugins/CommunityShaders/Presets/Theos Render Pipeline/Theos Render Pipeline.json`
+  and `SKSE/Plugins/CommunityShaders/Presets/Theos Render Pipeline/Baseline/TheosRenderPipeline_Upscaling.json`.
+  Enable **Theo's Render Pipeline** under **Presets > Baseline** once, then restart
+  Skyrim. The pack keeps CS frame generation and Reflex off and leaves CS upscaling
+  unchanged. You can instead turn Frame Generation and Reflex off under CS Upscaling
+  and restart.
+
+Newer CS ignores the old Overrides file and may report it as an incompatible
+old-format override. Both formats are included until CS's next stable release so
+CS 1.9.1 still works. On newer CS, installing the files alone does not enable the
+Baseline pack. If CS frame generation stays on or is forced, TRP may be unable to
+start rendering and Skyrim closes after an explanation. If that prevents you from
+opening CS, temporarily disable TRP, start Skyrim and make the CS change, then
+close Skyrim, re-enable TRP and restart. TRP does not change CS's settings files.
+
+Bottled Shaders' default post-processing preset turns on Depth of Field, lens flare and colour grading; if near objects look blurred, turn off Depth of Field under Post Processing.
+
+Assign CS a separate menu key, such as F8, to avoid End conflicts with
 TRP or KreatE, or change TRP's key under Advanced > Menu key. Do not use F8 if
 it is already assigned to ReShade or a capture tool.
 

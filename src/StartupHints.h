@@ -57,10 +57,12 @@ namespace TheosRenderPipeline::StartupHints
 
     // A few plain lines for the fatal dialog. Claims rest on Facts; anything
     // the renderer cannot observe is phrased as a likely cause.
-    inline std::string Hint(Failure failure, const Facts& facts)
+    using Translate = const char* (*)(const char*);
+
+    inline std::string Hint(Failure failure, const Facts& facts, Translate translate = nullptr)
     {
         std::string hint;
-        auto line = [&](std::string_view text) { hint += "- "; hint += text; hint += '\n'; };
+        auto line = [&](const char* text) { hint += "- "; hint += translate ? translate(text) : text; hint += '\n'; };
         switch (failure) {
         case Failure::CompetingFrameGeneration:
             line("PureDark's Upscaler or frame generation is loaded. Disable it in this profile; TRP replaces it.");
@@ -90,10 +92,15 @@ namespace TheosRenderPipeline::StartupHints
             line("Check which mod supplies the runtime files and remove incompatible replacements from other mods or manual fixes.");
             break;
         case Failure::SwapchainNotAcquired:
-            line(facts.communityShaders ?
-                "Community Shaders' frame generation is likely still on (or forced). Turn it off in CS Upscaling and restart." :
-                "Another mod likely created the game's swapchain first, such as ENB frame generation, OptiScaler or another "
-                "frame-generation mod. Disable it.");
+            if (facts.communityShaders) {
+                line("Community Shaders' frame generation may still be on or forced. TRP cannot safely continue this session.");
+                line("Newer CS / Bottled Shaders: enable \"Theo's Render Pipeline\" under Presets > Baseline, or turn Frame Generation off under Upscaling. Restart Skyrim.");
+                line("CS 1.9.1: turn Frame Generation off under CS Upscaling and restart Skyrim.");
+                line("If Skyrim closes before you can open CS: temporarily disable TRP, start Skyrim, make the CS change, then close Skyrim, re-enable TRP and restart.");
+            } else {
+                line("Another mod likely created the game's swapchain first, such as ENB frame generation, OptiScaler or another "
+                     "frame-generation mod. Disable it.");
+            }
             break;
         case Failure::CompatibilityRuntimeMissing:
             line("NVIDIA's frame-generation runtime from Standard was not found. Install Standard with Universal below it "
@@ -116,11 +123,13 @@ namespace TheosRenderPipeline::StartupHints
                  "then start Skyrim again.");
             break;
         }
-        return hint.empty() ? hint : "Likely causes and what to try:\n" + hint;
+        return hint.empty() ? hint : std::string(translate ? translate("Likely causes and what to try:\n") : "Likely causes and what to try:\n") + hint;
     }
 
     // Gathers Facts from the running process (renderer only; not used by tests).
     Facts CurrentFacts(std::string_view status);
+    // Reads only TRP's language preference; technical logs remain English.
+    std::string DialogHintFor(std::string_view status, const Facts& facts);
 
     // Empty when the status is not a recognised startup failure.
     inline std::string HintFor(std::string_view status, const Facts& facts)

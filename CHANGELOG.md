@@ -1,5 +1,22 @@
 # 0.6.0
 
+Both editions now include the Community Shaders Baseline pack at
+`SKSE/Plugins/CommunityShaders/Presets/Theos Render Pipeline/Theos Render Pipeline.json`
+and `SKSE/Plugins/CommunityShaders/Presets/Theos Render Pipeline/Baseline/TheosRenderPipeline_Upscaling.json`.
+On newer CS / Bottled Shaders, enable **Theo's Render Pipeline** under
+**Presets > Baseline** once and restart, or turn Frame Generation and Reflex off
+under CS Upscaling and restart. CS upscaling is unchanged. The existing
+`SKSE/Plugins/CommunityShaders/Overrides/TheosRenderPipeline_Upscaling.json`
+stays for CS 1.9.1 until CS's next stable release; newer CS ignores it and may
+report an old-format override warning. Installing the pack alone does not enable
+it. If CS frame generation stays on, TRP may fail to start and Skyrim closes after
+a message with steps for both CS generations. To reach CS in that case, temporarily
+disable TRP, make the change in CS, then close Skyrim, re-enable TRP and restart.
+For CS 1.9.1, turn Frame Generation off under CS Upscaling. TRP does not write CS's
+settings files.
+
+Bottled Shaders' default post-processing preset turns on Depth of Field, lens flare and colour grading; if near objects look blurred, turn off Depth of Field under Post Processing.
+
 NR runtime refusals now turn NR off for the session while ordinary rendering
 continues where ownership is safe. Apply retries a transient failure through the
 normal capability, driver, runtime, compatibility-pack and memory-budget checks,

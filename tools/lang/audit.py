@@ -43,6 +43,14 @@ def source_keys():
         value = unescape(text[1:-1])
         if ' ' in value and not value.endswith('.trpk'):
             keys.add(('', value))
+    # CS startup help is shown before OverlayUI can activate the dictionary.
+    startup_path = Path('src/StartupHints.h')
+    startup = startup_path.read_text(encoding='utf-8') if startup_path.is_file() else ''
+    cs_help = startup.partition('if (facts.communityShaders) {')[2].partition('} else {')[0]
+    for text in re.findall(r'line\(\s*(' + LIT + r')\s*\)', cs_help):
+        keys.add(('', unescape(text[1:-1])))
+    if cs_help:
+        keys.add(('', 'Likely causes and what to try:\n'))
     return keys
 
 
