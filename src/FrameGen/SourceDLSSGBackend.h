@@ -442,6 +442,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		sl::Constants frameConstants_{};
 		bool neuralEligible_{};
 		bool frameNeuralReset_{};
+		bool neuralRecoveryReset_{};
 		bool frameNeuralModelChanged_{};
 		bool neuralFrameBegun_{}, neuralEvaluatedEarly_{};
 		Microsoft::WRL::ComPtr<ID3D11Texture2D> uiSource_;

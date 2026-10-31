@@ -576,6 +576,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			frameNeuralReset_ |= a_constants.reset == sl::eTrue;
 			if (!neuralEligible_) { neuralHistory_.Invalidate(); }
 		}
+		frameNeuralReset_ |= std::exchange(neuralRecoveryReset_, false);
 #if !defined(TRP_NO_NEURAL_RENDERING)
 		if (frameNeuralOptions_.enabled && neuralEligible_ && neuralPass_ &&
 			neuralPass_->NeedsResourceRecreation(frameNeuralOptions_, motion_.desc.Width, motion_.desc.Height)) { frameNeuralReset_ = true; }

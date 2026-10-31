@@ -229,7 +229,7 @@ namespace TheosRenderPipeline::SourceDLSSG
             });
         neuralHistory_.Invalidate();
         neuralEligible_ = neuralEvaluatedEarly_ = frameNeuralModelChanged_ = false;
-        frameNeuralReset_ = true;
+        frameNeuralReset_ = neuralRecoveryReset_ = true;
         {
             std::scoped_lock lock(neuralMutex_);
             neuralSnapshot_.failed = neuralSnapshot_.sessionDisabled = true;
@@ -268,6 +268,7 @@ namespace TheosRenderPipeline::SourceDLSSG
             !NeuralUnavailableReason(frameNeuralOptions_);
         frameNeuralReset_ = neuralHistory_.ResetFor(frameNeuralOptions_, neuralEligible_,
             reset || (camera && camera->reset == sl::eTrue));
+        frameNeuralReset_ |= std::exchange(neuralRecoveryReset_, false);
         reset |= frameNeuralReset_;
         // The upscaler still needs to discard a history fed by a changed NR
         // model. Keep this separate from the NR chain's per-pass reset mask.

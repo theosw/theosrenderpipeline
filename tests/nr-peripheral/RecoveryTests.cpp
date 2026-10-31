@@ -32,7 +32,7 @@ int main(int argc, char**)
         auto composed=gpu.Texture(64,64,{},desc.Format);
         Recovery recovery; auto pass=std::make_unique<NeuralPass>();
         FaultInjection::Arm(FaultInjection::Point::Evaluate,failAt);
-        bool failed=false, retried=false; unsigned creationsAtRefusal=0;
+        bool failed=false, retried=false, retryReset=false; unsigned creationsAtRefusal=0;
         for (unsigned frame=0;frame<18;++frame) {
             Fixture::frame=frame;
             // Each producer frame is intact before opening the NR list, matching
@@ -44,7 +44,7 @@ int main(int argc, char**)
             gpu.Begin();
             bool recorded=false;
             if (!recovery.Disabled()) {
-                recorded=pass->Record(gpu.device.Get(),gpu.list.Get(),frame%kCommandSlots,options,frame==0 || retried,true,64,64,
+                recorded=pass->Record(gpu.device.Get(),gpu.list.Get(),frame%kCommandSlots,options,frame==0 || std::exchange(retryReset,false),true,64,64,
                     motion.Get(),depth.Get(),route==2?ui.Get():nullptr,scene.Get(),route==2?composed.Get():nullptr);
                 if (!recorded) {
                     const auto serial=gpu.serial;
@@ -69,10 +69,11 @@ int main(int argc, char**)
             if (failed && !retried && frame>=10) {
                 Require(recovery.Retry() && options.enabled,"Apply retries without rewriting requested preference");
                 pass=std::make_unique<NeuralPass>(); Fixture::creations=0; Fixture::lateCreationFrame=~0u;
-                retried=true; ++retries;
+                retried=retryReset=true; ++retries;
             }
         }
         Require(failed && retried && !recovery.Disabled() && pass->ReadyPasses()==passes,"transient failure re-enables full chain");
+        Require(Fixture::resets<=unsigned(2*passes),"history reset bounded to new owners");
         Require(pass->ReleaseAfterRetirement(),"final owner release");
     }
     // Unsafe ownership and retirement never release or retry. A failed teardown
