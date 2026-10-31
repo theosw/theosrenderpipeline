@@ -11,6 +11,7 @@
 #include "PluginPaths.h"
 #include "NeuralResearch.h"
 #include "NeuralAdmission.h"
+#include "NeuralRuntimeKernels.h"
 #include "NRRenderSize.h"
 #include "NeuralRuntimeCompatibility.h"
 #include <PCH.h>

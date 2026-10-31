@@ -10,6 +10,7 @@
 #include "FrameGen/SourceDLSSGBackend.h"
 #include "FrameGen/DlssgLiteBlending.h"
 #include "FrameGen/NeuralRuntimeFiles.h"
+#include "FrameGen/NeuralRuntimeKernels.h"
 #include "FrameGen/XeFGUnlock.h"
 #include "PluginPaths.h"
 #include "NeuralObjectHooks.h"

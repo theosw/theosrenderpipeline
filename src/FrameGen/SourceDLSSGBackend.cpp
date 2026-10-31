@@ -25,6 +25,7 @@
 #include "NeuralRenderingFeatureSession.h"
 #include "NeuralResearch.h"
 #include "NeuralAdmission.h"
+#include "NeuralRuntimeKernels.h"
 #include "NeuralRuntimeCompatibility.h"
 #endif
 
