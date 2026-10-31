@@ -100,22 +100,24 @@ namespace TheosRenderPipeline::SourceDLSSG
 		RefuseNeuralRuntime(runtime, std::format("could not start NR ({})", status), "");
 		return true;
 	}
-	const char* Backend::NeuralUnavailableReason(const NeuralOptions& options)
+	const char* Backend::NeuralUnavailableReason(const NeuralOptions& options, FrameExtent sceneExtent)
 	{
 		if (startupTransport_) { return "NR unavailable after frame-generation startup failure; restart to retry"; }
 		std::scoped_lock lock(neuralMutex_);
 		if (!NvidiaAdapter() && options.enabled) { return "Neural Rendering requires an NVIDIA RTX GPU; XeSS and XeFG remain available"; }
         if (options.enabled && neuralCapability_.Pascal() && !NeuralRendering::PascalResearchFor(neuralComputeCapability_)) {
-            if (!neuralAdmissionChecked_) {
-                const auto width = options.beforeUpscaling ? motion_.desc.Width : presenterDesc_.BufferDesc.Width;
-                const auto height = options.beforeUpscaling ? motion_.desc.Height : presenterDesc_.BufferDesc.Height;
+            // Early admission precedes creation of motion_ and the NR guides.
+            // Use the caller's real scene extent, then re-admit after dimension/pass changes.
+            const auto width = sceneExtent.width ? sceneExtent.width : (options.beforeUpscaling ? motion_.desc.Width : presenterDesc_.BufferDesc.Width);
+            const auto height = sceneExtent.height ? sceneExtent.height : (options.beforeUpscaling ? motion_.desc.Height : presenterDesc_.BufferDesc.Height);
+            if (!neuralAdmissionChecked_ || neuralCapability_.estimateBytes != NeuralRendering::EstimatePascalMemory(width, height, options.passes)) {
                 neuralCapability_ = NeuralRendering::QueryNeuralAdmission(device12_->GetAdapterLuid(), options.runtimePath,
                     width, height, options.passes, NeuralRendering::RuntimeKernelsSupported(), true);
                 if (neuralPass_ && !neuralPass_->NeedsRecreation(options, motion_.desc.Width, motion_.desc.Height)) {
                     neuralCapability_.retainedEstimateBytes = neuralCapability_.estimateBytes;
                 }
                 neuralAdmissionReason_ = neuralCapability_.Refusal() ? neuralCapability_.Refusal() : "";
-                neuralAdmissionChecked_ = true;
+                neuralAdmissionChecked_ = width && height;
             }
             if (!neuralAdmissionReason_.empty()) { return neuralAdmissionReason_.c_str(); }
         }
@@ -257,7 +259,8 @@ namespace TheosRenderPipeline::SourceDLSSG
         neuralFrameBegun_ = true;
         neuralEvaluatedEarly_ = false;
         neuralEligible_ = eligible && !TransitionBlocked() && (!options.WorldOnly() || camera) &&
-            !NeuralUnavailableReason(frameNeuralOptions_);
+            !NeuralUnavailableReason(frameNeuralOptions_, options.WorldOnly() ? colorExtent :
+                FrameExtent{presenterDesc_.BufferDesc.Width, presenterDesc_.BufferDesc.Height});
         frameNeuralReset_ = neuralHistory_.ResetFor(frameNeuralOptions_, neuralEligible_,
             reset || (camera && camera->reset == sl::eTrue));
         reset |= frameNeuralReset_;

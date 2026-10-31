@@ -276,7 +276,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		void ReleaseGuides();
 		bool RecreateNeuralIfNeeded(const NeuralOptions& options);
 		bool FailNeuralRecording();
-		const char* NeuralUnavailableReason(const NeuralOptions& options);
+		const char* NeuralUnavailableReason(const NeuralOptions& options, FrameExtent sceneExtent = {});
 		void RecordPresentationFeedback(std::uint32_t a_presentCount,
 			std::int64_t a_observedQpc, std::int64_t a_syncQpc);
 		void ResetPresentationFeedback();

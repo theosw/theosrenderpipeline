@@ -228,7 +228,7 @@ namespace TheosRenderPipeline::NeuralRendering
 				if (users && --users == 0) {
 					const auto result = shutdownRuntime(device);
 					released = NVSDK_NGX_SUCCEED(result);
-					logger::info("[DLSSNR Source] research runtime Shutdown1 result=0x{:08X}; last feature retired", static_cast<std::uint32_t>(result));
+					logger::info("[DLSSNR Source] direct runtime Shutdown1 result=0x{:08X}; last feature retired", static_cast<std::uint32_t>(result));
 				}
 			}
 			if (researchRuntime && !released) { failedResearchRuntimes.insert(module); }
@@ -402,7 +402,7 @@ namespace TheosRenderPipeline::NeuralRendering
 			if (!directRuntime || publicInitResult != NVSDK_NGX_Result_FAIL_FeatureNotSupported) {
 				return false;
 			}
-			logger::info("[DLSSNR Source] research: continuing after {}", state.status);
+			logger::info("[DLSSNR Source] direct bootstrap: continuing after {}", state.status);
 		} else {
 			publicNGXInitialized.store(true, std::memory_order_release);
 		}
@@ -491,7 +491,7 @@ namespace TheosRenderPipeline::NeuralRendering
 			capabilityResult = populate ? populate(parameters) : NVSDK_NGX_Result_FAIL_FeatureNotFound;
 			state.parameters = parameters;
 			state.destroyParameters = &DestroyResearchParameters;
-			logger::info("[DLSSNR Source] research: populated parameters (0x{:08X}), {} values",
+			logger::info("[DLSSNR Source] direct bootstrap: populated parameters (0x{:08X}), {} values",
 				static_cast<std::uint32_t>(capabilityResult), parameters->Count());
 		} else {
 			capabilityResult = NVSDK_NGX_D3D12_GetCapabilityParameters(&state.parameters);
