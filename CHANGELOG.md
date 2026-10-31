@@ -1,42 +1,31 @@
 # 0.6.0
 
-Both editions now include the Community Shaders Baseline pack at
-`SKSE/Plugins/CommunityShaders/Presets/Theos Render Pipeline/Theos Render Pipeline.json`
-and `SKSE/Plugins/CommunityShaders/Presets/Theos Render Pipeline/Baseline/TheosRenderPipeline_Upscaling.json`.
-On newer CS / Bottled Shaders, enable **Theo's Render Pipeline** under
-**Presets > Baseline** once and restart, or turn Frame Generation and Reflex off
-under CS Upscaling and restart. CS upscaling is unchanged. The existing
-`SKSE/Plugins/CommunityShaders/Overrides/TheosRenderPipeline_Upscaling.json`
-stays for CS 1.9.1 until CS's next stable release; newer CS ignores it and may
-report an old-format override warning. Installing the pack alone does not enable
-it. If CS frame generation stays on, TRP may fail to start and Skyrim closes after
-a message with steps for both CS generations. To reach CS in that case, temporarily
-disable TRP, turn Frame Generation off under CS Upscaling, then close Skyrim,
-re-enable TRP and restart. You can then enable the Baseline pack on newer CS and
-restart again.
-For CS 1.9.1, turn Frame Generation off under CS Upscaling. TRP does not write CS's
-settings files.
-
-Bottled Shaders' default post-processing preset turns on Depth of Field, lens flare and colour grading; if near objects look blurred, turn off Depth of Field under Post Processing.
-
-NR runtime refusals now turn NR off for the session while ordinary rendering
-continues where ownership is safe. Apply retries a transient failure through the
-normal capability, driver, runtime, compatibility-pack and memory-budget checks,
-without changing the saved NR preference. Unsafe GPU or runtime ownership still
-requires a restart. Admission refusals and runtime failures show separate reasons
-in the NR controls, which remain visible when unavailable.
-
-Universal adds GTX 10 compatibility kernels (experimental) for Neural Rendering on
-sm_61 GPUs. NR stays off by default. Install Universal and the matching NR runtimes,
-use NVIDIA driver 582.78 or a newer compatible Pascal (R580) driver, then select
-Neural Rendering > Enable > Apply with Runtime set to Automatic. Start with one
-pass before upscaling. TRP checks the rendering adapter, driver, runtime, compatibility
-pack and available video-memory budget before starting NR; an admission refusal
-leaves normal rendering running and explains the reason in the menu and log.
-There is no fixed VRAM minimum. DLSS, DLAA and DLSS-G require NVIDIA RTX hardware;
-use XeSS and optionally XeFG on Pascal. Standard keeps the GTX 10 NR controls visible
-with a reason pointing to Universal. Other NR settings and saved preferences remain
-unchanged. Game acceptance and broader Pascal hardware testing are still pending.
+- Universal adds experimental GTX 10 (Pascal, sm_61) Neural Rendering with
+  NVIDIA NR 310.9.16. Tested on a GTX 1070 Ti; other GTX 10 cards are untested,
+  please report your results. Requires driver 582.78 or a newer compatible
+  Pascal (R580) driver. Start with one pass before upscaling. NR stays off by
+  default. There is no fixed VRAM minimum, but a live memory check may refuse
+  NR on smaller cards. Standard explains that GTX 10 NR needs Universal.
+- NR runtime failures now turn NR off for the session while normal rendering
+  continues where safe. Apply retries through the normal runtime, driver,
+  compatibility-pack and memory checks without changing the saved NR preference.
+  Unsafe GPU or runtime ownership still requires a restart.
+- Both editions include the Community Shaders / Bottled Shaders Baseline pack.
+  Enable Theo's Render Pipeline under Presets > Baseline once and restart.
+  Installing the pack alone does not enable it. CS upscaling is unchanged;
+  the pack turns CS frame generation and Reflex off for TRP. The legacy Overrides
+  file stays for CS 1.9.1 until CS's next stable release; newer CS ignores it
+  and may show an old-format warning. On CS 1.9.1, turn Frame Generation off
+  under Upscaling and restart. If CS frame generation prevents startup, the
+  message explains how to disable TRP temporarily, turn CS frame generation
+  off, close Skyrim, re-enable TRP and restart. Bottled's default post-processing
+  preset enables Depth of Field, lens flare and colour grading; turn off Depth
+  of Field under Post Processing if nearby objects look blurred.
+- Loading-artwork fades now preserve native UI hooks, fixing a route that
+  could hide Skills and Magic menus after a fade.
+- Starting with NR saved on now waits for the first world size before admission
+  and caches the result, avoiding repeated runtime and pack checks during loading.
+- Lab adds Even NR pacing, an opt-in experiment that defaults off.
 
 # 0.5.7
 

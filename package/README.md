@@ -1,18 +1,18 @@
-# 0.6.0
+# Theo's Render Pipeline — Universal, 0.6.0
 
-Universal adds GTX 10 compatibility kernels (experimental) for Neural Rendering on
-sm_61 GPUs. NR stays off by default. Install Universal and the matching NR runtimes,
-use NVIDIA driver 582.78 or a newer compatible Pascal (R580) driver, then select
-Neural Rendering > Enable > Apply with Runtime set to Automatic. Start with one
-pass before upscaling. TRP checks the rendering adapter, driver, runtime, compatibility
-pack and available video-memory budget before starting NR; an admission refusal
-leaves normal rendering running and explains the reason in the menu and log.
-There is no fixed VRAM minimum. DLSS, DLAA and DLSS-G require NVIDIA RTX hardware;
-use XeSS and optionally XeFG on Pascal. Standard keeps the GTX 10 NR controls visible
-with a reason pointing to Universal. Other NR settings and saved preferences remain
-unchanged. Game acceptance and broader Pascal hardware testing are still pending.
+Version 0.6.0 adds experimental GTX 10 NR in Universal, NR failure recovery
+with Apply retry, the CS / Bottled Shaders Baseline pack, loading/menu fixes and
+Even NR pacing under Lab (off by default). See CHANGELOG.md and the setup notes
+below.
 
-# Theo's Render Pipeline — Universal, 0.5.7
+Universal adds experimental Neural Rendering on GTX 10 (Pascal, sm_61), using
+NVIDIA NR 310.9.16 and Universal's compatibility pack. Tested on a GTX 1070 Ti;
+other GTX 10 cards are untested, please report your results. Use driver 582.78 or
+a newer compatible Pascal (R580) driver. NR stays off by default: select Runtime
+Automatic, enable NR and Apply. Start with one pass before upscaling. There is no
+fixed VRAM minimum, but a live memory check may refuse NR on smaller cards and
+explain why. Standard shows the reason to install Universal. DLSS, DLAA and
+DLSS-G still require RTX hardware; use XeSS and optionally XeFG on Pascal.
 
 Version 0.5.7 adds an experimental option, `ReShadeGameDevice`, that runs
 ReShade on the game's own device, so add-ons work the way they do without TRP
@@ -152,7 +152,7 @@ This package includes the full renderer, configuration and sharpening shader.
 It requires no other Theo's Render Pipeline package. NVIDIA DLLs are supplied
 separately: download the SR/FG files below, and the NR runtime if you want NR.
 Alternatively, install Standard first and Universal after it in MO2; Standard
-0.5.7 supplies the complete NVIDIA and Intel runtime bundles, including the
+0.6.0 supplies the complete NVIDIA and Intel runtime bundles, including the
 original NR 310.9.16 and the retained older NR runtime. Universal adds the
 compatibility pack and legacy INT8 alternative. In that setup,
 skip the runtime downloads below.
@@ -396,7 +396,7 @@ an RTX 4080 SUPER: ordinary 6.8.0.2158 and full add-on 6.8.0.2155, with
 early NR and x4. Sky Reflection Fix's ReShade registration was excluded;
 Rumble passed a separate initial test. Combined third-party add-ons,
 Standard gameplay and CS with ReShade remain unverified. These were earlier
-development builds; the exact 0.5.7 package has not been tested with ReShade.
+development builds; the exact 0.6.0 package has not been tested with ReShade.
 
 MartysMods ReGrade+ (ReShade 6.6 or newer) used to crash the game while TRP
 started ReShade: it prepares itself only in a device event that ReShade does not
