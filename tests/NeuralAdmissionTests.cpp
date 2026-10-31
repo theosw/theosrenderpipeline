@@ -65,6 +65,31 @@ int wmain(int argc, wchar_t** argv)
         Require(EstimatePascalMemory(1130, 636, 2) > EstimatePascalMemory(768, 432, 1), "resolution/pass resource estimate grows");
         Require(std::string(kPascalStatus).find("experimental") != std::string::npos, "experimental status is explicit");
 
+        // The live owner is charged until the safe boundary releases it. Use an
+        // observed post-release usage, deliberately different from its estimate.
+        {
+            auto live = Valid(); live.budgetBytes = 4ull << 30;
+            live.usageBytes = live.budgetBytes - (100ull << 20);
+            live.estimateBytes = EstimatePascalMemory(1280,720,1);
+            Require(live.Refusal() == kPascalBudgetReason, "replacement cannot fit alongside old owner");
+            auto draft = live; draft.budgetPendingRetirement = true;
+            Require(!draft.Refusal() && !draft.retainedEstimateBytes, "draft defers budget without claiming estimated residency credit");
+            draft.assetsVerified = false;
+            Require(draft.Refusal() == kPascalAssetReason, "deferred budget cannot bypass asset admission");
+            bool owner = true, queried = false;
+            Require(PrepareNeuralAdmission(true, [&] { owner = false; return true; }, [&] {
+                Require(!owner, "live budget query follows old-owner release");
+                queried = true;
+                live.usageBytes = 2ull << 30; // newly observed DXGI usage
+            }) && queried && !live.Refusal(), "reduced live-owner demand admits using fresh usage");
+            queried = false;
+            Require(!PrepareNeuralAdmission(true, [] { return false; }, [&] { queried = true; }) && !queried,
+                "unsafe retirement never queries/admit a replacement");
+            live.usageBytes = live.budgetBytes;
+            PrepareNeuralAdmission(true, [] { return true; }, [] {});
+            Require(live.Refusal() == kPascalBudgetReason, "actual unreclaimed budget still refuses after release");
+        }
+
         const auto temp = std::filesystem::temp_directory_path() / (L"trp-admission-" + std::to_wstring(GetCurrentProcessId()));
         std::filesystem::create_directories(temp);
         const auto pack = temp / kPascalPackName;

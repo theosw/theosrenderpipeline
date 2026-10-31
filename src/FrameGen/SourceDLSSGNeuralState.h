@@ -58,6 +58,16 @@ namespace TheosRenderPipeline::SourceDLSSG
 		bool operator==(const NeuralOptions&) const = default;
 	};
 
+    inline NeuralOptions NormalizeNeuralRoute(NeuralOptions options, bool communityShaders)
+    {
+        options.worldOnly = communityShaders;
+        if (communityShaders) {
+            options.tuning.uiCorrection = false;
+            options.reconstruction.producerColor = options.beforeUpscaling;
+        }
+        return options;
+    }
+
 	inline NeuralOptions SanitizeNeuralOptions(NeuralOptions options)
 	{
 		options.tuning = NeuralRendering::SanitizeBuild14Tuning(options.tuning);

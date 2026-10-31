@@ -31,6 +31,9 @@ namespace TheosRenderPipeline::NeuralRendering
         std::string driverBranch, driverSource;
         std::uint64_t dedicatedBytes{}, budgetBytes{}, usageBytes{}, estimateBytes{}, retainedEstimateBytes{};
         bool assetsVerified{}, budgetKnown{};
+        // UI preflight only. The old owner is still charged by DXGI; replacement
+        // budget admission must wait for proven retirement and a fresh query.
+        bool budgetPendingRetirement{};
         bool Pascal() const { return nvidia && architecture == 61; }
         bool NvidiaFeatures() const { return nvidia && architecture >= 75; }
         const char* Refusal() const
@@ -43,7 +46,7 @@ namespace TheosRenderPipeline::NeuralRendering
             if (!assetsVerified) { return kPascalAssetReason; }
             if (!budgetKnown || !estimateBytes) { return kPascalBudgetUnknownReason; }
             const auto additional = estimateBytes > retainedEstimateBytes ? estimateBytes - retainedEstimateBytes : 0;
-            if (additional && (usageBytes >= budgetBytes || additional > budgetBytes - usageBytes)) { return kPascalBudgetReason; }
+            if (!budgetPendingRetirement && additional && (usageBytes >= budgetBytes || additional > budgetBytes - usageBytes)) { return kPascalBudgetReason; }
             return nullptr;
         }
     };
@@ -58,6 +61,16 @@ namespace TheosRenderPipeline::NeuralRendering
         if (!width || !height || width > 16384 || height > 16384 || !passes || passes > 5) { return 0; }
         return kPascalGlobalsBytes + 64ull * 1024 * 1024 +
             passes * (128ull * 1024 * 1024 + std::uint64_t(width) * height * (1024 + 128));
+    }
+
+    // Run only at a boundary with no open list. A failed retirement must never
+    // reach the fresh budget query or replacement allocation.
+    template<class Retire, class Query>
+    bool PrepareNeuralAdmission(bool replacement, Retire retire, Query query)
+    {
+        if (replacement && !retire()) { return false; }
+        query();
+        return true;
     }
 
     NeuralCapability QueryNeuralHardware(const LUID& luid, bool universal);

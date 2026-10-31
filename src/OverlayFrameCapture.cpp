@@ -112,6 +112,7 @@ OverlayUI::FrameView OverlayUI::CaptureFrameView()
         options.beforeUpscaling = draft.neuralBeforeUpscaling;
         options.reconstruction = draft.neuralReconstruction;
         options.extraPasses = draft.neuralExtraPasses;
+        options = TheosRenderPipeline::SourceDLSSG::NormalizeNeuralRoute(std::move(options), view.communityShaders);
         admission = backend.CheckNeuralAdmission(options, options.beforeUpscaling ? view.renderWidth : view.outputWidth,
             options.beforeUpscaling ? view.renderHeight : view.outputHeight);
         admittedPreferences = draft; admittedAt = Clock::now();

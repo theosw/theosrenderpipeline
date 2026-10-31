@@ -276,7 +276,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			DXGI_FORMAT a_format = DXGI_FORMAT_UNKNOWN, FrameExtent a_extent = {}, bool a_optional = false);
 		bool CopyDepth(ID3D11Texture2D* a_depth);
 		void ReleaseGuides();
-		bool RecreateNeuralIfNeeded(const NeuralOptions& options);
+		bool RecreateNeuralIfNeeded(const NeuralOptions& options, FrameExtent guideExtent = {});
 		bool FailNeuralRecording(std::string failure = {});
 		void ApplyNeuralRetry();
 		const char* NeuralUnavailableReason(const NeuralOptions& options, FrameExtent sceneExtent = {});

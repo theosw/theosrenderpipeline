@@ -107,6 +107,7 @@ RendererSettingsResult RendererSettingsController::Apply(const RendererSettingsD
     admissionOptions.beforeUpscaling = settingsDraft.sourceDLSSG.neuralBeforeUpscaling;
     admissionOptions.reconstruction = settingsDraft.sourceDLSSG.neuralReconstruction;
     admissionOptions.extraPasses = settingsDraft.sourceDLSSG.neuralExtraPasses;
+    admissionOptions = TheosRenderPipeline::SourceDLSSG::NormalizeNeuralRoute(std::move(admissionOptions), capabilities.externalWorld);
     const auto admission = SourceDLSSG::Backend::Get().CheckNeuralAdmission(admissionOptions,
         admissionOptions.beforeUpscaling ? host_.RenderWidth() : host_.OutputWidth(),
         admissionOptions.beforeUpscaling ? host_.RenderHeight() : host_.OutputHeight(), true);

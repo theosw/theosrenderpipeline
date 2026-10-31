@@ -1,5 +1,6 @@
 #include "GPU.h"
 #include "FeatureDouble.h"
+#include "FrameGen/NeuralAdmission.h"
 
 int main()
 {
@@ -44,6 +45,19 @@ int main()
         for (unsigned f=0; f<6; ++f) record();
         Require(Fixture::creations==unsigned(passes),"initial feature count");
         const auto baseline=gpu.Read(pass.Corrected());
+        if (route == 1) {
+            auto draft = options; draft.worldOnly = false; // saved/base configuration
+            draft = NormalizeNeuralRoute(draft, true);
+            Require(!pass.NeedsRecreation(draft,w,h), "unchanged CS after-upscaling draft retains allocation credit");
+            auto budget = TheosRenderPipeline::NeuralRendering::NeuralCapability{};
+            budget.nvidia=budget.adapterMatched=budget.cudaReady=budget.nvapiReady=budget.universal=budget.assetsVerified=budget.budgetKnown=true;
+            budget.architecture=61; budget.smCount=19; budget.cudaDriver=12090; budget.driverVersion=58278;
+            budget.budgetBytes=budget.usageBytes=4ull<<30;
+            budget.estimateBytes=EstimatePascalMemory(w,h,passes);
+            budget.retainedEstimateBytes=!pass.NeedsRecreation(draft,w,h)?budget.estimateBytes:0;
+            Require(!budget.Refusal(), "unchanged CS draft uses retained credit even with no free headroom");
+        }
+
         // On a five-pass chain replace Pass 4, with Pass 5 retained downstream.
         if(changed==0) options.reconstruction.preset=1; else options.extraPasses[changed-1].preset=1;
         Fixture::networkPreset[changed]=1;
