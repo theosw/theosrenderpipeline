@@ -39,7 +39,7 @@ namespace TheosRenderPipeline::NeuralRendering
             if (!Pascal()) { return NvidiaFeatures() ? nullptr : "Neural Rendering requires NVIDIA RTX hardware or experimental sm_61 hardware in Universal."; }
             if (!universal) { return kPascalEditionReason; }
             if (driverVersion < 58278 || driverVersion >= 59000) { return kPascalDriverReason; }
-            if (!adapterMatched || !cudaReady || cudaDriver < 12090 || !nvapiReady || smCount <= 0 || !dedicatedBytes) { return kPascalComponentsReason; }
+            if (!adapterMatched || !cudaReady || cudaDriver < 12090 || !nvapiReady || smCount <= 0) { return kPascalComponentsReason; }
             if (!assetsVerified) { return kPascalAssetReason; }
             if (!budgetKnown || !estimateBytes) { return kPascalBudgetUnknownReason; }
             const auto additional = estimateBytes > retainedEstimateBytes ? estimateBytes - retainedEstimateBytes : 0;

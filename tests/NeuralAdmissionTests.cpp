@@ -41,7 +41,7 @@ int wmain(int argc, wchar_t** argv)
                 }
             }
         }
-        for (int field = 0; field != 8; ++field) {
+        for (int field = 0; field != 7; ++field) {
             auto c = Valid();
             switch (field) {
             case 0: c.adapterMatched = false; break;
@@ -50,12 +50,13 @@ int wmain(int argc, wchar_t** argv)
             case 3: c.smCount = 0; break;
             case 4: c.cudaDriver = 0; break;
             case 5: c.cudaDriver = 12080; break;
-            case 6: c.dedicatedBytes = 0; break;
-            case 7: c.nvidia = false; break;
+            case 6: c.nvidia = false; break;
             }
             Require(c.Refusal(), "unknown adapter/component facts refuse");
         }
-        auto c = Valid(); c.cudaDriver = 13000; Require(!c.Refusal(), "newer CUDA driver API does not imply wrong compiler target");
+        auto c = Valid(); c.dedicatedBytes = 0;
+        Require(!c.Refusal(), "zero or unreported dedicated VRAM does not override sufficient live budget");
+        c = Valid(); c.cudaDriver = 13000; Require(!c.Refusal(), "newer CUDA driver API does not imply wrong compiler target");
         c.budgetBytes = c.usageBytes + c.estimateBytes; Require(!c.Refusal(), "exact headroom admits");
         --c.budgetBytes; Require(c.Refusal() == kPascalBudgetReason, "one byte short refuses");
         c.usageBytes = UINT64_MAX; Require(c.Refusal() == kPascalBudgetReason, "over-budget subtraction cannot wrap");
