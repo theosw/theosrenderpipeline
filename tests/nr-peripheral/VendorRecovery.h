@@ -53,7 +53,7 @@ static void VendorRecovery(GPU& gpu, NeuralOptions options, unsigned point, unsi
                     Require(!recovery.Retryable(),"uncertain retirement cannot retry");
                     (void)pass.release();
                     std::printf("PASS RECOVERY terminal point=%u original=%s retained=1 submitted=none restart=1\n",point,reason.c_str());
-                    chain.Reset(); swap.Reset(); DestroyWindow(window); return;
+                    gpu.Begin(); gpu.End(); chain.Reset(); swap.Reset(); gpu.Begin(); gpu.End(); DestroyWindow(window); return;
                 }
                 std::printf("RECOVERY refused point=%u occurrence=%u frame=%u retryable=%d reason=%s\n",point,occurrence,frame,recovery.Retryable(),reason.c_str());
                 gpu.Begin();
@@ -79,5 +79,5 @@ static void VendorRecovery(GPU& gpu, NeuralOptions options, unsigned point, unsi
     else Require(!retried,"failed teardown forbids another owner");
     if(pass) Require(pass->ReleaseAfterRetirement(),"vendor final release");
     std::printf("PASS RECOVERY point=%u occurrence=%u route=%u passes=%u disabled_presents=%u retry_evaluations=%u injected=1\n",point,occurrence,route,passes,disabledPresents,successfulAfterRetry);
-    chain.Reset(); swap.Reset(); DestroyWindow(window); UnregisterClassW(wc.lpszClassName,wc.hInstance);
+    gpu.Begin(); gpu.End(); chain.Reset(); swap.Reset(); gpu.Begin(); gpu.End(); DestroyWindow(window); UnregisterClassW(wc.lpszClassName,wc.hInstance);
 }

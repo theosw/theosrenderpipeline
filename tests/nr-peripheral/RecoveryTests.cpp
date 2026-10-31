@@ -85,6 +85,11 @@ int main(int argc, char**)
         Require(released==unsigned(failure>=2),"no release before retirement/ownership proof");
         Require(recovery.Retry()==(failure==3),"quarantine cannot create another owner");
     }
-    chain.Reset(); swap.Reset(); DestroyWindow(window); UnregisterClassW(wc.lpszClassName,wc.hInstance);
+    // Present may enqueue work after the frame-copy fence. Retire that tail,
+    // then any work DXGI queues while releasing its native buffers.
+    gpu.Begin(); gpu.End();
+    chain.Reset(); swap.Reset();
+    gpu.Begin(); gpu.End();
+    DestroyWindow(window); UnregisterClassW(wc.lpszClassName,wc.hInstance);
     std::printf("PASS: NR recovery routes=3 passes=1/2/5 first/later Evaluate; presents=%u refusals=%u Apply retries=%u; pixel advancement and terminal retention\n",presents,refusals,retries);
 }
