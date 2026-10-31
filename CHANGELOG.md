@@ -11,7 +11,9 @@ stays for CS 1.9.1 until CS's next stable release; newer CS ignores it and may
 report an old-format override warning. Installing the pack alone does not enable
 it. If CS frame generation stays on, TRP may fail to start and Skyrim closes after
 a message with steps for both CS generations. To reach CS in that case, temporarily
-disable TRP, make the change in CS, then close Skyrim, re-enable TRP and restart.
+disable TRP, turn Frame Generation off under CS Upscaling, then close Skyrim,
+re-enable TRP and restart. You can then enable the Baseline pack on newer CS and
+restart again.
 For CS 1.9.1, turn Frame Generation off under CS Upscaling. TRP does not write CS's
 settings files.
 

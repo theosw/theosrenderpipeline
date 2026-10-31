@@ -1,4 +1,4 @@
-# Checks the packaged Community Shaders settings override. CS reads
+# Checks the packaged Community Shaders settings override. CS 1.9.1 reads
 # {ModName}_{FeatureShortName}.json from SKSE/Plugins/CommunityShaders/Overrides,
 # merges it over the user's saved feature settings at startup and ignores keys
 # starting with "_". The file must keep CS frame generation and Reflex off and

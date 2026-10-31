@@ -233,8 +233,9 @@ old-format override. Both formats are included until CS's next stable release so
 CS 1.9.1 still works. On newer CS, installing the files alone does not enable the
 Baseline pack. If CS frame generation stays on or is forced, TRP may be unable to
 start rendering and Skyrim closes after an explanation. If that prevents you from
-opening CS, temporarily disable TRP, start Skyrim and make the CS change, then
-close Skyrim, re-enable TRP and restart. TRP does not change CS's settings files.
+opening CS, temporarily disable TRP, start Skyrim and turn Frame Generation off
+under CS Upscaling. Close Skyrim, re-enable TRP and restart. You can then enable
+the Baseline pack on newer CS and restart again. TRP does not change CS's settings files.
 
 Bottled Shaders' default post-processing preset turns on Depth of Field, lens flare and colour grading; if near objects look blurred, turn off Depth of Field under Post Processing.
 
