@@ -17,6 +17,7 @@ using namespace TheosRenderPipeline::Overlay;
 #include "NeuralRenderingMode.h"
 #include "FrameGen/NeuralObjectMask.h"
 #include "FrameGen/NeuralRuntimeFiles.h"
+#include "FrameGen/NeuralAdmission.h"
 
 namespace
 {
@@ -593,6 +594,9 @@ void DrawNeuralSettings(const OverlayUI::FrameView& view, TheosRenderPipeline::S
 {
     namespace NR = TheosRenderPipeline::NeuralRendering;
     auto& reconstruction = draft.neuralReconstruction;
+    // While NR is off, let a budget-limited request reduce its demand before
+    // enabling again. Hardware/edition/driver/asset refusals keep these rows grey.
+    const bool editDemand = !draft.neuralEnabled && view.neuralAdmissionReason == NR::kPascalBudgetReason;
     const bool cs = view.communityShaders;
     const bool producerColor = cs && draft.neuralBeforeUpscaling;
     const float label = LabelWidth({TR("Scene normalization")});
@@ -626,7 +630,7 @@ void DrawNeuralSettings(const OverlayUI::FrameView& view, TheosRenderPipeline::S
             }
             return changed;
         });
-        SettingRow(TR("Placement"), "BeforeUpscaling", true, unavailable, [&] {
+        SettingRow(TR("Placement"), "BeforeUpscaling", true, unavailable && !editDemand, [&] {
             int placement = draft.neuralBeforeUpscaling ? 0 : 1;
             const bool changed = Segmented("placement", placement, {
                 {TR("Before upscaling"), true, TR("NR runs on the render-resolution scene, before DLSS or XeSS.")},
@@ -766,7 +770,7 @@ void DrawNeuralSettings(const OverlayUI::FrameView& view, TheosRenderPipeline::S
     const auto reset = extraIndex < 0 ? PassReset::None
                        : !draft.neuralExtraPasses[extraIndex].linked && (decor || tabChanged[selected]) ? PassReset::Available
                                                                                                          : PassReset::Nothing;
-    const auto action = DrawPassTabs(view, selected, draft.neuralPasses, !unavailable,
+    const auto action = DrawPassTabs(view, selected, draft.neuralPasses, !unavailable || editDemand,
         decor && decor->EditingTime() ? TRF("editing {}", decor->EditingTime()) : std::string(), tabChanged,
         reset);
     // + adds the next pass and the remove mark takes off the last; a removed
