@@ -5,8 +5,8 @@
 namespace TheosRenderPipeline
 {
     // Scales a finished presentation frame towards black with a blend factor
-    // (dest * factor). The device context state is swapped for the draw, so the
-    // producer's bindings are untouched. Retire GPU work before Reset.
+    // (dest * factor). Saves/restores producer bindings without state swaps,
+    // preserving native dispatch hooks. Retire GPU work before Reset.
     class PresentationFade
     {
     public:
@@ -16,8 +16,6 @@ namespace TheosRenderPipeline
         bool Initialize(ID3D11DeviceContext* context);
         Microsoft::WRL::ComPtr<ID3D11Device> device_;
         Microsoft::WRL::ComPtr<ID3D11DeviceContext> context_;
-        Microsoft::WRL::ComPtr<ID3D11DeviceContext1> context1_;
-        Microsoft::WRL::ComPtr<ID3DDeviceContextState> state_;
         Microsoft::WRL::ComPtr<ID3D11VertexShader> vertex_;
         Microsoft::WRL::ComPtr<ID3D11PixelShader> pixel_;
         Microsoft::WRL::ComPtr<ID3D11BlendState> blend_;

@@ -1,24 +1,17 @@
 #include "PresentationFade.h"
 #include <d3dcompiler.h>
+#include <array>
 
 namespace TheosRenderPipeline
 {
     using Microsoft::WRL::ComPtr;
     bool PresentationFade::Initialize(ID3D11DeviceContext* context)
     {
-        if (state_) { return true; }
+        if (vertex_) { return true; }
         if (failed_ || !context || context->GetType() != D3D11_DEVICE_CONTEXT_IMMEDIATE) { return false; }
         failed_ = true; // Cleared only after every resource exists.
         ComPtr<ID3D11Device> device; context->GetDevice(&device);
-        ComPtr<ID3D11Device1> device1;
-        ComPtr<ID3D11DeviceContext1> context1;
-        if (!device || FAILED(device.As(&device1)) || FAILED(context->QueryInterface(IID_PPV_ARGS(&context1)))) { return false; }
-        const auto level = device->GetFeatureLevel();
-        const UINT flags = (device->GetCreationFlags() & D3D11_CREATE_DEVICE_SINGLETHREADED) ?
-            D3D11_1_CREATE_DEVICE_CONTEXT_STATE_SINGLETHREADED : 0;
-        ComPtr<ID3DDeviceContextState> state;
-        if (FAILED(device1->CreateDeviceContextState(flags, &level, 1, D3D11_SDK_VERSION,
-            __uuidof(ID3D11Device), nullptr, &state))) { return false; }
+        if (!device) { return false; }
         constexpr char shader[] = R"(
 float4 VS(uint i : SV_VertexID) : SV_Position {
     float2 p = float2((i << 1) & 2, i & 2);
@@ -47,8 +40,8 @@ float4 PS(float4 p : SV_Position) : SV_Target { return 0; }
         if (FAILED(device->CreateBlendState(&blendDesc, &blend)) ||
             FAILED(device->CreateDepthStencilState(&depthDesc, &depth)) ||
             FAILED(device->CreateRasterizerState(&rasterDesc, &raster))) { return false; }
-        device_ = device; context_ = context; context1_ = context1; vertex_ = vertex; pixel_ = pixel;
-        blend_ = blend; depth_ = depth; raster_ = raster; state_ = state;
+        device_ = device; context_ = context; vertex_ = vertex; pixel_ = pixel;
+        blend_ = blend; depth_ = depth; raster_ = raster;
         failed_ = false;
         return true;
     }
@@ -68,8 +61,38 @@ float4 PS(float4 p : SV_Position) : SV_Target { return 0; }
         // Per call: a retained view of a swapchain buffer would block ResizeBuffers.
         ComPtr<ID3D11RenderTargetView> view;
         if (FAILED(device_->CreateRenderTargetView(output, nullptr, &view))) { return false; }
-        ComPtr<ID3DDeviceContextState> previous;
-        context1_->SwapDeviceContextState(state_.Get(), &previous);
+        // State swaps rewrite native dispatch tables and erase the UI hooks.
+        // Save the bindings this graphics draw touches, including resources the
+        // runtime may unbind when our output becomes a render target.
+        std::array<ID3D11RenderTargetView*,8> targets{};
+        ComPtr<ID3D11DepthStencilView> dsv;
+        context->OMGetRenderTargets(8,targets.data(),&dsv);
+        UINT targetCount=8; while(targetCount && !targets[targetCount-1]) { --targetCount; }
+        const UINT uavCount=device_->GetFeatureLevel() >= D3D_FEATURE_LEVEL_11_1 ? 64 : 8;
+        std::array<ID3D11UnorderedAccessView*,64> omUAVs{}, csUAVs{};
+        context->OMGetRenderTargetsAndUnorderedAccessViews(0,nullptr,nullptr,0,uavCount,omUAVs.data());
+        context->CSGetUnorderedAccessViews(0,uavCount,csUAVs.data());
+        ComPtr<ID3D11BlendState> blend; FLOAT factors[4]{}; UINT mask{};
+        context->OMGetBlendState(&blend,factors,&mask);
+        ComPtr<ID3D11DepthStencilState> depth; UINT stencil{};
+        context->OMGetDepthStencilState(&depth,&stencil);
+        ComPtr<ID3D11RasterizerState> raster; context->RSGetState(&raster);
+        std::array<D3D11_VIEWPORT,D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE> viewports{};
+        UINT viewportCount=static_cast<UINT>(viewports.size()); context->RSGetViewports(&viewportCount,viewports.data());
+        D3D11_PRIMITIVE_TOPOLOGY topology{}; context->IAGetPrimitiveTopology(&topology);
+        std::array<ID3D11Buffer*,4> streamOutput{}; context->SOGetTargets(4,streamOutput.data());
+#define SAVE_STAGE(type, prefix) \
+        ComPtr<ID3D11##type##Shader> saved##prefix; \
+        std::array<ID3D11ClassInstance*,256> classes##prefix{}; UINT count##prefix=256; \
+        std::array<ID3D11ShaderResourceView*,128> views##prefix{}; \
+        context->prefix##GetShader(&saved##prefix,classes##prefix.data(),&count##prefix); \
+        context->prefix##GetShaderResources(0,128,views##prefix.data());
+        SAVE_STAGE(Vertex,VS) SAVE_STAGE(Pixel,PS) SAVE_STAGE(Geometry,GS) SAVE_STAGE(Hull,HS) SAVE_STAGE(Domain,DS)
+#undef SAVE_STAGE
+        std::array<ID3D11ShaderResourceView*,128> viewsCS{};
+        context->CSGetShaderResources(0,128,viewsCS.data());
+        context->SOSetTargets(0,nullptr,nullptr);
+        context->GSSetShader(nullptr,nullptr,0); context->HSSetShader(nullptr,nullptr,0); context->DSSetShader(nullptr,nullptr,0);
         auto* target = view.Get();
         const float blendFactor[4]{ factor, factor, factor, 1.0f };
         context->OMSetRenderTargets(1, &target, nullptr);
@@ -81,9 +104,29 @@ float4 PS(float4 p : SV_Position) : SV_Target { return 0; }
         context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
         context->VSSetShader(vertex_.Get(), nullptr, 0); context->PSSetShader(pixel_.Get(), nullptr, 0);
         context->Draw(3, 0);
-        // Do not retain the frame's target in the inactive private state.
-        context->OMSetRenderTargets(0, nullptr, nullptr);
-        context1_->SwapDeviceContextState(previous.Get(), nullptr);
+        context->OMSetRenderTargets(0,nullptr,nullptr);
+        std::array<UINT,64> keep; keep.fill(~0u);
+        context->CSSetUnorderedAccessViews(0,uavCount,csUAVs.data(),keep.data());
+        context->OMSetRenderTargetsAndUnorderedAccessViews(targetCount,targets.data(),dsv.Get(),targetCount,
+            uavCount-targetCount,omUAVs.data()+targetCount,keep.data());
+        context->OMSetBlendState(blend.Get(),factors,mask); context->OMSetDepthStencilState(depth.Get(),stencil);
+        context->RSSetState(raster.Get()); context->RSSetViewports(viewportCount,viewports.data());
+        context->IASetPrimitiveTopology(topology);
+        // Append restores the saved SO cursors; no fade draw touched these buffers.
+        context->SOSetTargets(4,streamOutput.data(),keep.data());
+#define RESTORE_STAGE(prefix) \
+        context->prefix##SetShader(saved##prefix.Get(),classes##prefix.data(),count##prefix); \
+        context->prefix##SetShaderResources(0,128,views##prefix.data()); \
+        for(auto* value:classes##prefix) { if(value) { value->Release(); } } \
+        for(auto* value:views##prefix) { if(value) { value->Release(); } }
+        RESTORE_STAGE(VS) RESTORE_STAGE(PS) RESTORE_STAGE(GS) RESTORE_STAGE(HS) RESTORE_STAGE(DS)
+#undef RESTORE_STAGE
+        context->CSSetShaderResources(0,128,viewsCS.data());
+        for(auto* value:viewsCS) { if(value) { value->Release(); } }
+        for(auto* value:targets) { if(value) { value->Release(); } }
+        for(auto* value:omUAVs) { if(value) { value->Release(); } }
+        for(auto* value:csUAVs) { if(value) { value->Release(); } }
+        for(auto* value:streamOutput) { if(value) { value->Release(); } }
         return true;
     }
 
