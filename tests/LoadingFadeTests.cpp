@@ -48,11 +48,14 @@ static void Policy()
     Require(fade.Update(true, 30.1) == 1.0f, "reset clears a pending request");
 }
 
-static void Pass()
+static void Pass(bool extended)
 {
+    targetCalls=0;
     ComPtr<ID3D11Device> device; ComPtr<ID3D11DeviceContext> context;
-    Check(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION,
+    const D3D_FEATURE_LEVEL levels[]{D3D_FEATURE_LEVEL_11_1,D3D_FEATURE_LEVEL_11_0};
+    Check(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0, extended ? levels : nullptr, extended ? 2 : 0, D3D11_SDK_VERSION,
         &device, nullptr, &context), "WARP device");
+    const UINT lastUAV=device->GetFeatureLevel() >= D3D_FEATURE_LEVEL_11_1 ? 63 : 7;
     constexpr UINT W = 16, H = 8;
     std::vector<std::uint32_t> pixels(W * H);
     for (UINT i = 0; i < W * H; ++i) {
@@ -86,6 +89,17 @@ static void Pass()
     Check(device->CreateBuffer(&streamDesc,nullptr,&stream),"producer stream output");
     auto* streamRaw=stream.Get(); const UINT streamOffset=0;
     context->SOSetTargets(1,&streamRaw,&streamOffset);
+    D3D11_TEXTURE2D_DESC unorderedDesc{};
+    unorderedDesc.Width=unorderedDesc.Height=4;
+    unorderedDesc.MipLevels=unorderedDesc.ArraySize=unorderedDesc.SampleDesc.Count=1;
+    unorderedDesc.Format=DXGI_FORMAT_R32_UINT; unorderedDesc.BindFlags=D3D11_BIND_UNORDERED_ACCESS;
+    ComPtr<ID3D11Texture2D> omStorage,csStorage;
+    ComPtr<ID3D11UnorderedAccessView> omView,csView;
+    Check(device->CreateTexture2D(&unorderedDesc,nullptr,&omStorage),"producer OM storage");
+    Check(device->CreateTexture2D(&unorderedDesc,nullptr,&csStorage),"producer CS storage");
+    Check(device->CreateUnorderedAccessView(omStorage.Get(),nullptr,&omView),"producer OM UAV");
+    Check(device->CreateUnorderedAccessView(csStorage.Get(),nullptr,&csView),"producer CS UAV");
+    auto* omRaw=omView.Get(); auto* csRaw=csView.Get(); const UINT keep=~0u;
     // Same native (non-debug) table patched by the game's UI routing hooks.
     TheosRenderPipeline::HookSafety::SlotRegistry hooks;
     auto* table = *reinterpret_cast<std::uintptr_t**>(context.Get());
@@ -93,6 +107,8 @@ static void Pass()
     Require(hooks.Install(slot,reinterpret_cast<std::uintptr_t>(&RoutedTargets),originalTargets),"install target routing hook");
     context->OMSetRenderTargets(1,&bound,nullptr);
     Require(targetCalls==1,"routing hook receives producer bind");
+    context->OMSetRenderTargetsAndUnorderedAccessViews(D3D11_KEEP_RENDER_TARGETS_AND_DEPTH_STENCIL,nullptr,nullptr,lastUAV,1,&omRaw,&keep);
+    context->CSSetUnorderedAccessViews(lastUAV,1,&csRaw,&keep);
     TheosRenderPipeline::PresentationFade fade;
     Require(!fade.Apply(context.Get(), frame.Get(), 1.0f), "factor 1 is a no-op");
     Require(!fade.Apply(context.Get(), frame.Get(), std::numeric_limits<float>::quiet_NaN()), "non-finite factor rejected");
@@ -110,6 +126,10 @@ static void Pass()
 #undef CHECK_STAGE
     ComPtr<ID3D11Buffer> restoredStream; context->SOGetTargets(1,&restoredStream);
     Require(restoredStream.Get()==stream.Get(),"producer stream output restored");
+    ComPtr<ID3D11UnorderedAccessView> restoredOM,restoredCS;
+    context->OMGetRenderTargetsAndUnorderedAccessViews(0,nullptr,nullptr,lastUAV,1,&restoredOM);
+    context->CSGetUnorderedAccessViews(lastUAV,1,&restoredCS);
+    Require(restoredOM.Get()==omView.Get() && restoredCS.Get()==csView.Get(),"highest producer OM/CS UAV slots restored");
     const auto calls = targetCalls;
     context->OMSetRenderTargets(1,&bound,nullptr);
     Require(targetCalls==calls+1 && *slot==reinterpret_cast<std::uintptr_t>(&RoutedTargets),
@@ -141,7 +161,8 @@ static void Pass()
 int main()
 {
     Policy();
-    Pass();
+    Pass(false);
+    Pass(true);
     std::printf("loading fade checks passed\n");
     return 0;
 }
