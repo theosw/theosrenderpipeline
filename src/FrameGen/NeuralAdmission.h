@@ -61,9 +61,9 @@ namespace TheosRenderPipeline::NeuralRendering
     }
 
     NeuralCapability QueryNeuralHardware(const LUID& luid, bool universal);
-    // Fresh whole-file hash + manifest validation. No cached successful file identity.
+    // Fresh pack hash + manifest validation; actual admission can also rehash the runtime.
     bool VerifyPascalPack(const std::filesystem::path& pack);
-    bool VerifyPascalAssets(const std::filesystem::path& runtime);
+    bool VerifyPascalAssets(const std::filesystem::path& runtime, bool freshRuntime = false);
     NeuralCapability QueryNeuralAdmission(const LUID& luid, const std::filesystem::path& runtime,
         unsigned width, unsigned height, unsigned passes, bool universal, bool log = false);
 }

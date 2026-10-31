@@ -100,9 +100,9 @@ namespace TheosRenderPipeline::NeuralRendering
         std::vector<KernelPacks::Patch> plan; std::string reason;
         return KernelPacks::MakePlan(bytes, 0x100000000ull, 0x110000000ull, plan, reason, bytes.size(), true);
     }
-    bool VerifyPascalAssets(const std::filesystem::path& runtime)
+    bool VerifyPascalAssets(const std::filesystem::path& runtime, bool freshRuntime)
     {
-        return NeuralRenderingRuntimeIdentity::VerifyExpected(runtime, 266424944, kKernelRuntimeSha256).matched &&
+        return NeuralRenderingRuntimeIdentity::VerifyExpected(runtime, 266424944, kKernelRuntimeSha256, freshRuntime).matched &&
             VerifyPascalPack(runtime.parent_path() / kPascalPackName);
     }
     NeuralCapability QueryNeuralAdmission(const LUID& luid, const std::filesystem::path& runtime,
@@ -112,7 +112,7 @@ namespace TheosRenderPipeline::NeuralRendering
         if (!c.Pascal()) { return c; }
         c.estimateBytes = EstimatePascalMemory(width, height, passes);
         // Standard never needs to inspect or install compatibility bytes.
-        if (universal) { c.assetsVerified = VerifyPascalAssets(runtime); }
+        if (universal) { c.assetsVerified = VerifyPascalAssets(runtime, log); }
         auto adapter = Adapter(luid); ComPtr<IDXGIAdapter3> budget;
         DXGI_QUERY_VIDEO_MEMORY_INFO info{};
         if (adapter && SUCCEEDED(adapter.As(&budget)) &&
