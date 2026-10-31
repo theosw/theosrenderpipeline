@@ -297,43 +297,6 @@ static void ManyPasses(GPU& gpu){
 }
 // NGX refusing a later pass's feature keeps the runtime: the passes before it
 // keep running, the refused pass is not tried again and no runtime refusal is reported.
-static void RefusedLaterPass(GPU& gpu){
-    using namespace TheosRenderPipeline::NeuralRendering;
-    unsigned cases=0;
-    for(unsigned refused:{1u,2u,4u}){
-        const unsigned w=64,h=40,gw=32,gh=20;const int passes=5;
-        NeuralOptions options;options.enabled=true;options.runtimePath="scripted.dll";options.passes=passes;
-        options.tuning.uiCorrection=true;
-        Fixture::peripheral=false;Fixture::worldOnly=false;Fixture::sourceWidth=w;Fixture::sourceHeight=h;
-        Fixture::guideWidth=gw;Fixture::guideHeight=gh;Fixture::workWidth=w;Fixture::workHeight=h;
-        Fixture::creations=Fixture::evaluations=Fixture::resets=0;Fixture::lateCreationFrame=~0u;Fixture::refuseIndex=refused;
-        auto motion=gpu.Texture(gw,gh,std::vector<Pixel>(gw*gh,{}),DXGI_FORMAT_R32G32_FLOAT);
-        auto depth=gpu.Texture(gw,gh,std::vector<Pixel>(gw*gh,{.4f,0,0,0}),DXGI_FORMAT_R32_FLOAT);
-        auto ui=gpu.Texture(w,h,std::vector<Pixel>(w*h,{})),composed=gpu.Texture(w,h);
-        const auto pixels=Pattern(w,h);
-        NeuralPass pass;unsigned expected=0;
-        for(unsigned frame=0;frame<8;++frame){
-            Fixture::frame=frame;
-            auto scene=gpu.Texture(w,h,pixels);
-            gpu.Begin();Require(pass.Record(gpu.device.Get(),gpu.list.Get(),frame%kCommandSlots,options,frame==0,true,float(gw),float(gh),
-                motion.Get(),depth.Get(),ui.Get(),scene.Get(),composed.Get()),"a refused later pass must not fail the frame");gpu.End();
-            const int ready=frame==0?(refused==1?1:2):std::min({int(refused),int(frame)+1,passes});
-            Require(pass.ReadyPasses()==ready,"the passes before the refused one keep running");
-            expected+=unsigned(ready);
-            Require(pass.RefusedCreation()==0,"a later pass is never reported as a runtime refusal");
-            auto result=gpu.Read(pass.Corrected());
-            for(size_t i=0;i<result.size();++i)for(unsigned ch=0;ch<4;++ch)Near(result[i][ch],pixels[i][ch],.0002,"identity chain still runs");
-        }
-        const auto note=std::format("Pass {} could not start",refused+1);
-        Require(pass.PassNote().starts_with(note) && pass.Status().find(note)!=std::string::npos &&
-            pass.Status().find("starting passes")==std::string::npos,"the note names the pass and replaces the start message");
-        Require(Fixture::creations==refused && Fixture::evaluations==expected,"the refused pass is not tried again");
-        Require(!pass.NeedsRecreation(options,gw,gh),"the remaining passes keep their features");
-        ++cases;
-    }
-    Fixture::refuseIndex=~0u;Fixture::frame=0;
-    std::printf("PASS: %u refused later-pass cases; the ready prefix keeps running without a runtime refusal\n",cases);
-}
 #include "ObjectMaskCases.h"
 #include "ModelRateCases.h"
-int main(){GPU gpu;ObjectMaskCases(gpu);PassObjectStrengthCases(gpu);Kernels(gpu);DescriptorCache(gpu);Passes(gpu);CombinedPreparation(gpu);PreparationRecorder(gpu);IndependentPasses(gpu);IndependentPasses(gpu,true);ManyPasses(gpu);RefusedLaterPass(gpu);ModelRateKernels(gpu);ModelRatePasses(gpu);}
+int main(){GPU gpu;ObjectMaskCases(gpu);PassObjectStrengthCases(gpu);Kernels(gpu);DescriptorCache(gpu);Passes(gpu);CombinedPreparation(gpu);PreparationRecorder(gpu);IndependentPasses(gpu);IndependentPasses(gpu,true);ManyPasses(gpu);ModelRateKernels(gpu);ModelRatePasses(gpu);}

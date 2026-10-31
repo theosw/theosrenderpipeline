@@ -75,4 +75,6 @@ namespace TheosRenderPipeline::NeuralRendering
     bool InstallLaunchHook(HMODULE runtime, const LaunchRequirements&, int capability, std::string& reason);
     bool LaunchHookReady(HMODULE runtime, std::string& reason);
     bool LaunchHookHealthy(HMODULE runtime, std::string& reason);
+    bool LaunchHookRecoverySafe();
+    bool ResetLaunchHookAfterRetirement();
 }

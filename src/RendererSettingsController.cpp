@@ -111,7 +111,7 @@ RendererSettingsResult RendererSettingsController::Apply(const RendererSettingsD
         admissionOptions.beforeUpscaling ? host_.RenderWidth() : host_.OutputWidth(),
         admissionOptions.beforeUpscaling ? host_.RenderHeight() : host_.OutputHeight(), true);
     capabilities.neuralAdmissionReason = admission.Refusal();
-    capabilities.neuralOperational = SourceDLSSG::Backend::Get().Ready() && !SourceDLSSG::Backend::Get().NeuralState().failed;
+    capabilities.neuralOperational = SourceDLSSG::Backend::Get().Ready() && (!SourceDLSSG::Backend::Get().NeuralState().failed || SourceDLSSG::Backend::Get().NeuralState().retryable);
 #endif
     const auto current = Capture(capabilities.neuralRuntime, false);
     if (const char* error = ValidateRendererSettings(settingsDraft, capabilities, &current))
@@ -194,6 +194,7 @@ RendererSettingsResult RendererSettingsController::Apply(const RendererSettingsD
         options.passes = frameGen_.settings.sourceDLSSG.neuralPasses;
         options.combat = frameGen_.settings.sourceDLSSG.neuralCombat;
         source.ConfigureNeuralRendering(std::move(options));
+        if (!a_saveAsDefault && settingsDraft.sourceDLSSG.neuralEnabled) { source.RequestNeuralRetry(); }
     }
     Appearance::Runtime::Get().Configure(settingsDraft.appearance);
     if (a_saveAsDefault)

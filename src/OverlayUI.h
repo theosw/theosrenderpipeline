@@ -95,7 +95,7 @@ private:
     void DrawMeasurementControls(const FrameView& view);
     void DrawOutputOptimizations();
     void DrawUIStatusPanel(const FrameView& view);
-    void DrawSettingsActions();
+    void DrawSettingsActions(const FrameView& view);
 	void BuildUI();
     void UpdateUIScale();
     // Rebuild the atlas and its texture after the active dictionary changed.

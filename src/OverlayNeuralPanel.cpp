@@ -56,6 +56,7 @@ void DrawNRAppliedPasses(const OverlayUI::FrameView& view, const TheosRenderPipe
 const char* NeuralUnavailableReason(const OverlayUI::FrameView& view, int upscaleType, bool nrRuntimePresent)
 {
     if (!view.neuralAdmissionReason.empty()) { return TR(view.neuralAdmissionReason.c_str()); }
+    if (view.neuralState.sessionDisabled && !view.neuralState.reason.empty()) { return view.neuralState.reason.c_str(); }
     if (view.sourceReady && !view.nvidiaAdapter) { return TR("Neural Rendering requires NVIDIA RTX hardware. XeSS upscaling and XeFG remain available."); }
     if (view.neuralRuntimePath.empty())
     {
@@ -70,7 +71,7 @@ const char* NeuralUnavailableReason(const OverlayUI::FrameView& view, int upscal
     {
         return TR("The NVIDIA host is not ready. Check runtime status and restart Skyrim.");
     }
-    if (view.neuralState.failed)
+    if (view.neuralState.failed && !view.neuralState.retryable)
     {
         return TR("NR failed. See the error in the left column.");
     }

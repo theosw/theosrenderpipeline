@@ -146,3 +146,14 @@ target_compile_definitions(TRPNeuralAdmissionTests PRIVATE NOMINMAX WIN32_LEAN_A
 target_include_directories(TRPNeuralAdmissionTests PRIVATE . ../../src)
 target_link_libraries(TRPNeuralAdmissionTests PRIVATE dxgi bcrypt version)
 add_test(NAME NeuralAdmission COMMAND TRPNeuralAdmissionTests)
+
+add_executable(TRPNeuralRecoveryTests RecoveryTests.cpp FeatureDouble.cpp
+    ../../src/FrameGen/SourceDLSSGNeuralRendering.cpp ../../src/FrameGen/SourceDLSSGNeuralResolve.cpp
+    ../../src/FrameGen/NeuralObjectBlend.cpp ../../src/FrameGen/NeuralObjectControl.cpp
+    ../../src/FrameGen/SourceDLSSGInterop.cpp ../../src/FrameGen/D3D12StageTimer.cpp)
+target_compile_features(TRPNeuralRecoveryTests PRIVATE cxx_std_23)
+target_compile_definitions(TRPNeuralRecoveryTests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN TRP_NR_RECOVERY_TEST)
+target_include_directories(TRPNeuralRecoveryTests PRIVATE . ../../src)
+target_link_libraries(TRPNeuralRecoveryTests PRIVATE d3d12 d3d11 d3dcompiler dxgi user32)
+trp_target_neural_shaders(TRPNeuralRecoveryTests)
+add_test(NAME NeuralRecovery COMMAND TRPNeuralRecoveryTests)

@@ -10,7 +10,8 @@ void Require(bool ok, const char* message) { if (!ok) { std::printf("FAIL %s\n",
 namespace TheosRenderPipeline::NeuralRendering { int RuntimeKernelBundle(HMODULE, const void*, std::uint32_t) { return 0; } }
 int __cdecl RejectEmpty(ID3D12GraphicsCommandList*, const KernelLaunch*, std::uint32_t count) { Require(count==0,"empty probe"); return -5; }
 int __cdecl DestroyOK(ID3D12Device*,void*) { return 0; }
-unsigned calls{};
+unsigned calls{}, chainOrdinal{}, failOrdinal{};
+int __cdecl RefuseAt(ID3D12GraphicsCommandList*, const KernelLaunchEx*, std::uint32_t) { return chainOrdinal++==failOrdinal ? -73 : 0; }
 int __cdecl Forward(ID3D12GraphicsCommandList*, const KernelLaunchEx* launches, std::uint32_t count) {
     ++calls; Require(count==3 && launches[1].block.x==128 && launches[1].kernelParams, "real hook forwarded whole Ex chain"); return 0;
 }
@@ -124,6 +125,26 @@ int main()
     Require(!ExecuteHealthyNeuralList(nullptr,[&] { ++executions; }) && executions==0,"submission gate skips entire rejected list");
     RejectedNeuralLists::Get().Discard(nullptr);
     Require(ExecuteHealthyNeuralList(nullptr,[&] { ++executions; }) && executions==1,"reset or discarded list can be reused");
+    // Fail every position in a recording; earlier successful chains never
+    // authorize submission of the partial list. Reuse only after full discard
+    // and explicit retry, preserving the original vendor error until then.
+    for (unsigned failed=0; failed<64; ++failed) {
+        auto& hook=Active(); hook.bindings=b; hook.chainEx=&RefuseAt;
+        chainOrdinal=0; failOrdinal=failed;
+        for(unsigned chain=0;chain<64;++chain) LaunchChainEx(nullptr,input.data(),3);
+        Require(chainOrdinal==failed+1 && !hook.bindings.failure.empty(),"later chains suppressed after first refusal");
+        const auto original=hook.bindings.failure;
+        Require(original.find("status=-73")!=std::string::npos,"original NVAPI error retained");
+        Require(!ExecuteHealthyNeuralList(nullptr,[]{Require(false,"partial list executed");}),"every rejected recording suppressed");
+        RejectedNeuralLists::Get().Discard(nullptr);
+        Require(ResetLaunchHookAfterRetirement() && hook.bindings.failure.empty(),"Apply clears only retired failure latch");
+        chainOrdinal=0;failOrdinal=~0u;
+        for(unsigned chain=0;chain<64;++chain) LaunchChainEx(nullptr,input.data(),3);
+        Require(chainOrdinal==64 && ExecuteHealthyNeuralList(nullptr,[]{}),"new attempt executes healthy whole list");
+    }
+    Active().unsafe=true;
+    Require(!LaunchHookRecoverySafe() && !ResetLaunchHookAfterRetirement(),"uncertain import ownership retains restart boundary");
+    Active().unsafe=false;
     boundWord(60,1025);
     Require(!ReadLaunchRequirements(boundedMetadata,rules,reason),"invalid compiled bound refused");
     const auto temp=std::filesystem::temp_directory_path()/("trp-pascal-config-"+std::to_string(GetCurrentProcessId())+"-"+std::to_string(GetTickCount64()));

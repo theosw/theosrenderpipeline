@@ -4,6 +4,7 @@
 #include "PerformanceTuning.h"
 #include "NeuralRuntimeCompatibility.h"
 #include "NeuralRuntimeKernels.h"
+#include "NeuralLaunchHook.h"
 #include "SourceDLSSGSettings.h"
 #include "../PluginPaths.h"
 #include "../NeuralObjectHooks.h"
@@ -85,23 +86,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (const auto* note = SelectNeuralRuntime(neuralOptions_)) { neuralSnapshot_.fallback = *note; }
 		neuralAvailability_.Reset();
 	}
-	bool Backend::RefuseNeuralCreation(const std::filesystem::path& runtime)
-	{
-		const auto result = neuralPass_ ? neuralPass_->RefusedCreation() : 0u;
-		if (!result) { return false; }
-		const auto status = neuralPass_->Status();
-		// Only Pass 1's creation reports a refusal, and it stops before Record
-		// writes to the open list. Earlier frames of this pass may still be running
-		// in other command slots, so retire them before releasing its resources.
-		// The open list is unsubmitted and Drain waits only for submitted work.
-		if (!Check(interop_.Drain(), "retire NR before dropping a refused runtime")) { return false; }
-		neuralPass_.reset();
-		std::scoped_lock lock(neuralMutex_);
-		RefuseNeuralRuntime(runtime, std::format("could not start NR ({})", status), "");
-		return true;
-	}
 	const char* Backend::NeuralUnavailableReason(const NeuralOptions& options, FrameExtent sceneExtent)
 	{
+		if (neuralRecovery_.Disabled()) { return "NR disabled for this session"; }
 		if (startupTransport_) { return "NR unavailable after frame-generation startup failure; restart to retry"; }
 		std::scoped_lock lock(neuralMutex_);
 		if (!NvidiaAdapter() && options.enabled) { return "Neural Rendering requires an NVIDIA RTX GPU; XeSS and XeFG remain available"; }
@@ -202,12 +189,12 @@ namespace TheosRenderPipeline::SourceDLSSG
         }
         const auto releasing = std::chrono::steady_clock::now();
         if (!neuralPass_->NeedsResourceRecreation(options, motion_.desc.Width, motion_.desc.Height)) {
-            if (!Check(neuralPass_->RetireChangedModels(options) ? S_OK : E_FAIL,
-                "NR model creation retirement unconfirmed; relaunch required")) { return false; }
+            if (!neuralPass_->RetireChangedModels(options)) { return FailNeuralRecording(); }
             logger::info("[SourceDLSSG NR] model change: GPU drain {:.0f} ms, selective retirement {:.0f} ms; resources and unaffected features retained",
                 drained, since(releasing));
             return true;
         }
+        if (!neuralPass_->ReleaseAfterRetirement()) { return FailNeuralRecording(); }
         neuralPass_.reset();
         logger::info("[SourceDLSSG NR] rebuild: GPU drain {:.0f} ms, previous feature released in {:.0f} ms",
             drained, since(releasing));
@@ -223,21 +210,70 @@ namespace TheosRenderPipeline::SourceDLSSG
         return true;
     }
 
-    bool Backend::FailNeuralRecording()
+    void Backend::RequestNeuralRetry()
     {
-        // RecordEvaluation checks hook health before this path. Never execute
-        // any part of a list whose inference chain was rejected.
-        const auto early = interop_.Discard(Work::Upscaling);
-        const auto late = interop_.Discard(Work::SwapChain);
-        if (FAILED(early) || FAILED(late)) { return Check(FAILED(early) ? early : late, "discard rejected NR recording"); }
+        neuralRetryRequested_.store(true, std::memory_order_release);
+    }
+    void Backend::ApplyNeuralRetry()
+    {
+        if (!neuralRetryRequested_.exchange(false, std::memory_order_acq_rel)) { return; }
+        if (!neuralRecovery_.Retryable()) { return; }
+        // Recovery already retired and destroyed the previous owner. No vendor
+        // call or list is active here. Retained/unsafe owners never reach this.
+        if (!NeuralRendering::ResetLaunchHookAfterRetirement()) { return; }
+        neuralRecovery_.Retry();
+        neuralHistory_.Invalidate();
         std::scoped_lock lock(neuralMutex_);
-        neuralSnapshot_.failed = true;
-        neuralSnapshot_.active = false;
-        neuralSnapshot_.status = neuralPass_->Status();
-        logger::error("[SourceDLSSG NR] stopped before frame submission: {}", neuralSnapshot_.status);
-        // The frame list is unsubmitted; separate feature-creation work may
-        // already be queued. Its session retains that context on failed waits.
-        return Check(E_FAIL, "source NR pass; relaunch required");
+        neuralAvailability_.Reset();
+        neuralAdmissionChecked_ = false;
+        neuralAdmissionReason_.clear();
+        neuralReportedUnavailable_ = nullptr;
+        neuralSnapshot_.failed = neuralSnapshot_.sessionDisabled = neuralSnapshot_.retryable = false;
+        neuralSnapshot_.reason.clear();
+        logger::info("[SourceDLSSG NR] Apply: retry through normal NR admission");
+    }
+    bool Backend::FailNeuralRecording(std::string failure)
+    {
+        const auto reason = !failure.empty() ? std::move(failure) : neuralPass_ ? neuralPass_->Status() : "NR allocation failed";
+        const bool independent = neuralRecovery_.Refuse(reason,
+            [&] {
+                const auto early = interop_.Discard(Work::Upscaling);
+                const auto late = interop_.Discard(Work::SwapChain);
+                return Check(FAILED(early) ? early : late, "discard rejected NR recording");
+            },
+            [&] { return Check(interop_.Drain(), "retire NR after refusal"); },
+            [&] {
+                const auto removed = device12_->GetDeviceRemovedReason();
+                if (FAILED(removed)) { return Check(removed, reason.c_str()); }
+                return (!neuralPass_ || neuralPass_->RecoverySafe()) && NeuralRendering::LaunchHookRecoverySafe();
+            },
+            [&] {
+                if (neuralPass_ && !neuralPass_->ReleaseAfterRetirement()) {
+                    neuralRecovery_.reason += "; " + neuralPass_->Status();
+                    // Retain the WHOLE pass: vendor parameters may reference its
+                    // resources. Never call this owner again, including shutdown.
+                    (void)neuralPass_.release();
+                    return false;
+                }
+                neuralPass_.reset();
+                return true;
+            });
+        neuralHistory_.Invalidate();
+        neuralEligible_ = neuralEvaluatedEarly_ = frameNeuralModelChanged_ = false;
+        frameNeuralReset_ = neuralRecoveryReset_ = true;
+        {
+            std::scoped_lock lock(neuralMutex_);
+            neuralSnapshot_.failed = neuralSnapshot_.sessionDisabled = true;
+            neuralSnapshot_.active = false;
+            neuralSnapshot_.retryable = independent && neuralRecovery_.Retryable();
+            neuralSnapshot_.reason = neuralRecovery_.reason + (neuralSnapshot_.retryable ?
+                "; NR is off. Apply to retry; saved preference unchanged." : "; NR requires restart.");
+            neuralSnapshot_.status = neuralSnapshot_.reason;
+            logger::warn("[SourceDLSSG NR] {}", neuralSnapshot_.reason);
+        }
+        // Unknown submission/creation/patch ownership still faults the backend.
+        // A failed release alone is quarantined after queue retirement.
+        return independent || Check(E_FAIL, reason.c_str());
     }
 
     bool Backend::EvaluateNeuralBeforeUpscaling(const NeuralOptions& options, const sl::Constants* camera,
@@ -252,6 +288,7 @@ namespace TheosRenderPipeline::SourceDLSSG
         FrameExtent renderExtent, FrameExtent colorExtent, bool& reset)
     {
         if (!Ready()) { return false; }
+        ApplyNeuralRetry();
         frameNeuralOptions_ = options;
         // Preserve the saved after-DLSS preference while enforcing a world-only
         // input contract for the early stage. There are no UI pixels to correct.
@@ -263,6 +300,7 @@ namespace TheosRenderPipeline::SourceDLSSG
                 FrameExtent{presenterDesc_.BufferDesc.Width, presenterDesc_.BufferDesc.Height});
         frameNeuralReset_ = neuralHistory_.ResetFor(frameNeuralOptions_, neuralEligible_,
             reset || (camera && camera->reset == sl::eTrue));
+        frameNeuralReset_ |= std::exchange(neuralRecoveryReset_, false);
         reset |= frameNeuralReset_;
         // The upscaler still needs to discard a history fed by a changed NR
         // model. Keep this separate from the NR chain's per-pass reset mask.
@@ -278,17 +316,23 @@ namespace TheosRenderPipeline::SourceDLSSG
         ScopedD3D11PerformanceStage gpuTimer{context11_.Get(), PerformanceTuning::D3D11Stage::kNeuralEarlyRoundTrip};
         AllocatorWaitTiming allocatorWait{};
         if (!renderExtent.width || !renderExtent.height ||
-            !EnsureGuide(motion, motion_, DXGI_FORMAT_UNKNOWN, renderExtent) ||
-            !EnsureGuide(depth, depth_, DXGI_FORMAT_R32_FLOAT, renderExtent) ||
-            !EnsureGuide(color, earlyNeuralColor_, DXGI_FORMAT_UNKNOWN, colorExtent) ||
-            !RecreateNeuralIfNeeded(frameNeuralOptions_)) { return false; }
+            !EnsureGuide(motion, motion_, DXGI_FORMAT_UNKNOWN, renderExtent, true) ||
+            !EnsureGuide(depth, depth_, DXGI_FORMAT_R32_FLOAT, renderExtent, true) ||
+            !EnsureGuide(color, earlyNeuralColor_, DXGI_FORMAT_UNKNOWN, colorExtent, true)) {
+            reset = true;
+            return FAILED(fault_) ? false : FailNeuralRecording("early NR shared-input allocation refused");
+        }
+        if (!RecreateNeuralIfNeeded(frameNeuralOptions_)) { return false; }
+        if (neuralRecovery_.Disabled()) { reset = true; return true; }
         if (!CopyObjectMask(renderExtent) || !CopyDepth(depth) || !Check(interop_.CopyInputRegion(motion, motion_, renderExtent), "early NR motion copy") ||
             !Check(interop_.CopyInputRegion(color, earlyNeuralColor_, colorExtent), "early NR world copy") ||
             !Check(interop_.SignalD3D11(Work::Upscaling), "early NR inputs ready")) { return false; }
         ID3D12GraphicsCommandList* list = nullptr;
         if (!Check(interop_.Begin(Work::Upscaling, &list, measure ? &allocatorWait : nullptr), "begin NR before DLSS")) { return false; }
+        bool recorded{};
+        try {
         if (!neuralPass_) { neuralPass_ = std::make_unique<NeuralPass>(); }
-        if (!neuralPass_->Record(device12_.Get(), list, interop_.CurrentSlot(Work::Upscaling), frameNeuralOptions_,
+        recorded = neuralPass_->Record(device12_.Get(), list, interop_.CurrentSlot(Work::Upscaling), frameNeuralOptions_,
             frameNeuralReset_, camera->depthInverted == sl::eTrue,
             camera->mvecScale.x * motion_.desc.Width, camera->mvecScale.y * motion_.desc.Height,
             motion_.texture12.Get(), depth_.texture12.Get(), nullptr, earlyNeuralColor_.texture12.Get(), nullptr,
@@ -296,12 +340,14 @@ namespace TheosRenderPipeline::SourceDLSSG
             frameNeuralOptions_.beforeUpscaling ? std::array<float,2>{} :
                 std::array<float,2>{camera->jitterOffset.x,camera->jitterOffset.y},
             frameNeuralOptions_.beforeUpscaling ? std::array<float,2>{camera->jitterOffset.x,camera->jitterOffset.y} :
-                std::array<float,2>{})) {
-            if (!RefuseNeuralCreation(frameNeuralOptions_.runtimePath)) { return FailNeuralRecording(); }
-            // Nothing was recorded: retire the empty list and run DLSS on the original
-            // colour this frame. The next frame uses the next runtime.
-            neuralEligible_ = false;
-            return Check(interop_.Submit(Work::Upscaling), "submit NR list after a refused runtime");
+                std::array<float,2>{});
+        } catch (const std::bad_alloc&) { reset = true; return FailNeuralRecording("NR CPU allocation failed"); }
+        if (!recorded) {
+            // Producer colour was never overwritten; discard every transition
+            // and inference command, then let reconstruction consume that colour.
+            const bool recovered = FailNeuralRecording();
+            reset = true;
+            return recovered;
         }
         if (!Check(Interop::RecordCopy(list, neuralPass_->Corrected(), earlyNeuralColor_.texture12.Get()), "early NR result copy") ||
             !Check(interop_.Submit(Work::Upscaling), "submit NR before DLSS") ||
