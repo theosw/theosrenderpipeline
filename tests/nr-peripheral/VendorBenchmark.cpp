@@ -113,7 +113,7 @@ int wmain(int argc,wchar_t** argv){
     options.reconstruction.preset=preset;
     if(recoveryPoint) {
         VendorRecovery(gpu,options,recoveryPoint,recoveryOccurrence,recoveryRoute,recoveryPasses,injectFrame,production);
-        if((recoveryPoint<8 || recoveryPoint==11) && (bootstrapInitialized || TheosRenderPipeline::NeuralRendering::PublicNGXInitializedInProcess()))
+        if((recoveryPoint<8 || recoveryPoint==11 || recoveryPoint==12) && (bootstrapInitialized || TheosRenderPipeline::NeuralRendering::PublicNGXInitializedInProcess()))
             Require(NVSDK_NGX_SUCCEED(NVSDK_NGX_D3D12_Shutdown1(gpu.device.Get())),"recovery public shutdown");
         return 0;
     }

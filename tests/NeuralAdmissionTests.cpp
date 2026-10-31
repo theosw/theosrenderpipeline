@@ -120,6 +120,13 @@ int wmain(int argc, wchar_t** argv)
                 Require(NeuralRuntimeChoiceReason(true, VerifyPascalAssets(selected)) != nullptr, "incompatible saved runtime greyed with reason");
             }
             Require(!NeuralRuntimeChoiceReason(true, VerifyPascalAssets(original)), "installed original 310.9.16 remains selectable for repair");
+            const auto plugins = original.parent_path().parent_path().parent_path();
+            const auto automatic = ResolveNeuralRuntimeSetting(kAutomaticNeuralRuntime, plugins,61,true);
+            Require(automatic == original && !NeuralRuntimeChoiceReason(true,VerifyPascalAssets(automatic)), "Automatic repairs the saved legacy request using installed original runtime");
+            const auto choices = ListNeuralRuntimes(plugins,"custom.dll");
+            Require(std::find(choices.begin(),choices.end(),"custom.dll") != choices.end() && IsAutomaticNeuralRuntime(choices.front()),
+                "incompatible custom selection remains visible beside Automatic");
+
         }
         Require(NeuralRuntimeChoiceReason(true,false) && !NeuralRuntimeChoiceReason(true,true) &&
             !NeuralRuntimeChoiceReason(false,false), "per-choice Pascal reasons preserve admitted repair and RTX choices");

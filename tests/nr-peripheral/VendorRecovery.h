@@ -10,7 +10,7 @@
 static void VendorRecovery(GPU& gpu, NeuralOptions options, unsigned point, unsigned occurrence, unsigned route, unsigned passes, unsigned injectFrame, bool productionAdmission)
 {
     using namespace TheosRenderPipeline::NeuralRendering;
-    Require(point>=1 && point<=11 && route<=2 && passes>=1 && passes<=5,"recovery arguments");
+    Require(point>=1 && point<=12 && route<=2 && passes>=1 && passes<=5,"recovery arguments");
     options.beforeUpscaling=route==0; options.worldOnly=route!=2; options.passes=passes;
     options.tuning.uiCorrection=route==2;
     constexpr unsigned w=768,h=432;
@@ -27,7 +27,7 @@ static void VendorRecovery(GPU& gpu, NeuralOptions options, unsigned point, unsi
     auto depth=gpu.Texture(w,h,std::vector<Pixel>(w*h,{.5f,0,0,0}),DXGI_FORMAT_R32_FLOAT);
     auto ui=gpu.Texture(w,h,std::vector<Pixel>(w*h,{.1f,.05f,0,.25f}),desc.Format);
     auto pass=std::make_unique<NeuralPass>(); Recovery recovery;
-    unsigned disabledPresents=0, successfulAfterRetry=0; bool refused=false, retried=false;
+    unsigned disabledPresents=0, successfulAfterRetry=0; bool refused=false, retried=false, admissionRefused=false;
     for (unsigned frame=0;frame<injectFrame+18;++frame) {
         const Pixel colour{.1f+float(frame%8)/16,.3f,.5f,1};
         auto scene=gpu.Texture(w,h,std::vector<Pixel>(w*h,colour),desc.Format);
@@ -72,21 +72,34 @@ static void VendorRecovery(GPU& gpu, NeuralOptions options, unsigned point, unsi
             ++disabledPresents;
         }
         Check(chain->Present(0,0),"vendor actual Present");
-        if(disabledPresents==3 && recovery.Retryable() && !retried) {
-            Require(ResetLaunchHookAfterRetirement() && recovery.Retry(),"Apply resets failure latch after retirement");
+        if(disabledPresents>=3 && recovery.Retryable() && !retried) {
             if (productionAdmission) {
-                const auto admission = QueryNeuralAdmission(gpu.device->GetAdapterLuid(), options.runtimePath,
+                auto admission = QueryNeuralAdmission(gpu.device->GetAdapterLuid(), options.runtimePath,
                     w, h, options.passes, RuntimeKernelsSupported(), true);
+                if (!admissionRefused && admission.Pascal()) {
+                    // Policy fixture, not physical VRAM exhaustion. The actual
+                    // runtime failure stays owned while this Apply is refused.
+                    const auto reason = recovery.reason;
+                    admission.budgetBytes = admission.usageBytes + 1;
+                    Require(admission.Refusal() == kPascalBudgetReason && !recovery.Retry(!admission.Refusal()),
+                        "budget-refused Apply must preserve retry latch");
+                    Require(recovery.Retryable() && recovery.reason == reason,
+                        "unchanged Apply retains original runtime refusal");
+                    admissionRefused = true;
+                    std::printf("RECOVERY APPLY_REFUSED retryable=1 original_preserved=1 reason=%s\n", admission.Refusal());
+                    continue;
+                }
                 Require(!admission.Refusal(), "Apply repeats full production admission before recreation");
                 std::printf("RECOVERY APPLY_ADMITTED passes=%u estimate=%llu\n", passes,
                     static_cast<unsigned long long>(admission.estimateBytes));
             }
+            Require(ResetLaunchHookAfterRetirement() && recovery.Retry(),"admitted Apply resets failure latch after retirement");
             pass=std::make_unique<NeuralPass>(); retried=true;
         }
     }
     Require(refused && FaultInjection::hits==1,"requested vendor injection occurred exactly once");
     Require(disabledPresents>=3,"multiple advancing native presents with NR disabled");
-    if(point<8 || point==11) Require(retried && successfulAfterRetry>=5,"Apply re-admits and runs after transient refusal");
+    if(point<8 || point==11 || point==12) Require(retried && successfulAfterRetry>=5,"Apply re-admits and runs after transient refusal");
     else Require(!retried,"failed teardown forbids another owner");
     if(pass) Require(pass->ReleaseAfterRetirement(),"vendor final release");
     std::printf("PASS RECOVERY point=%u occurrence=%u route=%u passes=%u disabled_presents=%u retry_evaluations=%u injected=1\n",point,occurrence,route,passes,disabledPresents,successfulAfterRetry);

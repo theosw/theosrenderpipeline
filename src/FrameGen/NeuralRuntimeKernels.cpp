@@ -2,6 +2,7 @@
 #include "NeuralAdmission.h"
 #include "NeuralRuntimeKernelsInternal.h"
 #include "NeuralRuntimeKernelRegistry.h"
+#include "NeuralFaultInjection.h"
 
 #include <bcrypt.h>
 #include <algorithm>
@@ -76,7 +77,11 @@ namespace TheosRenderPipeline::NeuralRendering
                 if (!ok) { failedOperation = "protection readback"; failedRva = page; error = GetLastError(); observed = info.Protect; expected = protection; }
                 return ok;
             }
-            bool Flush() override { return FlushInstructionCache(GetCurrentProcess(), base, ImageSize) != 0; }
+            bool Flush() override
+            {
+                if (FaultInjection::Hit(FaultInjection::Point::KernelPublication)) { return false; }
+                return FlushInstructionCache(GetCurrentProcess(), base, ImageSize) != 0;
+            }
         };
 
         std::string Digest(std::span<const std::uint8_t> bytes)

@@ -2,7 +2,7 @@
 #include <cstdint>
 namespace TheosRenderPipeline::NeuralRendering::FaultInjection
 {
-    enum class Point { None, Metadata, Install, Bind, Chain, Evaluate, Creation, Allocation, Release, Shutdown, Retirement, NVAPI };
+    enum class Point { None, Metadata, Install, Bind, Chain, Evaluate, Creation, Allocation, Release, Shutdown, Retirement, NVAPI, KernelPublication };
 #if defined(TRP_NR_VENDOR_BENCHMARK) || defined(TRP_NR_RECOVERY_TEST)
     // Standalone fixtures only. No env/INI/export surface in a shipped plugin.
     inline Point point{};
