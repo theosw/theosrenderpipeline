@@ -611,7 +611,7 @@ void DrawNeuralSettings(const OverlayUI::FrameView& view, TheosRenderPipeline::S
         // The runtime is not a preset setting, so presets show only the switch.
         const bool base = !ActivePresetDecor();
         const bool lockSwitch = !TheosRenderPipeline::CanEditNeuralEnabled(draft.neuralEnabled, !unavailable);
-        SettingRow(TR("Neural Rendering"), "NeuralRendering", false, base ? false : lockSwitch, [&] {
+        SettingRow(TR("Neural Rendering"), "NeuralRendering", false, base ? (view.neuralPascal && lockSwitch) : lockSwitch, [&] {
             ImGui::BeginDisabled(base && lockSwitch);
             bool changed = ImGui::Checkbox("##v", &draft.neuralEnabled);
             ImGui::EndDisabled();
