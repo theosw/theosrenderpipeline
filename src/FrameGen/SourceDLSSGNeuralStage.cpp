@@ -111,11 +111,10 @@ namespace TheosRenderPipeline::SourceDLSSG
             const auto width = sceneExtent.width ? sceneExtent.width : (options.beforeUpscaling ? motion_.desc.Width : presenterDesc_.BufferDesc.Width);
             const auto height = sceneExtent.height ? sceneExtent.height : (options.beforeUpscaling ? motion_.desc.Height : presenterDesc_.BufferDesc.Height);
             if (!neuralAdmissionChecked_ || neuralCapability_.estimateBytes != NeuralRendering::EstimatePascalMemory(width, height, options.passes)) {
+                const auto retained = neuralPass_ && !neuralPass_->NeedsRecreation(options, motion_.desc.Width, motion_.desc.Height) ?
+                    NeuralRendering::EstimatePascalMemory(width, height, options.passes) : 0;
                 neuralCapability_ = NeuralRendering::QueryNeuralAdmission(device12_->GetAdapterLuid(), options.runtimePath,
-                    width, height, options.passes, NeuralRendering::RuntimeKernelsSupported(), true);
-                if (neuralPass_ && !neuralPass_->NeedsRecreation(options, motion_.desc.Width, motion_.desc.Height)) {
-                    neuralCapability_.retainedEstimateBytes = neuralCapability_.estimateBytes;
-                }
+                    width, height, options.passes, NeuralRendering::RuntimeKernelsSupported(), true, retained);
                 neuralAdmissionReason_ = neuralCapability_.Refusal() ? neuralCapability_.Refusal() : "";
                 neuralAdmissionChecked_ = width && height;
             }
@@ -154,12 +153,10 @@ namespace TheosRenderPipeline::SourceDLSSG
     {
         std::scoped_lock lock(neuralMutex_);
         if (!device12_) { return {}; }
-        auto result = NeuralRendering::QueryNeuralAdmission(device12_->GetAdapterLuid(), options.runtimePath,
-            width, height, options.passes, NeuralRendering::RuntimeKernelsSupported(), log);
-        if (neuralPass_ && !neuralPass_->NeedsRecreation(options, motion_.desc.Width, motion_.desc.Height)) {
-            result.retainedEstimateBytes = result.estimateBytes;
-        }
-        return result;
+        const auto retained = neuralPass_ && !neuralPass_->NeedsRecreation(options, motion_.desc.Width, motion_.desc.Height) ?
+            NeuralRendering::EstimatePascalMemory(width, height, options.passes) : 0;
+        return NeuralRendering::QueryNeuralAdmission(device12_->GetAdapterLuid(), options.runtimePath,
+            width, height, options.passes, NeuralRendering::RuntimeKernelsSupported(), log, retained);
     }
 	int Backend::NeuralComputeCapability() const
 	{

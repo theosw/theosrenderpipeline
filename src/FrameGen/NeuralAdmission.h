@@ -65,5 +65,5 @@ namespace TheosRenderPipeline::NeuralRendering
     bool VerifyPascalPack(const std::filesystem::path& pack);
     bool VerifyPascalAssets(const std::filesystem::path& runtime, bool freshRuntime = false);
     NeuralCapability QueryNeuralAdmission(const LUID& luid, const std::filesystem::path& runtime,
-        unsigned width, unsigned height, unsigned passes, bool universal, bool log = false);
+        unsigned width, unsigned height, unsigned passes, bool universal, bool log = false, std::uint64_t retainedEstimate = 0);
 }

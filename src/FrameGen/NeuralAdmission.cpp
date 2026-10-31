@@ -106,11 +106,12 @@ namespace TheosRenderPipeline::NeuralRendering
             VerifyPascalPack(runtime.parent_path() / kPascalPackName);
     }
     NeuralCapability QueryNeuralAdmission(const LUID& luid, const std::filesystem::path& runtime,
-        unsigned width, unsigned height, unsigned passes, bool universal, bool log)
+        unsigned width, unsigned height, unsigned passes, bool universal, bool log, std::uint64_t retainedEstimate)
     {
         auto c = QueryNeuralHardware(luid, universal);
         if (!c.Pascal()) { return c; }
         c.estimateBytes = EstimatePascalMemory(width, height, passes);
+        c.retainedEstimateBytes = retainedEstimate;
         // Standard never needs to inspect or install compatibility bytes.
         if (universal) { c.assetsVerified = VerifyPascalAssets(runtime, log); }
         auto adapter = Adapter(luid); ComPtr<IDXGIAdapter3> budget;
@@ -120,10 +121,10 @@ namespace TheosRenderPipeline::NeuralRendering
             c.budgetKnown = true; c.budgetBytes = info.Budget; c.usageBytes = info.CurrentUsage;
         }
         if (log) {
-            logger::info("[NR Admission] LUID={:08X}:{:08X} SM={} count={} dedicated={} driver={} branch={} source={} CUDA={} init={} match={} NVAPI={} pack={} budget={} usage={} estimatedNeed={} status={}",
+            logger::info("[NR Admission] LUID={:08X}:{:08X} SM={} count={} dedicated={} driver={} branch={} source={} CUDA={} init={} match={} NVAPI={} pack={} budget={} usage={} estimatedNeed={} retainedEstimate={} status={}",
                 static_cast<unsigned>(luid.HighPart), luid.LowPart, c.architecture, c.smCount, c.dedicatedBytes,
                 c.driverVersion, c.driverBranch, c.driverSource, c.cudaDriver, c.cudaReady, c.adapterMatched,
-                c.nvapiReady, c.assetsVerified, c.budgetBytes, c.usageBytes, c.estimateBytes, c.Refusal() ? c.Refusal() : kPascalStatus);
+                c.nvapiReady, c.assetsVerified, c.budgetBytes, c.usageBytes, c.estimateBytes, c.retainedEstimateBytes, c.Refusal() ? c.Refusal() : kPascalStatus);
         }
         return c;
     }
