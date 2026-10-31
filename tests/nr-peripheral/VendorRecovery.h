@@ -24,19 +24,21 @@ static void VendorRecovery(GPU& gpu, NeuralOptions options, unsigned point, unsi
     auto motion=gpu.Texture(w,h,std::vector<Pixel>(w*h,{}),DXGI_FORMAT_R32G32_FLOAT);
     auto depth=gpu.Texture(w,h,std::vector<Pixel>(w*h,{.5f,0,0,0}),DXGI_FORMAT_R32_FLOAT);
     auto ui=gpu.Texture(w,h,std::vector<Pixel>(w*h,{.1f,.05f,0,.25f}),desc.Format);
-    auto composed=gpu.Texture(w,h,{},desc.Format);
     auto pass=std::make_unique<NeuralPass>(); Recovery recovery;
     unsigned disabledPresents=0, successfulAfterRetry=0; bool refused=false, retried=false;
     for (unsigned frame=0;frame<injectFrame+18;++frame) {
         const Pixel colour{.1f+float(frame%8)/16,.3f,.5f,1};
         auto scene=gpu.Texture(w,h,std::vector<Pixel>(w*h,colour),desc.Format);
+        Pixel finalColour=colour;
+        if(route==2) {finalColour[0]=colour[0]*.75f+.1f;finalColour[1]=colour[1]*.75f+.05f;finalColour[2]=colour[2]*.75f;}
+        auto source=gpu.Texture(w,h,std::vector<Pixel>(w*h,finalColour),desc.Format);
         if(frame==injectFrame) FaultInjection::Arm(static_cast<FaultInjection::Point>(point),occurrence);
         std::printf("FRAME %u\n",frame); std::fflush(stdout);
         MSG message{}; while(PeekMessageW(&message,nullptr,0,0,PM_REMOVE)){TranslateMessage(&message);DispatchMessageW(&message);}
         gpu.Begin(); bool recorded=false;
         if(!recovery.Disabled()) {
             recorded=pass->Record(gpu.device.Get(),gpu.list.Get(),frame%kCommandSlots,options,frame==0 || retried,true,float(w),float(h),
-                motion.Get(),depth.Get(),route==2?ui.Get():nullptr,scene.Get(),route==2?composed.Get():nullptr);
+                motion.Get(),depth.Get(),route==2?ui.Get():nullptr,scene.Get(),route==2?source.Get():nullptr);
             // Release/shutdown/retirement probes first trigger an ordinary NR
             // refusal. Teardown itself is then injected at the vendor boundary.
             if(frame==injectFrame && point>=8 && point<=10) recorded=false;
@@ -60,11 +62,11 @@ static void VendorRecovery(GPU& gpu, NeuralOptions options, unsigned point, unsi
             } else if(retried) {++successfulAfterRetry;}
         }
         ComPtr<ID3D12Resource> back; Check(chain->GetBuffer(chain->GetCurrentBackBufferIndex(),IID_PPV_ARGS(&back)),"vendor backbuffer");
-        Check(Interop::RecordCopy(gpu.list.Get(),recorded?(route==2?pass->Composed():pass->Corrected()):scene.Get(),back.Get()),"vendor output copy");
+        Check(Interop::RecordCopy(gpu.list.Get(),recorded?(route==2?pass->Composed():pass->Corrected()):source.Get(),back.Get()),"vendor output copy");
         gpu.End();
         if(recovery.Disabled()) {
             const auto image=gpu.Read(back.Get());
-            for(const auto& pixel:image) for(unsigned c=0;c<4;++c) Near(pixel[c],colour[c],1.1/255,"vendor NR-off source advances");
+            for(const auto& pixel:image) for(unsigned c=0;c<4;++c) Near(pixel[c],finalColour[c],1.1/255,"vendor NR-off source advances");
             ++disabledPresents;
         }
         Check(chain->Present(0,0),"vendor actual Present");

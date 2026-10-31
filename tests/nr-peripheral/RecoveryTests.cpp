@@ -28,8 +28,7 @@ int main(int argc, char**)
         options.beforeUpscaling=route==0; options.worldOnly=route!=2; options.tuning.uiCorrection=route==2;
         auto motion=gpu.Texture(64,64,std::vector<Pixel>(4096,{}),DXGI_FORMAT_R32G32_FLOAT);
         auto depth=gpu.Texture(64,64,std::vector<Pixel>(4096,{.5f,0,0,0}),DXGI_FORMAT_R32_FLOAT);
-        auto ui=gpu.Texture(64,64,std::vector<Pixel>(4096,{0,0,0,0}),desc.Format);
-        auto composed=gpu.Texture(64,64,{},desc.Format);
+        auto ui=gpu.Texture(64,64,std::vector<Pixel>(4096,{.1f,.05f,0,.25f}),desc.Format);
         Recovery recovery; auto pass=std::make_unique<NeuralPass>();
         FaultInjection::Arm(FaultInjection::Point::Evaluate,failAt);
         bool failed=false, retried=false, retryReset=false; unsigned creationsAtRefusal=0;
@@ -39,13 +38,16 @@ int main(int argc, char**)
             // the D3D11 producer boundary. Colours change while NR is disabled.
             const Pixel colour{float(frame+1)/32,.25f,.5f,1};
             auto scene=gpu.Texture(64,64,std::vector<Pixel>(4096,colour),desc.Format);
+            Pixel finalColour=colour;
+            if(route==2) {finalColour[0]=colour[0]*.75f+.1f;finalColour[1]=colour[1]*.75f+.05f;finalColour[2]=colour[2]*.75f;}
+            auto source=gpu.Texture(64,64,std::vector<Pixel>(4096,finalColour),desc.Format);
             std::printf("CASE route=%d passes=%d fail=%u frame=%u\n",route,passes,failAt,frame); std::fflush(stdout);
             MSG message{}; while(PeekMessageW(&message,nullptr,0,0,PM_REMOVE)){TranslateMessage(&message);DispatchMessageW(&message);}
             gpu.Begin();
             bool recorded=false;
             if (!recovery.Disabled()) {
                 recorded=pass->Record(gpu.device.Get(),gpu.list.Get(),frame%kCommandSlots,options,frame==0 || std::exchange(retryReset,false),true,64,64,
-                    motion.Get(),depth.Get(),route==2?ui.Get():nullptr,scene.Get(),route==2?composed.Get():nullptr);
+                    motion.Get(),depth.Get(),route==2?ui.Get():nullptr,scene.Get(),route==2?source.Get():nullptr);
                 if (!recorded) {
                     const auto serial=gpu.serial;
                     const auto reason=pass->Status();
@@ -58,11 +60,11 @@ int main(int argc, char**)
                 } else { recovery.Enabled(); }
             }
             ComPtr<ID3D12Resource> back; Check(chain->GetBuffer(chain->GetCurrentBackBufferIndex(),IID_PPV_ARGS(&back)),"backbuffer");
-            Check(Interop::RecordCopy(gpu.list.Get(),recorded ? (route==2?pass->Composed():pass->Corrected()) : scene.Get(),back.Get()),"fresh ordinary output list");
+            Check(Interop::RecordCopy(gpu.list.Get(),recorded ? (route==2?pass->Composed():pass->Corrected()) : source.Get(),back.Get()),"fresh ordinary output list");
             gpu.End();
             if (recovery.Disabled()) {
                 const auto result=gpu.Read(back.Get());
-                for (const auto& pixel:result) for (unsigned c=0;c<4;++c) Near(pixel[c],colour[c],1.0/255,"advancing original output after NR refusal");
+                for (const auto& pixel:result) for (unsigned c=0;c<4;++c) Near(pixel[c],finalColour[c],1.0/255,"advancing original output after NR refusal");
                 Require(Fixture::creations==creationsAtRefusal,"no per-frame recreate");
             }
             Check(chain->Present(0,0),"actual native Present after NR failure"); ++presents;
