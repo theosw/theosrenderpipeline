@@ -36,6 +36,12 @@ def source_keys():
             english = unescape(''.join(PIECE.findall(m.group(2))))
             context = unescape(m.group(3)[1:-1]) if m.group(1) == 'C' and m.group(3) else ''
             keys.add((context, english))
+    # Capability reasons are translated dynamically by the menu and shared with Apply/logs.
+    admission = Path('src/FrameGen/NeuralAdmission.h').read_text(encoding='utf-8')
+    for text in re.findall(r'(?:return|=)\s*("(?:[^"\\]|\\.)*")\s*;', admission):
+        value = unescape(text[1:-1])
+        if ' ' in value and not value.endswith('.trpk'):
+            keys.add(('', value))
     return keys
 
 

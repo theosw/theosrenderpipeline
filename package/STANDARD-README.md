@@ -1,3 +1,17 @@
+# 0.6.0
+
+Universal adds GTX 10 compatibility kernels (experimental) for Neural Rendering on
+sm_61 GPUs. NR stays off by default. Install Universal and the matching NR runtimes,
+use NVIDIA driver 582.78 or a newer compatible Pascal (R580) driver, then select
+Neural Rendering > Enable > Apply with Runtime set to Automatic. Start with one
+pass before upscaling. TRP checks the rendering adapter, driver, runtime, compatibility
+pack and available video-memory budget before starting NR; an admission refusal
+leaves normal rendering running and explains the reason in the menu and log.
+There is no fixed VRAM minimum. DLSS, DLAA and DLSS-G require NVIDIA RTX hardware;
+use XeSS and optionally XeFG on Pascal. Standard keeps the GTX 10 NR controls visible
+with a reason pointing to Universal. Other NR settings and saved preferences remain
+unchanged. Game acceptance and broader Pascal hardware testing are still pending.
+
 # Theo's Render Pipeline — Standard, 0.5.7
 
 Version 0.5.7 adds an experimental option, `ReShadeGameDevice`, that runs

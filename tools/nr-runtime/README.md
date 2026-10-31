@@ -1,3 +1,25 @@
+## GTX 10 production inventory (0.6.0 draft)
+
+Universal adds `nvngx_dlssnr_310.9.16_pascal_v1.trpk` beside the existing NR assets.
+`package/NR-CompatibilityAssets.json` pins the additive inventory and required
+original 310.9.16 runtime. Standard installs no compatibility kernels. Supply the
+pinned Pascal-only local input to `stage_pascal_pack.py --edition Universal
+--input <sm-general-pascal.trpk> --output <new-staging-directory>`; merge that
+supplement into Universal while retaining all existing assets. Never commit the
+pack bytes. Runtime admission verifies the whole-file pin and embedded manifest
+before patching or vendor initialization. The pack includes only sm_61, with
+SM-independent ticket-ring scratch slots, and remains experimental under the
+in-order dispatch correctness assumption accepted for this compatibility path.
+
+Ordinary Universal users enable NR with Automatic and Apply. No research INI or
+environment variable is needed. `TRP_ENABLE_PASCAL_RESEARCH=ON` remains a separate
+developer build for arbitrary packs, mode 2 and research instrumentation; normal
+release builds ignore those controls. Driver detection uses NVAPI's
+`SYS_GetDriverAndBranchVersion`; if unreadable, the rendering adapter's DXGI UMD
+version is decoded using Windows NVIDIA numbering (32.0.15.8278 -> 582.78).
+Unknown versions refuse. CUDA version is checked independently and is never
+interpreted as an NVIDIA display-driver version.
+
 # Neural Rendering compatibility kernels
 
 Standard retains the existing NR 310.8 DLL and original NVIDIA NR 310.9.16.

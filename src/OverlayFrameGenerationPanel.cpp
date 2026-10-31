@@ -155,7 +155,7 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& v
                         }
                         ImGui::EndDisabled();
                         if (i == 0 && !view.nvidiaFrameGeneration && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                            ImGui::SetTooltip("%s", !view.nvidiaFeatures ? TR("Needs NVIDIA RTX hardware.") : TR("NVIDIA's runtime reports frame generation unavailable on this system."));
+                            ImGui::SetTooltip("%s", !view.nvidiaFeatures ? TR("Requires NVIDIA RTX hardware.") : TR("NVIDIA's runtime reports frame generation unavailable on this system."));
                     }
                     ImGui::EndCombo();
                 }

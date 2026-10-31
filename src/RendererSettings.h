@@ -78,6 +78,7 @@ struct RendererSettingsCapabilities
     bool neuralOperational{true};
     bool nvidiaAdapter{true};
     bool nvidiaFeatures{true};
+    const char* neuralAdmissionReason{};
 };
 
 inline bool CanEditNeuralEnabled(bool enabled, bool available) { return enabled || available; }
@@ -93,6 +94,7 @@ inline bool SameNeuralPreferences(const SourceDLSSG::Preferences& a, const Sourc
 inline const char* NeuralSettingsUnavailable(int mode, RendererSettingsCapabilities capabilities)
 {
     if (!capabilities.nvidiaAdapter) { return "Neural Rendering requires NVIDIA RTX hardware; XeSS and XeFG remain available."; }
+    if (capabilities.neuralAdmissionReason) { return capabilities.neuralAdmissionReason; }
     if (!capabilities.neuralRuntime) {
         return "NR runtime DLL not found. Install nvngx_dlssnr.dll at the configured path and restart Skyrim.";
     }

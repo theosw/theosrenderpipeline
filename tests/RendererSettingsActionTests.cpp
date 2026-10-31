@@ -1,4 +1,5 @@
 #include "RendererSettings.h"
+#include "FrameGen/NeuralAdmission.h"
 #include "RendererSettingsAction.h"
 #include <SimpleIni.h>
 #include <iostream>
@@ -8,6 +9,39 @@
 using namespace TheosRenderPipeline;
 namespace {
 void Require(bool value, const char* message) { if (!value) { throw std::runtime_error(message); } }
+void PascalAdmission()
+{
+    using namespace SourceDLSSG;
+    RendererSettingsDraft current; current.valid = true; current.upscaleType = XeSS;
+    current.sourceDLSSG.neuralEnabled = true;
+    current.sourceDLSSG.neuralPasses = 3;
+    RendererSettingsCapabilities capabilities{true, true, true, false};
+    capabilities.nvidiaFeatures = false;
+    for (const auto* reason : {NeuralRendering::kPascalEditionReason, NeuralRendering::kPascalDriverReason,
+            NeuralRendering::kPascalAssetReason, NeuralRendering::kPascalBudgetReason}) {
+        capabilities.neuralAdmissionReason = reason;
+        Require(NeuralSettingsUnavailable(XeSS, capabilities) == reason, "menu and Apply use the same admission reason");
+        Require(!CanEditNeuralEnabled(false, NeuralSettingsUnavailable(XeSS, capabilities) == nullptr), "unavailable NR Enable row is greyed");
+        Require(!ValidateRendererSettings(current, capabilities, &current), "unchanged unavailable preference allows unrelated save");
+        CSimpleIniA ini;
+        StorePreferences(ini, current.sourceDLSSG);
+        const auto saved = LoadPreferences(ini);
+        Require(saved.neuralEnabled && saved.neuralPasses == 3, "unavailable NR preference survives save/reload");
+        auto draft = current; draft.sourceDLSSG.neuralPasses = 4;
+        Require(ValidateRendererSettings(draft, capabilities, &current) == reason, "unavailable pass edits refuse with capability reason");
+        draft = current; draft.sourceDLSSG.neuralEnabled = false;
+        Require(!ValidateRendererSettings(draft, capabilities, &current), "turning unavailable NR off still applies");
+    }
+    capabilities.neuralAdmissionReason = nullptr;
+    current.sourceDLSSG.neuralEnabled = false;
+    auto draft = current; draft.sourceDLSSG.neuralEnabled = true;
+    Require(!ValidateRendererSettings(draft, capabilities, &current), "Enable applies independently of NVIDIA FG availability");
+    Require(draft.sourceDLSSG.neuralPasses == current.sourceDLSSG.neuralPasses &&
+        draft.sourceDLSSG.provider == current.sourceDLSSG.provider &&
+        draft.sourceDLSSG.neuralBeforeUpscaling == current.sourceDLSSG.neuralBeforeUpscaling &&
+        draft.sourceDLSSG.neuralReconstruction.modelRate == current.sourceDLSSG.neuralReconstruction.modelRate,
+        "NR enable preserves passes, placement, provider and model rate");
+}
 void Feedback()
 {
     for (const bool save : {false, true}) {
@@ -171,6 +205,6 @@ void Neural()
 }
 int main()
 {
-    try { Feedback(); Generation(); MenuKey(); Neural(); std::cout << "PASS: visible/logged rejection, generation round trips, menu key and NR capability loss\n"; return 0; }
+    try { PascalAdmission(); Feedback(); Generation(); MenuKey(); Neural(); std::cout << "PASS: visible/logged rejection, generation round trips, menu key and NR capability loss\n"; return 0; }
     catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }

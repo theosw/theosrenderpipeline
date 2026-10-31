@@ -101,6 +101,16 @@ RendererSettingsResult RendererSettingsController::Apply(const RendererSettingsD
         settingsDraft.sourceDLSSG.neuralRuntime, PluginPaths::Directory(),
         SourceDLSSG::Backend::Get().NeuralComputeCapability(), NeuralRendering::RuntimeKernelsSupported()).string();
     capabilities.neuralRuntime = TheosRenderPipeline::SourceDLSSG::NeuralRuntimePresent(draftRuntime);
+    auto admissionOptions = SourceDLSSG::Backend::Get().NeuralConfiguration();
+    admissionOptions.runtimePath = draftRuntime;
+    admissionOptions.passes = settingsDraft.sourceDLSSG.neuralPasses;
+    admissionOptions.beforeUpscaling = settingsDraft.sourceDLSSG.neuralBeforeUpscaling;
+    admissionOptions.reconstruction = settingsDraft.sourceDLSSG.neuralReconstruction;
+    admissionOptions.extraPasses = settingsDraft.sourceDLSSG.neuralExtraPasses;
+    const auto admission = SourceDLSSG::Backend::Get().CheckNeuralAdmission(admissionOptions,
+        admissionOptions.beforeUpscaling ? host_.RenderWidth() : host_.OutputWidth(),
+        admissionOptions.beforeUpscaling ? host_.RenderHeight() : host_.OutputHeight(), true);
+    capabilities.neuralAdmissionReason = admission.Refusal();
     capabilities.neuralOperational = SourceDLSSG::Backend::Get().Ready() && !SourceDLSSG::Backend::Get().NeuralState().failed;
 #endif
     const auto current = Capture(capabilities.neuralRuntime, false);
@@ -252,6 +262,10 @@ RendererSettingsResult RendererSettingsController::SetNeuralRenderingEnabled(boo
             PluginPaths::Directory(), backend.NeuralComputeCapability(), NeuralRendering::RuntimeKernelsSupported());
         options.automaticRuntime = SourceDLSSG::IsAutomaticNeuralRuntime(frameGen_.settings.configuredRuntimePaths.neural);
         options.enabled = enabled;
+        const auto admission = backend.CheckNeuralAdmission(options,
+            options.beforeUpscaling ? host_.RenderWidth() : host_.OutputWidth(),
+            options.beforeUpscaling ? host_.RenderHeight() : host_.OutputHeight(), true);
+        if (enabled && admission.Refusal()) { return {admission.Refusal(), true}; }
         if (enabled && !TheosRenderPipeline::SourceDLSSG::NeuralRuntimePresent(options.runtimePath))
         {
             return {"No NR runtime is available for this selection and GPU. Install the matching runtime package or select another runtime.",

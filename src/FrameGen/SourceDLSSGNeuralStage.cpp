@@ -18,6 +18,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 		const bool requested = a_options.enabled;
 		a_options = SanitizeNeuralOptions(std::move(a_options));
 		std::scoped_lock lock(neuralMutex_);
+        neuralAdmissionChecked_ = false;
+        neuralAdmissionReason_.clear();
 		// The note stays only while the selected runtime is the one being replaced.
 		const auto* note = SelectNeuralRuntime(a_options);
 		neuralSnapshot_.fallback = note ? *note : std::string{};
@@ -103,6 +105,20 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (startupTransport_) { return "NR unavailable after frame-generation startup failure; restart to retry"; }
 		std::scoped_lock lock(neuralMutex_);
 		if (!NvidiaAdapter() && options.enabled) { return "Neural Rendering requires an NVIDIA RTX GPU; XeSS and XeFG remain available"; }
+        if (options.enabled && neuralCapability_.Pascal() && !NeuralRendering::PascalResearchFor(neuralComputeCapability_)) {
+            if (!neuralAdmissionChecked_) {
+                const auto width = options.beforeUpscaling ? motion_.desc.Width : presenterDesc_.BufferDesc.Width;
+                const auto height = options.beforeUpscaling ? motion_.desc.Height : presenterDesc_.BufferDesc.Height;
+                neuralCapability_ = NeuralRendering::QueryNeuralAdmission(device12_->GetAdapterLuid(), options.runtimePath,
+                    width, height, options.passes, NeuralRendering::RuntimeKernelsSupported(), true);
+                if (neuralPass_ && !neuralPass_->NeedsRecreation(options, motion_.desc.Width, motion_.desc.Height)) {
+                    neuralCapability_.retainedEstimateBytes = neuralCapability_.estimateBytes;
+                }
+                neuralAdmissionReason_ = neuralCapability_.Refusal() ? neuralCapability_.Refusal() : "";
+                neuralAdmissionChecked_ = true;
+            }
+            if (!neuralAdmissionReason_.empty()) { return neuralAdmissionReason_.c_str(); }
+        }
 		const auto retainedBuild = neuralPass_ ? neuralPass_->RetainedRuntimeBuild(options.runtimePath) :
 			NeuralRendering::RuntimeBuild::Unknown;
 		if (neuralComputeCapability_ < 0 && device12_) { neuralComputeCapability_ = NeuralRendering::ComputeCapability(device12_->GetAdapterLuid()); }
@@ -132,6 +148,17 @@ namespace TheosRenderPipeline::SourceDLSSG
 		neuralReportedUnavailable_ = reason;
 		return reason;
 	}
+    NeuralRendering::NeuralCapability Backend::CheckNeuralAdmission(const NeuralOptions& options, unsigned width, unsigned height, bool log)
+    {
+        std::scoped_lock lock(neuralMutex_);
+        if (!device12_) { return {}; }
+        auto result = NeuralRendering::QueryNeuralAdmission(device12_->GetAdapterLuid(), options.runtimePath,
+            width, height, options.passes, NeuralRendering::RuntimeKernelsSupported(), log);
+        if (neuralPass_ && !neuralPass_->NeedsRecreation(options, motion_.desc.Width, motion_.desc.Height)) {
+            result.retainedEstimateBytes = result.estimateBytes;
+        }
+        return result;
+    }
 	int Backend::NeuralComputeCapability() const
 	{
 		std::scoped_lock lock(neuralMutex_); return neuralComputeCapability_;

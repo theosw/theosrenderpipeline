@@ -7,6 +7,7 @@
 #include "NeuralResearch.h"
 #include "NeuralLaunchHook.h"
 #include "NeuralRuntimeCompatibility.h"
+#include "NeuralAdmission.h"
 #include "NeuralRenderingSubrect.h"
 
 #include <PCH.h>
@@ -284,6 +285,16 @@ namespace TheosRenderPipeline::NeuralRendering
 			return false;
 		}
 
+        const auto hardware = QueryNeuralHardware(a_info.device->GetAdapterLuid(), RuntimeKernelsSupported());
+        const auto capability = hardware.architecture;
+        const bool directPascal = hardware.Pascal() && RuntimeKernelsSupported();
+        const bool research = PascalResearchFor(capability);
+        const bool directRuntime = directPascal || research;
+        if (hardware.Pascal() && !research) {
+            const auto admission = QueryNeuralAdmission(a_info.device->GetAdapterLuid(), a_info.runtimePath,
+                a_info.displayWidth, a_info.displayHeight, 1, RuntimeKernelsSupported(), true);
+            if (const auto* reason = admission.Refusal()) { state.status = reason; state.runtimeRefused = true; return false; }
+        }
 		const auto identity = VerifySource(a_info.runtimePath, a_info.allowReconstructionRuntime);
 		const double verified = elapsed();
 		// Failures before public NGX or the runtime's own init ran no vendor GPU work:
@@ -327,9 +338,7 @@ namespace TheosRenderPipeline::NeuralRendering
 			state.runtimeRefused = true;
 			return false;
 		}
-		const auto capability = ComputeCapability(a_info.device->GetAdapterLuid());
-		const bool research = PascalResearchFor(capability);
-		if (research && failedResearchRuntimes.contains(state.module)) {
+		if (directRuntime && failedResearchRuntimes.contains(state.module)) {
 			state.status = "research NR teardown previously failed; NR off until restart";
 			state.runtimeRefused = true;
 			return false;
@@ -350,11 +359,11 @@ namespace TheosRenderPipeline::NeuralRendering
 				return false;
 			}
 		} else if (identity.sha256 == kKernelRuntimeSha256 &&
-			NeedsRuntimeKernels(ComputeCapability(a_info.device->GetAdapterLuid()))) {
+			(directPascal || NeedsRuntimeKernels(capability))) {
 			// Keep the requested Data path for siblings. MO2 can resolve the DLL
 			// to Standard's physical folder while Universal supplies the pack.
 			// identity.path identifies the module, not the merged asset directory.
-			const auto packPath = a_info.runtimePath.parent_path() / std::filesystem::u8path(kKernelPackName);
+			const auto packPath = a_info.runtimePath.parent_path() / std::filesystem::u8path(directPascal ? kPascalPackName : kKernelPackName);
 			logger::info("[DLSSNR Source] compatibility kernel pack request={}", packPath.string());
 			const auto result = ApplyRuntimeKernels(state.module, packPath, !resident);
 			logger::info("[DLSSNR Source] compatibility kernels applied={} unsafe={} status={}", result.applied, result.unsafe, result.status);
@@ -376,7 +385,7 @@ namespace TheosRenderPipeline::NeuralRendering
 		NVSDK_NGX_FeatureCommonInfo featureInfo{};
 		featureInfo.PathListInfo.Path = &searchPath;
 		featureInfo.PathListInfo.Length = 1;
-		const auto publicInitResult = (research && (capability == 61 || PascalConfiguration().mode == L'2')) ? NVSDK_NGX_Result_FAIL_FeatureNotSupported : NVSDK_NGX_D3D12_Init_with_ProjectID(
+		const auto publicInitResult = (directRuntime && (capability == 61 || PascalConfiguration().mode == L'2')) ? NVSDK_NGX_Result_FAIL_FeatureNotSupported : NVSDK_NGX_D3D12_Init_with_ProjectID(
 			kTheosRenderPipelineNGXProjectId,
 			NVSDK_NGX_ENGINE_TYPE_CUSTOM,
 			kTheosRenderPipelineNGXEngineVersion,
@@ -390,7 +399,7 @@ namespace TheosRenderPipeline::NeuralRendering
 				"public NGX initialization failed (0x{:08X})", state.lastInitResult);
 			// Research: the driver's NGX core refuses GPUs older than Turing
 			// with FeatureNotSupported. NR itself only needs the loader's path.
-			if (!research || publicInitResult != NVSDK_NGX_Result_FAIL_FeatureNotSupported) {
+			if (!directRuntime || publicInitResult != NVSDK_NGX_Result_FAIL_FeatureNotSupported) {
 				return false;
 			}
 			logger::info("[DLSSNR Source] research: continuing after {}", state.status);
@@ -401,7 +410,7 @@ namespace TheosRenderPipeline::NeuralRendering
 		// above must establish NR's loader independently before we resolve the
 		// path used by the feature's scoped module-path hook.
 		auto normalLoader = FindNormalLoader();
-		if (!normalLoader && research) {
+		if (!normalLoader && directRuntime) {
 			normalLoader = LoadNgxCore();
 		}
 		const auto normalLoaderPath = ModulePath(normalLoader);
@@ -440,7 +449,7 @@ namespace TheosRenderPipeline::NeuralRendering
 			state.status = "module-path import hook could not be installed";
 			return false;
 		}
-		if (research && !publicNGXInitialized.load(std::memory_order_acquire)) {
+		if (directRuntime && !publicNGXInitialized.load(std::memory_order_acquire)) {
 			state.shutdownRuntime = reinterpret_cast<decltype(state.shutdownRuntime)>(::GetProcAddress(state.module, "NVSDK_NGX_D3D12_Shutdown1"));
 			if (!state.shutdownRuntime) { state.status = "research runtime Shutdown1 export missing; NR off"; return false; }
 		}
@@ -472,7 +481,7 @@ namespace TheosRenderPipeline::NeuralRendering
 		auto capabilityResult = NVSDK_NGX_Result_FAIL_NotInitialized;
 		if (getCapabilities && state.destroyParameters) {
 			capabilityResult = getCapabilities(&state.parameters);
-		} else if (!publicNGXInitialized.load(std::memory_order_acquire) && research) {
+		} else if (!publicNGXInitialized.load(std::memory_order_acquire) && directRuntime) {
 			// Research: without NGX core, fill our own parameter map the way the
 			// core does, through the runtime's populate entry point.
 			using Populate = NVSDK_NGX_Result(NVSDK_CONV*)(NVSDK_NGX_Parameter*);

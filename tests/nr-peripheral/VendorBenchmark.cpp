@@ -1,5 +1,6 @@
 #include "GPU.h"
 #include "KernelProfiler.h"
+#include "FrameGen/NeuralAdmission.h"
 #include <map>
 #include <numeric>
 #include <fstream>
@@ -30,15 +31,31 @@ int wmain(int argc,wchar_t** argv){
     if(exportFrames){frames.open(frameFile,std::ios::binary);Require(frames.good(),"open measured float4 output");}
     SetErrorMode(SEM_FAILCRITICALERRORS|SEM_NOGPFAULTERRORBOX|SEM_NOOPENFILEERRORBOX);
     const std::wstring mode=argv[2];
-    const bool coldStart = mode == L"coldpasses";
-    const bool twoPassCases = mode == L"passes" || coldStart;
-    Require(mode == L"native" || mode == L"uniform" || mode == L"peripheral" || twoPassCases, "benchmark mode");
+    const bool production = mode == L"production" || mode == L"admission-low-budget";
+    const bool coldStart = mode == L"coldpasses" || production;
+    const bool twoPassCases = mode == L"passes" || mode == L"coldpasses";
+    Require(mode == L"native" || mode == L"uniform" || mode == L"peripheral" || twoPassCases || production, "benchmark mode");
     const auto w=static_cast<unsigned>(std::stoul(argv[3])),h=static_cast<unsigned>(std::stoul(argv[4]));
+#if defined(TRP_NR_PRODUCTION_ADMISSION)
+    const bool profileKernels=false;
+#else
     const bool profileKernels=KernelProfiler::Install();
+#endif
     struct KernelTotal{double ms{},maxMs{};unsigned count{};std::uint32_t grid[3]{},block[3]{},shared{};};
     std::map<std::string,KernelTotal> kernelTotals;unsigned profiledFrames=0;
     Require(w>=64 && h>=64 && w<=5120 && h<=2880,"bounded benchmark dimensions");
     GPU gpu(true);
+    ComPtr<IDXGIFactory4> memoryFactory; ComPtr<IDXGIAdapter3> memoryAdapter;
+    Check(CreateDXGIFactory1(IID_PPV_ARGS(&memoryFactory)), "memory factory");
+    Check(memoryFactory->EnumAdapterByLuid(gpu.device->GetAdapterLuid(), IID_PPV_ARGS(&memoryAdapter)), "memory rendering LUID");
+    UINT64 memoryStart{}, memoryPeak{}, memoryBudget{};
+    auto sampleMemory = [&] {
+        DXGI_QUERY_VIDEO_MEMORY_INFO memory{};
+        Check(memoryAdapter->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &memory), "local budget sample");
+        memoryPeak = (std::max)(memoryPeak, memory.CurrentUsage); memoryBudget = memory.Budget;
+        return memory.CurrentUsage;
+    };
+    memoryStart = sampleMemory();
     // The legacy benchmark supplies a warm loader. coldpasses exercises the
     // production NR bootstrap without a prior DLSS/Streamline initialization.
     const auto cache=std::filesystem::absolute("out/diagnostics/ngx-cache");std::filesystem::create_directories(cache);
@@ -62,6 +79,17 @@ int wmain(int argc,wchar_t** argv){
                 (pascalResearch && init == NVSDK_NGX_Result_FAIL_FeatureNotSupported), "normal NGX bootstrap");
     }
     NeuralOptions options;options.enabled=true;options.runtimePath=argv[1];options.beforeUpscaling=true;
+    if (production) {
+        options.automaticRuntime = true;
+        const auto hardware = TheosRenderPipeline::NeuralRendering::QueryNeuralHardware(gpu.device->GetAdapterLuid(), true);
+        const auto candidates = AutomaticNeuralRuntimes(hardware.architecture, true);
+        Require(!candidates.empty(), "Automatic production runtime candidates");
+        options.runtimePath = std::filesystem::path(argv[1]).parent_path() / std::filesystem::path(candidates.front()).filename();
+        auto admission = TheosRenderPipeline::NeuralRendering::QueryNeuralAdmission(gpu.device->GetAdapterLuid(), options.runtimePath, w, h, 1, true, true);
+        if (mode == L"admission-low-budget") { admission.budgetKnown = true; admission.budgetBytes = admission.usageBytes + 1; }
+        if (const auto* reason = admission.Refusal()) { std::printf("ADMISSION_REFUSED %s\n", reason); return 3; }
+        std::printf("PRODUCTION_ADMITTED Automatic enabled=1 passes=1 beforeUpscaling=1 research=0 estimatedBytes=%llu\n", admission.estimateBytes);
+    }
     options.tuning.uiCorrection=false;options.reconstruction.inputScale=mode==L"uniform"?.9f:1.f;
     options.reconstruction.peripheralCompression=mode==L"peripheral";
     options.reconstruction.preset=preset;
@@ -146,6 +174,7 @@ int wmain(int argc,wchar_t** argv){
             }
         }
         if(recreate)std::printf("CASE frame=%u %s\n",frame,pass->Status().c_str());
+        sampleMemory();
         pass->RetireTelemetry();
         if(exportFrames && frame>=10){
             const auto image=gpu.Read(pass->Corrected());validOutput(image);
@@ -160,6 +189,7 @@ int wmain(int argc,wchar_t** argv){
             Require(sample.gpuFrequency==frequency,"inference clock domain");inference.push_back(sample.gpuTicks*1000.0/frequency);
         }
     }
+    std::printf("MEMORY start=%llu peak=%llu incremental=%llu budget=%llu estimate=%llu (DXGI local usage, sampled after evaluation; not residency)\n", memoryStart, memoryPeak, memoryPeak-memoryStart, memoryBudget, TheosRenderPipeline::NeuralRendering::EstimatePascalMemory(w,h,options.passes));
     auto result=gpu.Read(pass->Corrected());size_t changed=0;
     if(!outputFile.empty()){
         std::ofstream output(outputFile,std::ios::binary);

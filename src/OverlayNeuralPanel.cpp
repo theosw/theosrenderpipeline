@@ -54,6 +54,7 @@ void DrawNRAppliedPasses(const OverlayUI::FrameView& view, const TheosRenderPipe
 // Why NR cannot run now, or null. Shown above Base's controls.
 const char* NeuralUnavailableReason(const OverlayUI::FrameView& view, int upscaleType, bool nrRuntimePresent)
 {
+    if (!view.neuralAdmissionReason.empty()) { return TR(view.neuralAdmissionReason.c_str()); }
     if (view.sourceReady && !view.nvidiaAdapter) { return TR("Neural Rendering requires NVIDIA RTX hardware. XeSS upscaling and XeFG remain available."); }
     if (view.neuralRuntimePath.empty())
     {
@@ -615,7 +616,9 @@ void DrawNeuralSettings(const OverlayUI::FrameView& view, TheosRenderPipeline::S
                 const auto& style = ImGui::GetStyle();
                 const float mark = ImGui::CalcTextSize("!").x + style.ItemSpacing.x;
                 ImGui::SameLine();
+                ImGui::BeginDisabled(view.neuralPascal && !view.neuralAdmissionReason.empty());
                 changed |= DrawNeuralRuntimeCombo(view, draft, ImGui::GetContentRegionAvail().x - mark);
+                ImGui::EndDisabled();
                 ImGui::SameLine();
                 ImGui::AlignTextToFramePadding();
                 ImGui::TextColored(kOchre, "!");
@@ -1180,6 +1183,7 @@ void DrawSourceNeuralControls(const OverlayUI::FrameView& view, TheosRenderPipel
                               bool& sharpening, float& sharpness, int upscaleType, bool nrRuntimePresent)
 {
     const auto& state = view.neuralState;
+    if (view.neuralPascal) { ImGui::TextWrapped("%s", TR("GTX 10 compatibility kernels (experimental)")); }
     const char* unavailableReason = NeuralUnavailableReason(view, upscaleType, nrRuntimePresent);
     const bool unavailable = unavailableReason != nullptr;
     const auto& applied = view.neuralApplied;

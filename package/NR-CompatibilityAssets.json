@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "edition": "Universal",
+  "feature": "GTX 10 compatibility kernels (experimental)",
+  "architecture": 61,
+  "path": "SKSE/Plugins/TheosRenderPipeline/NVIDIA/nvngx_dlssnr_310.9.16_pascal_v1.trpk",
+  "size": 11574444,
+  "sha256": "5AC8546C9E08AD8D0722DE54DA5E2BFDB1976FCCC2D227B3079E739BDA2C4B43",
+  "requires": {
+    "path": "SKSE/Plugins/TheosRenderPipeline/NVIDIA/nvngx_dlssnr_310.9.16.dll",
+    "version": "310.9.16",
+    "size": 266424944,
+    "sha256": "2BC19BC09A7B89DD44F73E2AC0108FCC586E2154BDD0830F242F4F040E28789F"
+  },
+  "retainedUniversalAssets": [
+    "SKSE/Plugins/TheosRenderPipeline/NVIDIA/nvngx_dlssnr_310.9.16.trpk",
+    "SKSE/Plugins/TheosRenderPipeline/NVIDIA/nvngx_dlssnr_int8.dll"
+  ],
+  "policy": "Additive Universal inventory. Standard must never contain compatibility packs. Binary inputs are supplied locally and must match these pins. The original runtime may come from Standard in the merged installation."
+}
