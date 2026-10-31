@@ -1,3 +1,17 @@
+# 0.6.0
+
+Universal adds GTX 10 compatibility kernels (experimental) for Neural Rendering on
+sm_61 GPUs. NR stays off by default. Install Universal and the matching NR runtimes,
+use NVIDIA driver 582.78 or a newer compatible Pascal (R580) driver, then select
+Neural Rendering > Enable > Apply with Runtime set to Automatic. Start with one
+pass before upscaling. TRP checks the rendering adapter, driver, runtime, compatibility
+pack and available video-memory budget before starting NR; an admission refusal
+leaves normal rendering running and explains the reason in the menu and log.
+There is no fixed VRAM minimum. DLSS, DLAA and DLSS-G require NVIDIA RTX hardware;
+use XeSS and optionally XeFG on Pascal. Standard keeps the GTX 10 NR controls visible
+with a reason pointing to Universal. Other NR settings and saved preferences remain
+unchanged. Game acceptance and broader Pascal hardware testing are still pending.
+
 # Theo's Render Pipeline — Standard, 0.5.7
 
 Version 0.5.7 adds an experimental option, `ReShadeGameDevice`, that runs
@@ -301,7 +315,8 @@ first error and requires a restart instead of retrying every frame. Include
 Use **Neural Rendering > Runtime > Automatic** for the default selection.
 Standard supplies two NR DLLs: legacy `nvngx_dlssnr.dll` (310.8) and original
 NVIDIA `nvngx_dlssnr_310.9.16.dll`. Universal supplies the adjacent
-`nvngx_dlssnr_310.9.16.trpk` and legacy `nvngx_dlssnr_int8.dll`.
+`nvngx_dlssnr_310.9.16.trpk`, the experimental GTX 10 asset
+`nvngx_dlssnr_310.9.16_pascal_v1.trpk`, and legacy `nvngx_dlssnr_int8.dll`.
 
 On RTX 20/30/40, Universal first tries the original 310.9.16 DLL with the
 pack. RTX 20/30 use the community FP16 compatibility kernels; RTX 40 uses

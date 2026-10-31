@@ -10,6 +10,8 @@
 #include "NeuralRenderingMode.h"
 #include "PluginPaths.h"
 #include "NeuralResearch.h"
+#include "NeuralAdmission.h"
+#include "NeuralRuntimeKernels.h"
 #include "NRRenderSize.h"
 #include "NeuralRuntimeCompatibility.h"
 #include <PCH.h>
@@ -33,12 +35,15 @@ HRESULT NvidiaHost::CreateSwapChain(IDXGIFactory* a_factory, ID3D11Device* a_dev
         if (SUCCEEDED(a_device->QueryInterface(IID_PPV_ARGS(&dxgiDevice))) && SUCCEEDED(dxgiDevice->GetAdapter(&adapter)) &&
             SUCCEEDED(adapter->GetDesc(&adapterDesc))) {
             bool pascalResearch = false;
+            bool nvidiaFeatures = adapterDesc.VendorId == 0x10DE;
 #if !defined(TRP_NO_NEURAL_RENDERING)
-            pascalResearch = TheosRenderPipeline::NeuralRendering::PascalConfiguration().mode &&
-                TheosRenderPipeline::NeuralRendering::PascalResearchFor(TheosRenderPipeline::NeuralRendering::ComputeCapability(adapterDesc.AdapterLuid));
+            const auto hardware = TheosRenderPipeline::NeuralRendering::QueryNeuralHardware(adapterDesc.AdapterLuid,
+                TheosRenderPipeline::NeuralRendering::RuntimeKernelsSupported());
+            pascalResearch = hardware.Pascal();
+            nvidiaFeatures = hardware.NvidiaFeatures();
 #endif
-            const auto selected = TheosRenderPipeline::Upscaler::ForAdapter(creation, adapterDesc.VendorId == 0x10DE && !pascalResearch);
-            if (pascalResearch) { logger::info("[NR Pascal Research] GTX 10: XeSS startup; DLSS/DLAA and NVIDIA frame generation unavailable; NR enabled by diagnostics"); }
+            const auto selected = TheosRenderPipeline::Upscaler::ForAdapter(creation, nvidiaFeatures);
+            if (pascalResearch) { logger::info("[NR Pascal] sm_61: XeSS startup; DLSS/DLAA and NVIDIA frame generation require NVIDIA RTX hardware"); }
             if (selected.mode != TheosRenderPipeline::Upscaler::Sanitize(creation).mode) {
                 logger::info("[SourceUpscaler] vendor=0x{:04X} cannot run UpscaleType={}; using XeSS quality={} this session",
                              adapterDesc.VendorId, creation.mode, selected.quality);

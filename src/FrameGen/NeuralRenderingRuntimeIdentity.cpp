@@ -111,7 +111,7 @@ namespace TheosRenderPipeline::NeuralRenderingRuntimeIdentity
 	Snapshot VerifyExpected(
 		const std::filesystem::path& a_path,
 		std::uint64_t a_expectedSize,
-		std::string_view a_expectedSha256)
+		std::string_view a_expectedSha256, bool fresh)
 	{
 		Snapshot result{};
 		result.path = Normalize(a_path);
@@ -132,7 +132,7 @@ namespace TheosRenderPipeline::NeuralRenderingRuntimeIdentity
 		{
 			std::scoped_lock lock(cacheMutex);
 			const auto found = cache.find(key);
-			if (!error && found != cache.end() && found->second.size == result.size && found->second.written == written) {
+			if (!fresh && !error && found != cache.end() && found->second.size == result.size && found->second.written == written) {
 				result.version = found->second.version;
 				result.sha256 = found->second.sha256;
 				result.matched = result.size == a_expectedSize && result.sha256 == a_expectedSha256;

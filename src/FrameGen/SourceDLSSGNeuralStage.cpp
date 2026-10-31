@@ -18,6 +18,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 		const bool requested = a_options.enabled;
 		a_options = SanitizeNeuralOptions(std::move(a_options));
 		std::scoped_lock lock(neuralMutex_);
+        neuralAdmissionChecked_ = false;
+        neuralAdmissionReason_.clear();
 		// The note stays only while the selected runtime is the one being replaced.
 		const auto* note = SelectNeuralRuntime(a_options);
 		neuralSnapshot_.fallback = note ? *note : std::string{};
@@ -98,11 +100,29 @@ namespace TheosRenderPipeline::SourceDLSSG
 		RefuseNeuralRuntime(runtime, std::format("could not start NR ({})", status), "");
 		return true;
 	}
-	const char* Backend::NeuralUnavailableReason(const NeuralOptions& options)
+	const char* Backend::NeuralUnavailableReason(const NeuralOptions& options, FrameExtent sceneExtent)
 	{
 		if (startupTransport_) { return "NR unavailable after frame-generation startup failure; restart to retry"; }
 		std::scoped_lock lock(neuralMutex_);
 		if (!NvidiaAdapter() && options.enabled) { return "Neural Rendering requires an NVIDIA RTX GPU; XeSS and XeFG remain available"; }
+        if (options.enabled && !neuralCapability_.Pascal()) {
+            if (const auto* reason = neuralCapability_.Refusal()) { return reason; }
+        }
+        if (options.enabled && neuralCapability_.Pascal() && !NeuralRendering::PascalResearchFor(neuralComputeCapability_)) {
+            // Early admission precedes creation of motion_ and the NR guides.
+            // Use the caller's real scene extent, then re-admit after dimension/pass changes.
+            const auto width = sceneExtent.width ? sceneExtent.width : (options.beforeUpscaling ? motion_.desc.Width : presenterDesc_.BufferDesc.Width);
+            const auto height = sceneExtent.height ? sceneExtent.height : (options.beforeUpscaling ? motion_.desc.Height : presenterDesc_.BufferDesc.Height);
+            if (!neuralAdmissionChecked_ || neuralCapability_.estimateBytes != NeuralRendering::EstimatePascalMemory(width, height, options.passes)) {
+                const auto retained = neuralPass_ && !neuralPass_->NeedsRecreation(options, motion_.desc.Width, motion_.desc.Height) ?
+                    NeuralRendering::EstimatePascalMemory(width, height, options.passes) : 0;
+                neuralCapability_ = NeuralRendering::QueryNeuralAdmission(device12_->GetAdapterLuid(), options.runtimePath,
+                    width, height, options.passes, NeuralRendering::RuntimeKernelsSupported(), true, retained);
+                neuralAdmissionReason_ = neuralCapability_.Refusal() ? neuralCapability_.Refusal() : "";
+                neuralAdmissionChecked_ = width && height;
+            }
+            if (!neuralAdmissionReason_.empty()) { return neuralAdmissionReason_.c_str(); }
+        }
 		const auto retainedBuild = neuralPass_ ? neuralPass_->RetainedRuntimeBuild(options.runtimePath) :
 			NeuralRendering::RuntimeBuild::Unknown;
 		if (neuralComputeCapability_ < 0 && device12_) { neuralComputeCapability_ = NeuralRendering::ComputeCapability(device12_->GetAdapterLuid()); }
@@ -132,6 +152,15 @@ namespace TheosRenderPipeline::SourceDLSSG
 		neuralReportedUnavailable_ = reason;
 		return reason;
 	}
+    NeuralRendering::NeuralCapability Backend::CheckNeuralAdmission(const NeuralOptions& options, unsigned width, unsigned height, bool log)
+    {
+        std::scoped_lock lock(neuralMutex_);
+        if (!device12_) { return {}; }
+        const auto retained = neuralPass_ && !neuralPass_->NeedsRecreation(options, motion_.desc.Width, motion_.desc.Height) ?
+            NeuralRendering::EstimatePascalMemory(width, height, options.passes) : 0;
+        return NeuralRendering::QueryNeuralAdmission(device12_->GetAdapterLuid(), options.runtimePath,
+            width, height, options.passes, NeuralRendering::RuntimeKernelsSupported(), log, retained);
+    }
 	int Backend::NeuralComputeCapability() const
 	{
 		std::scoped_lock lock(neuralMutex_); return neuralComputeCapability_;
@@ -230,7 +259,8 @@ namespace TheosRenderPipeline::SourceDLSSG
         neuralFrameBegun_ = true;
         neuralEvaluatedEarly_ = false;
         neuralEligible_ = eligible && !TransitionBlocked() && (!options.WorldOnly() || camera) &&
-            !NeuralUnavailableReason(frameNeuralOptions_);
+            !NeuralUnavailableReason(frameNeuralOptions_, options.WorldOnly() ? colorExtent :
+                FrameExtent{presenterDesc_.BufferDesc.Width, presenterDesc_.BufferDesc.Height});
         frameNeuralReset_ = neuralHistory_.ResetFor(frameNeuralOptions_, neuralEligible_,
             reset || (camera && camera->reset == sl::eTrue));
         reset |= frameNeuralReset_;

@@ -131,6 +131,8 @@ int main()
         using namespace SourceDLSSG;
         using List = std::vector<std::string_view>;
         for (const bool installer : {false, true}) {
+            Require(AutomaticNeuralRuntimes(61, installer) == List{kLatestNeuralRuntime},
+                "Pascal Automatic selects only the original runtime; Standard admission explains Universal instead of falling back");
             Require(AutomaticNeuralRuntimes(120, installer) == List{kLatestNeuralRuntime, kDefaultNeuralRuntime},
                 "RTX 50 uses original 310.9.16 without a compatibility pack");
             for (const int capability : {0, 80, 90}) {

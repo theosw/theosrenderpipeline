@@ -2,9 +2,9 @@
 
 NVIDIA's PTX for every bundle is lowered for Ada where needed (ada_lowering.py), then for
 Pascal (pascal_lowering.py, network modules 0-6 only; the helpers need nothing), and compiled
-with CUDA 12.9, the last toolkit that targets sm_61. Each bundle carries the Pascal code plus
-the same lowered code compiled for sm_89, so an RTX 40 card can check the stand-ins against
-NVIDIA's output. Unpinned and unqualified: research builds only, loaded through
+with CUDA 12.9, the last toolkit that targets sm_61. --architectures 61 emits Pascal-only
+bundles; the default 61,89 also emits reference cubins for comparison on RTX 40.
+Build identities/options are recorded; these remain unqualified research builds, loaded through
 TRP_NR_PASCAL_RESEARCH=1 and TRP_NR_PASCAL_PACK=<pack> (NeuralRenderingFeatureSession.cpp).
 Same TRPNRK1 layout as build_rtx40_kernels.py. Usage:
     python -I build_pascal_kernels.py --official nvngx_dlssnr.dll --cuda13 <CUDA 13.4 root>
@@ -18,6 +18,7 @@ run shapes of bundles 0-6 and compiled with CUDA 12.9's nvcc inside the --vcvars
 """
 from pathlib import Path
 import argparse
+import contextlib
 import json
 import re
 import struct
@@ -67,7 +68,7 @@ def compile_groups(cuda12, vcvars, signatures, work):
     return (folder / 'groups.ptx').read_text(encoding='ascii')
 
 
-def build_bundle(cuda12, index, ptx, emulation, work, native=None, groups=None, maxnreg=True, launches=()):
+def build_bundle(cuda12, index, ptx, emulation, work, native=None, groups=None, maxnreg=True, launches=(), architectures=(61, 89)):
     folder = work / f'bundle{index:02}'
     if index < 7:
         pascal, counts = pascal_lowering.lower(ptx, emulation, groups)
@@ -84,11 +85,11 @@ def build_bundle(cuda12, index, ptx, emulation, work, native=None, groups=None, 
         counts = dict(counts, native=replaced)
     (folder / 'pascal.ptx').write_text(pascal, encoding='ascii', newline='\n')
     bounds = {}
-    for sm in (61, 89):
+    original = launch_bounds.original_blocks(ptx)
+    rules = {r['name']: r for r in launches}
+    for sm in architectures:
         ada.run(cuda12, 'ptxas', f'-arch=sm_{sm}', '-O3', 'pascal.ptx', '-o', f'pascal.sm_{sm}.cubin', cwd=folder)
         bounds[sm] = launch_bounds.extract((folder / f'pascal.sm_{sm}.cubin').read_bytes(), replaced, sm)
-        original = launch_bounds.original_blocks(ptx)
-        rules = {r['name']: r for r in launches}
         for name, bound in bounds[sm].items():
             launch_bounds.validate(name, bound, original.get(name), rules.get(name))
     unknown = sorted(set(replaced) - original.keys())
@@ -97,19 +98,18 @@ def build_bundle(cuda12, index, ptx, emulation, work, native=None, groups=None, 
     for name in replaced:
         if name not in rules and any(b[name]['maxThreads'] < 1024 or b[name]['reqntid'][0] for b in bounds.values()):
             print(f'WARNING native kernel {name}: restrictive compiled bound without --launch rule; '
-                  f'SM61 maxThreads={bounds[61][name]["maxThreads"]}, SM89 maxThreads={bounds[89][name]["maxThreads"]}; '
+                  f'compiled bounds={[ (sm, b[name]["maxThreads"]) for sm,b in bounds.items() ]}; '
                   f'NVIDIA block={original.get(name, "unknown")}', flush=True)
     ada.run(cuda12, 'fatbinary', '--64', '--create=trp.fatbin',
-            '--image3=kind=elf,sm=61,file=pascal.sm_61.cubin',
-            '--image3=kind=elf,sm=89,file=pascal.sm_89.cubin', cwd=folder)
+            *(f'--image3=kind=elf,sm={sm},file=pascal.sm_{sm}.cubin' for sm in architectures), cwd=folder)
     payload = (folder / 'trp.fatbin').read_bytes()
     require(payload[:8] == ada.FATBIN_MAGIC, f'bundle {index}: fatbinary output is not a fatbin')
     payload = payload[:16 + struct.unpack_from('<Q', payload, 8)[0]]
     entries = re.findall(r'\.entry\s+(\w+)', ptx)
     require(sorted(entries) == sorted(re.findall(r'\.entry\s+(\w+)', pascal)), f'bundle {index}: kernel entries changed')
     return payload, dict(entries=len(entries), lowered=counts, bundleBytes=len(payload),
-                         sm61=ada.sha256((folder / 'pascal.sm_61.cubin').read_bytes()),
-                         sm89=ada.sha256((folder / 'pascal.sm_89.cubin').read_bytes()), launchBounds=bounds, unknownOriginalBlocks=unknown)
+                         **{f'sm{sm}': ada.sha256((folder / f'pascal.sm_{sm}.cubin').read_bytes()) for sm in architectures},
+                         loweredPtx=ada.sha256(pascal.encode('ascii')), launchBounds=bounds, unknownOriginalBlocks=unknown)
 
 
 def background_priority():
@@ -140,19 +140,28 @@ def main():
                         help="drop NVIDIA's .maxnreg (set for Ada) from the network kernels")
     parser.add_argument('--vcvars', type=Path,
                         default=Path(r'C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat'))
+    parser.add_argument('--architectures', choices=('61', '61,89'), default='61,89',
+                        help='61 for the Pascal asset; 61,89 for a separate reference build')
+    parser.add_argument('--work-dir', type=Path, help='retain extracted/lowered PTX and cubins in a NEW directory')
     args = parser.parse_args()
+    architectures = tuple(map(int, args.architectures.split(',')))
     pascal_groups.MAX_A = args.group_max_a
     native = {}
     for item in args.native:   # several PTX files may replace kernels of the same bundle
         native.setdefault(int(item.split('=', 1)[0]), []).append(Path(item.split('=', 1)[1]).read_text(encoding='ascii'))
     launches = launch_metadata.parse(args.launch, native)
+    for rule in launches:
+        rule['architectures'] = 1 if architectures == (61,) else 3
     original = args.official.read_bytes()
     require(ada.sha256(original) == ada.OFFICIAL_SHA256, 'original runtime identity differs')
     image = ada.Image(original)
     ada.check_sites(image)
     emulation = args.emulation_ptx.read_text(encoding='ascii')
     bundles, details = [], []
-    with tempfile.TemporaryDirectory() as work:
+    if args.work_dir:
+        args.work_dir.mkdir(parents=True, exist_ok=False)
+    context = contextlib.nullcontext(str(args.work_dir)) if args.work_dir else tempfile.TemporaryDirectory()
+    with context as work:
         sources = [ada.fatbin_at(image, rva) for _, _, _, rva in ada.BUNDLES]
         ptxs = [module_ptx(args.cuda13, index, source, Path(work)) for index, source in enumerate(sources)]
         groups = None
@@ -162,7 +171,7 @@ def main():
             print(f'grouped stand-ins: {len(signatures)} block shapes', flush=True)
         for index, (name, _, _, rva) in enumerate(ada.BUNDLES):
             payload, detail = build_bundle(args.cuda12, index, ptxs[index], emulation, Path(work), native.get(index), groups,
-                                           maxnreg=not args.no_maxnreg, launches=launches)
+                                           maxnreg=not args.no_maxnreg, launches=launches, architectures=architectures)
             bundles.append((rva, len(sources[index]), payload))
             details.append(dict(name=name, **detail))
             print(f'{name}: {detail["entries"]} kernels, {len(payload)} bytes', flush=True)
@@ -172,13 +181,30 @@ def main():
     bounded = not args.no_launch_bounds and (args.launch_bounds or restrictive or any('gridMultiplier' in r for r in launches))
     if bounded:
         launches = launch_bounds.add_records(launches, {i: d['launchBounds'] for i,d in enumerate(details)})
+        for rule in launches:
+            rule['architectures'] = 1 if architectures == (61,) else 3
     else:
         for d in details:
             d.pop('launchBounds')
     pack = launch_metadata.append(pack, launches)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_bytes(pack)
-    report = dict(original=ada.OFFICIAL_SHA256, pack=ada.sha256(pack), packBytes=len(pack), research=True, launchBoundsRecorded=bounded, unknownOriginalBlockCount=sum(len(d['unknownOriginalBlocks']) for d in details), launches=launches, bundles=details)
+    def identity(path):
+        return dict(path=str(path.resolve()), sha256=ada.sha256(path.read_bytes()))
+    toolchain = {}
+    for root, names in ((args.cuda12, ('nvcc', 'ptxas', 'fatbinary')), (args.cuda13, ('cuobjdump',))):
+        for name in names:
+            path = root / 'bin' / (name + '.exe')
+            version = subprocess.run([str(path), '--version'], capture_output=True, text=True, check=True)
+            toolchain[name] = dict(**identity(path), version=version.stdout.strip())
+    inputs = [identity(args.official), identity(args.emulation_ptx)]
+    inputs += [dict(bundle=int(item.split('=', 1)[0]), **identity(Path(item.split('=', 1)[1]))) for item in args.native]
+    tooling = [identity(p) for p in sorted(Path(__file__).parent.glob('*.py'))]
+    report = dict(original=ada.OFFICIAL_SHA256, pack=ada.sha256(pack), packBytes=len(pack), research=True,
+                  architectures=architectures, toolchain=toolchain, inputs=inputs, tooling=tooling,
+                  options=dict(native=args.native, launch=args.launch, groups=args.groups, groupMaxA=args.group_max_a,
+                               noMaxnreg=args.no_maxnreg, assembler=['-O3'], architectures=architectures),
+                  launchBoundsRecorded=bounded, unknownOriginalBlockCount=sum(len(d['unknownOriginalBlocks']) for d in details), launches=launches, bundles=details)
     args.output.with_suffix('.json').write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')
     print(f'wrote {args.output} sha256={ada.sha256(pack)} bytes={len(pack)}', flush=True)
 

@@ -53,6 +53,8 @@ struct OverlayUI::FrameView
     // nvngx_dlssnr*.dll files NR can switch to, refreshed every few seconds.
     std::vector<std::string> neuralRuntimes;
     bool sourceReady{};
+    std::string neuralAdmissionReason;
+    bool neuralPascal{};
     bool nvidiaServicesReady{};
     bool nvidiaAdapter{true};
     bool nvidiaFeatures{true};

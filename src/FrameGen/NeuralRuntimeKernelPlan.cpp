@@ -95,7 +95,7 @@ namespace TheosRenderPipeline::NeuralRendering::KernelPacks
         }
         if (Value<std::uint32_t>(pack, 8) == 2) {
             LaunchRequirements rules;
-            if (!admitGtx10) { return refuse("required-launch NR packs need an enabled research build"); }
+            if (!admitGtx10) { return refuse("required-launch NR packs need an admitted Pascal compatibility path"); }
             if (!ReadLaunchRequirements(pack.subspan(static_cast<std::size_t>(end)), rules, reason)) { return false; }
         } else if (end != pack.size()) { return refuse("NR compatibility kernel pack has trailing bytes"); }
         for (const auto site : {0x136E0u, 0x15580u}) {

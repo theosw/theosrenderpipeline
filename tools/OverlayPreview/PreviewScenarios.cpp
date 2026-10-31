@@ -1,5 +1,6 @@
 #include "OverlayPreview.h"
 #include "FrameGen/NeuralRuntimeFiles.h"
+#include "FrameGen/NeuralAdmission.h"
 
 #include <cmath>
 
@@ -451,6 +452,18 @@ PreviewScenario NRFriendly()
     return scenario;
 }
 
+PreviewScenario Pascal(const char* name, const char* reason)
+{
+    auto scenario = NRFriendly();
+    scenario.name = name;
+    scenario.summary = "Experimental Universal sm_61 NR admission";
+    scenario.view.neuralPascal = true;
+    scenario.view.neuralAdmissionReason = reason;
+    scenario.view.neuralRuntimePath = "Data/SKSE/Plugins/TheosRenderPipeline/NVIDIA/nvngx_dlssnr_310.9.16.dll";
+    scenario.view.neuralRuntimes = {"Automatic"};
+    return scenario;
+}
+
 PreviewScenario Lab()
 {
     auto scenario = Healthy();
@@ -471,5 +484,10 @@ PreviewScenario Lab()
 
 std::vector<PreviewScenario> PreviewScenarios()
 {
-    return {Healthy(), NROff(), Presets(), CommunityShaders(), HostUnavailable(), Objects(), FivePasses(), Compare(), Exposure(), Steady(), ModelRate(), ModelRateLab(), Intel(), TensorRefused(), NRFriendly(), Lab()};
+    return {Healthy(), NROff(), Presets(), CommunityShaders(), HostUnavailable(), Objects(), FivePasses(), Compare(), Exposure(), Steady(), ModelRate(), ModelRateLab(), Intel(), TensorRefused(), NRFriendly(),
+        Pascal("pascal-universal", ""),
+        Pascal("pascal-standard", NeuralRendering::kPascalEditionReason),
+        Pascal("pascal-driver", NeuralRendering::kPascalDriverReason),
+        Pascal("pascal-missing-pack", NeuralRendering::kPascalAssetReason),
+        Pascal("pascal-low-budget", NeuralRendering::kPascalBudgetReason), Lab()};
 }

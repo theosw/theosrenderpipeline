@@ -1,5 +1,6 @@
 #pragma once
 #include "SteadyPacing.h"
+#include "NeuralAdmission.h"
 #include "XeFGModelBeat.h"
 #include <chrono>
 #include "SourceRetirementPolicy.h"
@@ -131,6 +132,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		void ConfigureNeuralCompare(NeuralRendering::CompareSettings a_compare);
 		NeuralRendering::CompareSettings NeuralCompare() const;
 		int NeuralComputeCapability() const;
+        NeuralRendering::NeuralCapability CheckNeuralAdmission(const NeuralOptions& options, unsigned width, unsigned height, bool log = false);
 		NeuralSnapshot NeuralState() const;
 		bool ConfigureReflex(sl::ReflexMode a_mode)
 		{
@@ -231,7 +233,13 @@ namespace TheosRenderPipeline::SourceDLSSG
 		const XeSSUpscaler& XeSS() const { return xess_; }
 		ID3D12Device* Device12() const { return device12_.Get(); }
 		bool NvidiaAdapter() const { return adapterVendor_ == 0x10DE; }
-		bool NvidiaFeaturesAvailable() const { return NvidiaAdapter() && !pascalResearch_; }
+		bool NvidiaFeaturesAvailable() const {
+#if !defined(TRP_NO_NEURAL_RENDERING)
+            return neuralCapability_.NvidiaFeatures();
+#else
+            return NvidiaAdapter() && !pascalResearch_;
+#endif
+        }
 		bool NvidiaFrameGenerationAvailable() const { return NvidiaFeaturesAvailable() && !FrameGenerationUnsupportedReported(); }
 		bool PascalResearchActive() const { return pascalResearch_; }
 		HRESULT BeforePresent(ID3D12Resource* a_source, ID3D12Resource* a_destination, DXGI_COLOR_SPACE_TYPE a_colorSpace);
@@ -268,7 +276,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		void ReleaseGuides();
 		bool RecreateNeuralIfNeeded(const NeuralOptions& options);
 		bool FailNeuralRecording();
-		const char* NeuralUnavailableReason(const NeuralOptions& options);
+		const char* NeuralUnavailableReason(const NeuralOptions& options, FrameExtent sceneExtent = {});
 		void RecordPresentationFeedback(std::uint32_t a_presentCount,
 			std::int64_t a_observedQpc, std::int64_t a_syncQpc);
 		void ResetPresentationFeedback();
@@ -395,6 +403,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// Each refused runtime with the note shown while it stays selected.
 		std::vector<std::pair<std::filesystem::path, std::string>> neuralRefusedRuntimes_; // Protected by neuralMutex_.
 		int neuralComputeCapability_{ -1 };
+        NeuralRendering::NeuralCapability neuralCapability_{};
+        bool neuralAdmissionChecked_{};
+        std::string neuralAdmissionReason_;
 		std::filesystem::path neuralLoggedRuntime_; // Last runtime Automatic or a fallback chose.
 		// Requires neuralMutex_. Picks Automatic's runtime for this GPU once the
 		// device exists, and replaces a refused runtime with Automatic's choice.

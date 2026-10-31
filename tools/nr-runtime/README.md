@@ -1,3 +1,25 @@
+## GTX 10 production inventory (0.6.0 draft)
+
+Universal adds `nvngx_dlssnr_310.9.16_pascal_v1.trpk` beside the existing NR assets.
+`package/NR-CompatibilityAssets.json` pins the additive inventory and required
+original 310.9.16 runtime. Standard installs no compatibility kernels. Supply the
+pinned Pascal-only local input to `stage_pascal_pack.py --edition Universal
+--input <sm-general-pascal.trpk> --output <new-staging-directory>`; merge that
+supplement into Universal while retaining all existing assets. Never commit the
+pack bytes. Runtime admission verifies the whole-file pin and embedded manifest
+before patching or vendor initialization. The pack includes only sm_61, with
+SM-independent ticket-ring scratch slots, and remains experimental under the
+in-order dispatch correctness assumption accepted for this compatibility path.
+
+Ordinary Universal users enable NR with Automatic and Apply. No research INI or
+environment variable is needed. `TRP_ENABLE_PASCAL_RESEARCH=ON` remains a separate
+developer build for arbitrary packs, mode 2 and research instrumentation; normal
+release builds ignore those controls. Driver detection uses NVAPI's
+`SYS_GetDriverAndBranchVersion`; if unreadable, the rendering adapter's DXGI UMD
+version is decoded using Windows NVIDIA numbering (32.0.15.8278 -> 582.78).
+Unknown versions refuse. CUDA version is checked independently and is never
+interpreted as an NVIDIA display-driver version.
+
 # Neural Rendering compatibility kernels
 
 Standard retains the existing NR 310.8 DLL and original NVIDIA NR 310.9.16.
@@ -186,3 +208,33 @@ unchanged; the queue execution gate also refuses rejected lists. The benchmark
 closes/discards the list, retires the feature and reports NR_OFF with no frame.
 The game's existing unknown-recording-failure policy still latches the entire
 backend until restart: it does not promise continued native/XeSS presentation.
+
+## SM-independent scratch allocator experiment
+
+`build_sm_general.py` verifies `c37-inputs.lock.json`, prepares the twelve selected
+swinmh CUDA sources, and builds a Pascal-only pack plus a separate SM89 reference
+pack. The selected external research inputs are required; no vendor binary or
+generated PTX/cubin is stored here. Run in a new output directory:
+
+```powershell
+python -I tools/nr-runtime/build_sm_general.py --research-root <trp-pascal> --official <310.9.16.dll> --cuda12 <CUDA12.9> --cuda13 <CUDA13.4> --output out/sm-general
+python -I tools/nr-runtime/test_sm_general.py --output out/scheduling-results.json
+```
+
+The ticket ring in `sm_general_slots.cuh` removes raw SM-ID ownership and gives
+disjoint scratch lanes with generation-controlled reuse. Producer polls precede
+scratch reservation. This is **an allocator candidate, not a complete scheduling
+fix**: native/original cross-dispatch polls, same-launch split-K/Z waits, cache
+writer progress and shared-module invocation ordering remain release gates.
+The synthetic suite includes counterexamples for those waits; its 1–32 logical
+SM-count matrix does not emulate physical GPUs or WDDM. No production admission
+or runtime policy is changed by this tooling.
+
+`sm_general_probe.cu` is a developer CUDA occupancy/worker-pressure fixture.
+`run_sm_general.ps1` is a lock-respecting test-PC runner for interleaved c37/new
+timing and full RGBA float32 byte parity, including separate untimed 40-frame
+exports. Stage only in a dedicated `C:/trp-work/runs/` directory with an
+`inputs.json` SHA256 inventory. Every GPU invocation uses the existing harness
+lock; a failure or teardown hang stops the campaign. `-SkipProbe` is appropriate
+only when that separately recorded probe is unavailable or blocked; it does not
+count as passing the GPU allocator test.

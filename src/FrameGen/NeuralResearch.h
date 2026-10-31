@@ -9,7 +9,7 @@ namespace TheosRenderPipeline::NeuralRendering
     {
             ResearchConfiguration result;
             (void)ini; (void)runtimeFolder;
-#if defined(TRP_ENABLE_PASCAL_RESEARCH) || defined(TRP_NR_VENDOR_BENCHMARK)
+#if (defined(TRP_ENABLE_PASCAL_RESEARCH) || defined(TRP_NR_VENDOR_BENCHMARK)) && !defined(TRP_NR_PRODUCTION_ADMISSION)
             result.mode=GetPrivateProfileIntW(L"NeuralRenderingResearch",L"EnablePascal",0,ini.c_str())==1?L'1':L'\0';
             result.nrFriendlyRenderSize=GetPrivateProfileIntW(L"NeuralRenderingResearch",L"NRFriendlyRenderSize",0,ini.c_str())==1;
             wchar_t mode[8]{};

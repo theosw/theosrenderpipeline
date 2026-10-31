@@ -1,3 +1,17 @@
+# 0.6.0
+
+Universal adds GTX 10 compatibility kernels (experimental) for Neural Rendering on
+sm_61 GPUs. NR stays off by default. Install Universal and the matching NR runtimes,
+use NVIDIA driver 582.78 or a newer compatible Pascal (R580) driver, then select
+Neural Rendering > Enable > Apply with Runtime set to Automatic. Start with one
+pass before upscaling. TRP checks the rendering adapter, driver, runtime, compatibility
+pack and available video-memory budget before starting NR; an admission refusal
+leaves normal rendering running and explains the reason in the menu and log.
+There is no fixed VRAM minimum. DLSS, DLAA and DLSS-G require NVIDIA RTX hardware;
+use XeSS and optionally XeFG on Pascal. Standard keeps the GTX 10 NR controls visible
+with a reason pointing to Universal. Other NR settings and saved preferences remain
+unchanged. Game acceptance and broader Pascal hardware testing are still pending.
+
 # Theo's Render Pipeline
 
 Rendering integration for Skyrim: NVIDIA DLSS/DLAA and frame generation,
@@ -93,8 +107,8 @@ settings. While XeFG is active, Intel XeLL handles latency instead of Reflex.
 On a GPU other than NVIDIA, TRP starts XeFG directly without loading NVIDIA's
 runtimes, with XeSS or with Community Shaders' upscaling (FSR on AMD). There,
 a saved DLSS mode runs as XeSS at the same quality and DLAA as XeSS Ultra
-Quality; **Save as default** then stores XeSS. DLSS, DLAA, DLSS-G and NR
-require NVIDIA RTX hardware; on NVIDIA, NR also works with XeSS.
+Quality; **Save as default** then stores XeSS. DLSS, DLAA and DLSS-G require NVIDIA RTX hardware. Universal also offers
+experimental sm_61 NR; on NVIDIA, NR works with XeSS.
 
 XeFG uses Intel's official x2 by default. With the Universal edition the
 multiplier list also offers x3-x6, marked experimental, which patch

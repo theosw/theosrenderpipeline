@@ -17,6 +17,7 @@ using namespace TheosRenderPipeline::Overlay;
 #include "NeuralRenderingMode.h"
 #include "FrameGen/NeuralObjectMask.h"
 #include "FrameGen/NeuralRuntimeFiles.h"
+#include "FrameGen/NeuralAdmission.h"
 
 namespace
 {
@@ -54,6 +55,7 @@ void DrawNRAppliedPasses(const OverlayUI::FrameView& view, const TheosRenderPipe
 // Why NR cannot run now, or null. Shown above Base's controls.
 const char* NeuralUnavailableReason(const OverlayUI::FrameView& view, int upscaleType, bool nrRuntimePresent)
 {
+    if (!view.neuralAdmissionReason.empty()) { return TR(view.neuralAdmissionReason.c_str()); }
     if (view.sourceReady && !view.nvidiaAdapter) { return TR("Neural Rendering requires NVIDIA RTX hardware. XeSS upscaling and XeFG remain available."); }
     if (view.neuralRuntimePath.empty())
     {
@@ -592,6 +594,9 @@ void DrawNeuralSettings(const OverlayUI::FrameView& view, TheosRenderPipeline::S
 {
     namespace NR = TheosRenderPipeline::NeuralRendering;
     auto& reconstruction = draft.neuralReconstruction;
+    // While NR is off, let a budget-limited request reduce its demand before
+    // enabling again. Hardware/edition/driver/asset refusals keep these rows grey.
+    const bool editDemand = !draft.neuralEnabled && view.neuralAdmissionReason == NR::kPascalBudgetReason;
     const bool cs = view.communityShaders;
     const bool producerColor = cs && draft.neuralBeforeUpscaling;
     const float label = LabelWidth({TR("Scene normalization")});
@@ -606,7 +611,7 @@ void DrawNeuralSettings(const OverlayUI::FrameView& view, TheosRenderPipeline::S
         // The runtime is not a preset setting, so presets show only the switch.
         const bool base = !ActivePresetDecor();
         const bool lockSwitch = !TheosRenderPipeline::CanEditNeuralEnabled(draft.neuralEnabled, !unavailable);
-        SettingRow(TR("Neural Rendering"), "NeuralRendering", false, base ? false : lockSwitch, [&] {
+        SettingRow(TR("Neural Rendering"), "NeuralRendering", false, base ? (view.neuralPascal && lockSwitch) : lockSwitch, [&] {
             ImGui::BeginDisabled(base && lockSwitch);
             bool changed = ImGui::Checkbox("##v", &draft.neuralEnabled);
             ImGui::EndDisabled();
@@ -615,7 +620,9 @@ void DrawNeuralSettings(const OverlayUI::FrameView& view, TheosRenderPipeline::S
                 const auto& style = ImGui::GetStyle();
                 const float mark = ImGui::CalcTextSize("!").x + style.ItemSpacing.x;
                 ImGui::SameLine();
+                ImGui::BeginDisabled(view.neuralPascal && !view.neuralAdmissionReason.empty());
                 changed |= DrawNeuralRuntimeCombo(view, draft, ImGui::GetContentRegionAvail().x - mark);
+                ImGui::EndDisabled();
                 ImGui::SameLine();
                 ImGui::AlignTextToFramePadding();
                 ImGui::TextColored(kOchre, "!");
@@ -623,7 +630,7 @@ void DrawNeuralSettings(const OverlayUI::FrameView& view, TheosRenderPipeline::S
             }
             return changed;
         });
-        SettingRow(TR("Placement"), "BeforeUpscaling", true, unavailable, [&] {
+        SettingRow(TR("Placement"), "BeforeUpscaling", true, unavailable && !editDemand, [&] {
             int placement = draft.neuralBeforeUpscaling ? 0 : 1;
             const bool changed = Segmented("placement", placement, {
                 {TR("Before upscaling"), true, TR("NR runs on the render-resolution scene, before DLSS or XeSS.")},
@@ -763,7 +770,7 @@ void DrawNeuralSettings(const OverlayUI::FrameView& view, TheosRenderPipeline::S
     const auto reset = extraIndex < 0 ? PassReset::None
                        : !draft.neuralExtraPasses[extraIndex].linked && (decor || tabChanged[selected]) ? PassReset::Available
                                                                                                          : PassReset::Nothing;
-    const auto action = DrawPassTabs(view, selected, draft.neuralPasses, !unavailable,
+    const auto action = DrawPassTabs(view, selected, draft.neuralPasses, !unavailable || editDemand,
         decor && decor->EditingTime() ? TRF("editing {}", decor->EditingTime()) : std::string(), tabChanged,
         reset);
     // + adds the next pass and the remove mark takes off the last; a removed
@@ -1180,6 +1187,7 @@ void DrawSourceNeuralControls(const OverlayUI::FrameView& view, TheosRenderPipel
                               bool& sharpening, float& sharpness, int upscaleType, bool nrRuntimePresent)
 {
     const auto& state = view.neuralState;
+    if (view.neuralPascal) { ImGui::TextWrapped("%s", TR("GTX 10 compatibility kernels (experimental)")); }
     const char* unavailableReason = NeuralUnavailableReason(view, upscaleType, nrRuntimePresent);
     const bool unavailable = unavailableReason != nullptr;
     const auto& applied = view.neuralApplied;

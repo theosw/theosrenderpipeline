@@ -24,6 +24,8 @@
 #if !defined(TRP_NO_NEURAL_RENDERING)
 #include "NeuralRenderingFeatureSession.h"
 #include "NeuralResearch.h"
+#include "NeuralAdmission.h"
+#include "NeuralRuntimeKernels.h"
 #include "NeuralRuntimeCompatibility.h"
 #endif
 
@@ -343,9 +345,10 @@ namespace TheosRenderPipeline::SourceDLSSG
 		else { logger::info("[ReShade] {}", ReShadeIntegration::Get().Status()); }
 		adapterVendor_ = adapterDesc.VendorId;
 #if !defined(TRP_NO_NEURAL_RENDERING)
-        pascalResearch_ = NeuralRendering::PascalConfiguration().mode && NvidiaAdapter() &&
-            NeuralRendering::PascalResearchFor(NeuralRendering::ComputeCapability(adapterDesc.AdapterLuid));
-        if (pascalResearch_) { logger::info("[NR Pascal Research] native presentation via Intel host; DLSS-G off; pack={}", NeuralRendering::PascalConfiguration().pack.string()); }
+        neuralCapability_ = NeuralRendering::QueryNeuralHardware(adapterDesc.AdapterLuid, NeuralRendering::RuntimeKernelsSupported());
+        neuralComputeCapability_ = neuralCapability_.architecture;
+        pascalResearch_ = neuralCapability_.Pascal();
+        if (pascalResearch_) { logger::info("[NR Pascal] native presentation via Intel host; DLSS-G unavailable; research pack={}", NeuralRendering::PascalConfiguration().pack.string()); }
 #endif
 		adapterDevice_ = adapterDesc.DeviceId;
 		providerCapabilitiesKnown_ = true;
