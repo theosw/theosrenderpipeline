@@ -132,7 +132,7 @@ void OverlayUI::BuildUI()
     }
 
     requestedPage = SettingsPage::None;
-    DrawSettingsActions();
+    DrawSettingsActions(view);
 
     ImGui::End();
 }
@@ -175,7 +175,7 @@ void OverlayUI::DrawPipelineSummary(const FrameView& view)
     }
 }
 
-void OverlayUI::DrawSettingsActions()
+void OverlayUI::DrawSettingsActions(const FrameView& view)
 {
     ImGui::Separator();
     const int stagedChanges = CountStagedChanges();

@@ -378,7 +378,6 @@ namespace TheosRenderPipeline::NeuralRendering
 
 		if (FaultInjection::Hit(FaultInjection::Point::Metadata) || FaultInjection::Hit(FaultInjection::Point::Install)) { state.status = "injected metadata/install refusal"; return false; }
 		if (!InstallLaunchHook(state.module, RuntimeLaunchRequirements(state.module), capability, state.status)) {
-			logger::error("[DLSSNR Source] {}; NR off", state.status);
 			state.runtimeRefused = true;
 			return false;
 		}
@@ -531,7 +530,6 @@ namespace TheosRenderPipeline::NeuralRendering
 			return false;
 		}
 		if (!LaunchHookReady(state.module, state.status)) {
-			logger::error("[DLSSNR Source] {}", state.status);
 			state.runtimeRefused = true;
 			return false;
 		}
@@ -624,7 +622,7 @@ namespace TheosRenderPipeline::NeuralRendering
             RejectedNeuralLists::Get().Reject(a_input.commandList);
             state.status = "injected Evaluate refusal after recording"; return false;
         }
-		if (!LaunchHookHealthy(state.module, state.status)) { logger::error("[DLSSNR Source] {}; NR off", state.status); return false; }
+		if (!LaunchHookHealthy(state.module, state.status)) { return false; }
 		if (NVSDK_NGX_FAILED(evaluateResult)) {
 			state.status = std::format(
 				"feature evaluation failed (0x{:08X})", state.lastEvaluateResult);

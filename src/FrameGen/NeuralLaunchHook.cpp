@@ -95,7 +95,7 @@ namespace TheosRenderPipeline::NeuralRendering
             std::vector<T> rewritten;
             if (!h.bindings.Rewrite(kernels,count,rewritten)) {
                 RejectedNeuralLists::Get().Reject(list);
-                logger::error("[DLSSNR Launch] {}; NR off",h.bindings.failure); return 0;
+                return 0; // Backend reports the refusal once per attempt.
             }
             for (std::uint32_t i=0;i<count;++i) {
                 const auto& name=h.bindings.names.at(kernels[i].function);
@@ -108,7 +108,7 @@ namespace TheosRenderPipeline::NeuralRendering
             }
             if (FaultInjection::Hit(FaultInjection::Point::Chain)) { h.bindings.failure="injected NR chain refusal"; RejectedNeuralLists::Get().Reject(list); return 0; }
             const auto result=FaultInjection::Hit(FaultInjection::Point::NVAPI) ? -1 : forward(list,rewritten.empty()?kernels:rewritten.data(),count);
-            if (result && count) { h.bindings.failure=std::format("NVAPI refused required NR launch geometry (status={}, count={})",result,count); logger::error("[DLSSNR Launch] {}",h.bindings.failure); RejectedNeuralLists::Get().Reject(list); return 0; }
+            if (result && count) { h.bindings.failure=std::format("NVAPI refused required NR launch geometry (status={}, count={})",result,count); RejectedNeuralLists::Get().Reject(list); return 0; }
             return result;
         }
         int __cdecl LaunchChain(ID3D12GraphicsCommandList* l,const KernelLaunch* k,std::uint32_t n) { return Launch(l,k,n,Active().chain.load()); }
