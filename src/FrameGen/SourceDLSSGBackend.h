@@ -407,7 +407,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		std::vector<std::pair<std::filesystem::path, std::string>> neuralRefusedRuntimes_; // Protected by neuralMutex_.
 		int neuralComputeCapability_{ -1 };
         NeuralRendering::NeuralCapability neuralCapability_{};
-        bool neuralAdmissionChecked_{};
+        NeuralRendering::NeuralAdmissionCache neuralAdmissionCache_;
         std::string neuralAdmissionReason_;
 		std::filesystem::path neuralLoggedRuntime_; // Last runtime Automatic or a fallback chose.
 		// Requires neuralMutex_. Picks Automatic's runtime for this GPU once the

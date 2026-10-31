@@ -75,7 +75,7 @@ static void VendorRecovery(GPU& gpu, NeuralOptions options, unsigned point, unsi
         if(disabledPresents>=3 && recovery.Retryable() && !retried) {
             if (productionAdmission) {
                 auto admission = QueryNeuralAdmission(gpu.device->GetAdapterLuid(), options.runtimePath,
-                    w, h, options.passes, RuntimeKernelsSupported(), true);
+                    w, h, options.passes, RuntimeKernelsSupported(), true, 0, true);
                 if (!admissionRefused && admission.Pascal()) {
                     // Policy fixture, not physical VRAM exhaustion. The actual
                     // runtime failure stays owned while this Apply is refused.

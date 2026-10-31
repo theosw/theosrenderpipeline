@@ -3,6 +3,8 @@
 #include "FrameGen/NeuralResearch.h"
 #include "FrameGen/NeuralRuntimeFiles.h"
 #include <fstream>
+#include "FrameGen/NeuralRenderingRuntimeIdentity.h"
+#include <chrono>
 #include <iostream>
 #include <stdexcept>
 
@@ -91,8 +93,70 @@ int wmain(int argc, wchar_t** argv)
             Require(live.Refusal() == kPascalBudgetReason, "actual unreclaimed budget still refuses after release");
         }
 
+        // Exercise the same cache used by Present, with virtual time so a
+        // 1,000,000-frame refusal/loading loop cannot hide periodic probes.
+        {
+            NeuralAdmissionCache cache;
+            NeuralAdmissionRequest request{L"original.dll", 0, 0, 1, true, true, 0};
+            auto now = NeuralAdmissionCache::Clock::now();
+            unsigned queries{}, polls{};
+            auto query = [&] { ++queries; auto value = Valid();
+                value.extentPending = !request.width || !request.height;
+                value.estimateBytes = EstimatePascalMemory(request.width, request.height, request.passes);
+                return value; };
+            auto poll = [&](NeuralCapability&) { ++polls; };
+            const auto begin = NeuralAdmissionCache::Clock::now();
+            for (unsigned i = 0; i < 1000000; ++i) {
+                const auto& pending = cache.Get(request, now, query, poll);
+                Require(pending.extentPending && !pending.Refusal(), "saved NR before world is pending, never refused");
+            }
+            const auto ns = std::chrono::duration<double,std::nano>(NeuralAdmissionCache::Clock::now()-begin).count()/1000000;
+            Require(queries == 1 && polls == 0, "loading frames never repeat admission/probes");
+            Require(ns < 10000, "unchanged admission cache costs less than 10 us per frame");
+            now += std::chrono::hours(1);
+            cache.Get(request, now, query, poll);
+            Require(queries == 1 && polls == 0, "pending extent does not poll budget");
+            request.width = 768; request.height = 432;
+            Require(!cache.Get(request,now,query,poll).Refusal() && queries == 2, "first extent arrives and admits once");
+            now += std::chrono::seconds(3);
+            cache.Get(request,now,query,poll);
+            Require(queries == 2 && polls == 1, "bounded budget poll does not reverify assets");
+            request.beforeUpscaling = false; cache.Get(request,now,query,poll);
+            request.runtime = L"other.dll"; cache.Get(request,now,query,poll);
+            request.passes = 2; cache.Get(request,now,query,poll);
+            request.universal = false; cache.Get(request,now,query,poll);
+            Require(queries == 6, "placement runtime passes edition changes re-admit");
+            cache.Reset();
+            auto refused = [&] { ++queries; auto v = query(); v.assetsVerified = false; return v; };
+            for (unsigned i=0;i<1000000;++i) { Require(cache.Get(request,now,refused,poll).Refusal()==kPascalAssetReason,"asset refusal stays cached"); }
+            Require(queries==8 && polls==1,"refused frames never re-hash or probe");
+            cache.Reset(); cache.Get(request,now,query,poll);
+            Require(queries==9,"explicit Apply invalidates refusal");
+            auto v=Valid(); v.estimateBytes=0;
+            Require(v.Refusal()==kPascalEstimateReason,"missing estimate is not a budget-query failure");
+            v.extentPending=true; Require(!v.Refusal(),"unknown extent is not a refusal");
+            std::cout << "ADMISSION_CACHE pending_ns_per_frame=" << ns << " frames=1000000 queries=1 budget_polls=0\n";
+        }
+
         const auto temp = std::filesystem::temp_directory_path() / (L"trp-admission-" + std::to_wstring(GetCurrentProcessId()));
         std::filesystem::create_directories(temp);
+        {
+            using namespace TheosRenderPipeline::NeuralRenderingRuntimeIdentity;
+            const auto file=temp/"identity.bin";
+            const auto replacement=temp/"replacement.bin";
+            constexpr std::string_view abc="BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD";
+            { std::ofstream out(file,std::ios::binary); out << "abc"; }
+            Require(VerifyExpected(file,3,abc).matched,"startup hashes actual opened file");
+            const auto hashes=HashInvocations();
+            Require(VerifyExpected(file,3,abc).matched && hashes==HashInvocations(),"unchanged file identity reuses hash");
+            const auto written=std::filesystem::last_write_time(file);
+            { std::ofstream out(replacement,std::ios::binary); out << "bad"; }
+            std::filesystem::last_write_time(replacement,written);
+            std::filesystem::remove(file); std::filesystem::rename(replacement,file);
+            Require(!VerifyExpected(file,3,abc).matched && hashes+1==HashInvocations(),"replacement with restored size/time rehashes by file ID");
+            Require(!VerifyExpected(file,3,abc,true).matched && hashes+2==HashInvocations(),"explicit Apply forces hash of refused identity");
+            std::filesystem::remove(file);
+        }
         const auto pack = temp / kPascalPackName;
         Require(!VerifyPascalPack(pack), "missing pack refuses");
         { std::ofstream output(pack, std::ios::binary); output.seekp(kPascalPackBytes - 1); output.put(0); }
@@ -101,10 +165,19 @@ int wmain(int argc, wchar_t** argv)
             Require(VerifyPascalPack(argv[1]), "actual pinned pack and embedded runtime/launch manifest accepted");
             std::filesystem::copy_file(argv[1], pack, std::filesystem::copy_options::overwrite_existing);
             Require(VerifyPascalPack(pack), "copied pinned pack accepted");
+            const auto hashes = TheosRenderPipeline::NeuralRenderingRuntimeIdentity::HashInvocations();
+            const auto probes = GetAdmissionMetrics().packProbes;
+            for (int i=0; i<100; ++i) { Require(VerifyPascalPack(pack,false), "cached pinned pack accepted"); }
+            Require(TheosRenderPipeline::NeuralRenderingRuntimeIdentity::HashInvocations()==hashes && GetAdmissionMetrics().packProbes==probes,
+                "identity-stable file is neither rehashed nor reparsed");
             const auto timestamp = std::filesystem::last_write_time(pack);
             { std::fstream output(pack, std::ios::in | std::ios::out | std::ios::binary); output.seekg(600); char value{}; output.get(value); output.seekp(600); output.put(value ^ 1); }
             std::filesystem::last_write_time(pack, timestamp);
-            Require(!VerifyPascalPack(pack), "tamper refuses even with original size/time");
+            Require(!VerifyPascalPack(pack,false), "file change identity detects tamper even with original size/time");
+            Require(!VerifyPascalPack(pack,true), "explicit Apply rehash detects same size/time tamper");
+            const auto refusedHashes=TheosRenderPipeline::NeuralRenderingRuntimeIdentity::HashInvocations();
+            Require(!VerifyPascalPack(pack,false) && TheosRenderPipeline::NeuralRenderingRuntimeIdentity::HashInvocations()==refusedHashes,
+                "same refused file identity does not rehash");
             std::filesystem::resize_file(pack, kPascalPackBytes - 1);
             Require(!VerifyPascalPack(pack), "truncation refuses");
         }

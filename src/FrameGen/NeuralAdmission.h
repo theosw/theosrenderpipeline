@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <string>
 #include <string_view>
+#include <chrono>
 
 namespace TheosRenderPipeline::NeuralRendering
 {
@@ -19,6 +20,8 @@ namespace TheosRenderPipeline::NeuralRendering
     inline constexpr const char* kPascalAssetReason = "GTX 10 NR compatibility pack or original NR 310.9.16 is missing or does not match. Reinstall Universal and its matching NR runtime. NR is off; normal rendering continues.";
     inline constexpr const char* kPascalBudgetUnknownReason = "GTX 10 NR could not query the rendering adapter's video-memory budget. NR is off; normal rendering continues.";
     inline constexpr const char* kPascalBudgetReason = "GTX 10 NR has insufficient video-memory budget for the estimated working set. Try one pass before upscaling or a lower resolution. NR is off; normal rendering continues.";
+    inline constexpr const char* kPascalExtentPending = "NR is waiting for the first world frame's rendering dimensions.";
+    inline constexpr const char* kPascalEstimateReason = "GTX 10 NR could not estimate memory for these rendering dimensions or pass count. NR is off; normal rendering continues.";
 
     // Facts refer to the actual rendering LUID, never a marketing name or SKU.
     // No runtime-failure latch belongs here; the recovery owner supplies that separately.
@@ -34,6 +37,7 @@ namespace TheosRenderPipeline::NeuralRendering
         // UI preflight only. The old owner is still charged by DXGI; replacement
         // budget admission must wait for proven retirement and a fresh query.
         bool budgetPendingRetirement{};
+        bool extentPending{};
         bool Pascal() const { return nvidia && architecture == 61; }
         bool NvidiaFeatures() const { return nvidia && architecture >= 75; }
         const char* Refusal() const
@@ -43,8 +47,10 @@ namespace TheosRenderPipeline::NeuralRendering
             if (!universal) { return kPascalEditionReason; }
             if (driverVersion < 58278 || driverVersion >= 59000) { return kPascalDriverReason; }
             if (!adapterMatched || !cudaReady || cudaDriver < 12090 || !nvapiReady || smCount <= 0) { return kPascalComponentsReason; }
+            if (extentPending) { return nullptr; }
             if (!assetsVerified) { return kPascalAssetReason; }
-            if (!budgetKnown || !estimateBytes) { return kPascalBudgetUnknownReason; }
+            if (!estimateBytes) { return kPascalEstimateReason; }
+            if (!budgetKnown) { return kPascalBudgetUnknownReason; }
             const auto additional = estimateBytes > retainedEstimateBytes ? estimateBytes - retainedEstimateBytes : 0;
             if (!budgetPendingRetirement && additional && (usageBytes >= budgetBytes || additional > budgetBytes - usageBytes)) { return kPascalBudgetReason; }
             return nullptr;
@@ -61,13 +67,47 @@ namespace TheosRenderPipeline::NeuralRendering
     // 128 MiB fixed feature allowance per pass, 1024 B/model pixel for vendor
     // activations/history and 128 B/scene pixel for TRP preparation/resolve/history,
     // plus 64 MiB budget reserve. Use the largest selected model raster per pass.
-    // Inputs are bounded before multiplication; zero means unknown/refuse.
+    // Inputs are bounded before multiplication; callers distinguish pending extent.
     inline std::uint64_t EstimatePascalMemory(unsigned width, unsigned height, unsigned passes)
     {
         if (!width || !height || width > 16384 || height > 16384 || !passes || passes > 5) { return 0; }
         return kPascalGlobalsBytes + 64ull * 1024 * 1024 +
             passes * (128ull * 1024 * 1024 + std::uint64_t(width) * height * (1024 + 128));
     }
+
+    // Render-thread cache: no file I/O, probing or logging on unchanged frames.
+    // A refused budget may recover on a bounded poll; assets only change on a
+    // new request or explicit Apply. Releasing an owner must invalidate this.
+    struct NeuralAdmissionRequest
+    {
+        std::filesystem::path runtime;
+        unsigned width{}, height{}, passes{};
+        bool beforeUpscaling{}, universal{};
+        std::uint64_t retained{};
+        bool operator==(const NeuralAdmissionRequest&) const = default;
+    };
+    class NeuralAdmissionCache
+    {
+    public:
+        using Clock = std::chrono::steady_clock;
+        void Reset() { checked_ = false; }
+        template<class Query, class Budget>
+        const NeuralCapability& Get(const NeuralAdmissionRequest& request, Clock::time_point now, Query query, Budget budget)
+        {
+            if (!checked_ || request_ != request) {
+                value_ = query(); request_ = request; checked_ = true; polled_ = now;
+            } else if (!value_.extentPending && value_.Pascal() && value_.assetsVerified &&
+                now - polled_ >= std::chrono::seconds(3)) {
+                budget(value_); polled_ = now;
+            }
+            return value_;
+        }
+    private:
+        bool checked_{};
+        NeuralAdmissionRequest request_;
+        NeuralCapability value_;
+        Clock::time_point polled_{};
+    };
 
     // Run only at a boundary with no open list. A failed retirement must never
     // reach the fresh budget query or replacement allocation.
@@ -81,8 +121,11 @@ namespace TheosRenderPipeline::NeuralRendering
 
     NeuralCapability QueryNeuralHardware(const LUID& luid, bool universal);
     // Fresh pack hash + manifest validation; actual admission can also rehash the runtime.
-    bool VerifyPascalPack(const std::filesystem::path& pack);
+    bool VerifyPascalPack(const std::filesystem::path& pack, bool fresh = true);
     bool VerifyPascalAssets(const std::filesystem::path& runtime, bool freshRuntime = false);
     NeuralCapability QueryNeuralAdmission(const LUID& luid, const std::filesystem::path& runtime,
-        unsigned width, unsigned height, unsigned passes, bool universal, bool log = false, std::uint64_t retainedEstimate = 0);
+        unsigned width, unsigned height, unsigned passes, bool universal, bool log = false, std::uint64_t retainedEstimate = 0, bool freshAssets = false);
+    void QueryNeuralBudget(NeuralCapability& capability);
+    struct AdmissionMetrics { std::uint64_t hardwareProbes{}, packProbes{}, budgetQueries{}; };
+    AdmissionMetrics GetAdmissionMetrics();
 }

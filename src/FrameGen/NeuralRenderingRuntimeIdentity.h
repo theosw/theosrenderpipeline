@@ -29,6 +29,7 @@ namespace TheosRenderPipeline::NeuralRenderingRuntimeIdentity
 		const std::filesystem::path& a_path,
 		std::uint64_t a_expectedSize,
 		std::string_view a_expectedSha256, bool fresh = false);
+	std::uint64_t HashInvocations();
 	Snapshot Verify(const std::filesystem::path& a_path);
 	// Source FeatureSession may additionally admit the known reconstruction runtimes.
 	// Verify() remains legacy-only for the old bridge and diagnostic paths.

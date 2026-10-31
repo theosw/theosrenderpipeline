@@ -686,12 +686,29 @@ namespace
 	}
 }
 
+namespace {
+    // Armed only around the menu interface producer with LogMenuMetrics on.
+    // Zero counts distinguish a skipped producer/erased hook from wrong routing.
+    thread_local struct MenuDrawProbe {
+        bool active{};
+        unsigned draws{}, indexed{}, layer{}, rejected{};
+        void Record(ID3D11DeviceContext* context, bool index) {
+            if (!active) { return; }
+            if (index) { ++indexed; } else { ++draws; }
+            auto* host = NvidiaHost::GetSingleton();
+            layer += UILayerBound(host,context);
+            rejected += !host->SourceContext(context);
+        }
+    } menuDrawProbe;
+}
+
 void WINAPI hk_ID3D11DeviceContext_DrawIndexed(
 	ID3D11DeviceContext* This,
 	UINT IndexCount,
 	UINT StartIndexLocation,
 	INT BaseVertexLocation)
 {
+	menuDrawProbe.Record(This, true);
 	if (SubmitInventory3DDraw()) {
 		const auto original = [&] {
 			(This->*ptrDrawIndexed)(IndexCount, StartIndexLocation, BaseVertexLocation);
@@ -711,6 +728,7 @@ void WINAPI hk_ID3D11DeviceContext_Draw(
 	if (NvidiaHost::GetSingleton()->PreviewDraw().Internal()) {
 		(This->*ptrDraw)(VertexCount, StartVertexLocation); return;
 	}
+	menuDrawProbe.Record(This, false);
 	if (SubmitInventory3DDraw()) {
 		const auto original = [&] {
 			(This->*ptrDraw)(VertexCount, StartVertexLocation);
@@ -938,14 +956,35 @@ struct UpscalerHooks
 		static inline REL::Relocation<decltype(thunk)> func;
 	};
 
-	struct MenuManagerDrawInterfaceStart
+    struct MenuManagerDrawInterfaceStart
     {
         static void thunk(int64_t a1)
         {
             ScopedRenderDimensions renderSizeScope;
+            auto* host = NvidiaHost::GetSingleton();
+            auto* ui = RE::UI::GetSingleton();
+            const bool inspect = RenderPipeline::GetSingleton()->mLogMenuMetrics && ui &&
+                (ui->IsMenuOpen(RE::StatsMenu::MENU_NAME) || ui->IsMenuOpen(RE::MagicMenu::MENU_NAME));
+            static unsigned previous{}, remaining{};
+            const unsigned menus = inspect ? unsigned(ui->IsMenuOpen(RE::StatsMenu::MENU_NAME)) |
+                (unsigned(ui->IsMenuOpen(RE::MagicMenu::MENU_NAME)) << 1) : 0;
+            if (menus != previous) { previous = menus; remaining = 4; }
+            const bool sample = inspect && (remaining || host->PresentCount() % 600 == 0);
+            if (sample) {
+                if (remaining) { --remaining; }
+                menuDrawProbe = {}; menuDrawProbe.active = true;
+                host->LogNativeUIState("menu-interface-begin", false);
+            }
             func(a1);
+            if (sample) {
+                menuDrawProbe.active = false;
+                logger::info("[MenuDraw] frame={} stats={} magic={} draws={} indexed={} onLayer={} rejectedContext={} passActive={} targetBound={}",
+                    host->PresentCount(), bool(menus & 1), bool(menus & 2), menuDrawProbe.draws, menuDrawProbe.indexed,
+                    menuDrawProbe.layer, menuDrawProbe.rejected, host->NativeUIPassActive(), host->NativeUITargetBound());
+                host->LogNativeUIState("menu-interface-end", false);
+            }
         }
-        static inline REL::Relocation<decltype(thunk)> func;
+		static inline REL::Relocation<decltype(thunk)> func;
 	};
 
 	struct BSGraphics_Renderer_Begin_UpdateJitter

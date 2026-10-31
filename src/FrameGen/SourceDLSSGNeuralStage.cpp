@@ -19,7 +19,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		const bool requested = a_options.enabled;
 		a_options = SanitizeNeuralOptions(std::move(a_options));
 		std::scoped_lock lock(neuralMutex_);
-        neuralAdmissionChecked_ = false;
+        neuralAdmissionCache_.Reset();
         neuralAdmissionReason_.clear();
 		// The note stays only while the selected runtime is the one being replaced.
 		const auto* note = SelectNeuralRuntime(a_options);
@@ -100,14 +100,18 @@ namespace TheosRenderPipeline::SourceDLSSG
             // Use the caller's real scene extent, then re-admit after dimension/pass changes.
             const auto width = sceneExtent.width ? sceneExtent.width : (options.beforeUpscaling ? motion_.desc.Width : presenterDesc_.BufferDesc.Width);
             const auto height = sceneExtent.height ? sceneExtent.height : (options.beforeUpscaling ? motion_.desc.Height : presenterDesc_.BufferDesc.Height);
-            if (!neuralAdmissionChecked_ || neuralCapability_.estimateBytes != NeuralRendering::EstimatePascalMemory(width, height, options.passes)) {
-                const auto retained = neuralPass_ && !neuralPass_->NeedsRecreation(options, motion_.desc.Width, motion_.desc.Height) ?
-                    NeuralRendering::EstimatePascalMemory(width, height, options.passes) : 0;
-                neuralCapability_ = NeuralRendering::QueryNeuralAdmission(device12_->GetAdapterLuid(), options.runtimePath,
+            const auto retained = neuralPass_ && !neuralPass_->NeedsRecreation(options, motion_.desc.Width, motion_.desc.Height) ?
+                NeuralRendering::EstimatePascalMemory(width, height, options.passes) : 0;
+            const NeuralRendering::NeuralAdmissionRequest request{options.runtimePath, width, height,
+                static_cast<unsigned>(options.passes), options.beforeUpscaling, NeuralRendering::RuntimeKernelsSupported(), retained};
+            neuralCapability_ = neuralAdmissionCache_.Get(request, NeuralRendering::NeuralAdmissionCache::Clock::now(), [&] {
+                return NeuralRendering::QueryNeuralAdmission(device12_->GetAdapterLuid(), options.runtimePath,
                     width, height, options.passes, NeuralRendering::RuntimeKernelsSupported(), true, retained);
-                neuralAdmissionReason_ = neuralCapability_.Refusal() ? neuralCapability_.Refusal() : "";
-                neuralAdmissionChecked_ = width && height;
-            }
+            }, NeuralRendering::QueryNeuralBudget);
+            // Pending is not a policy refusal or a runtime failure. Do not enter
+            // runtime probing/feature creation until a real world extent exists.
+            if (neuralCapability_.extentPending) { return NeuralRendering::kPascalExtentPending; }
+            neuralAdmissionReason_ = neuralCapability_.Refusal() ? neuralCapability_.Refusal() : "";
             if (!neuralAdmissionReason_.empty()) { return neuralAdmissionReason_.c_str(); }
         }
 		const auto retainedBuild = neuralPass_ ? neuralPass_->RetainedRuntimeBuild(options.runtimePath) :
@@ -146,7 +150,7 @@ namespace TheosRenderPipeline::SourceDLSSG
         const bool replacement = neuralPass_ && neuralPass_->NeedsRecreation(options, motion_.desc.Width, motion_.desc.Height);
         const auto retained = neuralPass_ && !replacement ? NeuralRendering::EstimatePascalMemory(width, height, options.passes) : 0;
         auto admission = NeuralRendering::QueryNeuralAdmission(device12_->GetAdapterLuid(), options.runtimePath,
-            width, height, options.passes, NeuralRendering::RuntimeKernelsSupported(), log, retained);
+            width, height, options.passes, NeuralRendering::RuntimeKernelsSupported(), log, retained, log);
         admission.budgetPendingRetirement = replacement;
         return admission;
     }
@@ -194,14 +198,14 @@ namespace TheosRenderPipeline::SourceDLSSG
         const auto releasing = std::chrono::steady_clock::now();
         if (!neuralPass_->NeedsResourceRecreation(options, guideWidth, guideHeight)) {
             if (!neuralPass_->RetireChangedModels(options)) { return FailNeuralRecording(); }
-            neuralAdmissionChecked_ = false;
+            neuralAdmissionCache_.Reset();
             logger::info("[SourceDLSSG NR] model change: GPU drain {:.0f} ms, selective retirement {:.0f} ms; resources and unaffected features retained",
                 drained, since(releasing));
             return true;
         }
         if (!neuralPass_->ReleaseAfterRetirement()) { return FailNeuralRecording(); }
         neuralPass_.reset();
-        neuralAdmissionChecked_ = false; // DXGI usage is re-queried after release
+        neuralAdmissionCache_.Reset(); // DXGI usage is re-queried after release
         neuralAdmissionReason_.clear();
         logger::info("[SourceDLSSG NR] rebuild: GPU drain {:.0f} ms, previous feature released in {:.0f} ms",
             drained, since(releasing));
@@ -229,7 +233,7 @@ namespace TheosRenderPipeline::SourceDLSSG
         const auto width = sceneExtent.width ? sceneExtent.width : (options.beforeUpscaling ? motion_.desc.Width : presenterDesc_.BufferDesc.Width);
         const auto height = sceneExtent.height ? sceneExtent.height : (options.beforeUpscaling ? motion_.desc.Height : presenterDesc_.BufferDesc.Height);
         const auto admission = CheckNeuralAdmission(options, width, height, true);
-        if (admission.Refusal()) { return; } // preserve reason and unchanged-Apply affordance
+        if (admission.extentPending || admission.Refusal()) { return; } // preserve reason and unchanged-Apply affordance
         // Recovery already retired and destroyed the previous owner. No vendor
         // call or list is active here. Retained/unsafe owners never reach this.
         if (!NeuralRendering::ResetLaunchHookAfterRetirement()) { return; }
@@ -237,7 +241,7 @@ namespace TheosRenderPipeline::SourceDLSSG
         neuralHistory_.Invalidate();
         std::scoped_lock lock(neuralMutex_);
         neuralAvailability_.Reset();
-        neuralAdmissionChecked_ = false;
+        neuralAdmissionCache_.Reset();
         neuralAdmissionReason_.clear();
         neuralReportedUnavailable_ = nullptr;
         neuralSnapshot_.failed = neuralSnapshot_.sessionDisabled = neuralSnapshot_.retryable = false;

@@ -1,6 +1,7 @@
 #include "GPU.h"
 #include "KernelProfiler.h"
 #include "FrameGen/NeuralAdmission.h"
+#include "FrameGen/NeuralRenderingRuntimeIdentity.h"
 #include "FrameGen/SourceDLSSGSettings.h"
 #include "VendorRecovery.h"
 #include <map>
@@ -39,7 +40,7 @@ int wmain(int argc,wchar_t** argv){
     if(exportFrames){frames.open(frameFile,std::ios::binary);Require(frames.good(),"open measured float4 output");}
     SetErrorMode(SEM_FAILCRITICALERRORS|SEM_NOGPFAULTERRORBOX|SEM_NOOPENFILEERRORBOX);
     const std::wstring mode=argv[2];
-    const bool production = mode == L"production" || mode == L"admission-low-budget";
+    const bool production = mode == L"production" || mode == L"production-startup" || mode == L"admission-low-budget";
     const bool coldStart = mode == L"coldpasses" || production;
     const bool twoPassCases = mode == L"passes" || mode == L"coldpasses";
     Require(mode == L"native" || mode == L"uniform" || mode == L"peripheral" || twoPassCases || production, "benchmark mode");
@@ -103,7 +104,41 @@ int wmain(int argc,wchar_t** argv){
         const auto candidates = AutomaticNeuralRuntimes(hardware.architecture, true);
         Require(!candidates.empty(), "Automatic production runtime candidates");
         options.runtimePath = std::filesystem::path(argv[1]).parent_path() / std::filesystem::path(candidates.front()).filename();
-        auto admission = TheosRenderPipeline::NeuralRendering::QueryNeuralAdmission(gpu.device->GetAdapterLuid(), options.runtimePath, w, h, 1, true, true);
+        using namespace TheosRenderPipeline::NeuralRendering;
+        NeuralAdmissionCache admissionCache;
+        NeuralAdmissionRequest request{options.runtimePath, mode==L"production-startup" ? 0u : w,
+            mode==L"production-startup" ? 0u : h, 1, true, true, 0};
+        auto now = NeuralAdmissionCache::Clock::now();
+        unsigned queries{};
+        auto query = [&] { ++queries; return QueryNeuralAdmission(gpu.device->GetAdapterLuid(), options.runtimePath,
+            request.width, request.height, 1, true, true); };
+        if (mode==L"production-startup") {
+            const auto hashes = TheosRenderPipeline::NeuralRenderingRuntimeIdentity::HashInvocations();
+            const auto probes = GetAdmissionMetrics();
+            const auto begin = NeuralAdmissionCache::Clock::now();
+            for(unsigned i=0;i<1000000;++i) {
+                const auto& pending=admissionCache.Get(request,now,query,QueryNeuralBudget);
+                Require(pending.extentPending && !pending.Refusal(),"saved NR pending before world extent");
+            }
+            const auto ns=std::chrono::duration<double,std::nano>(NeuralAdmissionCache::Clock::now()-begin).count()/1000000;
+            Require(queries==1 && hashes==TheosRenderPipeline::NeuralRenderingRuntimeIdentity::HashInvocations() &&
+                probes.packProbes==GetAdmissionMetrics().packProbes && probes.budgetQueries==GetAdmissionMetrics().budgetQueries,
+                "startup frames never hash assets or probe budget");
+            Require(ns<10000,"pending admission per-frame cost bound");
+            std::printf("STARTUP_PENDING frames=1000000 admissionQueries=%u hashCalls=0 packProbes=0 budgetQueries=0 nsPerFrame=%.1f\n",queries,ns);
+            request.width=w; request.height=h;
+        }
+        auto admission = admissionCache.Get(request,now,query,QueryNeuralBudget);
+        const auto hashes=TheosRenderPipeline::NeuralRenderingRuntimeIdentity::HashInvocations();
+        const auto probes=GetAdmissionMetrics();
+        const auto begin=NeuralAdmissionCache::Clock::now();
+        for(unsigned i=0;i<1000000;++i) { admissionCache.Get(request,now,query,QueryNeuralBudget); }
+        const auto ns=std::chrono::duration<double,std::nano>(NeuralAdmissionCache::Clock::now()-begin).count()/1000000;
+        Require(hashes==TheosRenderPipeline::NeuralRenderingRuntimeIdentity::HashInvocations() &&
+            probes.packProbes==GetAdmissionMetrics().packProbes && probes.budgetQueries==GetAdmissionMetrics().budgetQueries,
+            "admitted or refused frames never repeat hashing or probes");
+        Require(ns<10000,"stable admission per-frame cost bound");
+        std::printf("ADMISSION_STABLE frames=1000000 admissionQueries=%u hashCalls=0 packProbes=0 budgetQueries=0 nsPerFrame=%.1f\n",queries,ns);
         if (mode == L"admission-low-budget") { admission.budgetKnown = true; admission.budgetBytes = admission.usageBytes + 1; }
         if (const auto* reason = admission.Refusal()) { std::printf("ADMISSION_REFUSED %s\n", reason); return 3; }
         std::printf("PRODUCTION_ADMITTED Automatic enabled=1 passes=1 beforeUpscaling=1 research=0 estimatedBytes=%llu\n", admission.estimateBytes);
