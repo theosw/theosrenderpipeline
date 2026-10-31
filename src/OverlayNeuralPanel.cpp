@@ -612,7 +612,7 @@ void DrawNeuralSettings(const OverlayUI::FrameView& view, TheosRenderPipeline::S
         // The runtime is not a preset setting, so presets show only the switch.
         const bool base = !ActivePresetDecor();
         const bool lockSwitch = !TheosRenderPipeline::CanEditNeuralEnabled(draft.neuralEnabled, !unavailable);
-        SettingRow(TR("Neural Rendering"), "NeuralRendering", false, base ? (view.neuralPascal && lockSwitch) : lockSwitch, [&] {
+        SettingRow(TR("Neural Rendering"), "NeuralRendering", false, base ? false : lockSwitch, [&] {
             ImGui::BeginDisabled(base && lockSwitch);
             bool changed = ImGui::Checkbox("##v", &draft.neuralEnabled);
             ImGui::EndDisabled();
@@ -621,9 +621,7 @@ void DrawNeuralSettings(const OverlayUI::FrameView& view, TheosRenderPipeline::S
                 const auto& style = ImGui::GetStyle();
                 const float mark = ImGui::CalcTextSize("!").x + style.ItemSpacing.x;
                 ImGui::SameLine();
-                ImGui::BeginDisabled(view.neuralPascal && !view.neuralAdmissionReason.empty());
                 changed |= DrawNeuralRuntimeCombo(view, draft, ImGui::GetContentRegionAvail().x - mark);
-                ImGui::EndDisabled();
                 ImGui::SameLine();
                 ImGui::AlignTextToFramePadding();
                 ImGui::TextColored(kOchre, "!");
@@ -1142,8 +1140,11 @@ bool DrawNeuralRuntimeCombo(const OverlayUI::FrameView& view, TheosRenderPipelin
     ImGui::SetNextItemWidth(width);
     if (ImGui::BeginCombo("##runtime", nullptr, ImGuiComboFlags_CustomPreview))
     {
-        for (const auto& runtime : view.neuralRuntimes)
+        for (std::size_t i = 0; i < view.neuralRuntimes.size(); ++i)
         {
+            const auto& runtime = view.neuralRuntimes[i];
+            const auto reason = i < view.neuralRuntimeReasons.size() ? view.neuralRuntimeReasons[i] : std::string{};
+            ImGui::BeginDisabled(!reason.empty());
             ImGui::PushID(runtime.c_str());
             const bool selected = runtime == draft.neuralRuntime;
             if (ImGui::Selectable(NeuralRuntimeLabel(runtime).c_str(), selected) && !selected)
@@ -1152,7 +1153,10 @@ bool DrawNeuralRuntimeCombo(const OverlayUI::FrameView& view, TheosRenderPipelin
                 changed = true;
             }
             if (selected) { ImGui::SetItemDefaultFocus(); }
-            if (ImGui::IsItemHovered()) { ImGui::SetTooltip(TR("File: %s"), runtime.c_str()); }
+            ImGui::EndDisabled();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+                ImGui::SetTooltip("%s%s%s", runtime.c_str(), reason.empty() ? "" : "\n", reason.empty() ? "" : TR(reason.c_str()));
+            }
             ImGui::PopID();
         }
         ImGui::EndCombo();

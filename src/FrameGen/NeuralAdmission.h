@@ -51,6 +51,12 @@ namespace TheosRenderPipeline::NeuralRendering
         }
     };
 
+    inline const char* NeuralRuntimeChoiceReason(bool isPascal, bool assetsVerified)
+    {
+        return isPascal && !assetsVerified ?
+            "GTX 10 NR requires original NVIDIA NR 310.9.16 and the matching Universal compatibility pack. Select Automatic or the installed original 310.9.16 runtime." : nullptr;
+    }
+
     // Conservative admission estimate, not measured residency: declared globals,
     // 128 MiB fixed feature allowance per pass, 1024 B/model pixel for vendor
     // activations/history and 128 B/scene pixel for TRP preparation/resolve/history,

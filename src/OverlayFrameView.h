@@ -52,6 +52,7 @@ struct OverlayUI::FrameView
     std::string neuralRuntimePath;
     // nvngx_dlssnr*.dll files NR can switch to, refreshed every few seconds.
     std::vector<std::string> neuralRuntimes;
+    std::vector<std::string> neuralRuntimeReasons;
     bool sourceReady{};
     std::string neuralAdmissionReason;
     bool neuralPascal{};

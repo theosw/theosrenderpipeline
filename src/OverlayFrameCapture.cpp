@@ -100,7 +100,9 @@ OverlayUI::FrameView OverlayUI::CaptureFrameView()
     static TheosRenderPipeline::NeuralRendering::NeuralCapability admission;
     static Clock::time_point admittedAt{};
     static TheosRenderPipeline::SourceDLSSG::Preferences admittedPreferences;
+    static std::vector<std::string> runtimeReasons, admittedRuntimes;
     if (Clock::now() - admittedAt > std::chrono::seconds(3) ||
+        admittedRuntimes != view.neuralRuntimes ||
         admittedPreferences.neuralRuntime != settingsDraft.sourceDLSSG.neuralRuntime ||
         !TheosRenderPipeline::SameNeuralPreferences(admittedPreferences, settingsDraft.sourceDLSSG)) {
         auto options = backend.NeuralConfiguration();
@@ -115,8 +117,19 @@ OverlayUI::FrameView OverlayUI::CaptureFrameView()
         options = TheosRenderPipeline::SourceDLSSG::NormalizeNeuralRoute(std::move(options), view.communityShaders);
         admission = backend.CheckNeuralAdmission(options, options.beforeUpscaling ? view.renderWidth : view.outputWidth,
             options.beforeUpscaling ? view.renderHeight : view.outputHeight);
+        runtimeReasons.clear();
+        for (const auto& runtime : view.neuralRuntimes) {
+            const auto path = TheosRenderPipeline::SourceDLSSG::ResolveNeuralRuntimeSetting(runtime,
+                TheosRenderPipeline::PluginPaths::Directory(), backend.NeuralComputeCapability(),
+                TheosRenderPipeline::NeuralRendering::RuntimeKernelsSupported());
+            const auto* reason = TheosRenderPipeline::NeuralRendering::NeuralRuntimeChoiceReason(admission.Pascal(),
+                !admission.Pascal() || (admission.universal && TheosRenderPipeline::NeuralRendering::VerifyPascalAssets(path)));
+            runtimeReasons.emplace_back(reason ? reason : "");
+        }
+        admittedRuntimes = view.neuralRuntimes;
         admittedPreferences = draft; admittedAt = Clock::now();
     }
+    view.neuralRuntimeReasons = runtimeReasons;
     view.neuralPascal = admission.Pascal();
     view.neuralAdmissionReason = admission.Refusal() ? admission.Refusal() : "";
 #endif

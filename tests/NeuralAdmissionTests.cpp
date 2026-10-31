@@ -1,6 +1,7 @@
 #include "FrameGen/NeuralAdmission.h"
 #include "FrameGen/NeuralRuntimeKernels.h"
 #include "FrameGen/NeuralResearch.h"
+#include "FrameGen/NeuralRuntimeFiles.h"
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
@@ -107,6 +108,21 @@ int wmain(int argc, wchar_t** argv)
             std::filesystem::resize_file(pack, kPascalPackBytes - 1);
             Require(!VerifyPascalPack(pack), "truncation refuses");
         }
+        // Optional installed-package boundary: use the actual signed runtime and
+        // pinned pack; the legacy/custom selection remains visible but refused.
+        if (argc > 2) {
+            using namespace TheosRenderPipeline::SourceDLSSG;
+            const auto original = std::filesystem::path(argv[2]);
+            Require(VerifyPascalAssets(original, true), "correctly installed original runtime and Pascal package accepted");
+            for (const auto saved : {kDefaultNeuralRuntime, kInt8NeuralRuntime, std::string_view("custom.dll")}) {
+                Require(NormalizeNeuralRuntimeSetting(std::string(saved), true) == saved, "saved explicit incompatible selection survives normalization");
+                const auto selected = original.parent_path() / std::filesystem::path(saved).filename();
+                Require(NeuralRuntimeChoiceReason(true, VerifyPascalAssets(selected)) != nullptr, "incompatible saved runtime greyed with reason");
+            }
+            Require(!NeuralRuntimeChoiceReason(true, VerifyPascalAssets(original)), "installed original 310.9.16 remains selectable for repair");
+        }
+        Require(NeuralRuntimeChoiceReason(true,false) && !NeuralRuntimeChoiceReason(true,true) &&
+            !NeuralRuntimeChoiceReason(false,false), "per-choice Pascal reasons preserve admitted repair and RTX choices");
         std::filesystem::remove(pack); std::filesystem::remove(temp);
         std::cout << "PASS admission matrix, unknown facts, budget boundaries and pack integrity\n";
         return 0;
