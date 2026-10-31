@@ -1,5 +1,6 @@
 #include "FrameGen/NeuralRuntimeKernels.h"
 #include "FrameGen/NeuralRuntimeKernelsInternal.h"
+#include "FrameGen/NeuralRuntimeKernelRegistry.h"
 #include <array>
 #include <cstdio>
 #include <cstdlib>
@@ -150,8 +151,44 @@ static void UnitTests()
     Require(Publish(bad, overlap, reason) == Publication::Refused && bad.protects == 0, "overlapping patches refused");
     auto outside = plan; outside[0].rva = ImageSize;
     Require(Publish(bad, outside, reason) == Publication::Refused && bad.protects == 0, "out-of-image patch refused");
+    // Exercise the actual pinned-module registry and publication transaction.
+    // A clean rollback frees storage, but retains ownership for the next Apply.
+    {
+        InstallationRegistry registry;
+        const auto handle = reinterpret_cast<HMODULE>(module);
+        FakeMemory memory(plan);
+        memory.failFlush = 1;
+        unsigned attempts{}, allocations{}, pins{};
+        auto apply = [&](bool fresh) {
+            return registry.Apply(handle, fresh, [](Installation&) -> std::optional<RuntimeKernelResult> { return {}; },
+                [&](Installation*) -> RuntimeKernelResult {
+                    ++attempts;
+                    Require(Matches(memory, plan, false), "retry revalidates originals before preparing new storage");
+                    Installation pending;
+                    pending.plan = plan;
+                    auto* entry = registry.Retain(handle, std::move(pending), [&] { ++pins; return true; });
+                    ++allocations;
+                    const auto publication = Publish(memory, entry->plan, entry->result.status);
+                    entry->result.applied = publication == Publication::Applied;
+                    entry->result.unsafe = publication == Publication::Unsafe;
+                    return entry->result;
+                });
+        };
+        const auto refused = apply(true);
+        Require(!refused.applied && !refused.unsafe && registry.Find(handle), "clean refusal retains the pinned registry entry");
+        Require(Matches(memory, plan, false), "clean refusal restored original bytes");
+        Require(apply(false).applied, "resident pinned module retries successfully after clean refusal");
+        Require(attempts == 2 && allocations == 2 && pins == 1, "retry reacquires storage without requiring a fresh module");
+        Require(apply(false).applied && attempts == 2, "successful installation stays cached");
+        registry.Find(handle)->result = {false, true, "unsafe"};
+        Require(apply(false).unsafe && attempts == 2, "unsafe installation is permanently retained without another preparation");
+        InstallationRegistry foreign;
+        Require(!foreign.Apply(handle, false, [](Installation&) -> std::optional<RuntimeKernelResult> { return {}; },
+            [&](Installation*) -> RuntimeKernelResult { Require(false, "foreign resident module must never prepare"); return {}; }).applied,
+            "a resident module without registry ownership still refuses");
+    }
     for (const auto at : {0u,8u,12u,16u,48u,52u,56u,64u,512u,520u}) {
-        auto corrupt = pack; corrupt[at] ^= 1;
+    auto corrupt = pack; corrupt[at] ^= 1;
         Require(!MakePlan(corrupt, module, storage, plan, reason) && plan.empty(), "malformed pack rejected before publication");
     }
     auto corrupt = pack; Put<std::uint64_t>(corrupt, 56, UINT64_MAX-255);

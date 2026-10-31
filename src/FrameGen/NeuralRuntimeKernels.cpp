@@ -1,6 +1,7 @@
 #include "NeuralRuntimeKernels.h"
 #include "NeuralAdmission.h"
 #include "NeuralRuntimeKernelsInternal.h"
+#include "NeuralRuntimeKernelRegistry.h"
 
 #include <bcrypt.h>
 #include <algorithm>
@@ -20,9 +21,8 @@ namespace TheosRenderPipeline::NeuralRendering
         using namespace KernelPacks;
         // Pinning the image also prevents HMODULE address reuse. The raw storage
         // intentionally has process lifetime, including failed feature retirement.
-        struct Installation { void* storage{}; std::size_t storageBytes{}; bool research{}; std::string digest; LaunchRequirements launches; std::vector<Patch> plan; RuntimeKernelResult result; };
         std::mutex installationMutex;
-        std::map<HMODULE, Installation> installations;
+        InstallationRegistry installations;
 
         bool Copy(void* destination, const void* source, std::size_t size)
         {
@@ -222,16 +222,16 @@ namespace TheosRenderPipeline::NeuralRendering
     LaunchRequirements RuntimeLaunchRequirements(HMODULE module)
     {
         std::scoped_lock lock(installationMutex);
-        const auto it = installations.find(module);
-        return it != installations.end() && it->second.result.applied ? it->second.launches : LaunchRequirements{};
+        const auto* installed = installations.Find(module);
+        return installed && installed->result.applied ? installed->launches : LaunchRequirements{};
     }
 
     int RuntimeKernelBundle(HMODULE module, const void* data, std::uint32_t bytes)
     {
         std::scoped_lock lock(installationMutex);
-        const auto it = installations.find(module);
-        if (it == installations.end() || !it->second.result.applied) { return -1; }
-        const auto* pack = static_cast<const std::uint8_t*>(it->second.storage);
+        const auto* installed = installations.Find(module);
+        if (!installed || !installed->result.applied) { return -1; }
+        const auto* pack = static_cast<const std::uint8_t*>(installed->storage);
         for (int i=0; i<15; ++i) {
             std::uint64_t offset{}, size{};
             std::memcpy(&offset, pack+48+i*24+8, 8);
@@ -250,10 +250,9 @@ namespace TheosRenderPipeline::NeuralRendering
         const bool pascalPack = !research && packPath.filename() == kPascalPackName;
         std::scoped_lock lock(installationMutex);
         WinMemory memory(module);
-        if (auto it = installations.find(module); it != installations.end()) {
-            auto& installed = it->second;
+        return installations.Apply(module, newlyLoaded, [&](Installation& installed) -> std::optional<RuntimeKernelResult> {
             if (!research && installed.digest != (pascalPack ? kPascalPackSha256 : kKernelPackSha256)) {
-                return {false, false, "a different NR compatibility pack is already installed; restart required"};
+                return RuntimeKernelResult{false, false, "a different NR compatibility pack is already installed; restart required"};
             }
             if (installed.result.applied) {
                 MEMORY_BASIC_INFORMATION info{};
@@ -263,9 +262,8 @@ namespace TheosRenderPipeline::NeuralRendering
                     installed.result = {false, true, "installed NR runtime or storage changed; relaunch required"};
                 }
             }
-            return installed.result;
-        }
-        if (!module || !newlyLoaded) { return {false, false, "NR installation needs exclusive ownership of a fresh runtime; restart required"}; }
+            return std::nullopt;
+        }, [&](Installation*) -> RuntimeKernelResult {
         std::wstring filename(32768, L'\0');
         const auto length = GetModuleFileNameW(module, filename.data(), static_cast<DWORD>(filename.size()));
         if (!length || length >= filename.size()) { return {false, false, "cannot identify the loaded NR module"}; }
@@ -303,14 +301,13 @@ namespace TheosRenderPipeline::NeuralRendering
         // Allocate registry/status before publication. Pin before the first write
         // so both successful and uncertain transactions can retain all targets.
         pending.result.status.reserve(128);
-        auto [entry, inserted] = installations.emplace(module, std::move(pending));
-        HMODULE pinned{};
-        if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN,
-                reinterpret_cast<LPCWSTR>(module), &pinned) || pinned != module) {
-            installations.erase(entry);
-            return {false, false, "NR runtime could not be retained for the process lifetime"};
-        }
-        auto& installed = entry->second;
+        auto* entry = installations.Retain(module, std::move(pending), [&] {
+            HMODULE pinned{};
+            return GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN,
+                reinterpret_cast<LPCWSTR>(module), &pinned) && pinned == module;
+        });
+        if (!entry) { return {false, false, "NR runtime could not be retained for the process lifetime"}; }
+        auto& installed = *entry;
         const auto result = Publish(memory, installed.plan, installed.result.status);
         installed.result.applied = result == Publication::Applied;
         installed.result.unsafe = result == Publication::Unsafe;
@@ -320,5 +317,6 @@ namespace TheosRenderPipeline::NeuralRendering
                 memory.failedOperation, memory.failedRva, memory.error, memory.observed, memory.expected);
         }
         return installed.result;
+        });
     }
 }
