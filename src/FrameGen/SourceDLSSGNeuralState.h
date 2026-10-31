@@ -78,6 +78,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 	struct NeuralSnapshot
 	{
 		bool active{ false }, failed{ false };
+		// Post-admission status only; requested/saved options are never masked.
+		bool sessionDisabled{}, retryable{};
+		std::string reason;
 		int effectivePasses{1};
 		NeuralRendering::PassOverride passOverride{NeuralRendering::PassOverride::None};
 		std::uint64_t evaluations{}, resets{};

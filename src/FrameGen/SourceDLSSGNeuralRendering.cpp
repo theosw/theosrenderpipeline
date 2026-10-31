@@ -1,4 +1,5 @@
 #include <PCH.h>
+#include "NeuralFaultInjection.h"
 #include "SourceDLSSGNeuralRendering.h"
 #include "TRPNeuralShaders.generated.h"
 #include <chrono>
@@ -69,7 +70,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 	bool NeuralPass::RetireChangedModels(const NeuralOptions& options)
 	{
 		if (reconstruction_.preset != options.reconstruction.preset) {
-			if (!feature_.ResetAfterRetirement()) { return false; }
+			if (!feature_.ResetAfterRetirement()) { status_ = feature_.Status(); return false; }
 			firstHistoryInvalid_ = true;
 			reconstruction_.preset = options.reconstruction.preset;
 		}
@@ -77,7 +78,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		for (std::size_t i = 0; i + 1 < static_cast<std::size_t>(options.passes); ++i) {
 			const auto wanted = options.EffectiveExtra(i);
 			if (extra_[i].settings.preset != wanted.preset) {
-				if (!extra_[i].feature.ResetAfterRetirement()) { return false; }
+				if (!extra_[i].feature.ResetAfterRetirement()) { status_ = extra_[i].feature.Status(); return false; }
 				extra_[i].settings.preset = wanted.preset;
 				// Retain all unaffected owners, but let only a ready prefix run.
 				createdPasses_ = (std::min)(createdPasses_, static_cast<int>(i) + 1);
@@ -90,6 +91,23 @@ namespace TheosRenderPipeline::SourceDLSSG
 		rateSchedule_ = {};
 		return true;
 	}
+
+    bool NeuralPass::RecoverySafe() const
+    {
+        if (!feature_.RecoverySafe()) { return false; }
+        for (const auto& extra : extra_) { if (!extra.feature.RecoverySafe()) { return false; } }
+        return true;
+    }
+    bool NeuralPass::ReleaseAfterRetirement()
+    {
+        // Check every creation queue before releasing any feature.
+        if (!RecoverySafe()) { return false; }
+        if (!feature_.ReleaseAfterRetirement()) { status_ = feature_.Status(); return false; }
+        for (auto& extra : extra_) {
+            if (!extra.feature.ReleaseAfterRetirement()) { status_ = extra.feature.Status(); return false; }
+        }
+        return true;
+    }
 
 	void NeuralPass::InitializeTelemetry(ID3D12Device* device, std::uint64_t timestampFrequency)
 	{
@@ -188,6 +206,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 				(reconstruction.inputScale < 1 || reconstruction.peripheralCompression) &&
 				(sceneDesc.Format == DXGI_FORMAT_R16G16B16A16_FLOAT || sceneDesc.Format == DXGI_FORMAT_R32G32B32A32_FLOAT || sceneDesc.Format == DXGI_FORMAT_R8G8B8A8_UNORM);
 			auto create = [&](D3D12_RESOURCE_DESC desc, Microsoft::WRL::ComPtr<ID3D12Resource>& out) {
+				if (NeuralRendering::FaultInjection::Hit(NeuralRendering::FaultInjection::Point::Allocation)) { status_ = "injected NR allocation refusal"; return false; }
 				// The private NR outputs never alias a D3D11 resource or the swapchain.
 				desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
 				D3D12_HEAP_PROPERTIES heap{}; heap.Type = D3D12_HEAP_TYPE_DEFAULT;
@@ -272,19 +291,6 @@ namespace TheosRenderPipeline::SourceDLSSG
 			info.networkPreset = NeuralRendering::RequestedNetworkPreset(plan.settings.preset);
 			if (reconstruction.peripheralCompression) { info.renderWidth = plan.width; info.renderHeight = plan.height; }
 			if (!feature.EnsureInitialized(info)) {
-				// NGX refusing a later pass is not a reason to drop the runtime: the
-				// passes before it keep running, and this one is not tried again
-				// until NR is recreated. Nothing was recorded for it.
-				if (feature.RefusedCreation()) {
-					const int running = static_cast<int>(i) + 1;
-					startablePasses_ = running;
-					ramp.created = running;
-					ramp.ready = (std::min)(ramp.ready, running);
-					passNote_ = std::format("Pass {} could not start: {}; running {} pass{}", running + 1,
-						feature.Status(), running, running == 1 ? "" : "es");
-					logger::warn("[DLSSNR Source] {}", passNote_);
-					break;
-				}
 				status_ = std::format("NR pass {} feature: {}", i + 2, feature.Status()); return false;
 			}
 			if (plan.resize && !NeuralRendering::UsesReconstructionContract(feature.Build())) {
@@ -399,6 +405,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			!std::isfinite(scaleX) || !std::isfinite(scaleY) || !scaleX || !scaleY) {
 			status_ = "NR source input contract is incomplete"; return false;
 		}
+		retainedInputs_ = { motion, depth, ui, hudless, composed, objectMask };
 		if (!Initialize(device, options, motion, hudless, composed)) { return false; }
 		reset |= std::exchange(firstHistoryInvalid_, false);
 		// Before upscaling the held frame would reach DLSS without its jitter.

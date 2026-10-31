@@ -210,7 +210,7 @@ void OverlayUI::DrawSettingsActions()
         }
         ImGui::EndDisabled();
         ImGui::SameLine();
-        ImGui::BeginDisabled(stagedChanges == 0 || capturingHotkey);
+        ImGui::BeginDisabled((stagedChanges == 0 && !view.sourceNeural.retryable) || capturingHotkey);
         if (ImGui::Button(TR("Apply"), ImVec2(Px(100.0f), 0.0f)))
         {
             ApplySettingsDraft(false);

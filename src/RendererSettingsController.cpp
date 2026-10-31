@@ -101,7 +101,7 @@ RendererSettingsResult RendererSettingsController::Apply(const RendererSettingsD
         settingsDraft.sourceDLSSG.neuralRuntime, PluginPaths::Directory(),
         SourceDLSSG::Backend::Get().NeuralComputeCapability(), NeuralRendering::RuntimeKernelsSupported()).string();
     capabilities.neuralRuntime = TheosRenderPipeline::SourceDLSSG::NeuralRuntimePresent(draftRuntime);
-    capabilities.neuralOperational = SourceDLSSG::Backend::Get().Ready() && !SourceDLSSG::Backend::Get().NeuralState().failed;
+    capabilities.neuralOperational = SourceDLSSG::Backend::Get().Ready() && (!SourceDLSSG::Backend::Get().NeuralState().failed || SourceDLSSG::Backend::Get().NeuralState().retryable);
 #endif
     const auto current = Capture(capabilities.neuralRuntime, false);
     if (const char* error = ValidateRendererSettings(settingsDraft, capabilities, &current))
@@ -184,6 +184,7 @@ RendererSettingsResult RendererSettingsController::Apply(const RendererSettingsD
         options.passes = frameGen_.settings.sourceDLSSG.neuralPasses;
         options.combat = frameGen_.settings.sourceDLSSG.neuralCombat;
         source.ConfigureNeuralRendering(std::move(options));
+        if (!a_saveAsDefault && settingsDraft.sourceDLSSG.neuralEnabled) { source.RequestNeuralRetry(); }
     }
     Appearance::Runtime::Get().Configure(settingsDraft.appearance);
     if (a_saveAsDefault)

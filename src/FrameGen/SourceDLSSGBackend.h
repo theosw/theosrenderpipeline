@@ -1,5 +1,6 @@
 #pragma once
 #include "SteadyPacing.h"
+#include "NeuralRecovery.h"
 #include "XeFGModelBeat.h"
 #include <chrono>
 #include "SourceRetirementPolicy.h"
@@ -118,6 +119,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			ID3D11Texture2D* a_depth, ID3D11Texture2D* a_ui, ID3D11Texture2D* a_hudless,
 			FrameExtent a_renderExtent, UINT a_displayWidth, UINT a_displayHeight, bool a_neuralEligible = true);
 		void ConfigureNeuralRendering(NeuralOptions a_options);
+		void RequestNeuralRetry(); // Apply only; consumed at the next render boundary.
 		// Freeze NR settings before DLSS, optionally replace its D3D11 input, and
 		// return a shared history reset. A null camera skips the early NR stage.
 		bool EvaluateNeuralBeforeUpscaling(const NeuralOptions& options, const sl::Constants* camera,
@@ -267,7 +269,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 		bool CopyDepth(ID3D11Texture2D* a_depth);
 		void ReleaseGuides();
 		bool RecreateNeuralIfNeeded(const NeuralOptions& options);
-		bool FailNeuralRecording();
+		bool FailNeuralRecording(std::string failure = {});
+		void ApplyNeuralRetry();
 		const char* NeuralUnavailableReason(const NeuralOptions& options);
 		void RecordPresentationFeedback(std::uint32_t a_presentCount,
 			std::int64_t a_observedQpc, std::int64_t a_syncQpc);
@@ -404,7 +407,6 @@ namespace TheosRenderPipeline::SourceDLSSG
 		void RefuseNeuralRuntime(const std::filesystem::path& runtime, const std::string& reason, std::string_view advice);
 		// After a failed NR Record: true when NGX refused to create the feature,
 		// so nothing was recorded and NR moves to the next runtime instead of failing.
-		bool RefuseNeuralCreation(const std::filesystem::path& runtime);
 #endif
 		std::unique_ptr<HDRPass> hdrPass_;
 		// Renderer-owned HDR output (render thread except the guarded settings/state).
@@ -435,6 +437,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 		NeuralRendering::CompareSettings neuralCompare_; // Protected by neuralMutex_.
 		NeuralOptions frameNeuralOptions_;
 		NeuralSnapshot neuralSnapshot_;
+		NeuralRendering::Recovery neuralRecovery_;
+		std::atomic<bool> neuralRetryRequested_{};
 		sl::Constants frameConstants_{};
 		bool neuralEligible_{};
 		bool frameNeuralReset_{};

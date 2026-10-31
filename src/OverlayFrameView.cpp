@@ -89,7 +89,7 @@ void OverlayUI::DescribeFrameView(FrameView& view) const
     view.neuralBeforeUpscaling = neural.beforeUpscaling;
     if (!neural.enabled || view.sourceNeural.failed)
     {
-        std::snprintf(view.neuralDetail, sizeof(view.neuralDetail), "%s", view.sourceNeural.failed ? TR("Failed") : TR("Off"));
+        std::snprintf(view.neuralDetail, sizeof(view.neuralDetail), "%s", view.sourceNeural.sessionDisabled ? TR("Off this session") : view.sourceNeural.failed ? TR("Failed") : TR("Off"));
     }
     else if (!view.sourceNeural.active)
     {

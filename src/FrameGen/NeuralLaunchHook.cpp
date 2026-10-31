@@ -1,5 +1,6 @@
 #include "NeuralLaunchHook.h"
 #include "NeuralLaunchSubmission.h"
+#include "NeuralFaultInjection.h"
 #include "NeuralRuntimeKernels.h"
 #include <PCH.h>
 #include <cstring>
@@ -31,6 +32,7 @@ namespace TheosRenderPipeline::NeuralRendering
             std::map<void*,int> bundles;
             std::set<std::string> logged;
             bool resolved{};
+            bool unsafe{};
             std::mutex mutex;
         };
         // No static destructor: the DLL and callbacks remain valid at process exit.
@@ -104,7 +106,8 @@ namespace TheosRenderPipeline::NeuralRendering
                         kernels[i].grid.x,kernels[i].grid.y,kernels[i].grid.z,r.grid.x,r.grid.y,r.grid.z,count);
                 }
             }
-            const auto result=forward(list,rewritten.empty()?kernels:rewritten.data(),count);
+            if (FaultInjection::Hit(FaultInjection::Point::Chain)) { h.bindings.failure="injected NR chain refusal"; RejectedNeuralLists::Get().Reject(list); return 0; }
+            const auto result=FaultInjection::Hit(FaultInjection::Point::NVAPI) ? -1 : forward(list,rewritten.empty()?kernels:rewritten.data(),count);
             if (result && count) { h.bindings.failure=std::format("NVAPI refused required NR launch geometry (status={}, count={})",result,count); logger::error("[DLSSNR Launch] {}",h.bindings.failure); RejectedNeuralLists::Get().Reject(list); return 0; }
             return result;
         }
@@ -186,6 +189,7 @@ namespace TheosRenderPipeline::NeuralRendering
                 h.runtime=runtime;
                 InterlockedExchangePointer(reinterpret_cast<void**>(&iat->u1.Function),reinterpret_cast<void*>(&GetProc));
                 if (!VirtualProtect(&iat->u1.Function,sizeof(void*),old,&ignored)) {
+                    h.unsafe=true;
                     h.bindings.failure=reason="NR resolver import protection restoration failed; NR off"; return false;
                 }
                 logger::info("[DLSSNR Launch] installed required geometry for {} kernels; Chain and ChainEx covered",requirements.size());
@@ -194,6 +198,19 @@ namespace TheosRenderPipeline::NeuralRendering
         }
         reason="NR required-launch hook: GetProcAddress import missing; NR off";
         return false;
+    }
+    bool LaunchHookRecoverySafe()
+    {
+        auto& h=Active(); std::scoped_lock lock(h.mutex); return !h.unsafe;
+    }
+    bool ResetLaunchHookAfterRetirement()
+    {
+        auto& h=Active(); std::scoped_lock lock(h.mutex);
+        if (h.unsafe) { return false; }
+        h.bindings.failure.clear();
+        // Keep cached function/module identities: some runtimes cache NVAPI
+        // handles process-wide. Reinstallation still verifies the same contract.
+        return true;
     }
     bool LaunchHookHealthy(HMODULE runtime,std::string& reason)
     {

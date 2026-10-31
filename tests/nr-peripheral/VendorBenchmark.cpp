@@ -1,5 +1,6 @@
 #include "GPU.h"
 #include "KernelProfiler.h"
+#include "VendorRecovery.h"
 #include <map>
 #include <numeric>
 #include <fstream>
@@ -13,6 +14,7 @@ int wmain(int argc,wchar_t** argv){
     if(argument<argc && !std::wstring_view(argv[argument]).starts_with(L"--"))preset=std::stoi(argv[argument++]);
     if(argument<argc && !std::wstring_view(argv[argument]).starts_with(L"--"))outputFile=argv[argument++];
     bool skipCleanup=false;
+    unsigned recoveryPoint=0, recoveryOccurrence=1, recoveryRoute=0, recoveryPasses=1, injectFrame=0;
     while(argument<argc){
         const std::wstring_view option=argv[argument++];
         if(option==L"--skip-cleanup")skipCleanup=true;
@@ -20,6 +22,11 @@ int wmain(int argc,wchar_t** argv){
             Require(argument<argc,"benchmark option requires a file");
             if(option==L"--frames")frameFile=argv[argument++];
             else if(option==L"--input")inputFile=argv[argument++];
+            else if(option==L"--recovery")recoveryPoint=std::stoul(argv[argument++]);
+            else if(option==L"--occurrence")recoveryOccurrence=std::stoul(argv[argument++]);
+            else if(option==L"--route")recoveryRoute=std::stoul(argv[argument++]);
+            else if(option==L"--nr-passes")recoveryPasses=std::stoul(argv[argument++]);
+            else if(option==L"--inject-frame")injectFrame=std::stoul(argv[argument++]);
             else Require(false,"unknown benchmark option");
         }
     }
@@ -65,6 +72,12 @@ int wmain(int argc,wchar_t** argv){
     options.tuning.uiCorrection=false;options.reconstruction.inputScale=mode==L"uniform"?.9f:1.f;
     options.reconstruction.peripheralCompression=mode==L"peripheral";
     options.reconstruction.preset=preset;
+    if(recoveryPoint) {
+        VendorRecovery(gpu,options,recoveryPoint,recoveryOccurrence,recoveryRoute,recoveryPasses,injectFrame);
+        if((recoveryPoint<8 || recoveryPoint==11) && (bootstrapInitialized || TheosRenderPipeline::NeuralRendering::PublicNGXInitializedInProcess()))
+            Require(NVSDK_NGX_SUCCEED(NVSDK_NGX_D3D12_Shutdown1(gpu.device.Get())),"recovery public shutdown");
+        return 0;
+    }
     std::vector<Pixel> pixels(size_t(w)*h);
     for(unsigned y=0;y<h;++y)for(unsigned x=0;x<w;++x)
         pixels[y*w+x]={.1f+.6f*x/w,.1f+.6f*y/h,.2f+.3f*((x/8+y/8)%2),1};

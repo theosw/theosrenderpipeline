@@ -28,3 +28,5 @@ inline std::vector<unsigned> createdFeatures;
 inline std::vector<std::pair<unsigned, bool>> evaluatedFeatures;
 inline bool refuseRetirement{};
 }
+
+namespace Fixture { inline bool uncertainCreation{}; }

@@ -6,6 +6,7 @@
 #include "NeuralRuntimeKernels.h"
 #include "NeuralResearch.h"
 #include "NeuralLaunchHook.h"
+#include "NeuralFaultInjection.h"
 #include "NeuralRuntimeCompatibility.h"
 #include "NeuralRenderingSubrect.h"
 
@@ -206,45 +207,53 @@ namespace TheosRenderPipeline::NeuralRendering
 		bool attempted{ false };
 		bool initialized{ false };
 		bool runtimeRefused{ false };
+		bool unsafe{}, teardownFailed{};
 		std::string status{ "not initialized" };
 
-		~State()
-		{
-			std::scoped_lock lock(initializationMutex);
-			bool released = true;
-			if (feature && releaseFeature) {
-				const auto result = releaseFeature(feature);
-				released = NVSDK_NGX_SUCCEED(result);
-				if (!released) { logger::error("[DLSSNR Source] ReleaseFeature failed (0x{:08X}); keeping the runtime module loaded", static_cast<std::uint32_t>(result)); }
-			}
-			if (released && parameters && destroyParameters) {
-				const auto result = destroyParameters(parameters);
-				if (NVSDK_NGX_FAILED(result)) { released = false; logger::warn("[DLSSNR Source] DestroyParameters failed (0x{:08X})", static_cast<std::uint32_t>(result)); }
-			}
-			// Only the direct research path owns this init. Normal NGX is shared with SR/FG.
-			if (researchRuntime && released) {
-				auto& users = researchRuntimeUsers[module];
-				if (users && --users == 0) {
-					const auto result = shutdownRuntime(device);
-					released = NVSDK_NGX_SUCCEED(result);
-					logger::info("[DLSSNR Source] research runtime Shutdown1 result=0x{:08X}; last feature retired", static_cast<std::uint32_t>(result));
-				}
-			}
-			if (researchRuntime && !released) { failedResearchRuntimes.insert(module); }
-			modulePathHook.reset();
-			// Unloading the runtime while a feature it failed to release may still
-			// run would leave its code unmapped; keep it for the process lifetime.
-			if (module && ownsModule && released) {
-				::FreeLibrary(module);
-			}
-		}
+        bool Release()
+        {
+            std::scoped_lock lock(initializationMutex);
+            if (teardownFailed) { return false; }
+            auto failed = [&](const char* operation, NVSDK_NGX_Result result) {
+                teardownFailed = true;
+                failedResearchRuntimes.insert(module); // All runtimes: never admit a competing owner.
+                status = std::format("{} refused (0x{:08X}); NR owner retained; restart required", operation, static_cast<std::uint32_t>(result));
+                return false;
+            };
+            if (feature && releaseFeature) {
+                const auto result = FaultInjection::Hit(FaultInjection::Point::Release) ? NVSDK_NGX_Result_FAIL_PlatformError : releaseFeature(feature);
+                if (NVSDK_NGX_FAILED(result)) { return failed("ReleaseFeature", result); }
+                feature = nullptr;
+            }
+            if (parameters && destroyParameters) {
+                const auto result = destroyParameters(parameters);
+                if (NVSDK_NGX_FAILED(result)) { return failed("DestroyParameters", result); }
+                parameters = nullptr;
+            }
+            if (researchRuntime) {
+                auto& users = researchRuntimeUsers[module];
+                if (users == 1) {
+                    const auto result = FaultInjection::Hit(FaultInjection::Point::Shutdown) ? NVSDK_NGX_Result_FAIL_PlatformError : shutdownRuntime(device);
+                    if (NVSDK_NGX_FAILED(result)) { return failed("Shutdown1", result); }
+                }
+                if (users) { --users; }
+                researchRuntime = false;
+            }
+            modulePathHook.reset();
+            if (module && ownsModule) { ::FreeLibrary(module); }
+            module = nullptr;
+            ownsModule = false;
+            initialized = false;
+            return true;
+        }
+
 	};
 
 	void FeatureSession::StateDeleter::operator()(State* state) const
 	{
-		if (!DestroyAfterCreation(state)) {
-			logger::error("[DLSSNR Source] retaining failed feature session: creation GPU completion is unconfirmed; relaunch required");
-		}
+		if (state->unsafe || (state->creationContext && !state->creationContext->CanRelease()) || !state->Release()) {
+			logger::error("[DLSSNR Source] retaining failed feature session: creation/teardown ownership is unconfirmed; relaunch required");
+		} else { delete state; }
 	}
 
 	FeatureSession::FeatureSession() : state_(new State) {}
@@ -329,7 +338,7 @@ namespace TheosRenderPipeline::NeuralRendering
 		}
 		const auto capability = ComputeCapability(a_info.device->GetAdapterLuid());
 		const bool research = PascalResearchFor(capability);
-		if (research && failedResearchRuntimes.contains(state.module)) {
+		if (failedResearchRuntimes.contains(state.module)) {
 			state.status = "research NR teardown previously failed; NR off until restart";
 			state.runtimeRefused = true;
 			return false;
@@ -347,6 +356,7 @@ namespace TheosRenderPipeline::NeuralRendering
 			if (!result.applied) {
 				state.status = result.status;
 				state.runtimeRefused = !result.unsafe;
+				state.unsafe = result.unsafe;
 				return false;
 			}
 		} else if (identity.sha256 == kKernelRuntimeSha256 &&
@@ -361,10 +371,12 @@ namespace TheosRenderPipeline::NeuralRendering
 			if (!result.applied) {
 				state.status = result.status;
 				state.runtimeRefused = !result.unsafe;
+				state.unsafe = result.unsafe;
 				return false;
 			}
 		}
 
+		if (FaultInjection::Hit(FaultInjection::Point::Metadata) || FaultInjection::Hit(FaultInjection::Point::Install)) { state.status = "injected metadata/install refusal"; return false; }
 		if (!InstallLaunchHook(state.module, RuntimeLaunchRequirements(state.module), capability, state.status)) {
 			logger::error("[DLSSNR Source] {}; NR off", state.status);
 			state.runtimeRefused = true;
@@ -445,7 +457,9 @@ namespace TheosRenderPipeline::NeuralRendering
 			if (!state.shutdownRuntime) { state.status = "research runtime Shutdown1 export missing; NR off"; return false; }
 		}
 		auto initResult = NVSDK_NGX_Result_FAIL_NotInitialized;
-		if (init) {
+		if (state.shutdownRuntime && researchRuntimeUsers[state.module]) {
+			initResult = NVSDK_NGX_Result_Success;
+		} else if (init) {
 			initResult = init(
 				kTheosRenderPipelineGenericCmsId, dataPath.c_str(), a_info.device, kFeatureApiVersion);
 		}
@@ -509,6 +523,8 @@ namespace TheosRenderPipeline::NeuralRendering
 			state.parameters,
 			&state.feature);
 		state.lastCreateResult = static_cast<std::uint32_t>(createResult);
+		if (FaultInjection::Hit(FaultInjection::Point::Creation) || FaultInjection::Hit(FaultInjection::Point::Bind)) { state.status = "injected partial creation/bind refusal"; return false; }
+		if (!LaunchHookHealthy(state.module, state.status)) { return false; }
 		if (NVSDK_NGX_FAILED(createResult) || !state.feature) {
 			state.status = std::format(
 				"feature creation failed (0x{:08X})", state.lastCreateResult);
@@ -604,6 +620,10 @@ namespace TheosRenderPipeline::NeuralRendering
 		const auto evaluateResult = state.evaluateFeature(
 			a_input.commandList, state.feature, parameters, nullptr);
 		state.lastEvaluateResult = static_cast<std::uint32_t>(evaluateResult);
+        if (FaultInjection::Hit(FaultInjection::Point::Evaluate)) {
+            RejectedNeuralLists::Get().Reject(a_input.commandList);
+            state.status = "injected Evaluate refusal after recording"; return false;
+        }
 		if (!LaunchHookHealthy(state.module, state.status)) { logger::error("[DLSSNR Source] {}; NR off", state.status); return false; }
 		if (NVSDK_NGX_FAILED(evaluateResult)) {
 			state.status = std::format(
@@ -648,20 +668,20 @@ namespace TheosRenderPipeline::NeuralRendering
 	{
 		return IsInitialized() ? state_->contract.build : RuntimeBuild::Unknown;
 	}
-	bool FeatureSession::ResetAfterRetirement()
-	{
-		if (state_->creationContext && !state_->creationContext->CanRelease()) { return false; }
-		if (state_->feature && state_->releaseFeature) {
-			const auto result = state_->releaseFeature(state_->feature);
-			if (NVSDK_NGX_FAILED(result)) {
-				state_->status = std::format("NR model replacement release refused (0x{:08X}); relaunch required", static_cast<std::uint32_t>(result));
-				return false; // Retain feature, parameters and module; do not create another owner.
-			}
-			state_->feature = nullptr;
-		}
-		state_.reset(new State);
-		return true;
-	}
+    bool FeatureSession::RecoverySafe() const
+    {
+        return !state_->unsafe && (!state_->creationContext || state_->creationContext->CanRelease());
+    }
+    bool FeatureSession::ReleaseAfterRetirement()
+    {
+        return RecoverySafe() && state_->Release();
+    }
+    bool FeatureSession::ResetAfterRetirement()
+    {
+        if (!ReleaseAfterRetirement()) { return false; }
+        state_.reset(new State);
+        return true;
+    }
 
 	std::uint64_t FeatureSession::EvaluationsRecorded() const
 	{

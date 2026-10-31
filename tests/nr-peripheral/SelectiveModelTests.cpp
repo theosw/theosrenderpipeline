@@ -88,9 +88,12 @@ int main()
             Require(pass.RetireChangedModels(options),"retire before scripted creation refusal");
             const auto creations=Fixture::creations;
             Fixture::refuseIndex=creations;
-            record(); record();
-            Require(pass.ReadyPasses()==int(changed) && !pass.PassNote().empty() && Fixture::creations==creations,
-                "refused replacement retains the working prefix without retrying");
+            Fixture::frame=frame++;
+            gpu.Begin();
+            Require(!pass.Record(gpu.device.Get(),gpu.list.Get(),0,options,false,true,float(w),float(h),motion.Get(),depth.Get(),
+                world?nullptr:ui.Get(),scene.Get(),world?nullptr:composed.Get()), "replacement refusal propagates to session recovery");
+            gpu.Discard();
+            Require(Fixture::creations==creations,"no duplicate feature on refused replacement");
             Fixture::refuseIndex=~0u;
             options.extraPasses[changed-1].preset=0;
         }

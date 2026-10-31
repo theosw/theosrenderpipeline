@@ -788,13 +788,15 @@ namespace TheosRenderPipeline::SourceDLSSG
 			if (uiSource_ && !Check(interop_.CopyInput(uiSource_.Get(), ui_), "late UI copy")) { return fault_; }
 		}
 #if !defined(TRP_NO_NEURAL_RENDERING)
+		if (!neuralFrameBegun_) { ApplyNeuralRetry(); }
 		const auto options = prepared ? frameNeuralOptions_ : NeuralConfiguration();
 		auto unavailable = NeuralUnavailableReason(options);
 		const bool eligible = prepared && neuralEligible_ && !unavailable;
 		bool active = options.enabled && eligible && (!options.WorldOnly() || neuralEvaluatedEarly_);
-		const bool lateActive = active && !options.WorldOnly();
+		bool lateActive = active && !options.WorldOnly();
 		const bool reset = prepared ? frameNeuralReset_ : neuralHistory_.ResetFor(options, false, false);
 		if (lateActive && !RecreateNeuralIfNeeded(options)) { return fault_; }
+		if (neuralRecovery_.Disabled()) { lateActive = active = false; }
 #endif
 		ID3D12GraphicsCommandList* list = nullptr;
 		if (!Check(interop_.SignalD3D11(Work::SwapChain), "native D3D11 output ready") ||
@@ -802,20 +804,26 @@ namespace TheosRenderPipeline::SourceDLSSG
 		auto* realSource = a_source;
 #if !defined(TRP_NO_NEURAL_RENDERING)
 		if (lateActive) {
+            bool recorded{};
+            std::string failure;
+            try {
 			if (!neuralPass_) { neuralPass_ = std::make_unique<NeuralPass>(); }
-			if (!neuralPass_->Record(device12_.Get(), list, interop_.CurrentSlot(Work::SwapChain), options,
+			recorded = neuralPass_->Record(device12_.Get(), list, interop_.CurrentSlot(Work::SwapChain), options,
 				reset, frameConstants_.depthInverted == sl::eTrue,
 				frameConstants_.mvecScale.x * motion_.desc.Width, frameConstants_.mvecScale.y * motion_.desc.Height,
 				motion_.texture12.Get(), depth_.texture12.Get(), ui_.texture12.Get(), hudless_.texture12.Get(), a_source,
 				neuralTimestampFrequency_, interop_.Marks(Work::SwapChain), objectMaskCurrent_ ? objectMask_.texture12.Get() : nullptr,
-                {frameConstants_.jitterOffset.x,frameConstants_.jitterOffset.y})) {
-				if (!RefuseNeuralCreation(options.runtimePath)) {
-					FailNeuralRecording();
-					return fault_; // Retain objects; the failed recording was discarded.
-				}
-				// This frame presents without NR; the next one uses the next runtime.
-				active = false;
-				unavailable = "NR runtime refused for this GPU; switching runtime";
+                {frameConstants_.jitterOffset.x,frameConstants_.jitterOffset.y});
+            } catch (const std::bad_alloc&) {
+                failure = "NR CPU allocation failed";
+            }
+            if (!recorded) {
+                if (!FailNeuralRecording(std::move(failure))) { return fault_; }
+                // Discarded commands never changed source/UI/shared guides.
+                // Reopen an entirely fresh list before ordinary copy/HDR/FG.
+                if (!Check(interop_.Begin(Work::SwapChain, &list), "begin NR-off output after refusal")) { return fault_; }
+                active = false;
+                unavailable = "NR disabled for this session";
 			} else {
 				realSource = neuralPass_->Composed();
 			}
@@ -968,7 +976,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 			if (active) { ++neuralSnapshot_.evaluations; }
 			if (reset) { ++neuralSnapshot_.resets; }
 			if (active) { neuralSnapshot_.telemetry = neuralPass_->Telemetry(); }
-			neuralSnapshot_.status = unavailable ? unavailable : active ? neuralPass_->Status() : options.enabled ?
+			if (active) { neuralRecovery_.Enabled(); }
+			neuralSnapshot_.status = neuralSnapshot_.sessionDisabled ? neuralSnapshot_.reason : unavailable ? unavailable : active ? neuralPass_->Status() : options.enabled ?
 				"NR waiting for world inputs and dedicated native UI; standard DLSS active" : "standard DLSS; source NR is off";
 			if (changed || (active && (reset || neuralSnapshot_.evaluations % 600 == 0))) {
 				logger::info("[SourceDLSSG NR] frame={} active={} evaluations={} reset={} style={} fgRequested={} {}",
@@ -1190,10 +1199,13 @@ namespace TheosRenderPipeline::SourceDLSSG
 		}
 #endif
 		}, [&] {
-		ReleaseGuides();
 #if !defined(TRP_NO_NEURAL_RENDERING)
-		neuralPass_.reset(); // The presenting queue and NVIDIA input readers are retired.
+		if (neuralPass_ && !neuralPass_->ReleaseAfterRetirement()) {
+            if (!FailNeuralRecording()) { return; }
+        }
+        neuralPass_.reset(); // The presenting queue and NVIDIA input readers are retired.
 #endif
+        ReleaseGuides();
 		hdrPass_.reset();
 		hdrOutputPass_.reset();
 		}, [&] {
@@ -1204,7 +1216,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		{
 			std::scoped_lock lock(neuralMutex_);
 			neuralSnapshot_.active = false;
-			neuralSnapshot_.status = purpose == RetirementPurpose::Resize ?
+			neuralSnapshot_.status = neuralSnapshot_.sessionDisabled ? neuralSnapshot_.reason : purpose == RetirementPurpose::Resize ?
 				"NR retired for resize; next eligible frame recreates the feature" :
 				"NR retained for fixed-size upscaler replacement; next eligible frame resets history";
 		}

@@ -68,7 +68,7 @@ const char* NeuralUnavailableReason(const OverlayUI::FrameView& view, int upscal
     {
         return TR("The NVIDIA host is not ready. Check runtime status and restart Skyrim.");
     }
-    if (view.neuralState.failed)
+    if (view.neuralState.failed && !view.neuralState.retryable)
     {
         return TR("NR failed. See the error in the left column.");
     }
