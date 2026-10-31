@@ -99,6 +99,10 @@ namespace TheosRenderPipeline::SourceDLSSG
 		HRESULT CreateTargets(ID3D12Device* device, UINT width, UINT height); // Caller has drained.
 		ID3D12Resource* HudlessTarget() const { return hudless_.Get(); }
 		ID3D12Resource* UITarget() const { return ui_.Get(); }
+		// After every command slot retires, drop cached native backbuffers before
+		// replacing the presenter. Record overwrites the descriptors before reuse.
+		void ReleaseFrameReferencesAfterRetirement() { retained_ = {}; }
+		unsigned FrameReferenceCount() const { unsigned n{}; for (const auto& slot : retained_) { for (const auto& p : slot) { n += p != nullptr; } } return n; }
 		// Optional; a failure leaves the pass untimed. Frequency is the presenting queue's.
 		HRESULT EnableTiming(ID3D12Device* device, std::uint64_t frequency);
 		// Returns samples harvested since the previous call.

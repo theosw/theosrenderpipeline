@@ -1,3 +1,17 @@
+# 0.5.7
+
+- Changing XeFG's multiplier from x2 to x3-x6 (Universal), its tensor model or
+  its depth during play now rebuilds Intel's presenter on the existing
+  swapchain instead of creating a second swapchain for the same window. On a
+  reported PC that second creation failed and froze the game. If Intel's
+  replacement fails, normal presentation resumes on the same swapchain.
+- Experimental: `ReShadeGameDevice=true` under `[Compatibility]` in
+  TheosRenderPipeline.ini runs ReShade on the game's own device, the way it runs
+  without TRP. Add-ons then see the game's device, draws and frames, and
+  ReShade's back buffer is the whole frame instead of only the HUD. If it
+  cannot start, or its frames keep failing, ReShade turns off for the session
+  and the log says why. Off by default; restart after changing it.
+
 # 0.5.6
 
 - Opening and closing the world map now reset DLSS, NR and frame generation

@@ -464,7 +464,9 @@ void OverlayUI::OnPresent(ID3D11Texture2D* producerUI)
         }
         if (target) {
             auto& effects = TheosRenderPipeline::ReShadeIntegration::Get();
-            const auto result = effects.FinishUI(target);
+            auto* scene = host->NativePresentationTexture();
+            if (!scene) { scene = target; }
+            const auto result = effects.FinishUI(target, scene, scene != target);
             if (FAILED(result) && (effects.Snapshot().failures <= 3 || host->PresentCount() % 600 == 0)) {
                 logger::warn("[ReShade] {} (0x{:08X})", effects.Status(), static_cast<unsigned>(result));
             }

@@ -102,6 +102,7 @@ private:
 	Microsoft::WRL::ComPtr<IDXGISwapChain2> inner2_;
 	Microsoft::WRL::ComPtr<IDXGISwapChain3> inner3_;
 	Microsoft::WRL::ComPtr<IDXGISwapChain4> inner4_;
+	bool supportsSwapChain4_{};
 	Backend& backend_;
 	DXGI_FORMAT gameFormat_;
 	std::atomic<DXGI_COLOR_SPACE_TYPE> colorSpace_{ DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709 };

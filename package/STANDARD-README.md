@@ -1,4 +1,10 @@
-# Theo's Render Pipeline — Standard, 0.5.6
+# Theo's Render Pipeline — Standard, 0.5.7
+
+Version 0.5.7 adds an experimental option, `ReShadeGameDevice`, that runs
+ReShade on the game's own device, so add-ons work the way they do without TRP
+(see **ReShade on the game's device**). It also fixes a freeze when XeFG's
+presenter was rebuilt during play, for example after changing its tensor model
+or depth. See CHANGELOG.md.
 
 Version 0.5.6 resets DLSS, NR and frame generation history when the world
 map opens or closes and on the first frame of the world after a load, and
@@ -249,13 +255,30 @@ Optional before-effects and overlay copies are unchanged. ENB's screenshot key
 sees the image before DLSS and NR; Steam or Windows capture can capture the
 displayed image without this replacement delay.
 
+### ReShade on the game's device (experimental)
+
+Set `ReShadeGameDevice=true` under `[Compatibility]` in TheosRenderPipeline.ini
+and restart. ReShade then starts the way it does without TRP, on the game's own
+D3D11 device, so add-ons see the game's device, its draws and one ordinary
+Present per frame. ReShade's back buffer is the whole frame, the world with the
+HUD over it, so a screenshot that TRP keeps as ReShade saved it (for example
+with the overlay open) shows the world as well. ReShade's own menu is still
+drawn over the HUD.
+
+This needs ReShade with add-on support. It was tested with the full add-on
+build of ReShade 6.8.0.2155 with an add-on loaded, offline and in game on an
+RTX 40 card; HDR, Community Shaders and other add-ons are untested with it. If
+it cannot start, or its frames keep failing, ReShade's effects and menu turn
+off for the session, and the TRP log and **Advanced** say why; set it back to
+`false` to use TRP's usual ReShade route.
+
 The shared ReShade integration passed offline checks in both editions.
 ReShade 6.8 was tested with Universal on Skyrim 1.6.1170, Cabbage ENB and
 an RTX 4080 SUPER: ordinary 6.8.0.2158 and full add-on 6.8.0.2155, with
 early NR and x4. Sky Reflection Fix's ReShade registration was excluded;
 Rumble passed a separate initial test. Combined third-party add-ons,
 Standard gameplay and CS with ReShade remain unverified. These were earlier
-development builds; the exact 0.5.6 package has not been tested with ReShade.
+development builds; the exact 0.5.7 package has not been tested with ReShade.
 
 MartysMods ReGrade+ (ReShade 6.6 or newer) used to crash the game while TRP
 started ReShade: it prepares itself only in a device event that ReShade does not
@@ -316,7 +339,7 @@ rendering dimensions.
 ## With the Universal edition
 
 For the RTX 40 MFG unlock or experimental RTX 20/30 support, install the matching
-0.5.6 Universal ZIP after Standard in MO2's left pane. Let Universal win file conflicts. Universal uses
+0.5.7 Universal ZIP after Standard in MO2's left pane. Let Universal win file conflicts. Universal uses
 the NVIDIA runtimes included here, including NR.
 
 Both editions contain settings files; the later mod's files win. Switching

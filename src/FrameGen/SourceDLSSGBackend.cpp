@@ -6,6 +6,7 @@
 #include "NeuralFrameEligibility.h"
 #include "CommunityShaderIntegration.h"
 #include "SourceDLSSGSwapChain.h"
+#include "PresenterReleaseProbe.h"
 #include "SourceRuntimeModuleDiagnostic.h"
 #include "DlssgOverride.h"
 #include "DlssgLiteBlending.h"
@@ -531,7 +532,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		UINT a_width, UINT a_height, bool a_neuralEligible)
 	{
 		if (startupTransport_) { return Ready(); } // Plain output only; no vendor frame inputs are consumed.
-		if (!Ready() || !Session::ValidConstants(a_constants) || !a_motion || !a_depth ||
+		if (!Ready() || presenterReplacement_.Pending() || !Session::ValidConstants(a_constants) || !a_motion || !a_depth ||
 			!a_renderExtent.width || !a_renderExtent.height) { return false; }
 		if (neuralEvaluatedEarly_) {
 			// Early NR froze these before the producer could overwrite its depth.
@@ -608,6 +609,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			}
 		}
 		guides.displayWidth = a_width; guides.displayHeight = a_height;
+		if (nativePresenterFallback_) { fallbackPrepared_ = true; return true; }
 		if (nvidiaNeedsPresent_) { return true; } // Establish the new native presenter before Reflex markers.
 		if (provider_ == FrameGenerationProvider::XeFG) {
 			if (!CheckXeFG(xefg_.Prepare(frameConstants_, XeFGFrameTimeConfiguration()))) { return false; }
@@ -721,7 +723,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			meter = XeFGPacing::CanMeter(flags);
 		}
 		const bool required = provider_ == FrameGenerationProvider::NVIDIA && DLSSGVSyncOffRequired() &&
-			!startupTransport_ && session_.Snapshot().GenerationActive();
+			!startupTransport_ && !nativePresenterFallback_ && session_.Snapshot().GenerationActive();
 		return {VSyncConfigurationMode(), meter, (presenterDesc_.Flags & DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING) != 0, required};
 	}
 	void Backend::ObserveVSync(VSyncSubmission submission, HRESULT result)
@@ -759,19 +761,19 @@ namespace TheosRenderPipeline::SourceDLSSG
 		const auto oldGeneration = session_.Snapshot().generationRequested;
 		const auto oldLimited = session_.Snapshot().generationLimited;
 		const auto oldRecomposition = session_.Snapshot().options.enableUserInterfaceRecomposition;
-		if (!startupTransport_ && provider_ == FrameGenerationProvider::NVIDIA) { mfgUnlock_.Tick(); }
+		if (!startupTransport_ && !nativePresenterFallback_ && provider_ == FrameGenerationProvider::NVIDIA) { mfgUnlock_.Tick(); }
 		session_.SetMFGUnlockState(mfgUnlock_.Snapshot().UsesCompatibilityUnlock(), mfgUnlock_.Snapshot().Ready());
 		session_.RequestGeneration(GenerationConfiguration());
 		session_.RequestReflexMode(ReflexConfiguration());
 		session_.RequestUIRecomposition(UIRecompositionConfiguration());
-		if (releaseForPreset_.exchange(false, std::memory_order_relaxed) && !startupTransport_ && provider_ == FrameGenerationProvider::NVIDIA) {
+		if (releaseForPreset_.exchange(false, std::memory_order_relaxed) && !startupTransport_ && !nativePresenterFallback_ && provider_ == FrameGenerationProvider::NVIDIA) {
 			session_.RequestFeatureRelease();
 			logger::info("[SourceDLSSG] frame generation preset {}: releasing DLSS-G for one Present to recreate it",
 				PresetLabel(PresetConfiguration()));
 		}
 		session_.RequestOnlyGenerated(XeFGOnlyGenerated());
 		session_.RequestOutputFPSLimit(UpdateFrameLimit());
-		const bool prepared = provider_ == FrameGenerationProvider::XeFG ? xefg_.Snapshot().prepared :
+		const bool prepared = nativePresenterFallback_ ? fallbackPrepared_ : provider_ == FrameGenerationProvider::XeFG ? xefg_.Snapshot().prepared :
 			session_.Snapshot().stage == SessionStage::Rendering;
 		if (prepared) {
 			if (uiSource_ && !Check(interop_.CopyInput(uiSource_.Get(), ui_), "late UI copy")) { return fault_; }
@@ -851,8 +853,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 			xefgSettled = xefgSettle_.Observe(frameInterval);
 			if (xefgSettled) { logger::info("[XeFG] frames settled after {} warm-up frames; generation may start", xefgSettle_.Held()); }
 		}
-		const bool generationAllowed = enabled_ && !transitionBlocked && transitionWarmup == 0 && xefgSettled;
-		if (provider_ == FrameGenerationProvider::XeFG) {
+		const bool generationAllowed = !nativePresenterFallback_ && enabled_ && !transitionBlocked && transitionWarmup == 0 && xefgSettled;
+		if (!nativePresenterFallback_ && provider_ == FrameGenerationProvider::XeFG) {
 			// The same premultiplied UI layer DLSS-G recomposes. The HDR targets are
 			// current only when HDR output composed this prepared frame; otherwise
 			// XeFG holds generation rather than interpolate an older world image.
@@ -897,9 +899,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 				return S_OK;
 			});
 		}
-		if (!startupTransport_ && provider_ == FrameGenerationProvider::NVIDIA && !nvidiaNeedsPresent_ && ((prepared && !CheckSession(session_.CompleteInputWrites())) ||
+		if (!startupTransport_ && !nativePresenterFallback_ && provider_ == FrameGenerationProvider::NVIDIA && !nvidiaNeedsPresent_ && ((prepared && !CheckSession(session_.CompleteInputWrites())) ||
 			!CheckSession(session_.BeforePresent(generationAllowed)))) { return fault_; }
-		if (provider_ == FrameGenerationProvider::XeFG && !CheckXeFG(xefg_.FinalizePresent())) { return fault_; }
+		if (!nativePresenterFallback_ && provider_ == FrameGenerationProvider::XeFG && !CheckXeFG(xefg_.FinalizePresent())) { return fault_; }
 		if (oldReflexRequest != session_.Snapshot().reflexRequested ||
 			oldReflexSubmitted != session_.Snapshot().reflexSubmitted || oldFrameLimit != session_.Snapshot().frameLimitSubmittedUs) {
 			logger::info("[SourceDLSSG] Reflex frame={} requested={} submitted={} generation={} outputLimitUs={}",
@@ -957,6 +959,15 @@ namespace TheosRenderPipeline::SourceDLSSG
 			++transportFrame_;
 			neuralFrameBegun_ = neuralEvaluatedEarly_ = frameNeuralModelChanged_ = false;
 			return a_result;
+		}
+		if (nativePresenterFallback_) {
+			fallbackPrepared_ = false;
+			++replacementFrame_;
+			PollDisplayHDR(false);
+			// The native presenter has no SDK input reader/latency owner. Retire
+			// output/NR work before the next D3D11 producer reuses shared textures.
+			return Check(interop_.WaitForInputReaders(nullptr, 0), "native fallback queue bridge") &&
+				Check(interop_.Drain(), "native fallback input retirement") ? a_result : fault_;
 		}
 		providerSwitchPending_ = PreflightProviderSwitch();
 		if (provider_ == FrameGenerationProvider::XeFG) {
@@ -1123,9 +1134,10 @@ namespace TheosRenderPipeline::SourceDLSSG
 		ResetPresentationFeedback();
 		if (FAILED(fault_)) { return false; } // Never destroy a failed, unsubmitted NR recording.
 		if (!ready_) { return SUCCEEDED(interop_.Drain()); }
-		if (provider_ == FrameGenerationProvider::XeFG) {
+		if (!nativePresenterFallback_ && !presenterReplacement_.Pending() && provider_ == FrameGenerationProvider::XeFG) {
 			if (!CheckXeFG(xefg_.Disable())) { return false; }
-		} else if (session_.Snapshot().stage != SessionStage::Stopped && !CheckSession(session_.Stop())) { return false; }
+		} else if (!nativePresenterFallback_ && !presenterReplacement_.Pending() &&
+			session_.Snapshot().stage != SessionStage::Stopped && !CheckSession(session_.Stop())) { return false; }
 		bool retainedNeural = false;
 #if !defined(TRP_NO_NEURAL_RENDERING)
 		retainedNeural = purpose == RetirementPurpose::UpscalerReplacement && neuralPass_;
@@ -1351,7 +1363,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 	}
 	bool Backend::ResumeAfterResize()
 	{
-		if (startupTransport_) { return Ready(); }
+		if (startupTransport_ || nativePresenterFallback_) { return Ready(); }
 		if (nvidiaNeedsPresent_) { return Ready(); }
 		if (provider_ == FrameGenerationProvider::XeFG) { xefg_.ResetHistory(); return Ready(); }
 		return Ready() && CheckSession(session_.ResumeAfterResize());
@@ -1371,6 +1383,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 
 	bool Backend::PreflightProviderSwitch()
 	{
+		if (nativePresenterFallback_ || presenterReplacement_.Pending()) { return false; }
 		if (nvidiaNeedsPresent_) { return false; }
 		const auto request = RequestedProvider();
 		if ((request == provider_ && !recreateXeFG_) || !cameraAvailable_ || TransitionBlocked()) { return false; }
@@ -1430,40 +1443,128 @@ namespace TheosRenderPipeline::SourceDLSSG
 		}
 		return provider == FrameGenerationProvider::XeFG ?
 			xefg_.Create(device12_.Get(), queue_.Get(), nativeFactory_.Get(), presenterDesc_,
-				frameConstants_.depthInverted == sl::eTrue, result, session_.Snapshot().frameIndex, XeFGConfiguration(),
-				IntelPipelines(XeFGPipelineCache(), xefg_.PipelineCacheName(), xefg_.RuntimeModule())) :
+				frameConstants_.depthInverted == sl::eTrue, result, replacementFrame_, XeFGConfiguration(),
+				IntelPipelines(XeFGPipelineCache(), xefg_.PipelineCacheName(), xefg_.RuntimeModule()), replacementNative_.Get()) :
 			streamlineFactory_->CreateSwapChain(queue_.Get(), &presenterDesc_, result);
+	}
+	HRESULT Backend::ReleasePresenter(SwapChain& wrapper)
+	{
+		// Probe the actual DXGI object, never Intel's proxy: a retained proxy
+		// makes xefgSwapChainDestroy fail even when no external owner exists.
+		auto* native = xefg_.NativeSwapChain();
+		if (!native && (nativePresenterFallback_ || provider_ == FrameGenerationProvider::NVIDIA)) { native = retainedNative_.Get(); }
+		PresenterReleaseProbe probe(native);
+		logger::info("[Presenter release] before hwnd={} windowed={} describe=0x{:08X} fullscreenQuery=0x{:08X} native={} buffers={} "
+			"wrapperInterfaces={}/{}/{}/{}/{} wrapperBuffers={}/{} retainedProxy={} sdk={} xell={} hdrPass={} hdrOutput={} reuseNative={}",
+			static_cast<void*>(probe.desc.OutputWindow), probe.windowed, static_cast<unsigned>(probe.described), static_cast<unsigned>(probe.fullscreenResult),
+			static_cast<void*>(native), probe.desc.BufferCount, bool(wrapper.inner_), bool(wrapper.inner1_), bool(wrapper.inner2_), bool(wrapper.inner3_), bool(wrapper.inner4_),
+			bool(wrapper.nativeBuffers_[0]), bool(wrapper.nativeBuffers_[1]), bool(retainedNative_), xefg_.HasContext(), xefg_.HasLatencyContext(),
+			hdrPass_ ? hdrPass_->FrameReferenceCount() : 0, hdrOutputPass_ ? hdrOutputPass_->FrameReferenceCount() : 0, bool(replacementNative_));
+		const auto released = ReleasePresenterAfterRetirement([&] {
+			// The facade textures are independent shared allocations, not native
+			// swapchain buffers. Keep their game-visible identities and views.
+			if (hdrOutputPass_) { hdrOutputPass_->ReleaseFrameReferencesAfterRetirement(); }
+			if (hdrPass_) { hdrPass_->ReleaseFrameReferencesAfterRetirement(); }
+			wrapper.ReleaseInnerAfterRetirement();
+			retainedNative_.Reset();
+			hdrFrameTagged_ = false;
+		}, [&] { return xefg_.Destroy(); }, [&] {
+			// DXGI flip-model replacement requires deferred D3D11 destruction to
+			// complete after *all* references (including the SDK's) are released.
+			context11_->ClearState();
+			context11_->Flush();
+		}, [&] {
+			if (!Check(interop_.SignalD3D11(Work::SwapChain), "flush deferred presenter destruction") ||
+				!Check(interop_.WaitForInputReaders(nullptr, 0), "released presenter queue bridge") ||
+				!Check(interop_.Drain(), "drain released presenter")) { return fault_; }
+			return S_OK;
+		});
+		probe.Release([&](UINT i, void* identity, HRESULT hr, ULONG count) {
+			logger::info("[Presenter release] buffer={} native={} probe=0x{:08X} remaining={}", i, identity, static_cast<unsigned>(hr), count);
+		}, [&](void* identity, ULONG count) {
+			logger::info("[Presenter release] after native={} remaining={} release=0x{:08X} reuseNative={} "
+				"wrapperInterfaces={}/{}/{}/{}/{} wrapperBuffers={}/{} retainedProxy={} sdk={} xell={} hdrPass={} hdrOutput={}", identity, count, static_cast<unsigned>(released),
+				bool(replacementNative_), bool(wrapper.inner_), bool(wrapper.inner1_), bool(wrapper.inner2_), bool(wrapper.inner3_), bool(wrapper.inner4_),
+				bool(wrapper.nativeBuffers_[0]), bool(wrapper.nativeBuffers_[1]), bool(retainedNative_), xefg_.HasContext(), xefg_.HasLatencyContext(),
+				hdrPass_ ? hdrPass_->FrameReferenceCount() : 0, hdrOutputPass_ ? hdrOutputPass_->FrameReferenceCount() : 0);
+		});
+		// Probes themselves postpone final native destruction. Flush/drain once
+		// more after their last Release, before another HWND creation is allowed.
+		if (FAILED(released)) { return released; }
+		context11_->ClearState(); context11_->Flush();
+		if (!Check(interop_.WaitForInputReaders(nullptr, 0), "post-probe queue bridge") ||
+			!Check(interop_.Drain(), "post-probe presenter retirement")) { return fault_; }
+		return S_OK;
 	}
 	bool Backend::ApplyProviderSwitch(SwapChain& wrapper)
 	{
 		if (!Ready()) { return false; }
-		if (startupTransport_) { return true; } // Restart is the bounded retry; partial SDK initialization is retained.
-		if (!providerSwitchPending_) {
-			return provider_ != FrameGenerationProvider::XeFG || CheckXeFG(xefg_.BeginFrame());
+		if (startupTransport_) { return true; } // Partial startup ownership is retained until restart.
+		if (!presenterReplacement_.Pending()) {
+			if (!providerSwitchPending_) {
+				return nativePresenterFallback_ || provider_ != FrameGenerationProvider::XeFG || CheckXeFG(xefg_.BeginFrame());
+			}
+			replacementProvider_ = RequestedProvider();
+			replacementFrame_ = FrameIndex();
+			logger::info("[FrameGeneration] replacing presenter current={} requested={} depth={}->{} mfgRecreate={} tensorRecreate={}",
+				ProviderName(provider_), ProviderName(replacementProvider_), xefg_.Snapshot().invertedDepth,
+				frameConstants_.depthInverted == sl::eTrue, XeFGNeedsRecreation(xefg_.Snapshot().experimentalMFG, XeFGConfiguration()),
+				xefg_.ProbedTensorRequest() != xefgTensorRequested_.load());
+			if (provider_ == FrameGenerationProvider::XeFG && !CheckXeFG(xefg_.Disable())) { return false; }
+			if (!Check(interop_.SignalD3D11(Work::SwapChain), "last producer work before provider change") ||
+				!Check(interop_.WaitForInputReaders(nullptr, 0), "provider queue retirement bridge") ||
+				!Check(interop_.Drain(), "retire shared work before provider change")) { return false; }
+			// The factory reuses the retired native transport while Intel replaces
+			// its proxy, instead of asking DXGI for a second flip chain on HWND.
+			if (provider_ == FrameGenerationProvider::XeFG && replacementProvider_ == FrameGenerationProvider::XeFG) {
+				replacementNative_ = xefg_.NativeSwapChain();
+				if (!replacementNative_) { return Check(E_UNEXPECTED, "missing native XeFG rebuild owner"); }
+			}
+			if (!Check(ReleasePresenter(wrapper), "release old presenter and SDK ownership")) { return false; }
+			presenterReplacement_.Start();
 		}
-		const auto next = RequestedProvider();
-		if (provider_ == FrameGenerationProvider::XeFG && !CheckXeFG(xefg_.Disable())) { return false; }
-		if (!Check(interop_.SignalD3D11(Work::SwapChain), "last producer work before provider change") ||
-			!Check(interop_.WaitForInputReaders(nullptr, 0), "provider queue retirement bridge") ||
-			!Check(interop_.Drain(), "retire shared work before provider change")) { return false; }
-		// Keep D3D11 facade/shared buffers, DLSS and NR alive. Only native buffers
-		// and the provider-specific inner swapchain retire here. After this point
-		// a failure is terminal; do not claim the discarded presenter is restored.
-		wrapper.ReleaseInnerAfterRetirement();
-		retainedNative_.Reset();
-		if (provider_ == FrameGenerationProvider::XeFG && !CheckXeFG(xefg_.Destroy())) { return false; }
-		ComPtr<IDXGISwapChain> replacement;
-		if (!Check(CreatePresenter(next, &replacement), "create replacement presenter")) { return false; }
-		retainedNative_ = replacement;
-		if (!Check(wrapper.AttachInner(replacement.Get()), "attach replacement presenter")) { return false; }
-		provider_ = next; recreateXeFG_ = providerSwitchPending_ = false;
+		const auto result = presenterReplacement_.Advance([&](bool native) {
+			ComPtr<IDXGISwapChain> replacement;
+			HRESULT created;
+			if (native && replacementNative_) {
+				// Intel can change the physical buffer count. Restore the facade's
+				// two-buffer native contract only after failed SDK owners retire.
+				created = PresenterFactory::NativeFallbackAfterRetirement(replacementNative_.Get(), queue_.Get());
+				if (SUCCEEDED(created)) { replacement = replacementNative_; }
+			} else {
+				created = native ? nativeFactory_->CreateSwapChain(queue_.Get(), &presenterDesc_, &replacement) :
+					CreatePresenter(replacementProvider_, &replacement);
+			}
+			// Retain partial creation until the discard callback proves retirement.
+			retainedNative_ = replacement;
+			if (SUCCEEDED(created)) { created = wrapper.AttachInner(replacement.Get()); }
+			if (FAILED(created)) {
+				logger::warn("[FrameGeneration] {} presenter creation attempt={} failed HRESULT=0x{:08X}; {}",
+					native ? "native fallback" : ProviderName(replacementProvider_), presenterReplacement_.Attempts(),
+					static_cast<unsigned>(created), xefg_.Status());
+			}
+			// A failed host/vendor initialization may retain unpublished GPU owners.
+			// Do not let a generic E_FAIL authorize the discard/retry callbacks.
+			return Ready() ? created : E_UNEXPECTED;
+		}, [&] { return ReleasePresenter(wrapper); });
+		if (!Ready()) { return false; } // A vendor initialization/queue fault keeps its retained-owner boundary.
+		if (result == S_FALSE) {
+			providerStatus_ = "Presenter replacement waiting for DXGI; retry on the next frame";
+			return true; // The facade remains valid while no native chain exists.
+		}
+		if (!Check(result, "presenter recovery exhausted or retirement failed")) { return false; }
+		nativePresenterFallback_ = presenterReplacement_.Native();
+		replacementNative_.Reset();
+		provider_ = replacementProvider_; recreateXeFG_ = providerSwitchPending_ = false;
+		if (nativePresenterFallback_) { RequestProvider(provider_); }
 		presenterPresents_ = 0; presenterReplaced_ = true;
 		ResetPresentationFeedback();
 		transitionWarmupPresents_.store(TransitionWarmupPresents);
 		neuralHistory_.Invalidate();
 		hdrColorSpaceApplied_ = false; ApplyNativeColorSpace();
-		nvidiaNeedsPresent_ = next == FrameGenerationProvider::NVIDIA;
-		providerStatus_ = std::format("{} presenter; latency owner={}", ProviderName(next), next == FrameGenerationProvider::XeFG ? "XeLL" : "Reflex");
+		nvidiaNeedsPresent_ = !startupTransport_ && !nativePresenterFallback_ && provider_ == FrameGenerationProvider::NVIDIA;
+		providerStatus_ = nativePresenterFallback_ ? "Native presentation restored; frame generation unavailable until restart" :
+			std::format("{} presenter; latency owner={}", ProviderName(provider_), provider_ == FrameGenerationProvider::XeFG ? "XeLL" : "Reflex");
 		if (nvidiaNeedsPresent_) { providerStatus_ = "NVIDIA replacement waiting for first Present; Reflex suspended"; }
 		logger::info("[FrameGeneration] provider change complete {}; shared DLSS/NR resources retained", providerStatus_);
 		return true;

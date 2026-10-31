@@ -84,6 +84,7 @@ public:
 	bool mUseOptimalMipLodBias{ true };
 	bool mAutoExposure{ true };
     bool mReShadeBeforeUpscaling{ false };
+    bool mReShadeGameDevice{ false };  // restart required; see ReShadeIntegration::UseGameDevice
 	int  mDLSSPreset{ 0 };  // NGX preset: 0 default, 5/6 E/F, 10/11 J/K, 12/13 L/M
 	bool mNativeUI{ true };  // scaled mode: rasterize the game's UI pass at native resolution
 	std::atomic_bool mRequestLoadingArtwork{ true };
