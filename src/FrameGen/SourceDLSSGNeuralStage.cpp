@@ -105,6 +105,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (startupTransport_) { return "NR unavailable after frame-generation startup failure; restart to retry"; }
 		std::scoped_lock lock(neuralMutex_);
 		if (!NvidiaAdapter() && options.enabled) { return "Neural Rendering requires an NVIDIA RTX GPU; XeSS and XeFG remain available"; }
+        if (options.enabled && !neuralCapability_.Pascal()) {
+            if (const auto* reason = neuralCapability_.Refusal()) { return reason; }
+        }
         if (options.enabled && neuralCapability_.Pascal() && !NeuralRendering::PascalResearchFor(neuralComputeCapability_)) {
             // Early admission precedes creation of motion_ and the NR guides.
             // Use the caller's real scene extent, then re-admit after dimension/pass changes.

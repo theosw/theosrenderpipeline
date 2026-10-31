@@ -290,6 +290,9 @@ namespace TheosRenderPipeline::NeuralRendering
         const bool directPascal = hardware.Pascal() && RuntimeKernelsSupported();
         const bool research = PascalResearchFor(capability);
         const bool directRuntime = directPascal || research;
+        if (!hardware.Pascal()) {
+            if (const auto* reason = hardware.Refusal()) { state.status = reason; state.runtimeRefused = true; return false; }
+        }
         if (hardware.Pascal() && !research) {
             const auto admission = QueryNeuralAdmission(a_info.device->GetAdapterLuid(), a_info.runtimePath,
                 a_info.displayWidth, a_info.displayHeight, 1, RuntimeKernelsSupported(), true);
