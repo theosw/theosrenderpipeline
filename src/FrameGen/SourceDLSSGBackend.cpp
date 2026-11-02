@@ -599,6 +599,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			t.resource = sl::Resource(sl::ResourceType::eTex2d, pair.texture12.Get(), D3D12_RESOURCE_STATE_COMMON);
 			t.resource.width = pair.desc.Width; t.resource.height = pair.desc.Height;
 			t.extent = { 0, 0, pair.desc.Width, pair.desc.Height };
+			t.format = pair.desc.Format;
 			return t;
 		};
 		FrameGuides guides;
@@ -622,6 +623,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 					t.resource = sl::Resource(sl::ResourceType::eTex2d, resource, D3D12_RESOURCE_STATE_COMMON);
 					t.resource.width = static_cast<UINT>(d.Width); t.resource.height = d.Height;
 					t.extent = { 0, 0, static_cast<UINT>(d.Width), d.Height };
+					t.format = d.Format;
 					return t;
 				};
 				guides.ui = tag12(hdrOutputPass_->UITarget());
@@ -1102,9 +1104,11 @@ namespace TheosRenderPipeline::SourceDLSSG
 				// has allocated, after it: what frame generation costs on this system.
 				const auto& vram = SampleVideoMemory();
 				vramChange_ = active ? std::format("{} x{}", ProviderName(provider_), EffectiveMultiplier()) : std::string(ProviderName(provider_)) + " off";
-				vramBeforeBytes_ = vram.available ? vram.currentUsage : 0;
-				vramSampleDue_ = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-				if (active && provider_ == FrameGenerationProvider::NVIDIA) { session_.RequestVRAMEstimate(); }
+				// The first configuration is chosen before the telemetry has an adapter.
+				vramBeforeBytes_ = vram.currentUsage;
+				vramEstimatesBefore_ = state.vramEstimates;
+				vramSampleDue_ = vram.available ? std::chrono::steady_clock::now() + std::chrono::seconds(5) : std::chrono::steady_clock::time_point{};
+				if (vram.available && active && provider_ == FrameGenerationProvider::NVIDIA) { session_.RequestVRAMEstimate(); }
 				if (auto* timing = PerformanceTuning::GetSingleton(); timing->TimingEnabled()) {
 					timing->ResetTimingWindow();
 					logger::info("[Performance] frame generation {} {} preset={} overlap={}; timing window restarted",
@@ -1119,7 +1123,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			constexpr double MiB = 1024.0 * 1024.0;
 			logger::info("[VRAM] {}: process usage {:.0f} MiB before, {:.0f} MiB 5 s later; budget {:.0f} MiB; DLSS-G estimate {}",
 				vramChange_, vramBeforeBytes_ / MiB, vram.currentUsage / MiB, vram.budget / MiB,
-				state.vramEstimates ? std::format("{:.0f} MiB", state.vramEstimateBytes / MiB) : std::string("not reported"));
+				state.vramEstimates > vramEstimatesBefore_ ? std::format("{:.0f} MiB", state.vramEstimateBytes / MiB) : std::string("not reported"));
 		}
 		if (provider_ == FrameGenerationProvider::NVIDIA && (state.frameIndex <= 3 || state.frameIndex % 600 == 0)) {
 			const auto feedback = PresentationFeedback();

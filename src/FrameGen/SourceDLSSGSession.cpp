@@ -34,6 +34,23 @@ namespace TheosRenderPipeline::SourceDLSSG
 				e.width && e.height && e.left <= r.width && e.top <= r.height &&
 				e.width <= r.width - e.left && e.height <= r.height - e.top;
 		}
+		// DLSS-G sizes its VRAM estimate from these and rejects a 0x0 request.
+		// The layers are copies in the back-buffer format. False until tagged.
+		bool EstimateGeometry(sl::DLSSGOptions& a_options, const FrameGuides& a_guides)
+		{
+			if (!a_guides.depth.extent.width || !a_guides.displayWidth) { return false; }
+			a_options.numBackBuffers = 2; // the proxy swap chain
+			a_options.mvecDepthWidth = a_guides.depth.extent.width;
+			a_options.mvecDepthHeight = a_guides.depth.extent.height;
+			a_options.colorWidth = a_guides.displayWidth;
+			a_options.colorHeight = a_guides.displayHeight;
+			a_options.mvecBufferFormat = a_guides.motion.format;
+			a_options.depthBufferFormat = a_guides.depth.format;
+			a_options.hudLessBufferFormat = a_guides.hudless.format;
+			a_options.uiBufferFormat = a_guides.ui.format;
+			a_options.colorBufferFormat = a_guides.hudless.format ? a_guides.hudless.format : a_guides.ui.format;
+			return true;
+		}
 	}
 
 	bool SessionAPI::Complete() const
@@ -128,9 +145,10 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// Query once at startup and once after each real Present, before D3D11
 		// can reuse the shared input textures.
 		sl::DLSSGState state{};
-		sl::DLSSGOptions estimate{};
-		const bool estimating = std::exchange(vramEstimateRequested_, false);
-		if (estimating) { estimate = snapshot_.options; estimate.flags = estimate.flags | sl::DLSSGFlags::eRequestVRAMEstimate; }
+		auto estimate = snapshot_.options;
+		// Before the first tagged frame there is nothing to size; ask on a later frame.
+		const bool estimating = vramEstimateRequested_ && EstimateGeometry(estimate, guides_);
+		if (estimating) { vramEstimateRequested_ = false; estimate.flags = estimate.flags | sl::DLSSGFlags::eRequestVRAMEstimate; }
 		const auto result = api_.getState(viewport_, state, estimating ? &estimate : nullptr);
 		const bool warning = result == sl::Result::eWarnOutOfVRAM;
 		if (!warning && !Check(result, "DLSS-G state")) { return false; }

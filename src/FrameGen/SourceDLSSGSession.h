@@ -62,6 +62,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 	{
 		sl::Resource resource{};
 		sl::Extent extent{};
+		std::uint32_t format{}; // DXGI format; only DLSS-G's VRAM estimate reads it
 	};
 
 	struct FrameGuides

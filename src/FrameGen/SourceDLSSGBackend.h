@@ -344,7 +344,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		std::uint64_t frameGenerationTimingKey_{ ~0ull }; // Present thread; the configuration being timed.
 		// Present thread: VRAM before the last frame-generation change, sampled again when due.
 		std::string vramChange_;
-		std::uint64_t vramBeforeBytes_{};
+		std::uint64_t vramBeforeBytes_{}, vramEstimatesBefore_{};
 		std::chrono::steady_clock::time_point vramSampleDue_{};
 		std::atomic<std::chrono::steady_clock::rep> videoMemoryFullAt_{};
 		const VideoMemoryTelemetry::Snapshot& SampleVideoMemory();
