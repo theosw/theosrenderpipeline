@@ -92,6 +92,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 		std::uint64_t runtimePresentedFrames{};
 		std::uint64_t presentationEpoch{ 1 };
 		sl::DLSSGState state{};
+		// DLSS-G's own estimate for the options at the last request; 0 until then.
+		std::uint64_t vramEstimateBytes{};
+		std::uint64_t vramEstimates{};
 		sl::DLSSGOptions options{};
 		sl::ReflexMode reflexRequested{ sl::ReflexMode::eLowLatency };
 		sl::ReflexMode reflexSubmitted{ sl::ReflexMode::eOff };
@@ -150,6 +153,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 		void RequestFeatureRelease() { releaseRequested_ = true; }
 		// Lab: NVIDIA presents only its generated frames, to tell generation artifacts from rendered ones.
 		void RequestOnlyGenerated(bool a_enabled) { snapshot_.onlyGeneratedRequested = a_enabled; }
+		// The next state query also asks DLSS-G for its VRAM estimate.
+		void RequestVRAMEstimate() { vramEstimateRequested_ = true; }
 		bool RequestOutputFPSLimit(int a_fps)
 		{
 			if (a_fps < 0 || a_fps > 1000) { return false; }
@@ -170,6 +175,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		static bool ValidGuides(const FrameGuides& a_guides);
 
 	private:
+		bool vramEstimateRequested_{};
 		bool BeginFrame(bool a_afterPresent = false, bool a_suspend = false);
 		bool ClearTags();
 		bool SubmitOptions(const char* a_operation);

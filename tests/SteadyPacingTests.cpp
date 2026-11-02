@@ -77,6 +77,55 @@ int main()
         // A try dips 1% below the cap that held; the old back-off then rose 3% above it.
         Require(low >= 32500 && high <= 33500, "a failed try returns to the cap that held, not 3% above it");
     }
+    // 2026-11-02 player log (RTX 3060 Laptop, DLSS-G x3, VSync forced on): GPU
+    // work stayed near 17 ms, but held frames always arrived later than the
+    // cap and VRAM hitches recurred whatever the cap. Every 3% back-off moved
+    // the frames 3% later, so the cap walked from 29 to 9 FPS. A back-off that
+    // the frames just follow is undone and the excess tolerated instead.
+    {
+        struct Case { const char* why; double scale, add; int spikeEvery; double spike; };
+        constexpr Case cases[]{
+            { "a proportional presentation delay does not walk the cap down", 1.05, 0, 0, 0 },
+            { "a fixed presentation delay does not walk the cap down", 1.0, 3000, 0, 0 },
+            { "hitches that do not depend on the cap do not walk it down", 1.0, 0, 8, 60000 },
+        };
+        for (const auto& c : cases) {
+            SteadyPacing pacing;
+            double first = 0, high = 0;
+            for (int frame = 0; frame < 20000; ++frame) {
+                double interval = Paced(pacing, 17000) * c.scale + c.add;
+                if (c.spikeEvery && frame % c.spikeEvery == 0) { interval += c.spike; }
+                pacing.Observe(interval);
+                if (!first && pacing.TargetUs() > 0) { first = pacing.TargetUs(); }
+                high = (std::max)(high, pacing.TargetUs());
+            }
+            Require(first > 0 && high <= first * 1.07, c.why);
+        }
+    }
+    // A real overload is still followed when a presentation delay was learned.
+    {
+        SteadyPacing pacing;
+        for (int frame = 0; frame < 3000; ++frame) { pacing.Observe(Paced(pacing, 17000) * 1.05); }
+        for (int frame = 0; frame < 3000; ++frame) { pacing.Observe(Paced(pacing, 26000) * 1.05); }
+        Require(pacing.TargetUs() * pacing.Allowance() * SteadyPacing::kSlowTolerance >= 26000 * 1.05,
+            "a heavier scene still backs the cap off after a delay was learned");
+    }
+    // 2026-11-02 player log: turning DLSS-G on stalled frames for a few seconds
+    // and the first cap measured those stalls (18 FPS on a GPU good for ~50).
+    // After a restart the first seconds are not measured.
+    {
+        SteadyPacing pacing;
+        for (int frame = 0; frame < 600; ++frame) { pacing.Observe(Paced(pacing, 17000)); }
+        pacing.Restart();
+        for (int frame = 0; frame < 40; ++frame) { pacing.Observe(55000); } // 2.2 s of start-up stalls
+        Require(pacing.TargetUs() == 0, "nothing is capped while settling");
+        for (int frame = 0; frame < 400; ++frame) { pacing.Observe(Paced(pacing, 20000)); }
+        Require(pacing.TargetUs() > 0 && pacing.TargetUs() <= 20000 * SteadyPacing::kHeadroom * 1.01,
+            "the first cap after settling measures the new cost, not the start-up stalls");
+        Require(!pacing.Observe(900000) && pacing.TargetUs() == 0, "a long pause restarts too");
+        for (int frame = 0; frame < 100; ++frame) { pacing.Observe(20000); }
+        Require(pacing.TargetUs() == 0, "and settles before measuring again");
+    }
     // Lighter scenes are found by probing, slowly.
     {
         SteadyPacing pacing;

@@ -128,7 +128,10 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// Query once at startup and once after each real Present, before D3D11
 		// can reuse the shared input textures.
 		sl::DLSSGState state{};
-		const auto result = api_.getState(viewport_, state, nullptr);
+		sl::DLSSGOptions estimate{};
+		const bool estimating = std::exchange(vramEstimateRequested_, false);
+		if (estimating) { estimate = snapshot_.options; estimate.flags = estimate.flags | sl::DLSSGFlags::eRequestVRAMEstimate; }
+		const auto result = api_.getState(viewport_, state, estimating ? &estimate : nullptr);
 		const bool warning = result == sl::Result::eWarnOutOfVRAM;
 		if (!warning && !Check(result, "DLSS-G state")) { return false; }
 		++snapshot_.stateQueries;
@@ -137,6 +140,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// including the input-reader fence. It does not change generation policy.
 		if (warning) { ++snapshot_.stateWarnings; }
 		snapshot_.state = state;
+		if (estimating) { snapshot_.vramEstimateBytes = state.estimatedVRAMUsageInBytes; ++snapshot_.vramEstimates; }
 		if (a_afterPresent) {
 			snapshot_.runtimePresentedFrames += state.numFramesActuallyPresented;
 			OutputBatchMode mode = OutputBatchMode::Off;

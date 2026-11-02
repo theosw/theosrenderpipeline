@@ -16,6 +16,7 @@
 #include "../ScreenshotFile.h"
 #include "../RenderPipeline.h"
 #include "../PerformanceTuning.h"
+#include "../VideoMemoryTelemetry.h"
 #include "SourceFrameGeneration.h"
 #include "StartupFallback.h"
 #include <d3dcompiler.h>
@@ -94,6 +95,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 	{
 		const auto& s = session_.Snapshot();
 		if (a_result) {
+			if (s.stateQueryResult == sl::Result::eWarnOutOfVRAM || s.optionsResult == sl::Result::eWarnOutOfVRAM) {
+				MarkVideoMemoryFull();
+			}
 			if (s.stateQueryResult != reportedStateQueryResult_) {
 				if (s.stateQueryResult == sl::Result::eWarnOutOfVRAM) {
 					logger::warn("[SourceDLSSG] DLSS-G state eWarnOutOfVRAM frame={} warnings={}; VRAM budget warning; frame generation settings unchanged",
@@ -348,6 +352,10 @@ namespace TheosRenderPipeline::SourceDLSSG
         neuralCapability_ = NeuralRendering::QueryNeuralHardware(adapterDesc.AdapterLuid, NeuralRendering::RuntimeKernelsSupported());
         neuralComputeCapability_ = neuralCapability_.architecture;
         pascalResearch_ = neuralCapability_.Pascal();
+        logger::info("[SourceDLSSG] NVIDIA capability: vendor={} SM={} source={} device=0x{:04X} CUDA ready={} matched={} RTX features={}",
+            neuralCapability_.nvidia, neuralCapability_.architecture,
+            neuralCapability_.architecture ? "CUDA" : "device ID (CUDA did not report the architecture)",
+            neuralCapability_.deviceId, neuralCapability_.cudaReady, neuralCapability_.adapterMatched, neuralCapability_.NvidiaFeatures());
         if (pascalResearch_) { logger::info("[NR Pascal] native presentation via Intel host; DLSS-G unavailable; research pack={}", NeuralRendering::PascalConfiguration().pack.string()); }
 #endif
 		adapterDevice_ = adapterDesc.DeviceId;
@@ -1090,6 +1098,13 @@ namespace TheosRenderPipeline::SourceDLSSG
 				std::uint64_t{NvidiaOverlapNextFrame()} << 17;
 			if (key != frameGenerationTimingKey_) {
 				frameGenerationTimingKey_ = key;
+				// Video memory before the change and, once the new configuration
+				// has allocated, after it: what frame generation costs on this system.
+				const auto& vram = SampleVideoMemory();
+				vramChange_ = active ? std::format("{} x{}", ProviderName(provider_), EffectiveMultiplier()) : std::string(ProviderName(provider_)) + " off";
+				vramBeforeBytes_ = vram.available ? vram.currentUsage : 0;
+				vramSampleDue_ = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+				if (active && provider_ == FrameGenerationProvider::NVIDIA) { session_.RequestVRAMEstimate(); }
 				if (auto* timing = PerformanceTuning::GetSingleton(); timing->TimingEnabled()) {
 					timing->ResetTimingWindow();
 					logger::info("[Performance] frame generation {} {} preset={} overlap={}; timing window restarted",
@@ -1097,6 +1112,14 @@ namespace TheosRenderPipeline::SourceDLSSG
 						PresetLabel(PresetConfiguration()), NvidiaOverlapNextFrame());
 				}
 			}
+		}
+		if (vramSampleDue_ != std::chrono::steady_clock::time_point{} && std::chrono::steady_clock::now() >= vramSampleDue_) {
+			vramSampleDue_ = {};
+			const auto& vram = SampleVideoMemory();
+			constexpr double MiB = 1024.0 * 1024.0;
+			logger::info("[VRAM] {}: process usage {:.0f} MiB before, {:.0f} MiB 5 s later; budget {:.0f} MiB; DLSS-G estimate {}",
+				vramChange_, vramBeforeBytes_ / MiB, vram.currentUsage / MiB, vram.budget / MiB,
+				state.vramEstimates ? std::format("{:.0f} MiB", state.vramEstimateBytes / MiB) : std::string("not reported"));
 		}
 		if (provider_ == FrameGenerationProvider::NVIDIA && (state.frameIndex <= 3 || state.frameIndex % 600 == 0)) {
 			const auto feedback = PresentationFeedback();
@@ -1466,6 +1489,23 @@ namespace TheosRenderPipeline::SourceDLSSG
 		}
 		return true;
 	}
+	const VideoMemoryTelemetry::Snapshot& Backend::SampleVideoMemory()
+	{
+		auto* memory = VideoMemoryTelemetry::GetSingleton();
+		memory->Update(); // Rate-limited internally.
+		const auto& vram = memory->GetSnapshot();
+		if (vram.available && vram.budget && vram.currentUsage >= vram.budget) { MarkVideoMemoryFull(); }
+		return vram;
+	}
+	void Backend::MarkVideoMemoryFull()
+	{
+		videoMemoryFullAt_.store(std::chrono::steady_clock::now().time_since_epoch().count(), std::memory_order_relaxed);
+	}
+	bool Backend::VideoMemoryFullRecently() const
+	{
+		const auto at = videoMemoryFullAt_.load(std::memory_order_relaxed);
+		return at && std::chrono::steady_clock::now() - std::chrono::steady_clock::time_point(std::chrono::steady_clock::duration(at)) < std::chrono::seconds(10);
+	}
 	int Backend::UpdateFrameLimit()
 	{
 		const auto mode = static_cast<FrameLimitMode>(frameLimit_.load(std::memory_order_relaxed));
@@ -1478,14 +1518,21 @@ namespace TheosRenderPipeline::SourceDLSSG
 			steadyRenderedFPS_.store(0, std::memory_order_relaxed);
 			return frameOutputLimit_ = mode == FrameLimitMode::Fixed ? outputFPSLimit_.load(std::memory_order_relaxed) : 0;
 		}
-		if (measured && steadyPacing_.Observe(intervalUs)) {
-			logger::info("[FrameLimit] steady cap {:.1f} rendered FPS", steadyPacing_.TargetFPS());
-		}
-		steadyRenderedFPS_.store(static_cast<float>(steadyPacing_.TargetFPS()), std::memory_order_relaxed);
 		// The limiters cap output, so scale the rendered cap by this frame's multiplier.
 		const unsigned outputs = provider_ == FrameGenerationProvider::XeFG ?
 			(xefg_.Snapshot().enabled ? xefg_.Snapshot().generatedFrames + 1 : 1u) :
 			(GenerationEnabled(session_.Snapshot().options.mode) ? session_.Snapshot().options.numFramesToGenerate + 1 : 1u);
+		// Generation turning on, off or changing multiplier changes the cost and
+		// starts with stalls; measure afresh once they have passed.
+		if (outputs != steadyOutputs_) {
+			if (steadyOutputs_) { steadyPacing_.Restart(); }
+			steadyOutputs_ = outputs;
+		}
+		if (measured && steadyPacing_.Observe(intervalUs)) {
+			logger::info("[FrameLimit] steady cap {:.1f} rendered FPS; held frames may arrive {:.1f}% late",
+				steadyPacing_.TargetFPS(), (steadyPacing_.Allowance() - 1) * 100);
+		}
+		steadyRenderedFPS_.store(static_cast<float>(steadyPacing_.TargetFPS()), std::memory_order_relaxed);
 		return frameOutputLimit_ = SteadyOutputLimit(steadyPacing_.TargetUs(), outputs);
 	}
 	HRESULT Backend::CreatePresenter(FrameGenerationProvider provider, IDXGISwapChain** result)

@@ -57,6 +57,13 @@ int wmain(int argc, wchar_t** argv)
             }
             Require(c.Refusal(), "unknown adapter/component facts refuse");
         }
+        // CUDA unable to report the architecture: device IDs decide RTX features,
+        // and NR stays refused because the architecture is unknown.
+        for (auto [id, rtx] : {std::pair{0x1B81u, false}, {0x1D81u, false}, {0x1E04u, true}, {0x2560u, true}, {0x2704u, true}}) {
+            auto c = Valid(); c.architecture = 0; c.cudaReady = c.adapterMatched = false; c.deviceId = id;
+            Require(c.NvidiaFeatures() == rtx && !c.Pascal() && c.Refusal(), "unknown architecture falls back to device ID");
+        }
+        { auto c = Valid(); c.deviceId = 0x2560; Require(!c.NvidiaFeatures(), "a CUDA-reported architecture outranks the device ID"); }
         auto c = Valid(); c.dedicatedBytes = 0;
         Require(!c.Refusal(), "zero or unreported dedicated VRAM does not override sufficient live budget");
         c = Valid(); c.cudaDriver = 13000; Require(!c.Refusal(), "newer CUDA driver API does not imply wrong compiler target");
