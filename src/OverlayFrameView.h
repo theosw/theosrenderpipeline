@@ -60,6 +60,7 @@ struct OverlayUI::FrameView
     bool nvidiaAdapter{true};
     bool nvidiaFeatures{true};
     bool nvidiaFrameGeneration{true};
+    bool videoMemoryFull{};
     bool xessActive{};
     bool nrFriendlyRenderSizeActive{};
     bool generationActive{};

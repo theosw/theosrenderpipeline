@@ -62,6 +62,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 	{
 		sl::Resource resource{};
 		sl::Extent extent{};
+		std::uint32_t format{}; // DXGI format; only DLSS-G's VRAM estimate reads it
 	};
 
 	struct FrameGuides
@@ -92,6 +93,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 		std::uint64_t runtimePresentedFrames{};
 		std::uint64_t presentationEpoch{ 1 };
 		sl::DLSSGState state{};
+		// DLSS-G's own estimate for the options at the last request; 0 until then.
+		std::uint64_t vramEstimateBytes{};
+		std::uint64_t vramEstimates{};
 		sl::DLSSGOptions options{};
 		sl::ReflexMode reflexRequested{ sl::ReflexMode::eLowLatency };
 		sl::ReflexMode reflexSubmitted{ sl::ReflexMode::eOff };
@@ -150,10 +154,13 @@ namespace TheosRenderPipeline::SourceDLSSG
 		void RequestFeatureRelease() { releaseRequested_ = true; }
 		// Lab: NVIDIA presents only its generated frames, to tell generation artifacts from rendered ones.
 		void RequestOnlyGenerated(bool a_enabled) { snapshot_.onlyGeneratedRequested = a_enabled; }
-		bool RequestOutputFPSLimit(int a_fps)
+		// The next state query also asks DLSS-G for its VRAM estimate.
+		void RequestVRAMEstimate() { vramEstimateRequested_ = true; }
+		// 0 = no cap; otherwise the minimum output interval, 1 to 1000 FPS.
+		bool RequestOutputFrameLimitUs(std::uint32_t a_us)
 		{
-			if (a_fps < 0 || a_fps > 1000) { return false; }
-			snapshot_.frameLimitRequestedUs = OutputFrameLimitUs(a_fps);
+			if (a_us && (a_us < 1000 || a_us > 1000000)) { return false; }
+			snapshot_.frameLimitRequestedUs = a_us;
 			return true;
 		}
 		bool BeforePresent(bool a_enableGeneration, bool a_testOnly = false);
@@ -170,6 +177,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		static bool ValidGuides(const FrameGuides& a_guides);
 
 	private:
+		bool vramEstimateRequested_{};
 		bool BeginFrame(bool a_afterPresent = false, bool a_suspend = false);
 		bool ClearTags();
 		bool SubmitOptions(const char* a_operation);

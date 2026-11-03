@@ -36,6 +36,7 @@ namespace TheosRenderPipeline::NeuralRendering
             if (!adapter || FAILED(adapter->GetDesc1(&desc))) { return c; }
             c.nvidia = desc.VendorId == 0x10DE;
             c.dedicatedBytes = desc.DedicatedVideoMemory;
+            c.deviceId = desc.DeviceId;
             if (!c.nvidia) { return c; }
             const auto cuda = LoadLibraryExW(L"nvcuda.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
             if (cuda) {

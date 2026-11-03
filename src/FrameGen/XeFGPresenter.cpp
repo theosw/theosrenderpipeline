@@ -411,7 +411,7 @@ namespace TheosRenderPipeline
         return S_OK;
     }
     HRESULT XeFGPresenter::BeforePresent(ID3D12GraphicsCommandList* list, ID3D12Resource* motion,
-        ID3D12Resource* depth, ID3D12Resource* hudless, ID3D12Resource* ui, bool enabled, bool uiComposition, int outputFPSLimit, std::uint32_t generatedFrames)
+        ID3D12Resource* depth, ID3D12Resource* hudless, ID3D12Resource* ui, bool enabled, bool uiComposition, std::uint32_t outputIntervalUs, std::uint32_t generatedFrames)
     {
         if (!frameBegun_ || presentPending_) { return E_UNEXPECTED; }
         const bool generate = enabled && snapshot_.prepared && motion && depth && hudless;
@@ -432,7 +432,7 @@ namespace TheosRenderPipeline
         xell_sleep_params_t sleep{}; sleep.bLowLatencyMode = 1;
         // The pinned XeLL runtime caps output deliveries. Multiplying by the
         // generation ratio would reduce a requested 60-output cap to 30/20/15.
-        sleep.minimumIntervalUs = XeFGOutputInterval(outputFPSLimit);
+        sleep.minimumIntervalUs = outputIntervalUs;
         if (sleep.minimumIntervalUs != snapshot_.frameLimitUs &&
             FAILED(hr = LL(xellSetSleepMode_(ll_, &sleep), "output cap"))) { return hr; }
         if (FAILED(hr = FG(xefgSwapChainSetEnabled_(fg_, generate), "generation options"))) { return hr; }

@@ -1,3 +1,25 @@
+# 0.6.1
+
+- Steady frame limit: when held frames arrive late for a reason the cap does not
+  cause (VSync forced on in the driver, video memory paging, hitches that recur
+  whatever the cap), Steady no longer keeps lowering the cap. A reported RTX
+  3060 Laptop went from 29 to 9 FPS. A cut that does not help is undone and that
+  delay is allowed instead.
+- Steady waits about three seconds after frame generation turns on, off or
+  changes multiplier before it measures, instead of capping at the start-up
+  stalls.
+- Steady's cap now reaches Reflex and XeLL exactly instead of rounded down to a
+  whole FPS. Without frame generation the rounding alone walked the cap from 36
+  to 32 FPS.
+- RTX cards whose driver does not report the GPU architecture through CUDA are
+  no longer treated as non-RTX: DLSS and DLSS-G stay selectable (reported in
+  0.6.0 as DLSS-G greyed out with only XeFG available). TRP falls back to the
+  card's PCI device ID. NR still needs the architecture from CUDA.
+- The Frame generation tab warns when video memory is full: Windows is moving
+  textures out of it, which causes stutter.
+- The log records video memory before and after each frame-generation change
+  with DLSS-G's own estimate, and how the RTX check identified the card.
+
 # 0.6.0
 
 - Universal adds experimental GTX 10 (Pascal, sm_61) Neural Rendering with

@@ -1,5 +1,6 @@
 #pragma once
 #include "SteadyPacing.h"
+#include "../VideoMemoryTelemetry.h"
 #include "NeuralAdmission.h"
 #include "NeuralRecovery.h"
 #include "XeFGModelBeat.h"
@@ -183,6 +184,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 		void ConfigureFrameLimit(FrameLimitMode a_mode) { frameLimit_.store(static_cast<int>(a_mode), std::memory_order_relaxed); }
 		// Steady's current rendered-frame cap, 0 while measuring or off.
 		float SteadyRenderedFPS() const { return steadyRenderedFPS_.load(std::memory_order_relaxed); }
+		// DLSS-G warned about VRAM, or usage reached the OS budget, in the last 10 s.
+		bool VideoMemoryFullRecently() const;
 		// Applied at the next present boundary (UpdateHDRRequest); calibration applies live.
 		void ConfigureHDROutput(const HDROutput::Settings& a_settings)
 		{
@@ -339,6 +342,13 @@ namespace TheosRenderPipeline::SourceDLSSG
 		std::atomic<bool> nvidiaOverlapNextFrame_{};
 		bool nvidiaOverlapLogged_{}; // Present thread.
 		std::uint64_t frameGenerationTimingKey_{ ~0ull }; // Present thread; the configuration being timed.
+		// Present thread: VRAM before the last frame-generation change, sampled again when due.
+		std::string vramChange_;
+		std::uint64_t vramBeforeBytes_{}, vramEstimatesBefore_{};
+		std::chrono::steady_clock::time_point vramSampleDue_{};
+		std::atomic<std::chrono::steady_clock::rep> videoMemoryFullAt_{};
+		const VideoMemoryTelemetry::Snapshot& SampleVideoMemory();
+		void MarkVideoMemoryFull();
 		// Per-window CPU samples for the input-reuse A/B; logged and cleared every 600 presents.
 		std::vector<float> xefgReuseMs_, xefgSleepMs_;
 		std::atomic<bool> xefgModelBeatRequested_{};
@@ -369,8 +379,10 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// Render thread only. The output cap Present hands the limiters this frame.
 		SteadyPacing steadyPacing_;
 		std::chrono::steady_clock::time_point steadyLast_{};
-		int frameOutputLimit_{ 0 };
-		int UpdateFrameLimit();
+		unsigned steadyOutputs_{}; // Outputs per rendered frame when Steady last measured.
+		std::uint32_t frameOutputIntervalUs_{}; // 0 = no cap
+		// The output interval the limiter applies this frame, in microseconds.
+		std::uint32_t UpdateFrameLimit();
 		mutable std::mutex presentationFeedbackMutex_;
 		PresentationFeedbackTracker presentationFeedback_;
 		std::uint64_t presentationQueryFailures_{};

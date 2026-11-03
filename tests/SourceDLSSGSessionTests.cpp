@@ -30,6 +30,8 @@ namespace
         std::vector<std::string> calls;
         unsigned optionsCalls{}, waits{};
         bool waitOK{true}, lastReset{}, lastDepthInverted{};
+        sl::DLSSGOptions estimated{};
+        unsigned estimates{};
         sl::Result Call(const char* name)
         {
             calls.emplace_back(name);
@@ -49,7 +51,11 @@ namespace
     }
     sl::Result State(const sl::ViewportHandle&, sl::DLSSGState& state, const sl::DLSSGOptions* options)
     {
-        Require(!options, "state query remains read-only without expensive VRAM estimate");
+        if (options) {
+            Require(bool(options->flags & sl::DLSSGFlags::eRequestVRAMEstimate), "only a VRAM estimate passes options to the state query");
+            runtime->estimated = *options; ++runtime->estimates;
+            runtime->state.estimatedVRAMUsageInBytes = 512ull << 20;
+        }
         runtime->Call("state");
         state = runtime->state;
         return runtime->stateResult;
@@ -116,6 +122,7 @@ namespace
             texture->resource = sl::Resource(sl::ResourceType::eTex2d, texture, 0);
             texture->resource.width = 2560; texture->resource.height = 1440;
             texture->extent = {0, 0, 2560, 1440};
+            texture->format = texture == &guides.depth ? 41u : 10u;
         }
         return session.Prepare(c, guides, reinterpret_cast<sl::CommandBuffer*>(0x2000)) && session.CompleteInputWrites();
     }
@@ -171,6 +178,22 @@ int main()
             Require(r.lastDepthInverted == inverted, "producer depth convention reaches Streamline unchanged");
             Require(s.BeforePresent(true) && s.AfterPresent(true), "depth convention frame completes");
         }
+    }
+    // 2026-11-02 game test: an estimate request without sizes failed with
+    // "creation dimensions (0 x 0)". It waits for a tagged frame and sends them.
+    {
+        Runtime r; Session s; s.RequestVRAMEstimate();
+        Require(s.Start(API(r), 7) && r.estimates == 0, "no estimate before anything is tagged");
+        Frame(s, 4, true, true);
+        Require(r.estimates == 1 && s.Snapshot().vramEstimates == 1 && s.Snapshot().vramEstimateBytes == 512ull << 20,
+            "one estimate after the first tagged frame");
+        const auto& e = r.estimated;
+        Require(e.colorWidth == 2560 && e.colorHeight == 1440 && e.mvecDepthWidth == 2560 && e.mvecDepthHeight == 1440 &&
+                e.numBackBuffers == 2 && e.depthBufferFormat == 41 && e.mvecBufferFormat == 10 &&
+                e.colorBufferFormat == 10 && e.hudLessBufferFormat == 10 && e.uiBufferFormat == 10,
+            "the estimate carries the tagged sizes and formats");
+        Frame(s, 4, true, true);
+        Require(r.estimates == 1, "later state queries stay read-only");
     }
     // Exact reported sequence: healthy x4, state warning, then options warning.
     for (bool withStateWarning : {false, true}) {

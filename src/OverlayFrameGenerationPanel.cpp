@@ -110,8 +110,14 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& v
             DrawLabGenerationControls(view);
         if (!intel && unlock.UsesCompatibilityUnlock() && !unlock.Ready())
             ImGui::TextWrapped("%s", unlock.status);
-        if (!intel && sourceState.stateQueryResult == sl::Result::eWarnOutOfVRAM)
-            ImGui::TextColored(kOchre, "%s", TR("NVIDIA VRAM budget warning"));
+        if (view.videoMemoryFull)
+        {
+            // Frame generation needs video memory of its own; Skyrim cannot shrink its textures to make room.
+            ImGui::PushStyleColor(ImGuiCol_Text, kOchre);
+            ImGui::TextWrapped("%s", TR("Video memory is full. Windows is moving textures out of it, which causes stutter. "
+                                        "Use smaller textures or a lower resolution, or turn frame generation off."));
+            ImGui::PopStyleColor();
+        }
         if (view.warmupPresentsRemaining > 0)
             ImGui::Text(TR("Warmup: %d frames"), view.warmupPresentsRemaining);
         if (showDeveloperControls && ImGui::CollapsingHeader(TRID("Runtime details").c_str()))

@@ -109,7 +109,6 @@ int main()
 	Require(LoadPreferences(ini).xefg.generatedFrames == 5, "excess INI multiplier clamps to x6");
 	ini.SetLongValue("FrameGeneration", "XeFGMultiplier", 0);
 	Require(LoadPreferences(ini).xefg.generatedFrames == 1, "invalid low INI multiplier clamps to x2");
-	Require(XeFGOutputInterval(60) == 16667 && XeFGOutputInterval(0) == 0, "output cap does not scale with multiplier");
 	ini.Reset();
 	Require(ini.LoadData("[SourceDLSSG]\nNRPasses=2\nNRInputScale=0.75\nNRPreset=1\nNRIntensity=0.4\n") >= 0, "old INI");
 	auto old = LoadPreferences(ini);

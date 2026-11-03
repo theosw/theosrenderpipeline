@@ -30,6 +30,7 @@ namespace TheosRenderPipeline::NeuralRendering
         LUID luid{};
         bool nvidia{}, adapterMatched{}, cudaReady{}, nvapiReady{}, universal{};
         int architecture{}, smCount{}, cudaDriver{};
+        std::uint32_t deviceId{}; // PCI device ID of the rendering adapter
         std::uint32_t driverVersion{}; // NVAPI hundredths; zero is unknown
         std::string driverBranch, driverSource;
         std::uint64_t dedicatedBytes{}, budgetBytes{}, usageBytes{}, estimateBytes{}, retainedEstimateBytes{};
@@ -39,7 +40,10 @@ namespace TheosRenderPipeline::NeuralRendering
         bool budgetPendingRetirement{};
         bool extentPending{};
         bool Pascal() const { return nvidia && architecture == 61; }
-        bool NvidiaFeatures() const { return nvidia && architecture >= 75; }
+        // RTX features (DLSS, DLAA, DLSS-G) need Turing or newer. When CUDA cannot
+        // report the architecture (0.6.0 greyed out DLSS-G on such an RTX system),
+        // NVIDIA's device IDs decide: Turing starts at 0x1E00, Pascal and Volta are below.
+        bool NvidiaFeatures() const { return nvidia && (architecture ? architecture >= 75 : deviceId >= 0x1E00); }
         const char* Refusal() const
         {
             if (!nvidia || !architecture) { return "NR hardware capability is unknown or unsupported. Check the rendering adapter and its driver."; }
