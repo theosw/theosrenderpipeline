@@ -18,6 +18,14 @@ public:
 		std::uint64_t budget{ 0 };
 		std::uint64_t availableForReservation{ 0 };
 		std::uint64_t currentReservation{ 0 };
+		// Kernel statistics (Task Manager's source). DXGI's usage above is only what
+		// the budget charges this process, so fullness comes from these.
+		bool kernelAvailable{ false };
+		bool processKnown{ false };
+		std::uint64_t adapterLimit{ 0 };
+		std::uint64_t adapterResident{ 0 };
+		std::uint64_t processCommitted{ 0 };
+		std::uint64_t processDemoted{ 0 };
 	};
 
 	static VideoMemoryTelemetry* GetSingleton()
@@ -33,6 +41,8 @@ public:
 
 private:
 	Microsoft::WRL::ComPtr<IDXGIAdapter3> adapter_;
+	LUID luid_{};
+	bool kernelStatistics_{ false };
 	Snapshot snapshot_{};
 	std::string status_{ "D3D11 adapter unavailable" };
 	std::uint64_t lastSampleTick_{ 0 };

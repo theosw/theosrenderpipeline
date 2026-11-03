@@ -75,6 +75,10 @@ PreviewScenario Healthy()
     view.neuralRuntimePath = "Data\\SKSE\\Plugins\\TheosRenderPipeline\\nvngx_dlssnr.dll";
     view.textureProviderStatus = "TextureDownscaler not installed";
     view.memorySnapshot = {true, 16 * kGiB, 9 * kGiB + kGiB / 2, 15 * kGiB + kGiB / 4};
+    view.memorySnapshot.kernelAvailable = view.memorySnapshot.processKnown = true;
+    view.memorySnapshot.adapterLimit = 15 * kGiB + kGiB * 2 / 3;
+    view.memorySnapshot.adapterResident = 11 * kGiB + kGiB / 4;
+    view.memorySnapshot.processCommitted = 9 * kGiB + kGiB * 3 / 4;
 
     view.neuralRuntimes = {std::string(SourceDLSSG::kAutomaticNeuralRuntime),
         std::string(SourceDLSSG::kDefaultNeuralRuntime), std::string(SourceDLSSG::kLatestNeuralRuntime),
@@ -187,6 +191,12 @@ PreviewScenario NROff()
     view.neuralState = {};
     view.outputRate.fps = 141.8f;
     view.memorySnapshot = {true, 12 * kGiB, 10 * kGiB + kGiB / 3, 11 * kGiB};
+    // Nearly full card with game memory already moved to system RAM.
+    view.memorySnapshot.kernelAvailable = view.memorySnapshot.processKnown = true;
+    view.memorySnapshot.adapterLimit = 11 * kGiB + kGiB * 3 / 4;
+    view.memorySnapshot.adapterResident = 11 * kGiB + kGiB / 2;
+    view.memorySnapshot.processCommitted = 10 * kGiB + kGiB / 2;
+    view.memorySnapshot.processDemoted = kGiB / 2;
     auto& draft = scenario.applied;
     draft.upscaleType = DLAA;
     draft.sourceDLSSG.neuralEnabled = false;
@@ -522,5 +532,6 @@ std::vector<PreviewScenario> PreviewScenarios()
         Pascal("pascal-standard", NeuralRendering::kPascalEditionReason),
         Pascal("pascal-driver", NeuralRendering::kPascalDriverReason),
         Pascal("pascal-missing-pack", NeuralRendering::kPascalAssetReason),
+        Pascal("pascal-checking", NeuralRendering::kPascalAssetsChecking),
         Pascal("pascal-low-budget", NeuralRendering::kPascalBudgetReason), PascalOldNetwork(), Runtimes(), Lab()};
 }

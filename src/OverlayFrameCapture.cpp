@@ -106,7 +106,9 @@ OverlayUI::FrameView OverlayUI::CaptureFrameView()
     static Clock::time_point admittedAt{};
     static TheosRenderPipeline::SourceDLSSG::Preferences admittedPreferences;
     static std::vector<std::string> runtimeReasons, admittedRuntimes;
-    if (Clock::now() - admittedAt > std::chrono::seconds(3) ||
+    static bool checksPending{};
+    // While GTX 10 runtime checks run in the background, look again soon after they finish.
+    if (Clock::now() - admittedAt > (checksPending ? std::chrono::milliseconds(250) : std::chrono::seconds(3)) ||
         admittedRuntimes != view.neuralRuntimes ||
         admittedPreferences.neuralRuntime != settingsDraft.sourceDLSSG.neuralRuntime ||
         !TheosRenderPipeline::SameNeuralPreferences(admittedPreferences, settingsDraft.sourceDLSSG)) {
@@ -120,15 +122,23 @@ OverlayUI::FrameView OverlayUI::CaptureFrameView()
         options.reconstruction = draft.neuralReconstruction;
         options.extraPasses = draft.neuralExtraPasses;
         options = TheosRenderPipeline::SourceDLSSG::NormalizeNeuralRoute(std::move(options), view.communityShaders);
+        // Menu checks never hash on the render thread (that froze the first menu frame on GTX 10).
         admission = backend.CheckNeuralAdmission(options, options.beforeUpscaling ? view.renderWidth : view.outputWidth,
-            options.beforeUpscaling ? view.renderHeight : view.outputHeight);
+            options.beforeUpscaling ? view.renderHeight : view.outputHeight, false, true);
+        checksPending = admission.assetsPending;
         runtimeReasons.clear();
         for (const auto& runtime : view.neuralRuntimes) {
             const auto path = TheosRenderPipeline::SourceDLSSG::ResolveNeuralRuntimeSetting(runtime,
                 TheosRenderPipeline::PluginPaths::Directory(), backend.NeuralComputeCapability(),
                 TheosRenderPipeline::NeuralRendering::RuntimeKernelsSupported());
-            const auto* reason = TheosRenderPipeline::NeuralRendering::NeuralRuntimeChoiceReason(admission.Pascal(),
-                !admission.Pascal() || (admission.universal && TheosRenderPipeline::NeuralRendering::VerifyPascalAssets(path)));
+            const auto verified = !admission.Pascal() ? std::optional<bool>(true) :
+                admission.universal ? TheosRenderPipeline::NeuralRendering::PollPascalAssets(path) : std::optional<bool>(false);
+            if (!verified) {
+                checksPending = true;
+                runtimeReasons.emplace_back(TheosRenderPipeline::NeuralRendering::kPascalAssetsChecking);
+                continue;
+            }
+            const auto* reason = TheosRenderPipeline::NeuralRendering::NeuralRuntimeChoiceReason(admission.Pascal(), *verified);
             // TRP Fast replaces TRP's RTX 30/40 kernels; elsewhere it has nothing to run.
             const int capability = backend.NeuralComputeCapability();
             if (!reason && TheosRenderPipeline::SourceDLSSG::DescribeNeuralRuntime(runtime).detail ==

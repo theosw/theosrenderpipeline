@@ -136,7 +136,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 		void ConfigureNeuralCompare(NeuralRendering::CompareSettings a_compare);
 		NeuralRendering::CompareSettings NeuralCompare() const;
 		int NeuralComputeCapability() const;
-        NeuralRendering::NeuralCapability CheckNeuralAdmission(const NeuralOptions& options, unsigned width, unsigned height, bool log = false);
+        // pollAssets: menu use; never hashes on this thread and may report assets pending.
+        NeuralRendering::NeuralCapability CheckNeuralAdmission(const NeuralOptions& options, unsigned width, unsigned height, bool log = false,
+            bool pollAssets = false);
 		NeuralSnapshot NeuralState() const;
 		bool ConfigureReflex(sl::ReflexMode a_mode)
 		{

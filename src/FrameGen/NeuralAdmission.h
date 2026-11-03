@@ -6,12 +6,15 @@
 #include <string>
 #include <string_view>
 #include <chrono>
+#include <optional>
 
 namespace TheosRenderPipeline::NeuralRendering
 {
     inline constexpr std::string_view kPascalPackName = "nvngx_dlssnr_310.9.16_pascal_v1.trpk";
     inline constexpr std::string_view kPascalPackSha256 = "5AC8546C9E08AD8D0722DE54DA5E2BFDB1976FCCC2D227B3079E739BDA2C4B43";
     inline constexpr std::uint64_t kPascalPackBytes = 11'574'444;
+    // Original NVIDIA NR 310.9.16, the only runtime the pack patches.
+    inline constexpr std::uint64_t kPascalRuntimeBytes = 266'424'944;
     inline constexpr std::uint64_t kPascalGlobalsBytes = 62'811'622;
     inline constexpr const char* kPascalStatus = "GTX 10 compatibility kernels (experimental)";
     inline constexpr const char* kPascalEditionReason = "GTX 10 Neural Rendering needs the Universal edition. NR is off; normal rendering continues.";
@@ -24,6 +27,7 @@ namespace TheosRenderPipeline::NeuralRendering
     inline constexpr const char* kPascalBudgetUnknownReason = "GTX 10 NR could not query the rendering adapter's video-memory budget. NR is off; normal rendering continues.";
     inline constexpr const char* kPascalBudgetReason = "GTX 10 NR has insufficient video-memory budget for the estimated working set. Try one pass before upscaling or a lower resolution. NR is off; normal rendering continues.";
     inline constexpr const char* kPascalExtentPending = "NR is waiting for the first world frame's rendering dimensions.";
+    inline constexpr const char* kPascalAssetsChecking = "Checking the GTX 10 NR runtime files. This takes a moment the first time the menu opens.";
     inline constexpr const char* kPascalEstimateReason = "GTX 10 NR could not estimate memory for these rendering dimensions or pass count. NR is off; normal rendering continues.";
 
     // Facts refer to the actual rendering LUID, never a marketing name or SKU.
@@ -38,6 +42,12 @@ namespace TheosRenderPipeline::NeuralRendering
         std::string driverBranch, driverSource;
         std::uint64_t dedicatedBytes{}, budgetBytes{}, usageBytes{}, estimateBytes{}, retainedEstimateBytes{};
         bool assetsVerified{}, budgetKnown{};
+        // The menu's non-blocking check: verification still running off the render thread.
+        bool assetsPending{};
+        // Kernel statistics. DXGI's usage is only what the budget charges and can be
+        // gigabytes below the process's dedicated memory on a nearly full card.
+        bool adapterKnown{};
+        std::uint64_t adapterFreeBytes{}, processCommittedBytes{};
         // UI preflight only. The old owner is still charged by DXGI; replacement
         // budget admission must wait for proven retirement and a fresh query.
         bool budgetPendingRetirement{};
@@ -55,11 +65,17 @@ namespace TheosRenderPipeline::NeuralRendering
             if (driverVersion < 58278 || driverVersion >= 59000) { return kPascalDriverReason; }
             if (!adapterMatched || !cudaReady || cudaDriver < 12090 || !nvapiReady || smCount <= 0) { return kPascalComponentsReason; }
             if (extentPending) { return nullptr; }
+            if (assetsPending) { return kPascalAssetsChecking; }
             if (!assetsVerified) { return kPascalAssetReason; }
             if (!estimateBytes) { return kPascalEstimateReason; }
             if (!budgetKnown) { return kPascalBudgetUnknownReason; }
             const auto additional = estimateBytes > retainedEstimateBytes ? estimateBytes - retainedEstimateBytes : 0;
-            if (!budgetPendingRetirement && additional && (usageBytes >= budgetBytes || additional > budgetBytes - usageBytes)) { return kPascalBudgetReason; }
+            if (!budgetPendingRetirement && additional) {
+                const auto used = usageBytes > processCommittedBytes ? usageBytes : processCommittedBytes;
+                if (used >= budgetBytes || additional > budgetBytes - used) { return kPascalBudgetReason; }
+                // The working set must also fit in the card's free memory, or it is paged.
+                if (adapterKnown && additional > adapterFreeBytes) { return kPascalBudgetReason; }
+            }
             return nullptr;
         }
     };
@@ -130,8 +146,14 @@ namespace TheosRenderPipeline::NeuralRendering
     // Fresh pack hash + manifest validation; actual admission can also rehash the runtime.
     bool VerifyPascalPack(const std::filesystem::path& pack, bool fresh = true);
     bool VerifyPascalAssets(const std::filesystem::path& runtime, bool freshRuntime = false);
+    // Never hashes on the caller's thread: files of the wrong size are refused at once,
+    // a first check runs in the background (empty result while it runs) and later
+    // calls answer from the opened-file identity cache.
+    std::optional<bool> PollPascalAssets(const std::filesystem::path& runtime);
+    // pollAssets selects PollPascalAssets for menus; it may leave assetsPending set.
     NeuralCapability QueryNeuralAdmission(const LUID& luid, const std::filesystem::path& runtime,
-        unsigned width, unsigned height, unsigned passes, bool universal, bool log = false, std::uint64_t retainedEstimate = 0, bool freshAssets = false);
+        unsigned width, unsigned height, unsigned passes, bool universal, bool log = false, std::uint64_t retainedEstimate = 0,
+        bool freshAssets = false, bool pollAssets = false);
     void QueryNeuralBudget(NeuralCapability& capability);
     struct AdmissionMetrics { std::uint64_t hardwareProbes{}, packProbes{}, budgetQueries{}; };
     AdmissionMetrics GetAdmissionMetrics();

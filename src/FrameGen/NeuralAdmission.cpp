@@ -4,6 +4,7 @@
 #include "NeuralRenderingRuntimeIdentity.h"
 #include "NvidiaDriverVersion.h"
 #include <PCH.h>
+#include "GpuMemoryStatistics.h"
 #include <dxgi1_4.h>
 #include <wrl/client.h>
 #include <fstream>
@@ -11,6 +12,9 @@
 #include <map>
 #include <mutex>
 #include <atomic>
+#include <memory>
+#include <optional>
+#include <thread>
 
 namespace TheosRenderPipeline::NeuralRendering
 {
@@ -95,8 +99,20 @@ namespace TheosRenderPipeline::NeuralRendering
         if (it == cache.end()) { it = cache.emplace(key, Probe(luid)).first; }
         auto c = it->second; c.universal = universal; return c;
     }
+    namespace
+    {
+        // A file of another length can never match a pinned digest, so it is refused
+        // without hashing (the menu lists every installed NR runtime, 150-300 MB each).
+        bool SizeIs(const std::filesystem::path& path, std::uint64_t bytes)
+        {
+            std::error_code error;
+            const auto size = std::filesystem::file_size(path, error);
+            return !error && size == bytes;
+        }
+    }
     bool VerifyPascalPack(const std::filesystem::path& packPath, bool fresh)
     {
+        if (!SizeIs(packPath, kPascalPackBytes)) { return false; }
         if (!NeuralRenderingRuntimeIdentity::VerifyExpected(packPath, kPascalPackBytes, kPascalPackSha256, fresh).matched) { return false; }
         // A pinned SHA identifies every byte of the manifest as well. Once the
         // parser accepts that exact content it need not allocate/parse per poll.
@@ -113,8 +129,36 @@ namespace TheosRenderPipeline::NeuralRendering
     }
     bool VerifyPascalAssets(const std::filesystem::path& runtime, bool freshRuntime)
     {
-        return NeuralRenderingRuntimeIdentity::VerifyExpected(runtime, 266424944, kKernelRuntimeSha256, freshRuntime).matched &&
+        if (!SizeIs(runtime, kPascalRuntimeBytes)) { return false; }
+        return NeuralRenderingRuntimeIdentity::VerifyExpected(runtime, kPascalRuntimeBytes, kKernelRuntimeSha256, freshRuntime).matched &&
             VerifyPascalPack(runtime.parent_path() / kPascalPackName, freshRuntime);
+    }
+    std::optional<bool> PollPascalAssets(const std::filesystem::path& runtime)
+    {
+        if (!SizeIs(runtime, kPascalRuntimeBytes) || !SizeIs(runtime.parent_path() / kPascalPackName, kPascalPackBytes)) { return false; }
+        // Hashing the original runtime takes about a second on GTX 10-era CPUs and
+        // disks; on the render thread that froze the first menu frame.
+        struct Check { std::atomic_bool done{}; };
+        static std::mutex mutex;
+        static std::map<std::wstring, std::shared_ptr<Check>> checks;
+        std::shared_ptr<Check> check;
+        {
+            std::scoped_lock lock(mutex);
+            auto& entry = checks[runtime.wstring()];
+            if (!entry) {
+                entry = std::make_shared<Check>();
+                // Detached: process exit must never wait for a hash.
+                std::thread([started = entry, runtime] {
+                    try { VerifyPascalAssets(runtime, false); } catch (...) {}
+                    started->done = true;
+                }).detach();
+                return std::nullopt;
+            }
+            check = entry;
+        }
+        if (!check->done) { return std::nullopt; }
+        // The identity cache answers now; only a replaced file is hashed again.
+        return VerifyPascalAssets(runtime, false);
     }
     void QueryNeuralBudget(NeuralCapability& c)
     {
@@ -134,10 +178,15 @@ namespace TheosRenderPipeline::NeuralRendering
         if (budget && SUCCEEDED(budget->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &info))) {
             c.budgetKnown = true; c.budgetBytes = info.Budget; c.usageBytes = info.CurrentUsage;
         }
+        const auto kernel = GpuMemory::Query(c.luid);
+        c.adapterKnown = kernel.has_value();
+        c.adapterFreeBytes = kernel ? kernel->AdapterFree() : 0;
+        c.processCommittedBytes = kernel ? kernel->processCommitted : 0;
     }
     AdmissionMetrics GetAdmissionMetrics() { return {hardwareProbes.load(), packProbes.load(), budgetQueries.load()}; }
     NeuralCapability QueryNeuralAdmission(const LUID& luid, const std::filesystem::path& runtime,
-        unsigned width, unsigned height, unsigned passes, bool universal, bool log, std::uint64_t retainedEstimate, bool freshAssets)
+        unsigned width, unsigned height, unsigned passes, bool universal, bool log, std::uint64_t retainedEstimate, bool freshAssets,
+        bool pollAssets)
     {
         auto c = QueryNeuralHardware(luid, universal);
         if (!c.Pascal()) { return c; }
@@ -149,13 +198,22 @@ namespace TheosRenderPipeline::NeuralRendering
         c.estimateBytes = EstimatePascalMemory(width, height, passes);
         c.retainedEstimateBytes = retainedEstimate;
         // Standard never needs to inspect or install compatibility bytes.
-        if (universal) { c.assetsVerified = VerifyPascalAssets(runtime, freshAssets); }
+        if (universal && pollAssets) {
+            const auto verified = PollPascalAssets(runtime);
+            c.assetsPending = !verified;
+            c.assetsVerified = verified.value_or(false);
+        } else if (universal) {
+            c.assetsVerified = VerifyPascalAssets(runtime, freshAssets);
+        }
         QueryNeuralBudget(c);
         if (log) {
-            logger::info("[NR Admission] LUID={:08X}:{:08X} SM={} count={} dedicated={} driver={} branch={} source={} CUDA={} init={} match={} NVAPI={} pack={} budget={} usage={} estimatedNeed={} retainedEstimate={} status={}",
+            logger::info("[NR Admission] LUID={:08X}:{:08X} SM={} count={} dedicated={} driver={} branch={} source={} CUDA={} init={} match={} NVAPI={} pack={} budget={} usage={} processCommitted={} cardFree={} estimatedNeed={} retainedEstimate={} status={}",
                 static_cast<unsigned>(luid.HighPart), luid.LowPart, c.architecture, c.smCount, c.dedicatedBytes,
                 c.driverVersion, c.driverBranch, c.driverSource, c.cudaDriver, c.cudaReady, c.adapterMatched,
-                c.nvapiReady, c.assetsVerified, c.budgetBytes, c.usageBytes, c.estimateBytes, c.retainedEstimateBytes, c.Refusal() ? c.Refusal() : kPascalStatus);
+                c.nvapiReady, c.assetsVerified, c.budgetBytes, c.usageBytes,
+                c.adapterKnown ? std::to_string(c.processCommittedBytes) : std::string("unknown"),
+                c.adapterKnown ? std::to_string(c.adapterFreeBytes) : std::string("unknown"),
+                c.estimateBytes, c.retainedEstimateBytes, c.Refusal() ? c.Refusal() : kPascalStatus);
         }
         return c;
     }

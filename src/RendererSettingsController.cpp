@@ -108,9 +108,12 @@ RendererSettingsResult RendererSettingsController::Apply(const RendererSettingsD
     admissionOptions.reconstruction = settingsDraft.sourceDLSSG.neuralReconstruction;
     admissionOptions.extraPasses = settingsDraft.sourceDLSSG.neuralExtraPasses;
     admissionOptions = TheosRenderPipeline::SourceDLSSG::NormalizeNeuralRoute(std::move(admissionOptions), capabilities.externalWorld);
+    // Rehash on Apply only when the draft runs NR; otherwise the reason is unused and a
+    // GTX 10 rehash of the original runtime would stall every unrelated Apply.
+    const bool neuralRequested = settingsDraft.sourceDLSSG.neuralEnabled;
     const auto admission = SourceDLSSG::Backend::Get().CheckNeuralAdmission(admissionOptions,
         admissionOptions.beforeUpscaling ? host_.RenderWidth() : host_.OutputWidth(),
-        admissionOptions.beforeUpscaling ? host_.RenderHeight() : host_.OutputHeight(), true);
+        admissionOptions.beforeUpscaling ? host_.RenderHeight() : host_.OutputHeight(), neuralRequested, !neuralRequested);
     capabilities.neuralAdmissionReason = admission.Refusal();
     capabilities.neuralOperational = SourceDLSSG::Backend::Get().Ready() && (!SourceDLSSG::Backend::Get().NeuralState().failed || SourceDLSSG::Backend::Get().NeuralState().retryable);
 #endif
@@ -267,7 +270,7 @@ RendererSettingsResult RendererSettingsController::SetNeuralRenderingEnabled(boo
         options.enabled = enabled;
         const auto admission = backend.CheckNeuralAdmission(options,
             options.beforeUpscaling ? host_.RenderWidth() : host_.OutputWidth(),
-            options.beforeUpscaling ? host_.RenderHeight() : host_.OutputHeight(), true);
+            options.beforeUpscaling ? host_.RenderHeight() : host_.OutputHeight(), enabled, !enabled);
         if (enabled && admission.Refusal()) { return {admission.Refusal(), true}; }
         if (enabled && !TheosRenderPipeline::SourceDLSSG::NeuralRuntimePresent(options.runtimePath))
         {

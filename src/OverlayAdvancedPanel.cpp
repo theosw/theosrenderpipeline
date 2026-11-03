@@ -54,12 +54,48 @@ void OverlayUI::DrawImageMeasurements(const FrameView& view)
 void OverlayUI::DrawMemoryMeasurements(const FrameView& view)
 {
     ImGui::Separator();
+    constexpr double gib = 1024.0 * 1024.0 * 1024.0;
+    if (const auto& memory = view.memorySnapshot; memory.kernelAvailable && memory.adapterLimit > 0)
+    {
+        // Whole card, as in Task Manager. DXGI's per-process usage is only what the
+        // budget charges Skyrim and can sit gigabytes below a nearly full card.
+        const auto free = memory.adapterResident < memory.adapterLimit ? memory.adapterLimit - memory.adapterResident : 0;
+        const float pressure = static_cast<float>(static_cast<double>(memory.adapterResident) / memory.adapterLimit);
+        const UIHealth health = pressure >= 0.92f   ? UIHealth::kError
+                                : pressure >= 0.80f ? UIHealth::kWarning
+                                                    : UIHealth::kHealthy;
+        DrawSettingsValue(TR("GPU memory"),
+                          TRF("{:.2f} / {:.2f} GiB", memory.adapterResident / gib, memory.adapterLimit / gib).c_str());
+        DrawSettingsHelp(TR("Whole graphics card, as in Task Manager: Skyrim plus the desktop and other apps. "
+                            "When it is full, Windows moves game memory to system RAM, which slows rendering."));
+        char label[32]{};
+        std::snprintf(label, sizeof(label), TR("%.1f%% used"), pressure * 100);
+        ImGui::PushStyleColor(ImGuiCol_PlotHistogram, HealthColor(health));
+        ImGui::ProgressBar(std::clamp(pressure, 0.0f, 1.0f), ImVec2(-1, 0), label);
+        ImGui::PopStyleColor();
+        if (ImGui::IsItemHovered())
+        {
+            ImGui::BeginTooltip();
+            ImGui::Text(TR("Free: %.2f GiB"), free / gib);
+            if (memory.processKnown)
+                ImGui::Text(TR("Skyrim: %.2f GiB"), memory.processCommitted / gib);
+            if (memory.available && memory.budget > 0)
+                ImGui::Text(TR("Windows budget for Skyrim: %.2f GiB"), memory.budget / gib);
+            if (memory.processDemoted > 0)
+                ImGui::Text(TR("Moved to system RAM: %.2f GiB"), memory.processDemoted / gib);
+            ImGui::EndTooltip();
+        }
+        if (memory.processDemoted >= (64ull << 20))
+            DrawStatusLabel(TRF("{:.2f} GiB of Skyrim's GPU memory is in system RAM", memory.processDemoted / gib).c_str(), UIHealth::kError);
+        else if (pressure >= 0.80f)
+            DrawStatusLabel(pressure >= 0.92f ? TR("GPU memory nearly full") : TR("GPU memory high"), health);
+        return;
+    }
     if (!view.memorySnapshot.available || view.memorySnapshot.budget == 0)
     {
         DrawSettingsValue(TR("GPU memory"), view.memoryStatus.c_str());
         return;
     }
-    constexpr double gib = 1024.0 * 1024.0 * 1024.0;
     const auto& memory = view.memorySnapshot;
     const auto headroom = memory.currentUsage < memory.budget ? memory.budget - memory.currentUsage : 0;
     const float pressure = static_cast<float>(static_cast<double>(memory.currentUsage) / memory.budget);
