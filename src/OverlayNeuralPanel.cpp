@@ -1124,54 +1124,117 @@ void DrawNeuralSettings(const OverlayUI::FrameView& view, TheosRenderPipeline::S
     }
 }
 
-// Which nvngx_dlssnr*.dll NR loads, after the Neural Rendering checkbox. It stays
-// editable while NR is unavailable, so a missing runtime can be swapped for an
-// installed one; Apply switches it. While Automatic runs, the closed dropdown
-// also names the runtime it chose.
+const char* NeuralRuntimeDetailText(TheosRenderPipeline::SourceDLSSG::NeuralRuntimeDetail detail)
+{
+    using D = TheosRenderPipeline::SourceDLSSG::NeuralRuntimeDetail;
+    switch (detail)
+    {
+    case D::Automatic: return TR("Best for your GPU");
+    case D::TRPKernels: return TR("NVIDIA's model on TRP kernels");
+    case D::TRPPascalKernels: return TR("NVIDIA's model on TRP's GTX 10 kernels (experimental)");
+    case D::NVIDIAKernels: return TR("NVIDIA's own kernels");
+    case D::OlderModel: return TR("Older model, bundled");
+    case D::CommunityRuntime: return TR("Community runtime");
+    case D::OlderTRPFile: return TR("Standalone file from an older TRP");
+    case D::YourFile: return TR("Your file in TheosRenderPipeline\\NVIDIA");
+    }
+    return "";
+}
+
+const char* NeuralRuntimeGroupText(TheosRenderPipeline::SourceDLSSG::NeuralRuntimeGroup group)
+{
+    using G = TheosRenderPipeline::SourceDLSSG::NeuralRuntimeGroup;
+    switch (group)
+    {
+    case G::CurrentModel: return TR("310.9.16 model");
+    case G::OlderModel: return TR("Older 310.8 model");
+    case G::YourFiles: return TR("Your files");
+    case G::Automatic: break;
+    }
+    return "";
+}
+
+// Which NR runtime runs, after the Neural Rendering checkbox. It stays editable
+// while NR is unavailable, so a missing runtime can be swapped for an installed
+// one; Apply switches it. Entries are named after what runs on this GPU and
+// grouped by model, each with a plain description (or why it cannot run) and
+// NR per frame measured with it this session. While Automatic runs, the closed
+// dropdown also names its choice.
 bool DrawNeuralRuntimeCombo(const OverlayUI::FrameView& view, TheosRenderPipeline::SourceDLSSG::Preferences& draft,
                             float width)
 {
-    using TheosRenderPipeline::SourceDLSSG::NeuralRuntimeLabel;
+    using namespace TheosRenderPipeline::SourceDLSSG;
+    const auto describe = [&](std::string_view runtime) {
+        return DescribeNeuralRuntime(runtime, view.neuralComputeCapability, view.neuralRuntimeKernels);
+    };
     const auto& applied = view.neuralApplied;
-    const bool automatic = TheosRenderPipeline::SourceDLSSG::IsAutomaticNeuralRuntime(draft.neuralRuntime);
+    const bool automatic = IsAutomaticNeuralRuntime(draft.neuralRuntime);
     const auto chosen = automatic && applied.automaticRuntime && applied.enabled
-                            ? NeuralRuntimeLabel(applied.runtimePath.string())
+                            ? describe(applied.runtimePath.string()).name
                             : std::string();
     bool changed = false;
+    const auto& style = ImGui::GetStyle();
+    const float line = ImGui::GetTextLineHeight();
     ImGui::SetNextItemWidth(width);
-    if (ImGui::BeginCombo("##runtime", nullptr, ImGuiComboFlags_CustomPreview))
+    // Two-line entries with a time column need more room than the field.
+    ImGui::SetNextWindowSizeConstraints(ImVec2((std::max)(width, line * 30), 0), ImVec2(FLT_MAX, FLT_MAX));
+    if (ImGui::BeginCombo("##runtime", nullptr, static_cast<ImGuiComboFlags>(ImGuiComboFlags_CustomPreview) | ImGuiComboFlags_HeightLarge))
     {
-        for (std::size_t i = 0; i < view.neuralRuntimes.size(); ++i)
+        for (const auto group : { NeuralRuntimeGroup::Automatic, NeuralRuntimeGroup::CurrentModel,
+                                  NeuralRuntimeGroup::OlderModel, NeuralRuntimeGroup::YourFiles })
         {
-            const auto& runtime = view.neuralRuntimes[i];
-            const auto reason = i < view.neuralRuntimeReasons.size() ? view.neuralRuntimeReasons[i] : std::string{};
-            ImGui::BeginDisabled(!reason.empty());
-            ImGui::PushID(runtime.c_str());
-            const bool selected = runtime == draft.neuralRuntime;
-            if (ImGui::Selectable(NeuralRuntimeLabel(runtime).c_str(), selected) && !selected)
+            bool header = group == NeuralRuntimeGroup::Automatic;
+            for (std::size_t i = 0; i < view.neuralRuntimes.size(); ++i)
             {
-                draft.neuralRuntime = runtime;
-                changed = true;
+                const auto& runtime = view.neuralRuntimes[i];
+                const auto entry = describe(runtime);
+                if (entry.group != group) { continue; }
+                if (!header) { ImGui::SeparatorText(NeuralRuntimeGroupText(group)); header = true; }
+                const auto reason = i < view.neuralRuntimeReasons.size() ? view.neuralRuntimeReasons[i] : std::string{};
+                const float ms = i < view.neuralRuntimeMilliseconds.size() ? view.neuralRuntimeMilliseconds[i] : 0.0f;
+                ImGui::PushID(runtime.c_str());
+                ImGui::BeginDisabled(!reason.empty());
+                const bool selected = runtime == draft.neuralRuntime;
+                const ImVec2 top = ImGui::GetCursorScreenPos();
+                if (ImGui::Selectable("##entry", selected, 0, ImVec2(0, line * 2 + style.ItemInnerSpacing.y)) && !selected)
+                {
+                    draft.neuralRuntime = runtime;
+                    changed = true;
+                }
+                if (selected) { ImGui::SetItemDefaultFocus(); }
+                auto* list = ImGui::GetWindowDrawList();
+                const float right = ImGui::GetItemRectMax().x - style.FramePadding.x;
+                const auto time = ms > 0 ? TRF("{:.1f} ms", ms) : std::string(TR("not tried"));
+                const float timeWidth = ImGui::CalcTextSize(time.c_str()).x;
+                const float textRight = right - timeWidth - style.ItemSpacing.x * 2;
+                const auto detail = !reason.empty() ? std::string(TR(reason.c_str()))
+                                  : entry.detail == NeuralRuntimeDetail::Automatic && !chosen.empty()
+                                      ? TRF("Best for your GPU: {}", chosen)
+                                      : std::string(NeuralRuntimeDetailText(entry.detail));
+                const auto name = entry.group == NeuralRuntimeGroup::Automatic ? std::string(TR("Automatic")) : entry.name;
+                ImGui::RenderTextEllipsis(list, top, ImVec2(textRight, top.y + line), textRight, textRight,
+                                          name.c_str(), nullptr, nullptr);
+                ImGui::PushStyleColor(ImGuiCol_Text, reason.empty() ? ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled) : kOchre);
+                const ImVec2 second(top.x, top.y + line + style.ItemInnerSpacing.y);
+                ImGui::RenderTextEllipsis(list, second, ImVec2(textRight, second.y + line), textRight, textRight,
+                                          detail.c_str(), nullptr, nullptr);
+                ImGui::PopStyleColor();
+                list->AddText(ImVec2(right - timeWidth, top.y + line * 0.5f + style.ItemInnerSpacing.y * 0.5f),
+                              ImGui::GetColorU32(ms > 0 ? ImGuiCol_Text : ImGuiCol_TextDisabled), time.c_str());
+                ImGui::EndDisabled();
+                ImGui::PopID();
             }
-            if (selected) { ImGui::SetItemDefaultFocus(); }
-            ImGui::EndDisabled();
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-                ImGui::SetTooltip("%s%s%s", runtime.c_str(), reason.empty() ? "" : "\n", reason.empty() ? "" : TR(reason.c_str()));
-            }
-            ImGui::PopID();
         }
         ImGui::EndCombo();
     }
-    const auto help = (chosen.empty() ? std::string() : TRF("Automatic is using {}.", chosen) + "\n\n") +
-        TR("NR runtime. Automatic chooses the runtime for your GPU. Universal unlocks NVIDIA "
-           "310.9.16 on RTX 20/30/40; RTX 50 uses it natively. The kernel pack uses FP16 fallback on RTX 20/30 and FP8 on "
-           "RTX 40. Legacy INT8 is an RTX 20/30 alternative. Hover an entry for its filename.");
-    DrawSettingsHelp(help.c_str());
+    DrawSettingsHelp(TR("Which NR runtime runs. Automatic picks the best one for your GPU. Each entry shows NR per frame "
+                        "measured with it this session; changing other NR settings clears the times."));
     if (ImGui::BeginComboPreview())
     {
         // One line, clipped with an ellipsis before the arrow.
-        const auto label = NeuralRuntimeLabel(draft.neuralRuntime);
-        const auto detail = chosen.empty() ? std::string() : "  |  " + chosen;
+        const auto entry = describe(draft.neuralRuntime);
+        const auto label = automatic ? std::string(TR("Automatic")) : entry.name;
+        const auto detail = chosen.empty() ? std::string() : "  \xC2\xB7  " + chosen;
         const auto start = ImGui::GetCursorScreenPos();
         const float right = ImGui::GetItemRectMax().x - ImGui::GetFrameHeight() - ImGui::GetStyle().FramePadding.x;
         const float labelWidth = ImGui::CalcTextSize(label.c_str()).x;
