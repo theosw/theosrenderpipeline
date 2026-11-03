@@ -88,8 +88,16 @@ float Lanczos(float x) {
 }
 int2 ClampPixel(int2 p, uint2 size) { return clamp(p, int2(0,0), int2(size)-1); }
 float4 EncodedTap(float4 c);
+float4 SampleSteady(float2 position);
 void FilterColor(uint3 p, bool encode) {
     if (p.x >= TargetWidth || p.y >= TargetHeight) return;
+    if (!encode && !Peripheral && TargetWidth > SourceWidth && TargetHeight > SourceHeight) {
+        // Enlarging (input above 100%): clamped Catmull-Rom, sharp without the
+        // ringing an unclamped filter adds at edges. The area integral below
+        // would only repeat source pixels.
+        float4 c=SampleSteady((p.xy+0.5)*float2(SourceWidth,SourceHeight)/float2(TargetWidth,TargetHeight)+float2(JitterX,JitterY));
+        c.rgb=Swizzle(c.rgb); OutputColor[p.xy]=c; return;
+    }
     float2 a = float2(p.xy) * float2(SourceWidth,SourceHeight) / float2(TargetWidth,TargetHeight);
     float2 b = float2(p.xy+1) * float2(SourceWidth,SourceHeight) / float2(TargetWidth,TargetHeight);
     if (Peripheral) { a=UnpackPosition(p.xy); b=UnpackPosition(p.xy+1); }
@@ -192,6 +200,15 @@ R"(// Compare: original left of SplitX, NR's result from it, and a two-pixel
         float3 sum=0; float weight=0;
         if (SourceWidth == TargetWidth && !Peripheral) {
             sum = Tex1.Load(int3(p.xy,0)).rgb - Tex0.Load(int3(p.xy,0)).rgb; weight=1;
+        } else if (TargetWidth > SourceWidth && !Peripheral) {
+            // A larger model grid: average its change over this pixel. Sampling
+            // it at points would alias the extra detail into noise.
+            float a=p.x*float(TargetWidth)/SourceWidth, b=(p.x+1)*float(TargetWidth)/SourceWidth;
+            [loop] for (int sx=(int)floor(a); sx<(int)ceil(b); ++sx) {
+                float w=max(0,min(b,sx+1.0)-max(a,(float)sx));
+                int3 q=int3(min(sx,(int)TargetWidth-1),p.y,0);
+                sum+=(Tex1.Load(q).rgb-Tex0.Load(q).rgb)*w; weight+=w;
+            }
         } else {
             float x=(p.x+0.5)*TargetWidth/SourceWidth-0.5;
             if (Peripheral) x=PackAxis(p.x+0.5,SourceWidth,TargetWidth)-0.5;
@@ -207,6 +224,13 @@ R"(// Compare: original left of SplitX, NR's result from it, and a two-pixel
     float4 original=Tex0.Load(int3(p.xy,0));
     float3 delta=0; float weight=0;
     if (SourceHeight == TargetHeight && !Peripheral) { delta=Tex1.Load(int3(p.xy,0)).rgb; weight=1; }
+    else if (TargetHeight > SourceHeight && !Peripheral) {
+        float a=p.y*float(TargetHeight)/SourceHeight, b=(p.y+1)*float(TargetHeight)/SourceHeight;
+        [loop] for (int sy=(int)floor(a); sy<(int)ceil(b); ++sy) {
+            float w=max(0,min(b,sy+1.0)-max(a,(float)sy));
+            delta+=Tex1.Load(int3(p.x,min(sy,(int)TargetHeight-1),0)).rgb*w; weight+=w;
+        }
+    }
     else {
         float y=(p.y+0.5)*TargetHeight/SourceHeight-0.5;
         if (Peripheral) y=PackAxis(p.y+0.5,SourceHeight,TargetHeight)-0.5;
@@ -391,15 +415,29 @@ float4 SampleSteady(float2 position) {
     } else {
         // This jittered pixel sits at p - jitter on the steady grid NR saw.
         float2 steady=p.xy+0.5-jitter;
-        float2 pos=steady*size/float2(TargetWidth,TargetHeight)-0.5; float weight=0;
+        float2 scale=size/float2(TargetWidth,TargetHeight);
+        float2 pos=steady*scale-0.5; float weight=0;
         if (Peripheral) pos=PackPosition(steady)-0.5;
         tonePos=pos;
-        [loop] for (int y=-2; y<=3; ++y) {
-            [loop] for (int x=-2; x<=3; ++x) {
-                int2 q=int2(floor(pos))+int2(x,y);
-                float w=Lanczos(pos.x-q.x)*Lanczos(pos.y-q.y);
-                q=ClampPixel(q,size);
-                a+=Swizzle(Tex0.Load(int3(q,0)).rgb)*w; n+=Swizzle(Tex1.Load(int3(q,0)).rgb)*w; weight+=w;
+        if (!Peripheral && any(scale>1)) {
+            // A larger model grid (input above 100%): average both over this
+            // pixel's footprint, as the residual does, instead of aliasing it.
+            float2 lo=(steady-0.5)*scale, hi=(steady+0.5)*scale;
+            [loop] for (int y=(int)floor(lo.y); y<(int)ceil(hi.y); ++y) {
+                [loop] for (int x=(int)floor(lo.x); x<(int)ceil(hi.x); ++x) {
+                    float w=max(0,min(hi.x,x+1.0)-max(lo.x,(float)x))*max(0,min(hi.y,y+1.0)-max(lo.y,(float)y));
+                    int2 q=ClampPixel(int2(x,y),size);
+                    a+=Swizzle(Tex0.Load(int3(q,0)).rgb)*w; n+=Swizzle(Tex1.Load(int3(q,0)).rgb)*w; weight+=w;
+                }
+            }
+        } else {
+            [loop] for (int y=-2; y<=3; ++y) {
+                [loop] for (int x=-2; x<=3; ++x) {
+                    int2 q=int2(floor(pos))+int2(x,y);
+                    float w=Lanczos(pos.x-q.x)*Lanczos(pos.y-q.y);
+                    q=ClampPixel(q,size);
+                    a+=Swizzle(Tex0.Load(int3(q,0)).rgb)*w; n+=Swizzle(Tex1.Load(int3(q,0)).rgb)*w; weight+=w;
+                }
             }
         }
         weight=abs(weight)>0.000001?weight:1; a/=weight; n/=weight;

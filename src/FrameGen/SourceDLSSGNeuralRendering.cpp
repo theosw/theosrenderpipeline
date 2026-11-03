@@ -236,7 +236,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 				if (!check(resolve_.Initialize(device), "NR resolve kernels")) { return false; }
 				auto workDesc = sceneDesc; workDesc.Width = workWidth; workDesc.Height = workHeight;
 				if (!create(workDesc, workOutput_)) { return false; }
-				if ((reconstruction.inputScale < 1 || reconstruction.peripheralCompression) && !create(workDesc, workColor_)) { return false; }
+				if ((reconstruction.inputScale != 1 || reconstruction.peripheralCompression) && !create(workDesc, workColor_)) { return false; }
 				if (reconstruction.peripheralCompression) {
 					auto guideDesc = workDesc; guideDesc.Format = DXGI_FORMAT_R32G32_FLOAT;
 					if (!create(guideDesc, packedMotion_)) { return false; }

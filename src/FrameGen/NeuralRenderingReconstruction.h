@@ -31,10 +31,14 @@ namespace TheosRenderPipeline::NeuralRendering
 		bool producerColor{};
 		bool operator==(const Reconstruction&) const = default;
 	};
+	// Above 1 the scene is enlarged for the model, which then treats smaller,
+	// more distant subjects the way it treats close ones at 1. Cost grows with
+	// the area: 125% is about 1.6 times, 200% four times.
+	inline constexpr float kMaxInputScale = 2.0f;
 	inline float NormalizeInputScale(float value)
 	{
-		// Zero, nonfinite and >=1 all mean native resolution.
-		return value > 0 && value < 1 ? (std::max)(value, 0.25f) : 1.0f;
+		// Zero and nonfinite mean native resolution.
+		return std::isfinite(value) && value > 0 ? std::clamp(value, 0.25f, kMaxInputScale) : 1.0f;
 	}
 	inline Reconstruction SanitizeReconstruction(Reconstruction value)
 	{
@@ -57,7 +61,7 @@ namespace TheosRenderPipeline::NeuralRendering
 		// Explicit Ratio always resolves. Auto/Residual use direct output only
 		// at native input resolution with peripheral compression off.
 		return value.producerColor || value.method == ResolveMethod::Ratio ? ResolveMethod::Ratio :
-			(value.peripheralCompression || NormalizeInputScale(value.inputScale) < 1) ? ResolveMethod::Residual : ResolveMethod::Auto;
+			(value.peripheralCompression || NormalizeInputScale(value.inputScale) != 1) ? ResolveMethod::Residual : ResolveMethod::Auto;
 	}
 	// Community Shaders' HDR Display completes the scene as FP16 2.2-gamma RGB,
 	// paper white at 1.0, highlights above it. Direct NR output is bounded near
@@ -85,8 +89,11 @@ namespace TheosRenderPipeline::NeuralRendering
 	{
 		// Do not normalize the product: 25% global scale with peripheral mode is
 		// 22.5% work extent, while the centre retains 25% sampling density.
+		// Peripheral packing only reduces, so it stops at native.
+		const double scale = value.peripheralCompression ? (std::min)(NormalizeInputScale(value.inputScale), 1.0f) :
+			NormalizeInputScale(value.inputScale);
 		return extent ? (std::max)(1u, static_cast<std::uint32_t>(std::llround(
-			double(extent) * NormalizeInputScale(value.inputScale) * (value.peripheralCompression ? 0.9 : 1.0)))) : 0;
+			double(extent) * scale * (value.peripheralCompression ? 0.9 : 1.0)))) : 0;
 	}
 	template<class Ini> Reconstruction LoadReconstruction(const Ini& ini, const char* section)
 	{

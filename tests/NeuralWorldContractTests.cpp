@@ -4,7 +4,9 @@
 #include "FrameGen/SourceDLSSGNeuralAvailability.h"
 #include "FrameGen/NativeUIFrame.h"
 #include <cstdio>
+#include <cmath>
 #include <cstdlib>
+#include <limits>
 
 static void Require(bool value, const char* reason)
 {
@@ -97,6 +99,20 @@ int main()
     for (float scale : {0.0f, 0.25f, 0.58f, 0.9f, 1.0f, 2.0f}) {
         auto uniform = original; uniform.inputScale = scale;
         Require(ModelExtent(2035, uniform) == WorkExtent(2035, scale), "off preserves existing rounded uniform dimensions");
+    }
+    Require(NormalizeInputScale(1.25f) == 1.25f && NormalizeInputScale(2.0f) == 2.0f && NormalizeInputScale(3.0f) == 2.0f,
+        "input above 100% is kept up to 200%");
+    Require(NormalizeInputScale(0.0f) == 1.0f && NormalizeInputScale(-1.0f) == 1.0f && NormalizeInputScale(0.1f) == 0.25f &&
+        NormalizeInputScale(std::numeric_limits<float>::infinity()) == 1.0f && NormalizeInputScale(std::nanf("")) == 1.0f,
+        "invalid input scales still mean native");
+    {
+        auto enlarged = original; enlarged.inputScale = 1.25f;
+        Require(ModelExtent(5120, enlarged) == 6400 && ModelExtent(1440, enlarged) == 1800, "125% enlarges the model raster");
+        Require(EffectiveResolve(enlarged) == ResolveMethod::Residual, "an enlarged model raster resolves back to native");
+        Require(!SameReconstructionResources(original, enlarged), "enlarging recreates the feature");
+        Require(SanitizeReconstruction(enlarged).inputScale == 1.25f, "sanitizing keeps an enlarged scale");
+        auto packed = enlarged; packed.peripheralCompression = true;
+        Require(ModelExtent(5120, packed) == 4608, "peripheral packing stops at native density");
     }
     auto producer = original;
     producer.producerColor = true;
