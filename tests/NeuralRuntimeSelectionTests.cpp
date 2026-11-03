@@ -191,6 +191,14 @@ int main()
                 "bundled and known community runtimes are grouped by model");
             Require(described("TheosRenderPipeline/NVIDIA/nvngx_dlssnr_custom.dll", 86, true, "nvngx_dlssnr_custom.dll", G::YourFiles, D::YourFile),
                 "unknown files are the user's own");
+            Require(described(kFastNeuralRuntime, 86, true, "TRP Fast", G::CurrentModel, D::TRPFastKernels) &&
+                described(R"(C:\G\NVIDIA\NVNGX_DLSSNR_310.9.16_FAST.TRPK)", -1, false, "TRP Fast", G::CurrentModel, D::TRPFastKernels),
+                "the TRP Fast pack is listed as its own runtime");
+            Require(NeuralRuntimeKey(kFastNeuralRuntime) != NeuralRuntimeKey(kLatestNeuralRuntime),
+                "TRP Fast and TRP keep separate times");
+            Require(ResolveNeuralRuntimeSetting(kFastNeuralRuntime, std::filesystem::path(L"C:/Game/Data/SKSE/Plugins")) ==
+                std::filesystem::path(L"C:/Game/Data/SKSE/Plugins/TheosRenderPipeline/NVIDIA/nvngx_dlssnr_310.9.16_fast.trpk").lexically_normal(),
+                "choosing TRP Fast saves and resolves the pack path");
             Require(NeuralRuntimeKey(R"(C:\G\NVIDIA\NVNGX_DLSSNR_310.9.16.DLL)") == NeuralRuntimeKey(kLatestNeuralRuntime),
                 "a setting and its resolved path share one key");
         }

@@ -10,4 +10,10 @@ namespace TheosRenderPipeline::NeuralRendering
 	{
 		return { false, false, "NR 310.9.16 on RTX 20/30/40 needs the Universal edition" };
 	}
+
+	std::filesystem::path KernelPackImage(const std::filesystem::path&, const std::filesystem::path&, std::string& why)
+	{
+		why = "TRP kernel packs need the Universal edition";
+		return {};
+	}
 }

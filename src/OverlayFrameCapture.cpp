@@ -125,6 +125,13 @@ OverlayUI::FrameView OverlayUI::CaptureFrameView()
                 TheosRenderPipeline::NeuralRendering::RuntimeKernelsSupported());
             const auto* reason = TheosRenderPipeline::NeuralRendering::NeuralRuntimeChoiceReason(admission.Pascal(),
                 !admission.Pascal() || (admission.universal && TheosRenderPipeline::NeuralRendering::VerifyPascalAssets(path)));
+            // TRP Fast replaces TRP's RTX 30/40 kernels; elsewhere it has nothing to run.
+            const int capability = backend.NeuralComputeCapability();
+            if (!reason && TheosRenderPipeline::SourceDLSSG::DescribeNeuralRuntime(runtime).detail ==
+                    TheosRenderPipeline::SourceDLSSG::NeuralRuntimeDetail::TRPFastKernels) {
+                reason = !TheosRenderPipeline::NeuralRendering::RuntimeKernelsSupported() ? TheosRenderPipeline::NeuralRendering::kFastPackEditionReason :
+                    capability >= 0 && capability != 86 && capability != 89 ? TheosRenderPipeline::NeuralRendering::kFastPackGPUReason : nullptr;
+            }
             runtimeReasons.emplace_back(reason ? reason : "");
         }
         admittedRuntimes = view.neuralRuntimes;

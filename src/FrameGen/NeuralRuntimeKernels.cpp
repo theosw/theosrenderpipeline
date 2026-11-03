@@ -253,10 +253,12 @@ namespace TheosRenderPipeline::NeuralRendering
         if (!research) { return {false, false, "NR 310.9.16 on RTX 20/30/40 needs the Universal edition"}; }
 #endif
         const bool pascalPack = !research && packPath.filename() == kPascalPackName;
+        const bool fastPack = !research && packPath.filename() == kFastKernelPackName;
+        const auto expectedSha256 = pascalPack ? kPascalPackSha256 : fastPack ? kFastKernelPackSha256 : kKernelPackSha256;
         std::scoped_lock lock(installationMutex);
         WinMemory memory(module);
         return installations.Apply(module, newlyLoaded, [&](Installation& installed) -> std::optional<RuntimeKernelResult> {
-            if (!research && installed.digest != (pascalPack ? kPascalPackSha256 : kKernelPackSha256)) {
+            if (!research && installed.digest != expectedSha256) {
                 return RuntimeKernelResult{false, false, "a different NR compatibility pack is already installed; restart required"};
             }
             if (installed.result.applied) {
@@ -275,12 +277,12 @@ namespace TheosRenderPipeline::NeuralRendering
         filename.resize(length);
         File runtime(filename, 266424944);
         std::error_code sizeError;
-        const auto packSize = research ? static_cast<std::size_t>(std::filesystem::file_size(packPath, sizeError)) : (pascalPack ? kPascalPackBytes : PackSize);
+        const auto packSize = research ? static_cast<std::size_t>(std::filesystem::file_size(packPath, sizeError)) : (pascalPack ? kPascalPackBytes : fastPack ? kFastKernelPackBytes : PackSize);
         if (sizeError || packSize < 512 || packSize > ULONG_MAX) { return {false, false, "NR compatibility kernel pack is missing or outside supported size bounds"}; }
         File pack(packPath, packSize);
         if (!runtime.data || !HashIs(runtime.Bytes(), kKernelRuntimeSha256)) { return {false, false, "loaded NR file is not the pinned NVIDIA 310.9.16 runtime"}; }
         // Research packs are unpinned; production packs must match their pinned hash.
-        if (!pack.data || (!research && !HashIs(pack.Bytes(), pascalPack ? kPascalPackSha256 : kKernelPackSha256))) { return {false, false, "NR compatibility kernel pack is missing or its SHA-256 differs"}; }
+        if (!pack.data || (!research && !HashIs(pack.Bytes(), expectedSha256))) { return {false, false, "NR compatibility kernel pack is missing or its SHA-256 differs"}; }
         if (!OriginalImage(memory, runtime.Bytes())) { return {false, false, "loaded NR image headers or original kernels differ"}; }
         auto storage = NearbyStorage(reinterpret_cast<std::uintptr_t>(module), packSize);
         if (!storage) { return {false, false, "no memory available within NR bundle instruction reach"}; }
@@ -323,5 +325,59 @@ namespace TheosRenderPipeline::NeuralRendering
         }
         return installed.result;
         });
+    }
+
+    namespace
+    {
+        // The file behind a path, through MO2's virtual Data folder if present.
+        std::filesystem::path PhysicalPath(const std::filesystem::path& path)
+        {
+            const HANDLE file = CreateFileW(path.c_str(), FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr);
+            if (file == INVALID_HANDLE_VALUE) { return {}; }
+            std::wstring buffer(32768, L'\0');
+            const auto length = GetFinalPathNameByHandleW(file, buffer.data(), static_cast<DWORD>(buffer.size()), FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
+            CloseHandle(file);
+            if (!length || length >= buffer.size()) { return {}; }
+            buffer.resize(length);
+            if (buffer.starts_with(L"\\\\?\\UNC\\")) { buffer = L"\\\\" + buffer.substr(8); }
+            else if (buffer.starts_with(L"\\\\?\\")) { buffer.erase(0, 4); }
+            return buffer;
+        }
+        bool SameFile(const std::filesystem::path& a, const std::filesystem::path& b)
+        {
+            const auto info = [](const std::filesystem::path& path, BY_HANDLE_FILE_INFORMATION& out) {
+                const HANDLE file = CreateFileW(path.c_str(), FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                    nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+                if (file == INVALID_HANDLE_VALUE) { return false; }
+                const bool ok = GetFileInformationByHandle(file, &out) != FALSE;
+                CloseHandle(file);
+                return ok;
+            };
+            BY_HANDLE_FILE_INFORMATION x{}, y{};
+            return info(a, x) && info(b, y) && x.dwVolumeSerialNumber == y.dwVolumeSerialNumber &&
+                x.nFileIndexHigh == y.nFileIndexHigh && x.nFileIndexLow == y.nFileIndexLow;
+        }
+    }
+
+    std::filesystem::path KernelPackImage(const std::filesystem::path& runtime, const std::filesystem::path& pack, std::string& why)
+    {
+        const auto physical = PhysicalPath(runtime);
+        if (physical.empty()) { why = std::format("cannot locate the file behind {} (error {})", runtime.string(), GetLastError()); return {}; }
+        // Not nvngx_dlssnr*.dll, so the runtime list never offers it as a runtime.
+        const auto link = physical.parent_path() / (pack.stem().wstring() + L".runtime.bin");
+        std::error_code error;
+        if (std::filesystem::exists(link, error)) {
+            if (SameFile(link, physical)) { return link; }
+            // Left from a runtime file since replaced: only this name of ours is removed.
+            if (!DeleteFileW(link.c_str())) { why = std::format("cannot replace the outdated {} (error {})", link.filename().string(), GetLastError()); return {}; }
+        }
+        if (!CreateHardLinkW(link.c_str(), physical.c_str(), nullptr)) {
+            why = std::format("cannot create {} beside {} (error {}); kernel pack images need the runtime's NTFS drive",
+                link.filename().string(), physical.string(), GetLastError());
+            return {};
+        }
+        if (!SameFile(link, physical)) { why = std::format("{} does not resolve to the runtime", link.filename().string()); return {}; }
+        return link;
     }
 }

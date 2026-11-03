@@ -1131,6 +1131,7 @@ const char* NeuralRuntimeDetailText(TheosRenderPipeline::SourceDLSSG::NeuralRunt
     {
     case D::Automatic: return TR("Best for your GPU");
     case D::TRPKernels: return TR("NVIDIA's model on TRP kernels");
+    case D::TRPFastKernels: return TR("NVIDIA's model on TRP's tuned kernels");
     case D::TRPPascalKernels: return TR("NVIDIA's model on TRP's GTX 10 kernels (experimental)");
     case D::NVIDIAKernels: return TR("NVIDIA's own kernels");
     case D::OlderModel: return TR("Older model, bundled");

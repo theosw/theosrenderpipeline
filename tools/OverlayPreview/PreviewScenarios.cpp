@@ -476,10 +476,10 @@ PreviewScenario Runtimes()
     view.neuralRuntimeKernels = true;
     view.neuralApplied.automaticRuntime = true;
     view.neuralRuntimes = {std::string(SourceDLSSG::kAutomaticNeuralRuntime), std::string(SourceDLSSG::kDefaultNeuralRuntime),
-        std::string(SourceDLSSG::kLatestNeuralRuntime), "TheosRenderPipeline/NVIDIA/nvngx_dlssnr_int8.dll",
+        std::string(SourceDLSSG::kLatestNeuralRuntime), std::string(SourceDLSSG::kFastNeuralRuntime), "TheosRenderPipeline/NVIDIA/nvngx_dlssnr_int8.dll",
         "TheosRenderPipeline/NVIDIA/nvngx_dlssnr_pd_build21.dll", "TheosRenderPipeline/NVIDIA/nvngx_dlssnr_test.dll"};
     view.neuralRuntimeReasons.assign(view.neuralRuntimes.size(), "");
-    view.neuralRuntimeMilliseconds = {5.6f, 3.9f, 5.6f, 0.0f, 0.0f, 0.0f};
+    view.neuralRuntimeMilliseconds = {5.6f, 3.9f, 5.6f, 4.7f, 0.0f, 0.0f, 0.0f};
     scenario.applied.sourceDLSSG.neuralRuntime = std::string(SourceDLSSG::kAutomaticNeuralRuntime);
     scenario.draft = scenario.applied;
     return scenario;

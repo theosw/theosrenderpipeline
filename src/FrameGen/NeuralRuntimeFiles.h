@@ -22,6 +22,9 @@ namespace TheosRenderPipeline::SourceDLSSG
     // Optional standalone files from earlier packages remain selectable.
     inline constexpr std::string_view kRTX40NeuralRuntime = "TheosRenderPipeline/NVIDIA/nvngx_dlssnr_310.9.16_rtx40.dll";
     inline constexpr std::string_view kCompatNeuralRuntime = "TheosRenderPipeline/NVIDIA/nvngx_dlssnr_310.9.16_compat.dll";
+    // A kernel pack listed as a runtime: NVIDIA's 310.9.16 beside it, patched
+    // with it in a runtime image of its own (NeuralRuntimeKernels.h).
+    inline constexpr std::string_view kFastNeuralRuntime = "TheosRenderPipeline/NVIDIA/nvngx_dlssnr_310.9.16_fast.trpk";
     // The saved value that lets TRP choose a bundled runtime for the GPU.
     inline constexpr std::string_view kAutomaticNeuralRuntime = "Automatic";
 
@@ -112,7 +115,7 @@ namespace TheosRenderPipeline::SourceDLSSG
     // The menu's runtime list, named after what runs on this GPU rather than the
     // file: on RTX 20/30/40 Universal runs NVIDIA's 310.9.16 with TRP's kernels.
     enum class NeuralRuntimeGroup { Automatic, CurrentModel, OlderModel, YourFiles };
-    enum class NeuralRuntimeDetail { Automatic, TRPKernels, TRPPascalKernels, NVIDIAKernels, OlderModel, CommunityRuntime, OlderTRPFile, YourFile };
+    enum class NeuralRuntimeDetail { Automatic, TRPKernels, TRPFastKernels, TRPPascalKernels, NVIDIAKernels, OlderModel, CommunityRuntime, OlderTRPFile, YourFile };
     struct NeuralRuntimeEntry
     {
         std::string name;
@@ -137,6 +140,7 @@ namespace TheosRenderPipeline::SourceDLSSG
             if (runtimeKernels && capability == 61) { return { "TRP GTX 10", G::CurrentModel, D::TRPPascalKernels }; }
             return { "NVIDIA 310.9.16", G::CurrentModel, D::NVIDIAKernels };
         }
+        if (is(kFastNeuralRuntime)) { return { "TRP Fast", G::CurrentModel, D::TRPFastKernels }; }
         if (is(kDefaultNeuralRuntime)) { return { "NVIDIA 310.8", G::OlderModel, D::OlderModel }; }
         if (is(kRTX40NeuralRuntime)) { return { "TRP RTX 40 (standalone)", G::CurrentModel, D::OlderTRPFile }; }
         if (is(kCompatNeuralRuntime)) { return { "Community compatibility build", G::CurrentModel, D::CommunityRuntime }; }
@@ -164,7 +168,8 @@ namespace TheosRenderPipeline::SourceDLSSG
             const auto utf8 = it->path().filename().u8string();
             const std::string name(reinterpret_cast<const char*>(utf8.data()), utf8.size());
             const auto folded = FoldRuntimePath(name);
-            if (folded.starts_with("nvngx_dlssnr") && folded.ends_with(".dll")) { names.push_back(name); }
+            if ((folded.starts_with("nvngx_dlssnr") && folded.ends_with(".dll")) ||
+                folded == FoldRuntimePath(std::filesystem::u8path(kFastNeuralRuntime).filename().string())) { names.push_back(name); }
         }
         std::sort(names.begin(), names.end(), [&](const std::string& a, const std::string& b) {
             const bool aDefault = FoldRuntimePath(a) == "nvngx_dlssnr.dll", bDefault = FoldRuntimePath(b) == "nvngx_dlssnr.dll";

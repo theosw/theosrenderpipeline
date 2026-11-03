@@ -1,5 +1,6 @@
 #include "NeuralRenderingRuntimeIdentity.h"
 #include "NeuralRenderingRuntimeContract.h"
+#include "NeuralRuntimeKernels.h"
 
 #include <PCH.h>
 
@@ -164,7 +165,8 @@ namespace TheosRenderPipeline::NeuralRenderingRuntimeIdentity
 	{
 		static_assert(kExpectedRuntimeSize == NeuralRendering::kRuntimeSize);
 		static_assert(kExpectedRuntimeSha256 == NeuralRendering::kLegacyRuntimeSha256);
-		auto result = Verify(a_path); // Hash once, before loading any module.
+		// A kernel pack chosen as the runtime is NVIDIA's 310.9.16 beside it.
+		auto result = Verify(NeuralRendering::IsKernelPackChoice(a_path) ? NeuralRendering::KernelPackRuntime(a_path) : a_path); // Hash once, before loading any module.
 		result.matched = result.present && NeuralRendering::MatchRuntime(result.size, result.sha256,
 			result.version, a_allowReconstruction) != NeuralRendering::RuntimeBuild::Unknown;
 		return result;
