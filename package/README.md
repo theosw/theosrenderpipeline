@@ -65,6 +65,14 @@ and Frame generation > Frame limit with a Steady mode that evens out frame times
 It also fixes the vanilla main menu disappearing, NR stopping while the interface
 is hidden, and a possible XeFG freeze when gameplay starts. See CHANGELOG.md.
 
+Source builds also include experimental **Image > Mode > FSR 3.1** (`UpscaleType=5`).
+It requires the official FidelityFX SDK 1.1.4 `amd_fidelityfx_dx12.dll` in
+`SKSE/Plugins/TheosRenderPipeline/AMD/`, beside `FSR-LICENSE.txt`; retain AMD's
+MIT notice with the runtime. XeSS/FSR can switch with Apply at the current render
+size; render-scale changes require save and restart. NR and native UI composition
+remain available. RTX defaults are unchanged. This source addition is not a new
+released package. See THIRD-PARTY.md for source and license attribution.
+
 Version 0.5.1 adds NR comparison and tuning. Neural Rendering > Compare shows
 NR on and off side by side (Split) and can hold one frame (Freeze frame) while
 you change settings. Ratio reconstruction gains Exposure (Fixed or Adaptive),

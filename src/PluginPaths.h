@@ -120,6 +120,8 @@ namespace TheosRenderPipeline::PluginPaths
         return std::filesystem::path(executable).parent_path() / L"Data" / L"SKSE" / L"Plugins";
     }
 
+    inline std::filesystem::path AMDDirectory() { return Directory() / L"TheosRenderPipeline" / L"AMD"; }
+
     // Intel's XeSS, XeFG and XeLL runtimes.
     inline std::filesystem::path IntelDirectory() { return Directory() / L"TheosRenderPipeline" / L"Intel"; }
 }

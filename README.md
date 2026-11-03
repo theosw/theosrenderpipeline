@@ -17,6 +17,7 @@ DLSS-G still require RTX hardware; use XeSS and optionally XeFG on Pascal.
 ## Features
 
 - DLSS Super Resolution, DLAA, model presets and sharpening.
+- Experimental AMD FSR 3.1 temporal upscaling through TRP's native UI path. See [FSR](#fsr-31-experimental).
 - Frame generation and multi-frame generation (MFG).
 - Experimental Intel XeSS upscaling and XeFG frame generation, including on AMD
   GPUs. See [XeSS and XeFG](#xess-and-xefg-experimental).
@@ -87,6 +88,34 @@ the language button next to Zoom at the top of the menu, or set `[Overlay] Langu
 to `auto` (the Windows display language), `en` or a file's code such as `zh-CN`.
 Files go in `SKSE/Plugins/TheosRenderPipeline/Lang`; the package includes
 Simplified Chinese. See [LOCALIZATION.md](LOCALIZATION.md) for the file format.
+
+## FSR 3.1 (experimental)
+
+**Image > Mode > FSR 3.1** selects AMD's temporal upscaler (`UpscaleType=5`).
+It uses the official FidelityFX SDK 1.1.4 / FSR 3.1.4 DX12 backend through TRP's
+existing fenced D3D11/D3D12 bridge. FSR needs no tensor cores and is separate
+from frame generation. DLSS remains the RTX default.
+
+The installation needs `amd_fidelityfx_dx12.dll` under
+`Data/SKSE/Plugins/TheosRenderPipeline/AMD/`, with `FSR-LICENSE.txt` beside it.
+The [pinned download, hashes and MIT notice](extern/fidelityfx-api/README.md)
+identify the official AMD runtime; binaries stay outside the source repository.
+Both editions compile the same FSR integration. The option is unavailable until
+the runtime is installed and the game restarted. A saved FSR selection with a
+missing runtime uses XeSS for the session and logs the reason. A present but
+unloadable runtime still reports a load failure.
+
+Apply can switch XeSS and FSR at the current render dimensions. DLSS entry also
+requires initialized NVIDIA services and a supported SDK input range. Render
+scale changes and DLAA require Save as default and a restart. FSR's Ultra
+Quality is a custom 1.3x ratio. DLSS model presets, automatic exposure and direct
+DLSS/RCAS output options stay visible but unavailable for FSR, with reasons.
+The game/ENB supplies exposure; sharpening uses FSR's integrated RCAS pass.
+
+NR can run before FSR and native menus/HUD are composed afterwards. Community
+Shaders continues to own its own upscaling. FSR currently has no reactive or
+transparency masks, so particles, disocclusions and temporal stability require
+further game quality review. A still image cannot establish moving-image quality.
 
 ## XeSS and XeFG (experimental)
 

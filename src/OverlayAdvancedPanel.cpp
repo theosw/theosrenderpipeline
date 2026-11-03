@@ -12,7 +12,7 @@ void OverlayUI::DrawImageMeasurements(const FrameView& view)
     DrawStatusLabel(cs ? "Community Shaders" : ModeName(view.upscaler.mode), view.upscaleHealth);  // not translated: product names
     DrawSettingsValue(TR("Render"), std::format("{} x {}", view.renderWidth, view.renderHeight).c_str());
     DrawSettingsValue(TR("Output"), std::format("{} x {}", view.nativeWidth, view.nativeHeight).c_str());
-    if (!cs && !view.xessActive)
+    if (!cs && !view.xessActive && !view.fsrActive)
         DrawSettingsValue(TR("Preset request"), TheosRenderPipeline::DLSSPreset::ShortName(view.upscaler.preset));
     ImGui::Separator();
     DrawStageMeasurements(view, SettingsPage::Image);

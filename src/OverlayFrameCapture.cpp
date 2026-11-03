@@ -57,6 +57,10 @@ OverlayUI::FrameView OverlayUI::CaptureFrameView()
     view.outputHeight = nvidiaHost->OutputHeight();
     view.xessActive = nvidiaHost->XeSSActive();
     view.nrFriendlyRenderSizeActive = nvidiaHost->NRFriendlyRenderSizeActive();
+    view.fsrActive = nvidiaHost->FSRActive();
+    // Runtime installation requires a restart. Do not scan the filesystem every frame.
+    static const bool fsrRuntimePresent = TheosRenderPipeline::FSRUpscaler::RuntimePresent();
+    view.fsrRuntimePresent = fsrRuntimePresent;
     const auto& upscalerSettings = nvidiaHost->SourceUpscalerSettings();
     view.upscaler = upscalerSettings.Effective();
     view.upscalerNeedsRestart = upscalerSettings.NeedsRestart();

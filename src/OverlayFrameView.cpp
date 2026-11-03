@@ -78,7 +78,7 @@ void OverlayUI::DescribeFrameView(FrameView& view) const
     {
         std::snprintf(view.upscaleDetail, sizeof(view.upscaleDetail), TR("Unavailable | Preset %s"), presetShort);
     }
-    if (view.upscaler.mode == XeSS) { std::snprintf(view.upscaleDetail, sizeof(view.upscaleDetail), "%.0f%%", view.proxyScale * 100.0f); }
+    if (view.upscaler.mode == XeSS || view.upscaler.mode == FSR) { std::snprintf(view.upscaleDetail, sizeof(view.upscaleDetail), "%.0f%%", view.proxyScale * 100.0f); }
     std::snprintf(view.nativeDetail, sizeof(view.nativeDetail), "%d x %d", view.nativeWidth, view.nativeHeight);
     if (cs) {
         view.upscaleTitle = TR("CS upscaling");
@@ -117,6 +117,7 @@ void OverlayUI::DescribeFrameView(FrameView& view) const
     view.activeUpscaleStage = view.sourceDLSSGActive ? (view.sourceNeural.active ? "TRP DLSS NR" : "TRP DLSS")  // not translated: product names
                                                      : TR("NVIDIA host unavailable");
     if (view.upscaler.mode == XeSS) { view.activeUpscaleStage = view.sourceNeural.active ? "TRP XeSS + NR" : "TRP XeSS"; }  // not translated: product names
+    if (view.upscaler.mode == FSR) { view.activeUpscaleStage = view.sourceNeural.active ? "TRP FSR + NR" : "TRP FSR"; }
     if (cs) {
         view.activeUpscaleStage = view.sourceNeural.active ? TR("CS upscaling + TRP NR") : TR("CS upscaling");
     }

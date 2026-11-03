@@ -28,6 +28,15 @@ HRESULT NvidiaHost::CreateSwapChain(IDXGIFactory* a_factory, ID3D11Device* a_dev
     TheosRenderPipeline::Upscaler::Creation creation{upscalerSettings->mUpscaleType, upscalerSettings->mQualityLevel,
         upscalerSettings->mDLSSPreset, upscalerSettings->mSharpening, upscalerSettings->mAutoExposure};
     if (!TheosRenderPipeline::CommunityShaders::Active()) {
+        if (creation.mode == FSR) {
+            const auto selected = TheosRenderPipeline::Upscaler::ForFSRRuntime(creation,
+                TheosRenderPipeline::FSRUpscaler::RuntimePresent());
+            if (selected.mode != creation.mode) {
+                logger::warn("[FSR] AMD/amd_fidelityfx_dx12.dll missing; using XeSS for this session");
+                upscalerSettings->mUpscaleType = selected.mode;
+                creation = selected;
+            }
+        }
         // The device's adapter is the GPU the game renders on, also with an integrated GPU present.
         Microsoft::WRL::ComPtr<IDXGIDevice> dxgiDevice;
         Microsoft::WRL::ComPtr<IDXGIAdapter> adapter;
@@ -43,7 +52,7 @@ HRESULT NvidiaHost::CreateSwapChain(IDXGIFactory* a_factory, ID3D11Device* a_dev
             nvidiaFeatures = hardware.NvidiaFeatures();
 #endif
             const auto selected = TheosRenderPipeline::Upscaler::ForAdapter(creation, nvidiaFeatures);
-            if (pascalResearch) { logger::info("[NR Pascal] sm_61: XeSS startup; DLSS/DLAA and NVIDIA frame generation require NVIDIA RTX hardware"); }
+            if (pascalResearch) { logger::info("[NR Pascal] sm_61: vendor-neutral startup; DLSS/DLAA and NVIDIA frame generation require NVIDIA RTX hardware"); }
             if (selected.mode != TheosRenderPipeline::Upscaler::Sanitize(creation).mode) {
                 logger::info("[SourceUpscaler] vendor=0x{:04X} cannot run UpscaleType={}; using XeSS quality={} this session",
                              adapterDesc.VendorId, creation.mode, selected.quality);
@@ -191,6 +200,11 @@ bool NvidiaHost::CreateGameFacingResources(IDXGISwapChain* a_swapChain)
         if (TheosRenderPipeline::CommunityShaders::Active()) {
             *renderWidth = width; *renderHeight = height; return true;
         }
+        if (sourceUpscalerSettings_.Startup().mode == FSR) {
+            TheosRenderPipeline::FrameExtent size{};
+            if (FAILED(TheosRenderPipeline::FSRUpscaler::QuerySize(width, height, quality, size))) { return false; }
+            *renderWidth = static_cast<int>(size.width); *renderHeight = static_cast<int>(size.height); return true;
+        }
         if (sourceUpscalerSettings_.Startup().mode == XeSS) {
             auto& backend = TheosRenderPipeline::SourceDLSSG::Backend::Get();
             auto& sr = backend.XeSS();
@@ -227,7 +241,9 @@ bool NvidiaHost::CreateGameFacingResources(IDXGISwapChain* a_swapChain)
     if (sizePolicy.Active() && !TheosRenderPipeline::CommunityShaders::Active()) {
         TheosRenderPipeline::UpscalerInputResolution range;
         HRESULT rangeResult = E_FAIL;
-        if (sourceUpscalerSettings_.Startup().mode == XeSS) {
+        if (sourceUpscalerSettings_.Startup().mode == FSR) {
+            rangeResult = TheosRenderPipeline::FSRUpscaler::QueryInputRange(outputWidth_, outputHeight_, quality, range);
+        } else if (sourceUpscalerSettings_.Startup().mode == XeSS) {
             rangeResult = backend.XeSS().QueryInputRange(outputWidth_, outputHeight_, quality, range);
         } else {
             auto* dlss = DLSSBackend::GetSingleton();
@@ -394,6 +410,22 @@ bool NvidiaHost::InitializeSourceUpscaler(const D3D11_TEXTURE2D_DESC& a_outputDe
         logger::info("[NvidiaHost] native handoff target {}x{} format={} bind=0x{:X}; direct-output routes {}",
                      handoff.Width, handoff.Height, static_cast<std::uint32_t>(handoff.Format), handoff.BindFlags,
                      (handoff.BindFlags & D3D11_BIND_UNORDERED_ACCESS) ? "can be requested" : "unavailable on allocated target; using copy route");
+    }
+
+    if (sourceUpscalerSettings_.Startup().mode == FSR) {
+        auto& backend = TheosRenderPipeline::SourceDLSSG::Backend::Get();
+        const auto creation = sourceUpscalerSettings_.BeginSubmission();
+        auto hr = backend.FSR().Open(backend.Device12(), TheosRenderPipeline::PluginPaths::AMDDirectory());
+        if (SUCCEEDED(hr)) { hr = backend.FSR().Initialize(backend.Transport(), device_.Get(),
+            {outputWidth_, outputHeight_}, creation.AllocationQuality(), a_outputDesc.Format); }
+        sourceUpscalerSettings_.Completed(SUCCEEDED(hr));
+        if (FAILED(hr)) { status_ = std::format("FSR initialization failed: {} (0x{:08X})", backend.FSR().Status(), static_cast<unsigned>(hr)); return false; }
+        fsrActive_ = upscalerReady_ = true;
+        AdoptEffectiveSourceUpscalerSettings();
+        if (!CreateNativeUIExtractionResources(a_outputDesc)) { logger::warn("[FSR] native UI extraction unavailable; retaining HUD-less fallback"); }
+        status_ = "FSR upscaling ready; native UI and shared frame-generation bridge retained";
+        logger::info("[FSR] initialized provider={} render={}x{} output={}x{} quality={}", backend.FSR().Version(), renderWidth_, renderHeight_, outputWidth_, outputHeight_, creation.quality);
+        return true;
     }
 
     if (sourceUpscalerSettings_.Startup().mode == XeSS) {

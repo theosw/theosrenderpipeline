@@ -366,7 +366,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 		const bool communityShaders = CommunityShaders::Active();
 		// The host has already replaced DLSS/DLAA with XeSS on other GPUs.
 		const bool xeSSStartup = !communityShaders && RenderPipeline::GetSingleton()->mUpscaleType == ::XeSS;
-		const auto startup = SelectProviderStartup(xeSSStartup, NvidiaFrameGenerationAvailable(), RequestedProvider());
+		const bool fsrStartup = !communityShaders && RenderPipeline::GetSingleton()->mUpscaleType == ::FSR;
+		const auto startup = SelectProviderStartup(xeSSStartup || fsrStartup, NvidiaFrameGenerationAvailable(), RequestedProvider());
 		RequestProvider(startup.requested);
 		provider_ = startup.presenter;
 		const bool intelStartup = provider_ == FrameGenerationProvider::XeFG;
@@ -378,7 +379,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			logger::info("[FrameGeneration] Intel startup uses XeFG/XeLL; NVIDIA runtimes are not initialized");
 		} else if (!InitializeNvidia(a_directory) && !EnterStartupTransport()) { return fault_; }
 		logger::info("[FrameGeneration] startup upscaler={} requested={} presenter={}",
-			communityShaders ? "Community Shaders" : xeSSStartup ? "XeSS" : "DLSS/DLAA",
+			communityShaders ? "Community Shaders" : fsrStartup ? "FSR" : xeSSStartup ? "XeSS" : "DLSS/DLAA",
 			ProviderName(startup.requested), ProviderName(startup.presenter));
 		D3D12_COMMAND_QUEUE_DESC queueDesc{};
 		queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;

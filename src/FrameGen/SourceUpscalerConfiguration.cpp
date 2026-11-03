@@ -61,13 +61,23 @@ void NvidiaHost::ApplySourceUpscalerSettingsAfterPresent()
             return;
         }
     }
-    if (candidate.mode == 0 && xeSSActive_ && sourceUpscalerSettings_.Startup().mode == XeSS) {
+    if (candidate.mode == FSR && !fsrActive_) {
+        auto& sr = backend.FSR();
+        const auto hr = measure("fsr-preflight-open", [&] { return sr.Open(backend.Device12(), TheosRenderPipeline::PluginPaths::AMDDirectory()); });
+        if (FAILED(hr) || !sr.Accepts({renderWidth_, renderHeight_}, {outputWidth_, outputHeight_})) {
+            sourceUpscalerSettings_.RejectLiveMode();
+            status_ = std::format("FSR switch refused: {}; current method retained.", sr.Status());
+            logger::warn("[SourceUpscaler] {} hr=0x{:08X}", status_, static_cast<unsigned>(hr));
+            AdoptEffectiveSourceUpscalerSettings(); return;
+        }
+    }
+    if (candidate.mode == 0 && (xeSSActive_ || fsrActive_) && sourceUpscalerSettings_.Startup().mode != 0) {
         dlss->SetupDevice(device_.Get(), context_.Get());
         TheosRenderPipeline::UpscalerInputResolution range;
         const auto hr=measure("dlss-preflight-range", [&] { return dlss->QueryInputRange(outputWidth_,outputHeight_,candidate.AllocationQuality(),range); });
         if (FAILED(hr) || !range.Accepts({renderWidth_,renderHeight_},{outputWidth_,outputHeight_})) {
             sourceUpscalerSettings_.RejectLiveMode();
-            status_="Fixed-size DLSS return refused by SDK range; current XeSS retained, saved mode requires restart.";
+            status_="Fixed-size DLSS return refused by SDK range; current upscaler retained, saved mode requires restart.";
             logger::warn("[SourceUpscaler] {} hr=0x{:08X}",status_,static_cast<unsigned>(hr));
             AdoptEffectiveSourceUpscalerSettings();return;
         }
@@ -86,12 +96,23 @@ void NvidiaHost::ApplySourceUpscalerSettingsAfterPresent()
                     logger::error("[SourceUpscaler] XeSS replacement failed {} hr=0x{:08X}", backend.XeSS().Status(), static_cast<unsigned>(hr));
                     return false;
                 }
-                return SUCCEEDED(measure("dlss-release", [&] { return dlss->ReleaseFeature(); }));
+                return SUCCEEDED(measure("dlss-release", [&] { return dlss->ReleaseFeature(); })) &&
+                    (!fsrActive_ || SUCCEEDED(backend.FSR().ReleaseAfterRetirement()));
+            }
+            if (request.mode == FSR) {
+                if (fsrActive_) { return true; } // SDK sharpening is a per-dispatch option.
+                const auto hr = measure("fsr-create", [&] { return backend.FSR().Initialize(backend.Transport(), device_.Get(),
+                    {outputWidth_, outputHeight_}, request.AllocationQuality(), inputDesc.Format, false, {renderWidth_, renderHeight_}); });
+                if (FAILED(hr)) {
+                    logger::error("[SourceUpscaler] FSR replacement failed {} hr=0x{:08X}", backend.FSR().Status(), static_cast<unsigned>(hr)); return false;
+                }
+                return SUCCEEDED(dlss->ReleaseFeature()) && (!xeSSActive_ || SUCCEEDED(backend.XeSS().ReleaseAfterRetirement()));
             }
             dlss->SetupDevice(device_.Get(), context_.Get());
             if (!measure("dlss-create", [&] { return dlss->InitUpscale(renderWidth_, renderHeight_, outputWidth_, outputHeight_, inputDesc.Format,
                 request.sharpening, request.autoExposure, request.preset, request.AllocationQuality()); })) { return false; }
-            return !xeSSActive_ || SUCCEEDED(measure("xess-release", [&] { return backend.XeSS().ReleaseAfterRetirement(); }));
+            return (!xeSSActive_ || SUCCEEDED(measure("xess-release", [&] { return backend.XeSS().ReleaseAfterRetirement(); }))) &&
+                (!fsrActive_ || SUCCEEDED(backend.FSR().ReleaseAfterRetirement()));
         },
         [&] { return measure("resume", [&] { return backend.ResumeAfterUpscalerReplacement(); }); });
     logger::info("[SourceUpscalerTiming] from={} to={} stage=total cpuMs={:.3f} result={}",
@@ -105,7 +126,8 @@ void NvidiaHost::ApplySourceUpscalerSettingsAfterPresent()
     frameGenerationStateKnown_ = false;
     resetNextEvaluation_ = true;
     xeSSActive_ = sourceUpscalerSettings_.Effective().mode == XeSS;
-    splitSourceDLSSActive_ = !xeSSActive_;
+    fsrActive_ = sourceUpscalerSettings_.Effective().mode == FSR;
+    splitSourceDLSSActive_ = !xeSSActive_ && !fsrActive_;
     AdoptEffectiveSourceUpscalerSettings();
     const auto& effective = sourceUpscalerSettings_.Effective();
     logger::info("[SourceUpscaler] applied after GPU retirement: mode={} quality={} preset={} autoExposure={} sharpening={}; restartPending={} unsaved={}",

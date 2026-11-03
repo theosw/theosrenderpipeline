@@ -16,7 +16,7 @@ namespace TheosRenderPipeline::Upscaler
 
     inline Creation Sanitize(Creation value)
     {
-        value.mode = value.mode == 3 || value.mode == 4 ? value.mode : 0;
+        value.mode = value.mode == 3 || value.mode == 4 || value.mode == 5 ? value.mode : 0;
         value.quality = std::clamp(value.quality, 0, 4);
         value.preset = TheosRenderPipeline::DLSSPreset::Sanitize(value.preset);
         return value;
@@ -27,9 +27,18 @@ namespace TheosRenderPipeline::Upscaler
     inline Creation ForAdapter(Creation value, bool nvidiaAdapter)
     {
         value = Sanitize(value);
-        if (nvidiaAdapter || value.mode == 4) { return value; }
+        if (nvidiaAdapter || value.mode == 4 || value.mode == 5) { return value; }
         if (value.mode == 3) { value.quality = 4; }
         value.mode = 4;
+        return value;
+    }
+
+    // Apply before allocating targets or selecting the presentation provider.
+    // XeSS is the existing vendor-neutral startup route and needs no DLSS preload.
+    inline Creation ForFSRRuntime(Creation value, bool runtimePresent)
+    {
+        value = Sanitize(value);
+        if (value.mode == 5 && !runtimePresent) { value.mode = 4; }
         return value;
     }
 
@@ -73,11 +82,11 @@ namespace TheosRenderPipeline::Upscaler
         Creation LiveCandidate() const
         {
             auto value = requested_;
-            const bool fixedAlgorithm = startup_.mode == 0 ||
-                (startup_.mode == 4 && nvidiaServicesReady_);
-            // Native allocation changes remain separate. A XeSS-started return
-            // requires initialized host NVIDIA services plus SDK extent preflight.
-            if (!fixedAlgorithm || value.mode == 3) { value.mode = effective_.mode; }
+            const bool fixedAlgorithm = startup_.mode == 0 || startup_.mode == 4 || startup_.mode == 5;
+            // Vendor-neutral methods can switch without initializing NVIDIA.
+            // Entry to DLSS from either still requires services + SDK preflight.
+            if (!fixedAlgorithm || value.mode == 3 ||
+                (value.mode == 0 && startup_.mode != 0 && !nvidiaServicesReady_)) { value.mode = effective_.mode; }
             if (requested_.mode == rejectedMode_) { value.mode = effective_.mode; }
             value.quality = startup_.quality;
             return value;

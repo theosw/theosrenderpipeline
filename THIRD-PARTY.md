@@ -49,6 +49,13 @@ runtimes retain the license files accompanying their downloads.
 - **OkLab** — Björn Ottosson; colour-space definition and conversion formulas.
   The author's [reference conversion code](https://bottosson.github.io/posts/oklab/)
   is offered in the public domain, with MIT as an alternative.
+- **AMD FidelityFX Super Resolution 3.1.4** — Advanced Micro Devices, Inc., MIT.
+  Unmodified public API headers from FidelityFX SDK 1.1.4, commit
+  `c6efa6bf7f2027b3ec94f28578bb5965eabb9e55`, are in `extern/fidelityfx-api`.
+  The separately supplied official `amd_fidelityfx_dx12.dll` provides temporal
+  upscaling only. Packages retain `AMD/FSR-LICENSE.txt` beside that runtime.
+  See [version, hashes and acquisition](extern/fidelityfx-api/README.md).
+  https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK/tree/v1.1.4
 - **FidelityFX RCAS / RCAS for ReShade** — AMD and RdenBlaauwen, MIT; sharpening
   shader adapted through the ReShade implementation.
   https://github.com/RdenBlaauwen/RCAS-for-ReShade
@@ -240,6 +247,7 @@ The following copyright notices use the MIT permission and warranty text below:
 - DirectXMath: Copyright (c) Microsoft Corporation
 - DirectXTK: Copyright (c) Microsoft Corporation
 - RenoDX: Copyright (c) 2025 Carlos Lopez Jr.
+- AMD FidelityFX SDK 1.1.4 headers and FSR runtime: Copyright (C) 2024 Advanced Micro Devices, Inc.
 - AMD FidelityFX RCAS source used through RCAS for ReShade: Copyright (C) 2023 Advanced Micro Devices, Inc.
 - Streamline 2.11.1 public headers: Copyright (c) 2022-2023 NVIDIA CORPORATION. All rights reserved.
 - Streamline 2.11.1 public headers: Copyright (c) 2022-2024 NVIDIA CORPORATION. All rights reserved.

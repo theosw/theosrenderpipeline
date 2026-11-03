@@ -235,7 +235,7 @@ if(NOT EXISTS "${TRP_XEFG_SDK_DIR}/inc/xess_fg/xefg_swapchain_d3d12.h" OR
     message(FATAL_ERROR "Set TRP_XEFG_SDK_DIR to the pinned Intel XeSS SDK with SR, XeFG 1.3 and XeLL 1.3 headers")
 endif()
 target_include_directories(${PROJECT_NAME} PRIVATE "${TRP_XEFG_SDK_DIR}/inc")
-set_source_files_properties(src/FrameGen/XeFGPresenter.cpp src/FrameGen/XeFGTensorRuntime.cpp src/FrameGen/XeFGUnlock.cpp src/FrameGen/XeFGUnlockNative.cpp src/FrameGen/XeSSUpscaler.cpp PROPERTIES SKIP_PRECOMPILE_HEADERS ON COMPILE_DEFINITIONS "UNICODE;_UNICODE;WIN32_LEAN_AND_MEAN;NOMINMAX")
+set_source_files_properties(src/FrameGen/XeFGPresenter.cpp src/FrameGen/XeFGTensorRuntime.cpp src/FrameGen/XeFGUnlock.cpp src/FrameGen/XeFGUnlockNative.cpp src/FrameGen/XeSSUpscaler.cpp src/FrameGen/FSRUpscaler.cpp PROPERTIES SKIP_PRECOMPILE_HEADERS ON COMPILE_DEFINITIONS "UNICODE;_UNICODE;WIN32_LEAN_AND_MEAN;NOMINMAX")
 set_source_files_properties(src/FrameGen/NeuralRuntimeKernels.cpp src/FrameGen/NeuralRuntimeKernelPlan.cpp src/FrameGen/NeuralRuntimeKernelsNative.cpp
     PROPERTIES SKIP_PRECOMPILE_HEADERS ON COMPILE_DEFINITIONS "UNICODE;_UNICODE;WIN32_LEAN_AND_MEAN;NOMINMAX")
 find_path(TRP_SIMPLEINI_INCLUDE_DIR SimpleIni.h REQUIRED)
@@ -435,6 +435,8 @@ if(TRP_BUILD_COMPATIBILITY_TESTS)
     target_include_directories(TRPNeuralObjectBlendTests PRIVATE src)
     target_link_libraries(TRPNeuralObjectBlendTests PRIVATE d3d11 d3d12 dxgi d3dcompiler)
     add_test(NAME NeuralObjectBlend COMMAND TRPNeuralObjectBlendTests)
+
+    add_subdirectory(tests/fsr)
 
     add_executable(TRPSourceUpscalerTransitionTests tests/SourceUpscalerTransitionTests.cpp)
     target_compile_features(TRPSourceUpscalerTransitionTests PRIVATE cxx_std_23)

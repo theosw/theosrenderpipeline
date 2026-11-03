@@ -29,7 +29,7 @@
 
 namespace
 {
-    bool xeSSStartup{};
+    bool nvidiaUpscalerStartup{true};
 #if !defined(ENABLE_SKYRIM_SE) || !defined(ENABLE_SKYRIM_AE) || defined(ENABLE_SKYRIM_VR)
 #error Build with both Skyrim SE and AE enabled, and VR disabled.
 #endif
@@ -92,7 +92,7 @@ namespace
 			TheosRenderPipeline::CommunityShaders::SelectRenderer();
 			TheosRenderPipeline::ValidateGameHooks(TheosRenderPipeline::CommunityShaders::Active());
 			if (!TheosRenderPipeline::CommunityShaders::Active()) {
-                if (!xeSSStartup) {
+                if (nvidiaUpscalerStartup) {
 				const auto runtime = GetPluginDirectory() / L"TheosRenderPipeline" / L"nvngx_dlss.dll";
 				logger::info("nvngx_dlss.dll preload from \"{}\": {}", runtime.string(), ::LoadLibraryW(runtime.c_str()) ? "ok" : "failed");
                 }
@@ -233,7 +233,7 @@ extern "C" DLLEXPORT bool __cdecl SKSEPlugin_Load(const SKSE::LoadInterface* a_s
 		util::report_and_fail(std::format("Theo's Render Pipeline configuration error:\n\n{}\n\nCorrect SKSE/Plugins/TheosRenderPipeline.User.ini "
 			"(your saved settings) or TheosRenderPipeline.ini and restart Skyrim.", error));
 	}
-	xeSSStartup = baselineIni.GetLongValue("Settings", "UpscaleType", DLSS) == XeSS;
+	nvidiaUpscalerStartup = UsesNvidiaUpscaler(baselineIni.GetLongValue("Settings", "UpscaleType", DLSS));
 	logger::info("{} {}", Plugin::DISPLAY_NAME, Plugin::RELEASE_VERSION);
 
 	// Capture the engine callee before post-load renderer hooks replace its call.

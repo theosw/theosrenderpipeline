@@ -128,7 +128,7 @@ void OverlayUI::DrawStageMeasurements(const FrameView& view, SettingsPage page)
     {
         if (!view.communityShaders)
         {
-            row(view.xessActive ? TR("XeSS + transfers/sharpening") : "DLSS", Stage::kDLSS);
+            row(view.fsrActive ? TR("FSR + transfers/sharpening") : view.xessActive ? TR("XeSS + transfers/sharpening") : "DLSS", Stage::kDLSS);
             row(TR("Sharpening"), Stage::kRCAS);
         }
 
@@ -190,10 +190,14 @@ void OverlayUI::DrawStageMeasurements(const FrameView& view, SettingsPage page)
 void OverlayUI::DrawOutputOptimizations()
 {
     ImGui::Separator();
+    const bool unavailable = settingsDraft.upscaleType == XeSS || settingsDraft.upscaleType == FSR;
+    ImGui::BeginDisabled(unavailable);
     ImGui::Checkbox(TR("Direct RCAS output"), &settingsDraft.directRCASOutput);
     DrawSettingsHelp(TR("On by default. Writes sharpened output directly, avoiding its final copy. Apply required."));
     ImGui::Checkbox(TR("Direct DLSS output"), &settingsDraft.directDLSSOutput);
     DrawSettingsHelp(TR("On by default. Avoids the DLSS copy when sharpening is off; does not disable sharpening. Apply required."));
+    ImGui::EndDisabled();
+    if (unavailable) { ImGui::TextDisabled("%s", TR("Direct output options apply to DLSS and DLAA only.")); }
 }
 
 void OverlayUI::DrawMeasurementControls(const FrameView& view)

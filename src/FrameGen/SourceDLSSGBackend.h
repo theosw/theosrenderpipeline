@@ -29,6 +29,7 @@
 #include "PresenterReplacement.h"
 #include "XeFGPresenter.h"
 #include "XeSSUpscaler.h"
+#include "FSRUpscaler.h"
 #include "SlowPresentGate.h"
 #include "PipelineCache.h"
 #include "XeFGSettleGate.h"
@@ -233,6 +234,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 		ID3D12CommandQueue* Queue() const { return queue_.Get(); }
 		Interop& Transport() { return interop_; }
 		XeSSUpscaler& XeSS() { return xess_; }
+		FSRUpscaler& FSR() { return fsr_; }
+		const FSRUpscaler& FSR() const { return fsr_; }
 		// Session pipeline library for XeSS initialization, opened on first use.
 		ID3D12PipelineLibrary* XeSSPipelines() { return IntelPipelines(xessPipelines_, "xess", xess_.Module()); }
 		const XeSSUpscaler& XeSS() const { return xess_; }
@@ -312,6 +315,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		std::atomic<bool> xefgTensorRequested_{};
 		std::atomic<std::uint32_t> xefgOptions_{1};
 		XeSSUpscaler xess_;
+		FSRUpscaler fsr_;
 		UINT adapterVendor_{};
 		bool nvidiaInitialized_{}, nvidiaSessionStarted_{};
 		FrameGenerationProvider provider_{FrameGenerationProvider::NVIDIA};

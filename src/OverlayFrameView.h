@@ -68,6 +68,8 @@ struct OverlayUI::FrameView
     bool videoMemoryFull{};
     bool xessActive{};
     bool nrFriendlyRenderSizeActive{};
+    bool fsrActive{};
+    bool fsrRuntimePresent{};
     bool generationActive{};
     unsigned effectiveMultiplier{1};
     TheosRenderPipeline::FrameGenerationProvider provider{}, requestedProvider{};

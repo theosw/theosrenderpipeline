@@ -78,8 +78,9 @@ class NvidiaHost
     bool ProxyActive() const { return proxyActive_; }
     bool FrameGenerationEnabled() const { return frameGenerationEnabled_; }
     bool UpscalerReady() const { return upscalerReady_ && SUCCEEDED(FailureResult()); }
-    bool SplitSourceDLSSActive() const { return splitSourceDLSSActive_ || xeSSActive_; }
+    bool SplitSourceDLSSActive() const { return splitSourceDLSSActive_ || xeSSActive_ || fsrActive_; }
     bool XeSSActive() const { return xeSSActive_; }
+    bool FSRActive() const { return fsrActive_; }
     bool StartupConfigured() const { return sourceUpscalerSettings_.Initialized(); }
     const TheosRenderPipeline::Upscaler::Configuration& SourceUpscalerSettings() const { return sourceUpscalerSettings_; }
     void RequestSourceUpscalerSettings(TheosRenderPipeline::Upscaler::Creation request);
@@ -196,6 +197,7 @@ class NvidiaHost
     bool upscalerReady_{false};
     bool splitSourceDLSSActive_{false};
     bool xeSSActive_{};
+    bool fsrActive_{};
     bool splitSourceRuntimeFailureLogged_{false};
     bool frameGenerationStateKnown_{false};
     bool frameGenerationEnabled_{false};

@@ -2,6 +2,14 @@
   "schemaVersion": 1,
   "files": [
     {
+      "path": "SKSE/Plugins/TheosRenderPipeline/AMD/FSR-LICENSE.txt",
+      "editions": [
+        "Standard",
+        "Universal"
+      ],
+      "policy": "replace"
+    },
+    {
       "path": "SKSE/Plugins/CommunityShaders/Overrides/TheosRenderPipeline_Upscaling.json",
       "editions": [
         "Standard",

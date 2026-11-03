@@ -222,6 +222,10 @@ bool RenderPipeline::IsEnabled()
 int RenderPipeline::JitterPhaseCount() const
 {
 	const auto* host = NvidiaHost::GetSingleton();
+    if (host->FSRActive() && host->RenderWidth()) {
+        const double ratio = static_cast<double>(host->OutputWidth()) / host->RenderWidth();
+        return (std::max)(1, static_cast<int>(8.0 * ratio * ratio)); // AMD's official phase-count formula.
+    }
     return host->XeSSActive() && host->RenderWidth() && host->RenderHeight() ?
         static_cast<int>(std::ceil(8.0 * host->OutputWidth() * host->OutputHeight() / (static_cast<double>(host->RenderWidth()) * host->RenderHeight()))) :
         DLSSBackend::GetSingleton()->GetJitterPhaseCount();
@@ -284,7 +288,7 @@ void RenderPipeline::InitUpscaler()
 	}
 	logger::info(
 		"NVIDIA host topology initialized: sourceOwner={} {} x {} -> {} x {} (scale {:.3f}, mip bias {:.2f})",
-		nvidiaHost->XeSSActive() ? "TheosRenderPipeline-XeSS" : nvidiaHost->SplitSourceDLSSActive() ? "TheosRenderPipeline-DLSS" : "unavailable",
+		nvidiaHost->FSRActive() ? "TheosRenderPipeline-FSR" : nvidiaHost->XeSSActive() ? "TheosRenderPipeline-XeSS" : nvidiaHost->SplitSourceDLSSActive() ? "TheosRenderPipeline-DLSS" : "unavailable",
 		mRenderSizeX,
 		mRenderSizeY,
 		mDisplaySizeX,

@@ -56,6 +56,13 @@ int main(int argc, char** argv)
         CSimpleIniA intel;
         intel.SetLongValue("Settings", "UpscaleType", XeSS);
         Require(!TheosRenderPipeline::ValidateNvidiaBaseline(intel), "XeSS is admitted without selecting a legacy renderer");
+        intel.SetLongValue("Settings", "UpscaleType", FSR);
+        Require(!TheosRenderPipeline::ValidateNvidiaBaseline(intel), "FSR survives the actual SKSE startup admission check");
+        Require(!UsesNvidiaUpscaler(FSR) && !UsesNvidiaUpscaler(XeSS) && UsesNvidiaUpscaler(DLSS) && UsesNvidiaUpscaler(DLAA),
+            "FSR/XeSS startup skips the DLSS runtime preload without changing NVIDIA startup");
+        intel.SetBoolValue("Settings", "EnableUpscaler", false);
+        Require(TheosRenderPipeline::ValidateNvidiaBaseline(intel), "FSR cannot bypass the required world upscaler");
+        intel.SetBoolValue("Settings", "EnableUpscaler", true);
         for (int legacy : {1, 2}) {
             intel.SetLongValue("Settings", "UpscaleType", legacy);
             Require(TheosRenderPipeline::ValidateNvidiaBaseline(intel), "legacy FSR/XeSS probe modes remain rejected");
