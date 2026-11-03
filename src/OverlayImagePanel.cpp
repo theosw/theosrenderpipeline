@@ -239,7 +239,7 @@ void OverlayUI::DrawImagePanel(float tabCardHeight, const FrameView& view)
                         {"DLSS", view.nvidiaFeatures, TR("Requires NVIDIA RTX hardware.")},
                         {"DLAA", view.nvidiaFeatures, TR("Requires NVIDIA RTX hardware.")},
                         {TR("XeSS"), true, TR("Intel XeSS (experimental). After restart it uses Intel's quality resolutions.")},
-                        {"FSR 3.1", view.fsrRuntimePresent, view.fsrRuntimePresent
+                        {"FSR 3.1", view.fsrRuntimePresent, view.fsrRuntimePresent // not translated: product name and version
                             ? TR("AMD FSR 3.1 temporal upscaling (experimental).")
                             : TR("Install AMD/amd_fidelityfx_dx12.dll from FidelityFX SDK 1.1.4, then restart.")}});
                     if (changed) { settingsDraft.upscaleType = mode == 3 ? FSR : mode == 2 ? XeSS : mode == 1 ? DLAA : DLSS; }
