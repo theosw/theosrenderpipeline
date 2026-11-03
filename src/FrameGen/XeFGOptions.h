@@ -39,8 +39,4 @@ namespace TheosRenderPipeline
     {
         return requested.experimentalMFG && !unlockTried;
     }
-    inline std::uint32_t XeFGOutputInterval(int fps)
-    {
-        return fps > 0 ? static_cast<std::uint32_t>((1000000u + fps / 2) / fps) : 0u;
-    }
 }

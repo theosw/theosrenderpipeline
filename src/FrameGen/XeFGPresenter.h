@@ -68,7 +68,7 @@ namespace TheosRenderPipeline
         // extracts the UI from the back buffer.
         HRESULT BeforePresent(ID3D12GraphicsCommandList* list, ID3D12Resource* motion,
             ID3D12Resource* depth, ID3D12Resource* hudless, ID3D12Resource* ui, bool enabled, bool uiComposition,
-            int outputFPSLimit, std::uint32_t generatedFrames = 1);
+            std::uint32_t outputIntervalUs, std::uint32_t generatedFrames = 1);
         HRESULT AfterPresent(HRESULT result);
         HRESULT FinalizePresent(); // After the host submits the input-copy command list.
         HRESULT Disable();

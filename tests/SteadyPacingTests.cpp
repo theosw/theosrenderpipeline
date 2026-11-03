@@ -1,9 +1,11 @@
 #include "FrameGen/SteadyPacing.h"
 #include <cstdio>
+#include <cmath>
 #include <cstdlib>
+#include <random>
 
 using TheosRenderPipeline::SteadyPacing;
-using TheosRenderPipeline::SteadyOutputLimit;
+using TheosRenderPipeline::SteadyOutputIntervalUs;
 
 static void Require(bool ok, const char* why)
 {
@@ -102,6 +104,24 @@ int main()
             Require(first > 0 && high <= first * 1.07, c.why);
         }
     }
+    // 2026-11-02 game test, generation off: GPU frames 22 ms typical, 27 ms at
+    // p95. Held to the exact cap, uneven frames keep it near where it started;
+    // rounded to whole FPS it walked from 36 to 32.
+    {
+        std::mt19937 rng(7);
+        auto uniform = [&] { return (rng() + 0.5) / 4294967296.0; };
+        SteadyPacing pacing;
+        double first = 0, low = 1e9;
+        for (int frame = 0; frame < 20000; ++frame) {
+            const double z = std::sqrt(-2 * std::log(uniform())) * std::cos(6.283185307179586 * uniform());
+            const double cost = 22000 * std::exp(0.12 * z);
+            const double cap = SteadyOutputIntervalUs(pacing.TargetUs(), 1);
+            pacing.Observe(cap ? (std::max)(cost, double(cap)) : cost);
+            if (!first && pacing.TargetUs() > 0) { first = pacing.TargetUs(); }
+            if (first) { low = (std::min)(low, pacing.TargetFPS()); }
+        }
+        Require(first > 0 && low >= 1e6 / first * 0.98, "uneven frames without generation do not walk the cap down");
+    }
     // A real overload is still followed when a presentation delay was learned.
     {
         SteadyPacing pacing;
@@ -143,9 +163,10 @@ int main()
         Require(!pacing.Observe(-1) && !pacing.Observe(0), "invalid intervals are ignored");
     }
     // The cap converts to the output limit frame generation's limiters apply.
-    Require(SteadyOutputLimit(20000, 1) == 50, "no generation: rendered rate");
-    Require(SteadyOutputLimit(20000, 4) == 200, "x4: four outputs per rendered frame");
-    Require(SteadyOutputLimit(0, 4) == 0 && SteadyOutputLimit(20000, 0) == 0, "unmeasured or invalid: no cap");
-    Require(SteadyOutputLimit(500, 4) == 1000, "clamped to the limiters' range");
+    Require(SteadyOutputIntervalUs(20000, 1) == 20000, "no generation: rendered interval");
+    Require(SteadyOutputIntervalUs(20000, 4) == 5000, "x4: four outputs per rendered frame");
+    Require(SteadyOutputIntervalUs(30770, 1) == 30770, "exact, not rounded to a whole FPS (32.5 FPS stays 32.5)");
+    Require(SteadyOutputIntervalUs(0, 4) == 0 && SteadyOutputIntervalUs(20000, 0) == 0, "unmeasured or invalid: no cap");
+    Require(SteadyOutputIntervalUs(500, 4) == 1000 && SteadyOutputIntervalUs(2e6, 1) == 1000000, "clamped to the limiters' range");
     std::puts("Steady pacing: alternating cost, heavier and lighter scenes, limiter wobble, gaps and output conversion passed.");
 }

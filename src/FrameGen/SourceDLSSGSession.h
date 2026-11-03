@@ -156,10 +156,11 @@ namespace TheosRenderPipeline::SourceDLSSG
 		void RequestOnlyGenerated(bool a_enabled) { snapshot_.onlyGeneratedRequested = a_enabled; }
 		// The next state query also asks DLSS-G for its VRAM estimate.
 		void RequestVRAMEstimate() { vramEstimateRequested_ = true; }
-		bool RequestOutputFPSLimit(int a_fps)
+		// 0 = no cap; otherwise the minimum output interval, 1 to 1000 FPS.
+		bool RequestOutputFrameLimitUs(std::uint32_t a_us)
 		{
-			if (a_fps < 0 || a_fps > 1000) { return false; }
-			snapshot_.frameLimitRequestedUs = OutputFrameLimitUs(a_fps);
+			if (a_us && (a_us < 1000 || a_us > 1000000)) { return false; }
+			snapshot_.frameLimitRequestedUs = a_us;
 			return true;
 		}
 		bool BeforePresent(bool a_enableGeneration, bool a_testOnly = false);

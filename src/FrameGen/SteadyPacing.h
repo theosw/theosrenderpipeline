@@ -153,12 +153,15 @@ namespace TheosRenderPipeline
         bool probing_{};  // the last decision tried a faster cap
     };
 
-    // The output cap that holds rendered frames to a steady interval: frame
+    // The output interval that holds rendered frames to a steady one: frame
     // generation's limiters (Reflex with DLSS-G, XeLL with XeFG) cap output.
-    inline int SteadyOutputLimit(double renderedIntervalUs, unsigned outputsPerRenderedFrame)
+    // Exact microseconds, not whole FPS: 2026-11-02 with generation off, 32.5
+    // rounded to a 32 FPS cap ran 1.6% slow, past kSlowTolerance by itself,
+    // and each back-off that rounded the same way walked the cap from 36 to 32.
+    inline std::uint32_t SteadyOutputIntervalUs(double renderedIntervalUs, unsigned outputsPerRenderedFrame)
     {
         if (renderedIntervalUs <= 0 || !outputsPerRenderedFrame) { return 0; }
-        const auto fps = static_cast<int>(std::floor(1000000.0 / renderedIntervalUs * outputsPerRenderedFrame));
-        return std::clamp(fps, 1, 1000);
+        // The limiters' range: 1 to 1000 output FPS.
+        return static_cast<std::uint32_t>(std::clamp(std::lround(renderedIntervalUs / outputsPerRenderedFrame), 1000L, 1000000L));
     }
 }

@@ -468,8 +468,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 		session_.RequestUIRecomposition(UIRecompositionConfiguration());
 		session_.RequestOnlyGenerated(XeFGOnlyGenerated());
 		// Steady measures first; only a Fixed cap applies from the first frame.
-		session_.RequestOutputFPSLimit(static_cast<FrameLimitMode>(frameLimit_.load(std::memory_order_relaxed)) == FrameLimitMode::Fixed ?
-			outputFPSLimit_.load(std::memory_order_relaxed) : 0);
+		session_.RequestOutputFrameLimitUs(static_cast<FrameLimitMode>(frameLimit_.load(std::memory_order_relaxed)) == FrameLimitMode::Fixed ?
+			OutputFrameLimitUs(outputFPSLimit_.load(std::memory_order_relaxed)) : 0);
 		if (!intelStartup && !startupTransport_) {
 			if (!CheckSession(session_.Start(api_, 1))) { return fault_; }
 			nvidiaSessionStarted_ = true;
@@ -795,7 +795,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 				PresetLabel(PresetConfiguration()));
 		}
 		session_.RequestOnlyGenerated(XeFGOnlyGenerated());
-		session_.RequestOutputFPSLimit(UpdateFrameLimit());
+		session_.RequestOutputFrameLimitUs(UpdateFrameLimit());
 		const bool prepared = nativePresenterFallback_ ? fallbackPrepared_ : provider_ == FrameGenerationProvider::XeFG ? xefg_.Snapshot().prepared :
 			session_.Snapshot().stage == SessionStage::Rendering;
 		if (prepared) {
@@ -915,7 +915,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			marks.Begin(D3D12Stage::kXeFGInputs);
 			if (!CheckXeFG(xefg_.BeforePresent(list, motion_.texture12.Get(), depth_.texture12.Get(), intelHudless, intelUI,
 				generationAllowed && prepared && compatible, UIRecompositionConfiguration(),
-				frameOutputLimit_, XeFGConfiguration().generatedFrames))) { return fault_; }
+				frameOutputIntervalUs_, XeFGConfiguration().generatedFrames))) { return fault_; }
 			marks.End(D3D12Stage::kXeFGInputs);
 		}
 		xefgFrameId_ = xefg_.Snapshot().frameId;
@@ -1510,7 +1510,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		const auto at = videoMemoryFullAt_.load(std::memory_order_relaxed);
 		return at && std::chrono::steady_clock::now() - std::chrono::steady_clock::time_point(std::chrono::steady_clock::duration(at)) < std::chrono::seconds(10);
 	}
-	int Backend::UpdateFrameLimit()
+	std::uint32_t Backend::UpdateFrameLimit()
 	{
 		const auto mode = static_cast<FrameLimitMode>(frameLimit_.load(std::memory_order_relaxed));
 		const auto now = std::chrono::steady_clock::now();
@@ -1520,7 +1520,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (mode != FrameLimitMode::Steady) {
 			steadyPacing_.Reset();
 			steadyRenderedFPS_.store(0, std::memory_order_relaxed);
-			return frameOutputLimit_ = mode == FrameLimitMode::Fixed ? outputFPSLimit_.load(std::memory_order_relaxed) : 0;
+			return frameOutputIntervalUs_ = mode == FrameLimitMode::Fixed ? OutputFrameLimitUs(outputFPSLimit_.load(std::memory_order_relaxed)) : 0;
 		}
 		// The limiters cap output, so scale the rendered cap by this frame's multiplier.
 		const unsigned outputs = provider_ == FrameGenerationProvider::XeFG ?
@@ -1537,7 +1537,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 				steadyPacing_.TargetFPS(), (steadyPacing_.Allowance() - 1) * 100);
 		}
 		steadyRenderedFPS_.store(static_cast<float>(steadyPacing_.TargetFPS()), std::memory_order_relaxed);
-		return frameOutputLimit_ = SteadyOutputLimit(steadyPacing_.TargetUs(), outputs);
+		return frameOutputIntervalUs_ = SteadyOutputIntervalUs(steadyPacing_.TargetUs(), outputs);
 	}
 	HRESULT Backend::CreatePresenter(FrameGenerationProvider provider, IDXGISwapChain** result)
 	{

@@ -380,8 +380,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 		SteadyPacing steadyPacing_;
 		std::chrono::steady_clock::time_point steadyLast_{};
 		unsigned steadyOutputs_{}; // Outputs per rendered frame when Steady last measured.
-		int frameOutputLimit_{ 0 };
-		int UpdateFrameLimit();
+		std::uint32_t frameOutputIntervalUs_{}; // 0 = no cap
+		// The output interval the limiter applies this frame, in microseconds.
+		std::uint32_t UpdateFrameLimit();
 		mutable std::mutex presentationFeedbackMutex_;
 		PresentationFeedbackTracker presentationFeedback_;
 		std::uint64_t presentationQueryFailures_{};
