@@ -1,3 +1,12 @@
+# Unreleased
+
+- NR Input can go above 100%, up to 200%. TRP enlarges the scene for NR, which
+  moves its strongest effect from close-ups to smaller, more distant subjects
+  such as characters at gameplay distance. The cost grows with the area: 125%
+  is about 1.6 times, 200% four times, so it is most practical before
+  upscaling. NR's result is averaged back to each screen pixel, so the extra
+  detail does not turn into noise. 100% and below are unchanged.
+
 # 0.6.1
 
 - Steady frame limit: when held frames arrive late for a reason the cap does not
