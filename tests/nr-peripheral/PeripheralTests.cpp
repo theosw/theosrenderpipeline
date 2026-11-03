@@ -69,6 +69,40 @@ static void Kernels(GPU& gpu){
     }
     std::puts("PASS: production D3D12 pack/resolve, mixed guide extents, rounded work extents, centre density, offscreen endpoint motion, depth and alpha");
 }
+// Input above 100%: the enlarged colour stays inside its source neighbourhood
+// (no ringing), and a model change on the larger grid averages back exactly.
+static void Enlarged(GPU& gpu){
+    NeuralResolveKernels kernels;Check(kernels.Initialize(gpu.device.Get()),"enlarge kernels");
+    for(const auto dims:{std::array<unsigned,4>{100,60,125,75},{101,61,152,92},{64,32,128,64}}){
+        const auto [w,h,ww,wh]=dims;
+        ResolveConstants c;c.sourceWidth=w;c.sourceHeight=h;c.targetWidth=c.workWidth=ww;c.targetHeight=c.workHeight=wh;
+        auto source=Pattern(w,h);auto a=gpu.Texture(w,h,source);auto enlarged=gpu.Texture(ww,wh);
+        gpu.Begin();Check(kernels.Record(gpu.device.Get(),gpu.list.Get(),0,1,ResolveKernel::Downsample,c,a.Get(),nullptr,nullptr,enlarged.Get()),"enlarge colour");gpu.End();
+        const auto big=gpu.Read(enlarged.Get());
+        for(unsigned y=0;y<wh;++y)for(unsigned x=0;x<ww;++x){
+            // The 2x2 source pixels around this sample position bound it.
+            const double sx=(x+.5)*w/ww-.5,sy=(y+.5)*h/wh-.5;
+            const int x0=std::clamp(int(std::floor(sx)),0,int(w)-1),y0=std::clamp(int(std::floor(sy)),0,int(h)-1);
+            const int x1=std::min(x0+1,int(w)-1),y1=std::min(y0+1,int(h)-1);
+            for(unsigned ch=0;ch<4;++ch){
+                float lo=1e9f,hi=-1e9f;
+                for(int yy:{y0,y1})for(int xx:{x0,x1}){lo=std::min(lo,source[size_t(yy)*w+xx][ch]);hi=std::max(hi,source[size_t(yy)*w+xx][ch]);}
+                Require(big[size_t(y)*ww+x][ch]>=lo-1e-5f && big[size_t(y)*ww+x][ch]<=hi+1e-5f,"enlarged colour stays within its source neighbourhood");
+            }
+        }
+        auto altered=big;for(auto& p:altered){p[0]+=.03f;p[1]-=.02f;p[2]+=.04f;}
+        auto model=gpu.Texture(ww,wh,altered),scratch=gpu.Texture(w,wh),output=gpu.Texture(w,h);
+        gpu.Begin();c.mode=0;
+        Check(kernels.Record(gpu.device.Get(),gpu.list.Get(),1,2,ResolveKernel::Residual,c,enlarged.Get(),model.Get(),nullptr,scratch.Get()),"horizontal average");
+        c.mode=1;Check(kernels.Record(gpu.device.Get(),gpu.list.Get(),1,3,ResolveKernel::Residual,c,a.Get(),scratch.Get(),nullptr,output.Get()),"vertical average");gpu.End();
+        const auto actual=gpu.Read(output.Get());
+        for(size_t i=0;i<actual.size();++i){
+            for(unsigned ch=0;ch<3;++ch)Near(actual[i][ch],source[i][ch]+std::array<float,3>{.03f,-.02f,.04f}[ch],.0002,"larger-grid residual averages back");
+            Near(actual[i][3],source[i][3],0,"native alpha unchanged");
+        }
+    }
+    std::puts("PASS: input above 100%: clamped enlargement without ringing, larger-grid residual averaged back to native");
+}
 static void DescriptorCache(GPU& gpu){
     NeuralResolveKernels kernels;Check(kernels.Initialize(gpu.device.Get()),"cache kernels");
     const unsigned w=16,h=8;
@@ -94,7 +128,7 @@ static void DescriptorCache(GPU& gpu){
 static void Passes(GPU& gpu){
     using namespace TheosRenderPipeline::NeuralRendering;
     unsigned cases=0;
-    for(bool peripheral:{false,true})for(int route:{0,1,2,3})for(int passes:{1,2})for(float scale:{1.f,.5f}){
+    for(bool peripheral:{false,true})for(int route:{0,1,2,3})for(int passes:{1,2})for(float scale:{1.f,.5f,1.5f}){
         // 0=native late/UI, 1=native early, 2=CS early/producer RGB, 3=CS late.
         const bool world=route!=0,producer=route==2;
         const unsigned w=100,h=60,gw=50,gh=30;
@@ -299,4 +333,4 @@ static void ManyPasses(GPU& gpu){
 // keep running, the refused pass is not tried again and no runtime refusal is reported.
 #include "ObjectMaskCases.h"
 #include "ModelRateCases.h"
-int main(){GPU gpu;ObjectMaskCases(gpu);PassObjectStrengthCases(gpu);Kernels(gpu);DescriptorCache(gpu);Passes(gpu);CombinedPreparation(gpu);PreparationRecorder(gpu);IndependentPasses(gpu);IndependentPasses(gpu,true);ManyPasses(gpu);ModelRateKernels(gpu);ModelRatePasses(gpu);}
+int main(){GPU gpu;ObjectMaskCases(gpu);PassObjectStrengthCases(gpu);Kernels(gpu);Enlarged(gpu);DescriptorCache(gpu);Passes(gpu);CombinedPreparation(gpu);PreparationRecorder(gpu);IndependentPasses(gpu);IndependentPasses(gpu,true);ManyPasses(gpu);ModelRateKernels(gpu);ModelRatePasses(gpu);}

@@ -905,10 +905,11 @@ void DrawNeuralSettings(const OverlayUI::FrameView& view, TheosRenderPipeline::S
                                             : std::string("%.1f%%");
         SettingRow(TR("Input"), key("InputScale").c_str(), true, unavailable, [&] {
             float percent = scale * 100;
-            const bool changed = ImGui::SliderFloat("##v", &percent, 25, 100, format.c_str());
+            const bool changed = ImGui::SliderFloat("##v", &percent, 25, NR::kMaxInputScale * 100, format.c_str());
             if (changed) { scale = percent / 100; }
             DrawSettingsHelp(TR("NR input resolution, relative to the selected stage's scene size, and the model input it "
-                                "gives. Apply to update."));
+                                "gives. Above 100% enlarges the scene for NR: its strongest effect moves to smaller, more "
+                                "distant subjects, and the cost grows with the area (125% is about 1.6 times). Apply to update."));
             return changed;
         });
         SettingRow(TR("Network"), key("Network").c_str(), true, unavailable, [&] {

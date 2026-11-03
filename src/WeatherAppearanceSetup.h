@@ -46,7 +46,7 @@ struct Field
 // Pass n's own settings (2 to 5), named as Pass 2's released keys.
 #define TRP_APPEARANCE_PASS_FIELDS(n)                                                                          \
     TRP_APPEARANCE_FIELD("Pass" #n "SameAsPass1", false, 0, 1, true, extra[n - 2].linked),                    \
-    TRP_APPEARANCE_FIELD("Pass" #n "InputScale", false, 0.25f, 1, false, extra[n - 2].inputScale),            \
+    TRP_APPEARANCE_FIELD("Pass" #n "InputScale", false, 0.25f, 2, false, extra[n - 2].inputScale),            \
     TRP_APPEARANCE_FIELD("Pass" #n "Network", false, 0, 1, true, extra[n - 2].preset),                        \
     TRP_APPEARANCE_FIELD("Pass" #n "Intensity", true, 0, 2, false, extra[n - 2].tuning.intensity),            \
     TRP_APPEARANCE_FIELD("Pass" #n "LocalTone", true, 0, 2, false, extra[n - 2].tuning.localToneStrength),    \
@@ -84,7 +84,7 @@ inline const auto& Fields()
         TRP_APPEARANCE_FIELD("InputHDR", false, 0, 1, true, reconstruction.colorIsHDR),
         TRP_APPEARANCE_FIELD("AdaptiveExposure", false, 0, 1, true, reconstruction.adaptiveExposure),
         TRP_APPEARANCE_FIELD("ExposureBias", false, -2, 2, false, reconstruction.exposureBias),
-        TRP_APPEARANCE_FIELD("Pass1InputScale", false, 0.25f, 1, false, reconstruction.inputScale),
+        TRP_APPEARANCE_FIELD("Pass1InputScale", false, 0.25f, 2, false, reconstruction.inputScale),
         TRP_APPEARANCE_FIELD("Pass1Network", false, 0, 1, true, reconstruction.preset),
         TRP_APPEARANCE_FIELD("Pass1Intensity", true, 0, 2, false, tuning.intensity),
         TRP_APPEARANCE_FIELD("Pass1LocalTone", true, 0, 2, false, tuning.localToneStrength),
