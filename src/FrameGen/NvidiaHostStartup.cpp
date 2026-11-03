@@ -417,10 +417,19 @@ bool NvidiaHost::InitializeSourceUpscaler(const D3D11_TEXTURE2D_DESC& a_outputDe
         const auto creation = sourceUpscalerSettings_.BeginSubmission();
         auto hr = backend.FSR().Open(backend.Device12(), TheosRenderPipeline::PluginPaths::AMDDirectory());
         if (SUCCEEDED(hr)) { hr = backend.FSR().Initialize(backend.Transport(), device_.Get(),
-            {outputWidth_, outputHeight_}, creation.AllocationQuality(), a_outputDesc.Format); }
+            {outputWidth_, outputHeight_}, creation.AllocationQuality(), a_outputDesc.Format, false,
+            {renderWidth_, renderHeight_}); }
         sourceUpscalerSettings_.Completed(SUCCEEDED(hr));
         if (FAILED(hr)) { status_ = std::format("FSR initialization failed: {} (0x{:08X})", backend.FSR().Status(), static_cast<unsigned>(hr)); return false; }
         fsrActive_ = upscalerReady_ = true;
+        // The NR size policy may have adjusted the nominal FSR quality extent.
+        // Retain ownership on mismatch so teardown still retires this context.
+        const auto actual = backend.FSR().InputSize();
+        if (actual.width != renderWidth_ || actual.height != renderHeight_) {
+            sourceUpscalerSettings_.Completed(false);
+            status_ = "FSR disagreed with the prepared render extent";
+            return false;
+        }
         AdoptEffectiveSourceUpscalerSettings();
         if (!CreateNativeUIExtractionResources(a_outputDesc)) { logger::warn("[FSR] native UI extraction unavailable; retaining HUD-less fallback"); }
         status_ = "FSR upscaling ready; native UI and shared frame-generation bridge retained";
