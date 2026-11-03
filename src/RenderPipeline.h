@@ -117,7 +117,7 @@ public:
 	void RequestHistoryReset(const char* a_reason = "requested");
 	std::uint32_t SceneGeneration() const { return mSceneGeneration.load(std::memory_order_acquire); }
 	const char* SceneResetReason() const { return mSceneResetReason.load(std::memory_order_acquire); }
-	void SetFrameGenerationTransitionBlocked(bool a_blocked);
+	void SetFrameGenerationTransitionBlocked(bool a_blocked, bool a_neuralBlocked);
 	bool FrameGenerationTransitionBlocked() const
 	{
 		return mFrameGenerationTransitionBlocked.load(std::memory_order_acquire);

@@ -571,7 +571,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// may run where the interface is hidden (tm/console) or where this frame
 		// falls back to Present, so neither DLSS-G guide is required for it.
 		const bool worldOnly = frameNeuralOptions_.WorldOnly();
-		const bool eligible = a_neuralEligible && !TransitionBlocked() &&
+		const bool eligible = a_neuralEligible && !neuralTransitionBlocked_.load(std::memory_order_acquire) &&
 			NeuralPreparedEligible(worldOnly, neuralEvaluatedEarly_, a_hudless != nullptr, a_ui != nullptr);
 		// The game host freezes settings before DLSS. Standalone callers that
 		// only Prepare retain the late-stage contract and never run early NR here.
@@ -1191,14 +1191,17 @@ namespace TheosRenderPipeline::SourceDLSSG
 		presentationFeedback_.BeginEpoch();
 	}
 
-	void Backend::SetTransitionBlocked(bool a_blocked)
+	void Backend::SetTransitionBlocked(bool a_blocked, bool a_neuralBlocked)
 	{
+		if (neuralTransitionBlocked_.exchange(a_neuralBlocked, std::memory_order_acq_rel) != a_neuralBlocked) {
+			logger::info("[SourceDLSSG] NR menu gate {}; world input checks still apply", a_neuralBlocked ? "closed" : "opened");
+		}
 		const auto previous = transitionBlocked_.exchange(a_blocked, std::memory_order_acq_rel);
 		if (previous == a_blocked) { return; }
 		transitionWarmupPresents_.store(
 			a_blocked ? 0 : TransitionWarmupPresents, std::memory_order_release);
 		if (a_blocked) {
-			logger::info("[SourceDLSSG] transition gate closed; scene processing and generated presentation are suspended");
+			logger::info("[SourceDLSSG] transition gate closed; generated presentation is suspended");
 		} else {
 			logger::info("[SourceDLSSG] transition gate opened; waiting for three real presents before generation resumes");
 		}

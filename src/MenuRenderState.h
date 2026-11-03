@@ -43,7 +43,8 @@ namespace TheosRenderPipeline
             return false;
         }
 
-        bool SuspendGeneration() const { return mainOpen_ || loadingOpen_ || faderOpen_; }
+        bool SuspendNeural() const { return mainOpen_ || loadingOpen_; }
+        bool SuspendGeneration() const { return SuspendNeural() || faderOpen_; }
         bool SuspendJitter() const { return suspendJitter_; }
 
     private:

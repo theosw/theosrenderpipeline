@@ -88,7 +88,7 @@ RE::BSEventNotifyControl MenuOpenCloseEventHandler::ProcessEvent(const RE::MenuO
 			0,
 			static_cast<std::uint64_t>(boundaryReason));
 		RenderPipeline::GetSingleton()->SetFrameGenerationTransitionBlocked(
-			menuState.SuspendGeneration());
+			menuState.SuspendGeneration(), menuState.SuspendNeural());
 #if defined(ARP_DEVELOPER_DIAGNOSTICS)
 		if (a_event->opening && boundary == MenuRenderBoundary::Main) {
 			RenderPipeline::GetSingleton()->ArmAutoLoad();

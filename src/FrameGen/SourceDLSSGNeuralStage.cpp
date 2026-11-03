@@ -315,13 +315,13 @@ namespace TheosRenderPipeline::SourceDLSSG
         frameNeuralModelChanged_ = neuralPass_ && neuralPass_->ModelChangePending(frameNeuralOptions_);
         // Pascal replacement admission is serial: retire first, then query actual
         // DXGI usage before opening any list or allocating the replacement.
-        const bool canAttempt = options.enabled && eligible && !TransitionBlocked() && !neuralRecovery_.Disabled();
+        const bool canAttempt = options.enabled && eligible && !neuralTransitionBlocked_.load(std::memory_order_acquire) && !neuralRecovery_.Disabled();
         const bool replacement = canAttempt && neuralCapability_.Pascal() &&
             !NeuralRendering::PascalResearchFor(neuralComputeCapability_) && neuralPass_ &&
             neuralPass_->NeedsRecreation(frameNeuralOptions_, renderExtent.width, renderExtent.height);
         if (!NeuralRendering::PrepareNeuralAdmission(replacement,
                 [&] { return RecreateNeuralIfNeeded(frameNeuralOptions_, renderExtent); }, [&] {
-            neuralEligible_ = eligible && !TransitionBlocked() && (!options.WorldOnly() || camera) &&
+            neuralEligible_ = eligible && !neuralTransitionBlocked_.load(std::memory_order_acquire) && (!options.WorldOnly() || camera) &&
                 !NeuralUnavailableReason(frameNeuralOptions_, options.WorldOnly() ? colorExtent :
                     FrameExtent{presenterDesc_.BufferDesc.Width, presenterDesc_.BufferDesc.Height});
         })) { return false; }

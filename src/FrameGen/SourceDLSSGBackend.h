@@ -209,7 +209,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		void FinishHDRStart(HRESULT a_reallocated, bool a_generation);
 		bool Enabled() const { return enabled_; }
 		void SetEnabled(bool a_enabled) { enabled_ = a_enabled; }
-		void SetTransitionBlocked(bool a_blocked);
+		void SetTransitionBlocked(bool a_blocked, bool a_neuralBlocked);
 		bool TransitionBlocked() const { return transitionBlocked_.load(std::memory_order_acquire); }
 		bool ConfigureGeneration(GenerationRequest a_request)
 		{
@@ -473,6 +473,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		std::filesystem::path directory_;
 		static constexpr std::uint32_t TransitionWarmupPresents = 3;
 		std::atomic_bool transitionBlocked_{ true };
+		std::atomic_bool neuralTransitionBlocked_{ true };
 		std::atomic<std::uint32_t> transitionWarmupPresents_{};
 		bool attempted_{ false }, ready_{ false }, enabled_{ false };
 		HRESULT fault_{ S_OK };
