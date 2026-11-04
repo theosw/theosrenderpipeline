@@ -1,3 +1,12 @@
+# 0.6.3
+
+- NR runs while the world fades in after a load, so it no longer switches on
+  with a visible pop at the end of the fade. Frame generation still waits for
+  the fade, as before.
+- Below 100% NR Input, NR's change stays on its side of edges instead of
+  spilling across them, which showed as a faint halo along edges against the
+  sky or bright walls.
+
 # 0.6.2
 
 - The NR runtime list says what each choice runs on your card and groups the
