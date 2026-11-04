@@ -103,6 +103,50 @@ static void Enlarged(GPU& gpu){
     }
     std::puts("PASS: input above 100%: clamped enlargement without ringing, larger-grid residual averaged back to native");
 }
+// Reduced input: NR darkens only the dark side of a sharp edge. The edge-aware
+// one-pass enlargement keeps the change on that side; the earlier separable
+// Lanczos spread it across. Flat areas and an unchanged model stay exact.
+static void EdgeAware(GPU& gpu){
+    NeuralResolveKernels kernels;Check(kernels.Initialize(gpu.device.Get()),"edge-aware kernels");
+    for(const auto dims:{std::array<unsigned,4>{96,64,48,32},{96,64,63,42}}){
+        const auto [w,h,ww,wh]=dims;
+        std::vector<Pixel> frame(size_t(w)*h);
+        for(unsigned y=0;y<h;++y)for(unsigned x=0;x<w;++x){const float v=x<w/2+7?.2f:.8f;frame[y*w+x]={v,v*.9f,v*.8f,1};}
+        auto original=gpu.Texture(w,h,frame),proxy=gpu.Texture(ww,wh);
+        ResolveConstants c;c.sourceWidth=w;c.sourceHeight=h;c.targetWidth=c.workWidth=ww;c.targetHeight=c.workHeight=wh;
+        gpu.Begin();Check(kernels.Record(gpu.device.Get(),gpu.list.Get(),0,1,ResolveKernel::Downsample,c,original.Get(),nullptr,nullptr,proxy.Get()),"reduce");gpu.End();
+        const auto reduced=gpu.Read(proxy.Get());
+        // NR's answer: only clearly dark proxy pixels are darkened.
+        auto answer=reduced;for(auto& p:answer)if(p[0]<.45f){p[0]-=.1f;p[1]-=.1f;p[2]-=.1f;}
+        auto model=gpu.Texture(ww,wh,answer),unchanged=gpu.Texture(ww,wh,reduced);
+        const auto resolve=[&](bool joint,ID3D12Resource* result){
+            auto output=gpu.Texture(w,h),scratch=gpu.Texture(w,wh);
+            gpu.Begin();
+            if(joint){c.mode=2;Check(kernels.Record(gpu.device.Get(),gpu.list.Get(),1,3,ResolveKernel::Residual,c,proxy.Get(),result,original.Get(),output.Get()),"joint");}
+            else{c.mode=0;Check(kernels.Record(gpu.device.Get(),gpu.list.Get(),1,2,ResolveKernel::Residual,c,proxy.Get(),result,nullptr,scratch.Get()),"horizontal");
+                c.mode=1;Check(kernels.Record(gpu.device.Get(),gpu.list.Get(),1,3,ResolveKernel::Residual,c,original.Get(),scratch.Get(),nullptr,output.Get()),"vertical");}
+            gpu.End();return gpu.Read(output.Get());
+        };
+        const auto same=resolve(true,unchanged.Get());
+        for(size_t i=0;i<same.size();++i)for(unsigned ch=0;ch<4;++ch)Near(same[i][ch],frame[i][ch],1e-6,"an unchanged model leaves the frame exact");
+        const auto measure=[&](const std::vector<Pixel>& out,bool nearEdge){
+            double error=0;const int edge=int(w/2+7);
+            for(unsigned y=2;y+2<h;++y)for(unsigned x=0;x<w;++x){
+                const bool close=std::abs(int(x)-edge)<=3;if(close!=nearEdge)continue;
+                const float want=frame[size_t(y)*w+x][0]-(int(x)<edge?.1f:0);
+                error+=std::abs(out[size_t(y)*w+x][0]-want);
+            }
+            return error;
+        };
+        const auto joint=resolve(true,model.Get()),before=resolve(false,model.Get());
+        const double jointEdge=measure(joint,true),beforeEdge=measure(before,true);
+        std::printf("  %ux%u -> %ux%u: edge error %.3f, was %.3f (%.0f%% lower); flat %.6f\n",w,h,ww,wh,jointEdge,beforeEdge,
+            100*(1-jointEdge/beforeEdge),measure(joint,false));
+        Require(jointEdge<.7*beforeEdge,"the change stays on its side of the edge");
+        Require(measure(joint,false)<1e-3,"flat areas take the whole change exactly");
+    }
+    std::puts("PASS: reduced input enlarges NR's change edge-aware; unchanged model and flat areas exact");
+}
 static void DescriptorCache(GPU& gpu){
     NeuralResolveKernels kernels;Check(kernels.Initialize(gpu.device.Get()),"cache kernels");
     const unsigned w=16,h=8;
@@ -333,4 +377,4 @@ static void ManyPasses(GPU& gpu){
 // keep running, the refused pass is not tried again and no runtime refusal is reported.
 #include "ObjectMaskCases.h"
 #include "ModelRateCases.h"
-int main(){GPU gpu;ObjectMaskCases(gpu);PassObjectStrengthCases(gpu);Kernels(gpu);Enlarged(gpu);DescriptorCache(gpu);Passes(gpu);CombinedPreparation(gpu);PreparationRecorder(gpu);IndependentPasses(gpu);IndependentPasses(gpu,true);ManyPasses(gpu);ModelRateKernels(gpu);ModelRatePasses(gpu);}
+int main(){GPU gpu;ObjectMaskCases(gpu);PassObjectStrengthCases(gpu);Kernels(gpu);Enlarged(gpu);EdgeAware(gpu);DescriptorCache(gpu);Passes(gpu);CombinedPreparation(gpu);PreparationRecorder(gpu);IndependentPasses(gpu);IndependentPasses(gpu,true);ManyPasses(gpu);ModelRateKernels(gpu);ModelRatePasses(gpu);}
