@@ -91,6 +91,10 @@ not distributed. The verified host-admission patch facts also correspond to
 openNR's audited recipe. NVIDIA's code and model retain their own terms;
 openNR's MIT license does not relicense them. See tools/nr-runtime/README.md.
 
+Universal's `nvngx_dlssnr_310.9.16_fast.trpk` (TRP Fast) contains the same
+components, with TRP's faster versions of the SM86 kernels above and of its
+SM89 kernels, made to produce the same output.
+
 Universal also retains the community INT8 v2 NR 310.8 runtime as
 `nvngx_dlssnr_int8.dll`, SHA-256
 `F82812BF0AAFD77F7F95ABC61B0AFA36967EF9D0A773137B85E1D978201C19F9`,

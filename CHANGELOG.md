@@ -1,5 +1,14 @@
-# Unreleased
+# 0.6.2
 
+- The NR runtime list says what each choice runs on your card and groups the
+  choices by model: the 310.9.16 model, the older 310.8 model and your own
+  files. Each entry shows NR per frame measured with it this session, and a
+  choice that cannot run says why.
+- TRP Fast (Universal): new, faster TRP kernels for RTX 30, with the same
+  picture as TRP. RTX 40 runs them too. Pick TRP Fast under Neural Rendering
+  to compare it with TRP in game; Automatic still uses TRP. The first switch
+  copies NVIDIA's NR runtime (266 MB) beside the original, once. RTX 30
+  owners: please report your NR times with TRP and TRP Fast.
 - NR Input can go above 100%, up to 200%. TRP enlarges the scene for NR, which
   moves its strongest effect from close-ups to smaller, more distant subjects
   such as characters at gameplay distance. The cost grows with the area: 125%

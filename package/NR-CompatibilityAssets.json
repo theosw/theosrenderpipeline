@@ -16,5 +16,14 @@
     "SKSE/Plugins/TheosRenderPipeline/NVIDIA/nvngx_dlssnr_310.9.16.trpk",
     "SKSE/Plugins/TheosRenderPipeline/NVIDIA/nvngx_dlssnr_int8.dll"
   ],
-  "policy": "Additive Universal inventory. Standard must never contain compatibility packs. Binary inputs are supplied locally and must match these pins. The original runtime may come from Standard in the merged installation."
+  "policy": "Additive Universal inventory. Standard must never contain compatibility packs. Binary inputs are supplied locally and must match these pins. The original runtime may come from Standard in the merged installation.",
+  "additionalUniversalAssets": [
+    {
+      "path": "SKSE/Plugins/TheosRenderPipeline/NVIDIA/nvngx_dlssnr_310.9.16_fast.trpk",
+      "feature": "TRP Fast kernels (RTX 30/40), selectable in the NR runtime list",
+      "size": 11575592,
+      "sha256": "40030052FAFF6AE7BA56D05C342239FAD9D3C7F74835E83D760111AAF4AAE22B",
+      "source": "RTX hill-climb c9 (integration/c9/combined-c9.trpk)"
+    }
+  ]
 }
