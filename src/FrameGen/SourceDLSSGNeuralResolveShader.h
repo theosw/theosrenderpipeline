@@ -194,6 +194,26 @@ R"(// Compare: original left of SplitX, NR's result from it, and a two-pixel
     OutputSecondMotion[p.xy]=PackPosition(native+motion)-PackPosition(native);
 }
 [numthreads(8,8,1)] void Residual(uint3 p : SV_DispatchThreadID) {
+    if (Mode == 2) {
+        // Reduced input in one pass: Tex0 the reduced proxy, Tex1 NR's answer,
+        // Tex2 the frame. Bilinear taps of NR's change, each also weighted by how
+        // close its proxy is to this pixel's own colour (joint bilateral), so the
+        // change stays on its side of an edge. Flat areas get the plain blend;
+        // where no tap is close, the floor makes it plain bilinear again.
+        if (p.x >= SourceWidth || p.y >= SourceHeight) return;
+        float4 original = Tex2.Load(int3(p.xy,0));
+        float3 guide = Swizzle(original.rgb);
+        float2 q = (p.xy+0.5)*float2(TargetWidth,TargetHeight)/float2(SourceWidth,SourceHeight)-0.5;
+        int2 base = (int2)floor(q); float2 f = q-base;
+        float3 change = 0; float total = 0;
+        [unroll] for (int y=0; y<2; ++y) [unroll] for (int x=0; x<2; ++x) {
+            int3 tap = int3(ClampPixel(base+int2(x,y),uint2(TargetWidth,TargetHeight)),0);
+            float3 proxy = Tex0.Load(tap).rgb, d = proxy-guide;
+            float w = (x?f.x:1-f.x)*(y?f.y:1-f.y)*(exp(-dot(d,d)*2222.2222)+0.000001); // range sigma 0.015
+            change += (Tex1.Load(tap).rgb-proxy)*w; total += w;
+        }
+        OutputColor[p.xy]=float4(Swizzle(saturate(guide+change/max(total,1e-12))),original.a); return;
+    }
     if (Mode == 0) {
         // Horizontal difference, low width -> native width, height stays low.
         if (p.x >= SourceWidth || p.y >= TargetHeight) return;

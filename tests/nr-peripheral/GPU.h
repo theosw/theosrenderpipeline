@@ -6,6 +6,7 @@
 #include <DirectXPackedVector.h>
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -15,6 +16,14 @@
 using namespace TheosRenderPipeline::SourceDLSSG;
 using Microsoft::WRL::ComPtr;
 using Pixel=std::array<float,4>;
+// The model-rate gap rule's clock in tests: each reading is one 16 ms frame
+// later, so a busy machine cannot break the motion chain a case expects.
+struct TestClock {
+    static std::chrono::steady_clock::time_point Now() {
+        static std::chrono::steady_clock::time_point now{std::chrono::seconds(1)};
+        return now+=std::chrono::milliseconds(16);
+    }
+};
 static void Require(bool ok,const char* why) {if(!ok){std::fprintf(stderr,"FAIL: %s\n",why);std::exit(1);}}
 static void Check(HRESULT hr,const char* why) {if(FAILED(hr)){std::fprintf(stderr,"FAIL: %s 0x%08lX\n",why,(unsigned long)hr);std::exit(1);}}
 static void Near(double a,double b,double tolerance,const char* why) {

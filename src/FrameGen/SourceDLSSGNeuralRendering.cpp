@@ -476,7 +476,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		}
 
 		// Model rate: decide before preparing anything for the model (NeuralModelRate.h).
-		const auto rateNow = std::chrono::steady_clock::now();
+		const auto rateNow = rateClock_();
 		// Frames NR did not record (a menu, a stall) break the motion chain.
 		const bool gap = rateTime_ != std::chrono::steady_clock::time_point{} && rateNow - rateTime_ > std::chrono::milliseconds(100);
 		rateTime_ = rateNow;
@@ -762,9 +762,16 @@ namespace TheosRenderPipeline::SourceDLSSG
 				barriers.Flush();
 				if (method == NeuralRendering::ResolveMethod::Residual) {
 					constants.targetWidth = constants.workWidth; constants.targetHeight = constants.workHeight;
-					if (!dispatch(2, ResolveKernel::Residual, featureColor, modelResult, nullptr, residual_.Get())) { return false; }
-					constants.mode = 1;
-					if (!dispatch(3, ResolveKernel::Residual, hudless, residual_.Get(), nullptr, corrected_.Get())) { return false; }
+					if (!reconstruction.peripheralCompression && constants.workWidth < constants.sourceWidth &&
+						constants.workHeight < constants.sourceHeight) {
+						// Reduced input: enlarge NR's change edge-aware, in one pass.
+						constants.mode = 2;
+						if (!dispatch(3, ResolveKernel::Residual, featureColor, modelResult, hudless, corrected_.Get())) { return false; }
+					} else {
+						if (!dispatch(2, ResolveKernel::Residual, featureColor, modelResult, nullptr, residual_.Get())) { return false; }
+						constants.mode = 1;
+						if (!dispatch(3, ResolveKernel::Residual, hudless, residual_.Get(), nullptr, corrected_.Get())) { return false; }
+					}
 				} else {
 					// Broad and Detail: NR's change in stops at its grid, blurred across
 					// regions but not across the proxy's own edges, for the resolve to split.

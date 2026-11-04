@@ -19,10 +19,10 @@
 
 #include <SimpleIni.h>
 
-void RenderPipeline::SetFrameGenerationTransitionBlocked(bool a_blocked)
+void RenderPipeline::SetFrameGenerationTransitionBlocked(bool a_blocked, bool a_neuralBlocked)
 {
 	mFrameGenerationTransitionBlocked.store(a_blocked, std::memory_order_release);
-	TheosRenderPipeline::SourceDLSSG::Backend::Get().SetTransitionBlocked(a_blocked);
+	TheosRenderPipeline::SourceDLSSG::Backend::Get().SetTransitionBlocked(a_blocked, a_neuralBlocked);
 }
 
 void RenderPipeline::RequestHistoryReset(const char* a_reason)

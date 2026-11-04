@@ -30,14 +30,14 @@ static void CharacterCreationAfterLoading()
     menus.OnEvent(Fader, true);
     menus.OnEvent(Main, true);
     Require(!menus.OnEvent(Loading, false), "startup loading close retains main-menu history suspension");
-    Require(menus.SuspendJitter() && !CanGenerate(menus), "Main survives overlapping Loading close");
+    Require(menus.SuspendJitter() && !CanGenerate(menus) && menus.SuspendNeural(), "Main survives overlapping Loading close");
     menus.OnEvent(Fader, false);
     menus.OnEvent(Main, false);
     Require(menus.SuspendJitter(), "Main close keeps jitter suspended until the next load completes");
     menus.OnEvent(Loading, true);
     menus.OnEvent(Fader, true);
     Require(menus.OnEvent(Loading, false), "world entry resets temporal history");
-    Require(!menus.SuspendJitter() && !CanGenerate(menus), "Fader still blocks FG/NR after world entry");
+    Require(!menus.SuspendJitter() && !CanGenerate(menus), "Fader still blocks FG after world entry");
     Require(menus.OnEvent(Character, true), "character entry resets camera and appearance history");
     Require(!menus.SuspendJitter() && !CanGenerate(menus), "character entry preserves jitter and the active fade guard");
     Require(menus.OnEvent(Fader, false), "fade completion resets history");
@@ -74,6 +74,7 @@ static void LoadingOverCharacterEditor(bool fadeClosesFirst, bool editorClosesDu
     const auto last = fadeClosesFirst ? Loading : Fader;
     menus.OnEvent(first, false);
     Require(!CanGenerate(menus), "one closing boundary cannot bypass the other");
+    Require(menus.SuspendNeural() == fadeClosesFirst, "NR may resume after Loading closes while Fader remains open");
     Require(menus.OnEvent(last, false), "the final loading/fade close resets history");
     Require(CanGenerate(menus) && !menus.SuspendJitter(), "either close order returns to a renderable scene");
 }

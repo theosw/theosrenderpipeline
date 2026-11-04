@@ -198,7 +198,7 @@ static void ModelRatePasses(GPU& gpu)
         auto motion = gpu.Texture(gw, gh, std::vector<Pixel>(gw * gh, {}), DXGI_FORMAT_R32G32_FLOAT);
         auto depth = gpu.Texture(gw, gh, std::vector<Pixel>(gw * gh, { .4f, 0, 0, 0 }), DXGI_FORMAT_R32_FLOAT);
         auto ui = gpu.Texture(w, h, std::vector<Pixel>(w * h, { .05f, .025f, 0, .25f })), composed = gpu.Texture(w, h);
-        NeuralPass pass;
+        NeuralPass pass;pass.SetRateClock(&TestClock::Now);
         std::vector<Pixel> evaluated, evaluatedInput;
         std::vector<bool> ran;
         for (unsigned frame = 0; frame < 9; ++frame) {
