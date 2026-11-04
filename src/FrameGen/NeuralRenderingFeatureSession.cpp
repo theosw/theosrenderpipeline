@@ -332,12 +332,32 @@ namespace TheosRenderPipeline::NeuralRendering
 			}
 		}
 
+		// A kernel pack chosen in the runtime list: NVIDIA's 310.9.16 copied beside
+		// itself, a separate image whose GPU modules come from that pack.
+		const bool packChoice = IsKernelPackChoice(a_info.runtimePath);
+		auto loadPath = identity.path;
+		if (packChoice) {
+			if (identity.sha256 != kKernelRuntimeSha256 || !RuntimeKernelsSupported() || !NeedsRuntimeKernels(capability)) {
+				state.status = "TRP kernel packs need NVIDIA's 310.9.16 runtime, the Universal edition and an RTX 20, 30 or 40 card";
+				state.runtimeRefused = true;
+				return false;
+			}
+			std::string why;
+			if (auto image = KernelPackImage(identity.path, a_info.runtimePath, why); !image.empty()) {
+				loadPath = image;
+				logger::info("[DLSSNR Source] kernel pack {} runs in its own runtime image {}", a_info.runtimePath.filename().string(), image.string());
+			} else {
+				// The runtime's own image takes this pack unless another pack already ran there.
+				logger::warn("[DLSSNR Source] {}; using the runtime's own image, so switching kernel packs needs a restart", why);
+			}
+		}
+
 		// Own the runtime before public NGX can discover it. When needed, install the
 		// pack before either public NGX or the runtime's own init is entered.
 		// MO2's virtual path is not a reliable GetModuleHandle filename lookup.
-		const auto existingModule = PluginPaths::RetainLoadedModule(identity.path);
+		const auto existingModule = PluginPaths::RetainLoadedModule(loadPath);
 		const bool resident = existingModule != nullptr;
-		state.module = existingModule ? existingModule : ::LoadLibraryExW(identity.path.c_str(), nullptr,
+		state.module = existingModule ? existingModule : ::LoadLibraryExW(loadPath.c_str(), nullptr,
 			LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
 		state.ownsModule = state.module != nullptr;
 		if (!state.module) {
@@ -345,7 +365,12 @@ namespace TheosRenderPipeline::NeuralRendering
 			state.runtimeRefused = true;
 			return false;
 		}
-		if (!EqualPath(ModulePath(state.module), identity.path)) {
+		if (packChoice && !EqualPath(loadPath, identity.path) && EqualPath(ModulePath(state.module), identity.path)) {
+			state.status = "Windows reused the runtime already loaded for another kernel set; restart Skyrim to switch";
+			state.runtimeRefused = true;
+			return false;
+		}
+		if (!EqualPath(ModulePath(state.module), loadPath)) {
 			state.status = "loaded NR module does not match the requested runtime path";
 			state.runtimeRefused = true;
 			return false;
@@ -376,7 +401,8 @@ namespace TheosRenderPipeline::NeuralRendering
 			// Keep the requested Data path for siblings. MO2 can resolve the DLL
 			// to Standard's physical folder while Universal supplies the pack.
 			// identity.path identifies the module, not the merged asset directory.
-			const auto packPath = a_info.runtimePath.parent_path() / std::filesystem::u8path(directPascal ? kPascalPackName : kKernelPackName);
+			const auto packPath = packChoice ? a_info.runtimePath :
+				a_info.runtimePath.parent_path() / std::filesystem::u8path(directPascal ? kPascalPackName : kKernelPackName);
 			logger::info("[DLSSNR Source] compatibility kernel pack request={}", packPath.string());
 			const auto result = ApplyRuntimeKernels(state.module, packPath, !resident);
 			logger::info("[DLSSNR Source] compatibility kernels applied={} unsafe={} status={}", result.applied, result.unsafe, result.status);

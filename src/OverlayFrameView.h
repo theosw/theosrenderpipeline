@@ -53,6 +53,11 @@ struct OverlayUI::FrameView
     // nvngx_dlssnr*.dll files NR can switch to, refreshed every few seconds.
     std::vector<std::string> neuralRuntimes;
     std::vector<std::string> neuralRuntimeReasons;
+    // NR per frame last measured with each runtime this session, in ms; 0 if
+    // not tried. Cleared when other NR settings change, so values compare.
+    std::vector<float> neuralRuntimeMilliseconds;
+    int neuralComputeCapability{-1};
+    bool neuralRuntimeKernels{};
     bool sourceReady{};
     std::string neuralAdmissionReason;
     bool neuralPascal{};

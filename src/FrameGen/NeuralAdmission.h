@@ -18,6 +18,9 @@ namespace TheosRenderPipeline::NeuralRendering
     inline constexpr const char* kPascalDriverReason = "GTX 10 Neural Rendering needs NVIDIA driver 582.78 or a newer Pascal (R580) driver. NR is off; normal rendering continues.";
     inline constexpr const char* kPascalComponentsReason = "GTX 10 Neural Rendering could not verify CUDA/NVAPI or the rendering adapter. Reinstall a supported Pascal driver and restart Skyrim. NR is off; normal rendering continues.";
     inline constexpr const char* kPascalAssetReason = "GTX 10 NR compatibility pack or original NR 310.9.16 is missing or does not match. Reinstall Universal and its matching NR runtime. NR is off; normal rendering continues.";
+    // TRP Fast in the runtime list: why it cannot run here.
+    inline constexpr const char* kFastPackEditionReason = "TRP Fast needs the Universal edition.";
+    inline constexpr const char* kFastPackGPUReason = "TRP Fast is made for RTX 30 and RTX 40 cards.";
     inline constexpr const char* kPascalBudgetUnknownReason = "GTX 10 NR could not query the rendering adapter's video-memory budget. NR is off; normal rendering continues.";
     inline constexpr const char* kPascalBudgetReason = "GTX 10 NR has insufficient video-memory budget for the estimated working set. Try one pass before upscaling or a lower resolution. NR is off; normal rendering continues.";
     inline constexpr const char* kPascalExtentPending = "NR is waiting for the first world frame's rendering dimensions.";

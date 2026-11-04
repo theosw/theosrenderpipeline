@@ -165,6 +165,44 @@ int main()
             NeuralRuntimeLabel(R"(C:\G\NVIDIA\NVNGX_DLSSNR_PD_BUILD21.DLL)") == "310.9.16 - FP8/FP16 (PureDark Build 21)" &&
             NeuralRuntimeLabel("TheosRenderPipeline/NVIDIA/nvngx_dlssnr_custom.dll") == "nvngx_dlssnr_custom.dll", "menu labels");
 
+        {
+            // The menu names a runtime after what runs on this GPU and groups it by model.
+            using G = NeuralRuntimeGroup;
+            using D = NeuralRuntimeDetail;
+            const auto described = [](std::string_view runtime, int capability, bool kernels, std::string_view name, G group, D detail) {
+                const auto entry = DescribeNeuralRuntime(runtime, capability, kernels);
+                return entry.name == name && entry.group == group && entry.detail == detail;
+            };
+            Require(described("automatic", 86, true, "Automatic", G::Automatic, D::Automatic), "Automatic stays first");
+            Require(described(kLatestNeuralRuntime, 86, true, "TRP", G::CurrentModel, D::TRPKernels) &&
+                described(kLatestNeuralRuntime, 75, true, "TRP", G::CurrentModel, D::TRPKernels) &&
+                described(kLatestNeuralRuntime, 89, true, "TRP", G::CurrentModel, D::TRPKernels),
+                "Universal RTX 20/30/40 run 310.9.16 on TRP kernels");
+            Require(described(kLatestNeuralRuntime, 61, true, "TRP GTX 10", G::CurrentModel, D::TRPPascalKernels),
+                "Universal GTX 10 runs TRP's Pascal kernels");
+            Require(described(kLatestNeuralRuntime, 86, false, "NVIDIA 310.9.16", G::CurrentModel, D::NVIDIAKernels) &&
+                described(kLatestNeuralRuntime, 120, true, "NVIDIA 310.9.16", G::CurrentModel, D::NVIDIAKernels) &&
+                described(kLatestNeuralRuntime, -1, true, "NVIDIA 310.9.16", G::CurrentModel, D::NVIDIAKernels),
+                "Standard, RTX 50 and an unknown GPU run NVIDIA's own kernels");
+            Require(described(R"(C:\G\NVIDIA\NVNGX_DLSSNR.DLL)", 86, true, "NVIDIA 310.8", G::OlderModel, D::OlderModel) &&
+                described("TheosRenderPipeline/NVIDIA/nvngx_dlssnr_int8.dll", 86, true, "Community INT8 v2", G::OlderModel, D::CommunityRuntime) &&
+                described(R"(C:\G\NVIDIA\NVNGX_DLSSNR_PD_BUILD21.DLL)", 86, true, "PureDark Build 21", G::CurrentModel, D::CommunityRuntime) &&
+                described(kRTX40NeuralRuntime, 89, true, "TRP RTX 40 (standalone)", G::CurrentModel, D::OlderTRPFile),
+                "bundled and known community runtimes are grouped by model");
+            Require(described("TheosRenderPipeline/NVIDIA/nvngx_dlssnr_custom.dll", 86, true, "nvngx_dlssnr_custom.dll", G::YourFiles, D::YourFile),
+                "unknown files are the user's own");
+            Require(described(kFastNeuralRuntime, 86, true, "TRP Fast", G::CurrentModel, D::TRPFastKernels) &&
+                described(R"(C:\G\NVIDIA\NVNGX_DLSSNR_310.9.16_FAST.TRPK)", -1, false, "TRP Fast", G::CurrentModel, D::TRPFastKernels),
+                "the TRP Fast pack is listed as its own runtime");
+            Require(NeuralRuntimeKey(kFastNeuralRuntime) != NeuralRuntimeKey(kLatestNeuralRuntime),
+                "TRP Fast and TRP keep separate times");
+            Require(ResolveNeuralRuntimeSetting(kFastNeuralRuntime, std::filesystem::path(L"C:/Game/Data/SKSE/Plugins")) ==
+                std::filesystem::path(L"C:/Game/Data/SKSE/Plugins/TheosRenderPipeline/NVIDIA/nvngx_dlssnr_310.9.16_fast.trpk").lexically_normal(),
+                "choosing TRP Fast saves and resolves the pack path");
+            Require(NeuralRuntimeKey(R"(C:\G\NVIDIA\NVNGX_DLSSNR_310.9.16.DLL)") == NeuralRuntimeKey(kLatestNeuralRuntime),
+                "a setting and its resolved path share one key");
+        }
+
         // Saved settings: the old default means Automatic unless it was picked since.
         struct Ini
         {

@@ -16,6 +16,7 @@
 #include "NeuralObjectHooks.h"
 
 #include <chrono>
+#include <unordered_map>
 
 // The only place the menu reads the renderer. Drawing uses the returned view.
 OverlayUI::FrameView OverlayUI::CaptureFrameView()
@@ -124,6 +125,13 @@ OverlayUI::FrameView OverlayUI::CaptureFrameView()
                 TheosRenderPipeline::NeuralRendering::RuntimeKernelsSupported());
             const auto* reason = TheosRenderPipeline::NeuralRendering::NeuralRuntimeChoiceReason(admission.Pascal(),
                 !admission.Pascal() || (admission.universal && TheosRenderPipeline::NeuralRendering::VerifyPascalAssets(path)));
+            // TRP Fast replaces TRP's RTX 30/40 kernels; elsewhere it has nothing to run.
+            const int capability = backend.NeuralComputeCapability();
+            if (!reason && TheosRenderPipeline::SourceDLSSG::DescribeNeuralRuntime(runtime).detail ==
+                    TheosRenderPipeline::SourceDLSSG::NeuralRuntimeDetail::TRPFastKernels) {
+                reason = !TheosRenderPipeline::NeuralRendering::RuntimeKernelsSupported() ? TheosRenderPipeline::NeuralRendering::kFastPackEditionReason :
+                    capability >= 0 && capability != 86 && capability != 89 ? TheosRenderPipeline::NeuralRendering::kFastPackGPUReason : nullptr;
+            }
             runtimeReasons.emplace_back(reason ? reason : "");
         }
         admittedRuntimes = view.neuralRuntimes;
@@ -165,6 +173,40 @@ OverlayUI::FrameView OverlayUI::CaptureFrameView()
     view.mfg = backend.MFGState();
     view.neuralApplied = backend.NeuralConfiguration();
     view.neuralState = backend.NeuralState();
+#if !defined(TRP_NO_NEURAL_RENDERING)
+    {
+        // NR per frame for each runtime tried this session, for the runtime list.
+        // Other settings change the cost, so a change there starts over.
+        static std::unordered_map<std::string, float> measured;
+        static std::string measuredWith;
+        // What sets the cost; look values blend with the weather every frame.
+        const auto& applied = view.neuralApplied;
+        auto cost = std::format("{}|{}|{}|{}|{}|{}", applied.beforeUpscaling, applied.EffectivePasses(),
+            applied.reconstruction.inputScale, applied.reconstruction.preset,
+            static_cast<int>(applied.reconstruction.modelRate), applied.reconstruction.peripheralCompression);
+        for (std::size_t i = 0; i + 1 < static_cast<std::size_t>(applied.EffectivePasses()); ++i) {
+            const auto extra = applied.EffectiveExtra(i);
+            cost += std::format("|{}:{}", extra.inputScale, extra.preset);
+        }
+        if (cost != measuredWith) { measured.clear(); measuredWith = std::move(cost); }
+        const auto& telemetry = view.neuralState.telemetry;
+        if (view.neuralState.active && telemetry.frameSamples && !view.neuralApplied.runtimePath.empty()) {
+            measured[TheosRenderPipeline::SourceDLSSG::NeuralRuntimeKey(view.neuralApplied.runtimePath.string())] =
+                static_cast<float>(telemetry.AverageFrameGPUMicroseconds() / 1000.0);
+        }
+        view.neuralRuntimeMilliseconds.clear();
+        for (const auto& runtime : view.neuralRuntimes) {
+            const bool automatic = TheosRenderPipeline::SourceDLSSG::IsAutomaticNeuralRuntime(runtime);
+            const auto key = automatic ? (view.neuralApplied.automaticRuntime ?
+                TheosRenderPipeline::SourceDLSSG::NeuralRuntimeKey(view.neuralApplied.runtimePath.string()) : std::string()) :
+                TheosRenderPipeline::SourceDLSSG::NeuralRuntimeKey(runtime);
+            const auto found = key.empty() ? measured.end() : measured.find(key);
+            view.neuralRuntimeMilliseconds.push_back(found == measured.end() ? 0.0f : found->second);
+        }
+        view.neuralComputeCapability = backend.NeuralComputeCapability();
+        view.neuralRuntimeKernels = TheosRenderPipeline::NeuralRendering::RuntimeKernelsSupported();
+    }
+#endif
 #if !defined(TRP_NO_NEURAL_RENDERING)
     view.neuralObjectStatus = TheosRenderPipeline::NeuralObjects::Status();
     view.neuralObjectCurrent = TheosRenderPipeline::NeuralObjects::Current() != nullptr;

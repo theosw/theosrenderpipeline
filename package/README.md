@@ -1,4 +1,8 @@
-# Theo's Render Pipeline — Universal, 0.6.1
+# Theo's Render Pipeline — Universal, 0.6.2
+
+Version 0.6.2 adds TRP Fast, faster NR kernels for RTX 30 that you can switch
+to in game, a clearer NR runtime list, and NR Input above 100%. See
+CHANGELOG.md.
 
 Version 0.6.1 fixes the Steady frame limit lowering its cap without end, keeps
 DLSS and DLSS-G available on RTX cards whose driver does not report the GPU
@@ -156,7 +160,7 @@ This package includes the full renderer, configuration and sharpening shader.
 It requires no other Theo's Render Pipeline package. NVIDIA DLLs are supplied
 separately: download the SR/FG files below, and the NR runtime if you want NR.
 Alternatively, install Standard first and Universal after it in MO2; Standard
-0.6.1 supplies the complete NVIDIA and Intel runtime bundles, including the
+0.6.2 supplies the complete NVIDIA and Intel runtime bundles, including the
 original NR 310.9.16 and the retained older NR runtime. Universal adds the
 compatibility pack and legacy INT8 alternative. In that setup,
 skip the runtime downloads below.
@@ -195,8 +199,15 @@ first error and requires a restart instead of retrying every frame. Include
 Use **Neural Rendering > Runtime > Automatic** for the default selection.
 Standard supplies two NR DLLs: legacy `nvngx_dlssnr.dll` (310.8) and original
 NVIDIA `nvngx_dlssnr_310.9.16.dll`. Universal supplies the adjacent
-`nvngx_dlssnr_310.9.16.trpk`, the experimental GTX 10 asset
+`nvngx_dlssnr_310.9.16.trpk`, the TRP Fast pack
+`nvngx_dlssnr_310.9.16_fast.trpk`, the experimental GTX 10 asset
 `nvngx_dlssnr_310.9.16_pascal_v1.trpk`, and legacy `nvngx_dlssnr_int8.dll`.
+
+TRP Fast is listed beside TRP under Neural Rendering on RTX 30/40. It gives the
+same picture with faster RTX 30 kernels. Choosing it the first time copies the
+original 310.9.16 DLL beside itself as `nvngx_dlssnr_310.9.16_fast.runtime.bin`
+(266 MB, once): NVIDIA's runtime keeps the kernels it loaded first, so each
+kernel pack runs in its own copy. Automatic still uses TRP.
 
 On RTX 20/30/40, Universal first tries the original 310.9.16 DLL with the
 pack. RTX 20/30 use the community FP16 compatibility kernels; RTX 40 uses
@@ -400,7 +411,7 @@ an RTX 4080 SUPER: ordinary 6.8.0.2158 and full add-on 6.8.0.2155, with
 early NR and x4. Sky Reflection Fix's ReShade registration was excluded;
 Rumble passed a separate initial test. Combined third-party add-ons,
 Standard gameplay and CS with ReShade remain unverified. These were earlier
-development builds; the exact 0.6.1 package has not been tested with ReShade.
+development builds; the exact 0.6.2 package has not been tested with ReShade.
 
 MartysMods ReGrade+ (ReShade 6.6 or newer) used to crash the game while TRP
 started ReShade: it prepares itself only in a device event that ReShade does not

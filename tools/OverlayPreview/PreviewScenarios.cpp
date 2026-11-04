@@ -464,6 +464,27 @@ PreviewScenario Pascal(const char* name, const char* reason)
     return scenario;
 }
 
+// The runtime list on Universal with an RTX 30: bundled, community and a
+// user's own file, with times measured for the ones already tried.
+PreviewScenario Runtimes()
+{
+    auto scenario = Healthy();
+    scenario.name = "runtimes";
+    scenario.summary = "NR runtime list on Universal with an RTX 3080";
+    auto& view = scenario.view;
+    view.neuralComputeCapability = 86;
+    view.neuralRuntimeKernels = true;
+    view.neuralApplied.automaticRuntime = true;
+    view.neuralRuntimes = {std::string(SourceDLSSG::kAutomaticNeuralRuntime), std::string(SourceDLSSG::kDefaultNeuralRuntime),
+        std::string(SourceDLSSG::kLatestNeuralRuntime), std::string(SourceDLSSG::kFastNeuralRuntime), "TheosRenderPipeline/NVIDIA/nvngx_dlssnr_int8.dll",
+        "TheosRenderPipeline/NVIDIA/nvngx_dlssnr_pd_build21.dll", "TheosRenderPipeline/NVIDIA/nvngx_dlssnr_test.dll"};
+    view.neuralRuntimeReasons.assign(view.neuralRuntimes.size(), "");
+    view.neuralRuntimeMilliseconds = {5.6f, 3.9f, 5.6f, 4.7f, 0.0f, 0.0f, 0.0f};
+    scenario.applied.sourceDLSSG.neuralRuntime = std::string(SourceDLSSG::kAutomaticNeuralRuntime);
+    scenario.draft = scenario.applied;
+    return scenario;
+}
+
 PreviewScenario Lab()
 {
     auto scenario = Healthy();
@@ -489,5 +510,5 @@ std::vector<PreviewScenario> PreviewScenarios()
         Pascal("pascal-standard", NeuralRendering::kPascalEditionReason),
         Pascal("pascal-driver", NeuralRendering::kPascalDriverReason),
         Pascal("pascal-missing-pack", NeuralRendering::kPascalAssetReason),
-        Pascal("pascal-low-budget", NeuralRendering::kPascalBudgetReason), Lab()};
+        Pascal("pascal-low-budget", NeuralRendering::kPascalBudgetReason), Runtimes(), Lab()};
 }
