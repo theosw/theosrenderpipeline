@@ -396,7 +396,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		ID3D12Resource* motion, ID3D12Resource* depth, ID3D12Resource* ui,
 		ID3D12Resource* hudless, ID3D12Resource* composed, std::uint64_t timestampFrequency,
 		const D3D12StageMarks& marks, ID3D12Resource* objectMask, std::array<float,2> objectMaskGuideOffset,
-		std::array<float,2> colorJitter)
+		std::array<float,2> colorJitter, std::optional<std::uint32_t> applicationFrame)
 	{
 		modelActivity_ = NRModelActivity::Unknown;
 		if (!device || !list || slot >= heaps_.size() || options.passes < 1 || options.passes > NeuralRendering::kMaxNeuralPasses || !SameSize(motion, depth) ||
@@ -476,11 +476,10 @@ namespace TheosRenderPipeline::SourceDLSSG
 		}
 
 		// Model rate: decide before preparing anything for the model (NeuralModelRate.h).
-		const auto rateNow = rateClock_();
-		// Frames NR did not record (a menu, a stall) break the motion chain.
-		const bool gap = rateTime_ != std::chrono::steady_clock::time_point{} && rateNow - rateTime_ > std::chrono::milliseconds(100);
-		rateTime_ = rateNow;
-		const bool rateChanged = gap || createdThisFrame_ || effectivePasses != rateEffectivePasses_ ||
+		// Missing recordings and cadence-relative stalls break history, including
+		// composed motion after a skip. Continuous low-FPS frames do not.
+		reset |= rateContinuity_.Record(rateClock_(), applicationFrame);
+		const bool rateChanged = createdThisFrame_ || effectivePasses != rateEffectivePasses_ ||
 			!SameModelOutputOptions(options, rateOptions_);
 		rateOptions_ = options; rateEffectivePasses_ = effectivePasses;
 		const auto rate = rateSchedule_.Next({ NeuralRendering::EffectiveModelRate(reconstruction.modelRate), reset || controlReset, rateChanged, frozen_ });

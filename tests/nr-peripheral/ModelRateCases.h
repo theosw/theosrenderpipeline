@@ -173,6 +173,10 @@ static void ModelRateKernels(GPU& gpu)
 // alternate frames only, a skipped frame reproduces the previous result on a
 // still scene, the evaluation after a skip reads composed motion, and a reset
 // or a setting change evaluates. The debug layer checks every state transition.
+struct ModelRateClock {
+    inline static std::chrono::steady_clock::time_point now{};
+    static auto Now() { return now; }
+};
 static void ModelRatePasses(GPU& gpu)
 {
     using namespace TheosRenderPipeline::NeuralRendering;
@@ -198,11 +202,17 @@ static void ModelRatePasses(GPU& gpu)
         auto motion = gpu.Texture(gw, gh, std::vector<Pixel>(gw * gh, {}), DXGI_FORMAT_R32G32_FLOAT);
         auto depth = gpu.Texture(gw, gh, std::vector<Pixel>(gw * gh, { .4f, 0, 0, 0 }), DXGI_FORMAT_R32_FLOAT);
         auto ui = gpu.Texture(w, h, std::vector<Pixel>(w * h, { .05f, .025f, 0, .25f })), composed = gpu.Texture(w, h);
-        NeuralPass pass;pass.SetRateClock(&TestClock::Now);
+        NeuralPass pass;pass.SetRateClock(&ModelRateClock::Now);
+        ModelRateClock::now = {};
+        const auto interval = std::chrono::milliseconds(std::array{16, 67, 100, 125}[cases % 4]);
         std::vector<Pixel> evaluated, evaluatedInput;
         std::vector<bool> ran;
-        for (unsigned frame = 0; frame < 9; ++frame) {
+        for (unsigned frame = 0; frame < 13; ++frame) {
             Fixture::frame = frame;
+            ModelRateClock::now += frame == 11 ? std::chrono::seconds(2) : interval;
+            // Frame 9 follows an application frame NR did not record. Frame 11
+            // follows a real stall with contiguous IDs. Both follow a skip.
+            const auto applicationFrame = frame + unsigned(frame >= 9);
             // A reset on frame 5 and a tuning change on frame 7 evaluate out of turn.
             options.tuning.intensity = frame >= 7 ? .7f : .8f;
             // Linked Pass 2 follows Pass 1's tuning.
@@ -219,7 +229,7 @@ static void ModelRatePasses(GPU& gpu)
             gpu.Begin();
             Require(pass.Record(gpu.device.Get(), gpu.list.Get(), frame % kCommandSlots, options, frame == 0 || frame == 5, true, float(gw), float(gh),
                 motion.Get(), depth.Get(), world ? nullptr : ui.Get(), scene.Get(), world ? nullptr : composed.Get(), 0, {}, nullptr,
-                options.beforeUpscaling ? std::array<float, 2>{} : jitter, options.beforeUpscaling ? jitter : std::array<float, 2>{}),
+                options.beforeUpscaling ? std::array<float, 2>{} : jitter, options.beforeUpscaling ? jitter : std::array<float, 2>{}, applicationFrame),
                 pass.Status().c_str());
             gpu.End();
             ran.push_back(Fixture::evaluations != before);
@@ -243,13 +253,15 @@ static void ModelRatePasses(GPU& gpu)
             Require(pass.Status().find("model every other frame") != std::string::npos, "status names the model rate");
         }
         // 0 evaluates, 1 skips, 2 composes; 5 resets; 7 changes tuning.
-        Require(ran == std::vector<bool>{ true, false, true, false, true, true, false, true, false }, "alternation with forced evaluations");
+        Require(ran == std::vector<bool>{ true, false, true, false, true, true, false, true, false, true, false, true, false },
+            "8-60 FPS alternation with resets, missed application frames and stalls");
+        Require(Fixture::resets == 4 * unsigned(passes), "initial frame, camera reset, omission and stall reset every model history");
         // After a skip (frames 2, 4 and the tuning change on 7) the model reads
         // composed motion; otherwise the raw motion.
         const unsigned perFrame = unsigned(passes);
-        Require(Fixture::motions.size() == 5 * perFrame, "one motion input per evaluation");
+        Require(Fixture::motions.size() == 7 * perFrame, "one motion input per evaluation");
         for (std::size_t e = 0; e < Fixture::motions.size(); ++e) {
-            const auto frame = std::array<unsigned, 5>{ 0, 2, 4, 5, 7 }[e / perFrame];
+            const auto frame = std::array<unsigned, 7>{ 0, 2, 4, 5, 7, 9, 11 }[e / perFrame];
             const bool composedMotion = frame == 2 || frame == 4 || frame == 7;
             Require(peripheral || (Fixture::motions[e] != motion.Get()) == composedMotion, "composed motion after a skipped frame only");
         }
@@ -260,5 +272,5 @@ static void ModelRatePasses(GPU& gpu)
     }
     Fixture::secondWidth = Fixture::secondHeight = 0; Fixture::transform = false; Fixture::frame = 0;
     Fixture::intensity = { .8f, .6f, .6f, .6f, .6f }; Fixture::networkPreset = { -1, 1, 1, 1, 1 };
-    std::printf("PASS: %u model-rate recorder cases; routes, passes, Auto/Residual/Ratio, peripheral, alternation, resets and composed motion\n", cases);
+    std::printf("PASS: %u model-rate recorder cases; routes, passes, Auto/Residual/Ratio, peripheral, 8-60 FPS, real gaps, resets and composed motion\n", cases);
 }

@@ -1,4 +1,5 @@
 #include "FrameGen/NeuralModelRate.h"
+#include "FrameGen/NeuralFrameContinuity.h"
 #include "FrameGen/SourceDLSSGNeuralState.h"
 #include <cstdio>
 #include <cstdlib>
@@ -21,6 +22,57 @@ static ModelRateFrame Alternate(bool reset = false, bool changed = false, bool f
 
 int main()
 {
+    // Continuous slow rendering must alternate from startup, including an
+    // uneven model/skip beat. Real omissions and stalls must discard motion.
+    for (const auto intervals : { std::array{16, 16}, std::array{67, 67}, std::array{100, 100},
+             std::array{125, 125}, std::array{16, 125}, std::array{125, 16}, std::array{67, 125} }) {
+        NeuralFrameContinuity continuity;
+        ModelRateSchedule schedule;
+        auto now = NeuralFrameContinuity::Clock::time_point{};
+        std::uint32_t id = 0;
+        for (unsigned i = 0; i < 40; ++i) {
+            now += std::chrono::milliseconds(intervals[i % 2]);
+            const bool gap = continuity.Record(now, id++);
+            Require(!gap, "continuous 8-60 FPS and alternating costs have no gap");
+            const auto decision = schedule.Next(Alternate(gap));
+            Require(decision.evaluate == (i % 2 == 0), "low FPS alternates from the first frame");
+        }
+        // Frame 39 skipped: a missed application frame forces evaluation and
+        // cannot compose guides across that omission, even at ordinary cadence.
+        now += std::chrono::milliseconds(intervals[0]);
+        const bool omitted = continuity.Record(now, ++id);
+        const auto afterOmission = schedule.Next(Alternate(omitted));
+        Require(omitted && afterOmission.evaluate && !afterOmission.composeMotion, "missing application frame breaks motion");
+        for (unsigned i = 0; i < 20; ++i) {
+            now += std::chrono::milliseconds(intervals[i % 2]);
+            Require(!continuity.Record(now, ++id), "cadence resumes after omission");
+        }
+        now += std::chrono::seconds(2);
+        Require(continuity.Record(now, ++id), "a stall without a missing application frame breaks history");
+        for (unsigned i = 0; i < 12; ++i) {
+            now += std::chrono::milliseconds(125);
+            Require(!continuity.Record(now, ++id), "a new slow scene relearns instead of forcing every frame");
+        }
+    }
+    {
+        NeuralFrameContinuity continuity;
+        auto now = NeuralFrameContinuity::Clock::time_point{};
+        for (unsigned i = 0; i < 12; ++i) {
+            Require(!continuity.Record(now, i), "zero epoch is a valid first timestamp");
+            now += std::chrono::milliseconds(16);
+        }
+        now += std::chrono::milliseconds(85); // 101 ms since the last recording.
+        Require(continuity.Record(now, 12), "normal-rate stall still uses the 100 ms floor");
+        Require(continuity.Record(now + std::chrono::milliseconds(16), 12), "duplicate application ID breaks history");
+        Require(continuity.Record(now, 13), "clock regression breaks history");
+    }
+    {
+        NeuralFrameContinuity continuity;
+        auto now = NeuralFrameContinuity::Clock::time_point{};
+        Require(!continuity.Record(now, UINT32_MAX), "first application ID");
+        Require(!continuity.Record(now + std::chrono::milliseconds(125), 0), "application counter wraps continuously");
+        Require(continuity.Record(now + std::chrono::seconds(3), 1), "startup stall is still bounded");
+    }
     {
         TheosRenderPipeline::SourceDLSSG::NeuralTelemetryTracker timing;
         Require(!timing.Snapshot().frameSamples, "absent timing is not a measured zero");

@@ -366,7 +366,7 @@ namespace TheosRenderPipeline::SourceDLSSG
             frameNeuralOptions_.beforeUpscaling ? std::array<float,2>{} :
                 std::array<float,2>{camera->jitterOffset.x,camera->jitterOffset.y},
             frameNeuralOptions_.beforeUpscaling ? std::array<float,2>{camera->jitterOffset.x,camera->jitterOffset.y} :
-                std::array<float,2>{});
+                std::array<float,2>{}, FrameIndex());
         } catch (const std::bad_alloc&) { reset = true; return FailNeuralRecording("NR CPU allocation failed"); }
         if (!recorded) {
             // Producer colour was never overwritten; discard every transition

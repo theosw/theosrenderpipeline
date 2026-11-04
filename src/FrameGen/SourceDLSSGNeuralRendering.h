@@ -8,6 +8,7 @@
 #include "NeuralObjectBlend.h"
 #include "NeuralObjectControl.h"
 #include "NeuralModelRate.h"
+#include "NeuralFrameContinuity.h"
 #include "XeFGModelBeat.h"
 #include <chrono>
 #include <array>
@@ -27,12 +28,11 @@ namespace TheosRenderPipeline::SourceDLSSG
 			ID3D12Resource* hudless, ID3D12Resource* composed,
 			std::uint64_t timestampFrequency = 0, const D3D12StageMarks& marks = {}, ID3D12Resource* objectMask = nullptr,
             std::array<float,2> objectMaskGuideOffset = {},
-			std::array<float,2> colorJitter = {});
+			std::array<float,2> colorJitter = {}, std::optional<std::uint32_t> applicationFrame = {});
 		ID3D12Resource* Composed() const { return composed_.Get(); }
 		ID3D12Resource* Corrected() const { return corrected_.Get(); }
 		NeuralTelemetrySnapshot Telemetry() const { return telemetry_.Snapshot(); }
-		// The clock of the model-rate gap rule (frames over 100 ms apart break the
-		// motion chain). Tests drive it, so a busy machine cannot add a gap.
+		// Tests drive the cadence clock, so host scheduling cannot add a stall.
 		using RateClock = std::chrono::steady_clock::time_point (*)();
 		void SetRateClock(RateClock clock) { rateClock_ = clock ? clock : &std::chrono::steady_clock::now; }
 		NRModelActivity ModelActivity() const { return modelActivity_; }
@@ -195,7 +195,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		unsigned rateGuide_{};
 		NeuralOptions rateOptions_;
 		int rateEffectivePasses_{};
-		std::chrono::steady_clock::time_point rateTime_{};
+		NeuralRendering::NeuralFrameContinuity rateContinuity_;
 		RateClock rateClock_{ &std::chrono::steady_clock::now };
 		// The previous captured frame's camera jitter and whether it classified objects.
 		std::array<float, 2> rateJitter_{};

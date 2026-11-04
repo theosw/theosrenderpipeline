@@ -828,7 +828,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 				frameConstants_.mvecScale.x * motion_.desc.Width, frameConstants_.mvecScale.y * motion_.desc.Height,
 				motion_.texture12.Get(), depth_.texture12.Get(), ui_.texture12.Get(), hudless_.texture12.Get(), a_source,
 				neuralTimestampFrequency_, interop_.Marks(Work::SwapChain), objectMaskCurrent_ ? objectMask_.texture12.Get() : nullptr,
-                {frameConstants_.jitterOffset.x,frameConstants_.jitterOffset.y});
+                {frameConstants_.jitterOffset.x,frameConstants_.jitterOffset.y}, {}, FrameIndex());
             } catch (const std::bad_alloc&) {
                 failure = "NR CPU allocation failed";
             }
