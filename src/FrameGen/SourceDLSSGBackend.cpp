@@ -1032,9 +1032,11 @@ namespace TheosRenderPipeline::SourceDLSSG
 			if (!CheckXeFG(xefg_.AfterPresent(a_result))) { return fault_; }
 			// ONLY_NOW tags record Intel's input copies in the submitted SwapChain
 			// list, whose completion also covers the late output/NR readers. The
-			// Lab GPU wait queues that dependency before the next D3D11 frame writes
-			// the singleton inputs; the default drains every host lane on the CPU.
-			// Resize, recreation and teardown still drain.
+			// GPU wait queues that dependency before the next D3D11 frame writes
+			// the singleton inputs, allowing the CPU to prepare its next frame.
+			// Waiting for this list is sufficient: later SDK work reads Intel's
+			// private copies. The Lab override can still drain for comparisons;
+			// resize, recreation and teardown always retain CPU retirement.
 			const bool gpuInputWait = XeFGGpuInputWait();
 			if (gpuInputWait != xefgReuseWindowGpu_) {
 				xefgReuseMs_.clear(); xefgSleepMs_.clear(); xefgReuseWindowGpu_ = gpuInputWait;

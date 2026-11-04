@@ -23,8 +23,13 @@ static void Check(HRESULT result, const char* reason)
 
 int main(int argc, char** argv)
 {
-    const bool omitWait = argc == 2 && std::string_view(argv[1]) == "--omit-input-wait";
-    Require(argc == 1 || omitWait, "supported mutation-control argument");
+    bool omitWait = false, warp = false;
+    for (int i = 1; i < argc; ++i) {
+        const std::string_view arg(argv[i]);
+        if (arg == "--omit-input-wait") omitWait = true;
+        else if (arg == "--warp") warp = true;
+        else Require(false, "supported fixture argument");
+    }
     // The SDK's ONLY_NOW operation is a copy into its own resources. Model
     // that read with an actual cross-API texture copy, held behind a GPU gate,
     // then overwrite the singleton from D3D11. No CPU retirement may hide the
@@ -34,7 +39,7 @@ int main(int argc, char** argv)
     debug->EnableDebugLayer();
     ComPtr<ID3D11Device> device11;
     ComPtr<ID3D11DeviceContext> context11;
-    Check(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, 0, nullptr, 0,
+    Check(D3D11CreateDevice(nullptr, warp ? D3D_DRIVER_TYPE_WARP : D3D_DRIVER_TYPE_HARDWARE, nullptr, 0, nullptr, 0,
         D3D11_SDK_VERSION, &device11, nullptr, &context11), "D3D11 device");
     ComPtr<ID3D11Device5> device5;
     ComPtr<ID3D11DeviceContext4> context4;

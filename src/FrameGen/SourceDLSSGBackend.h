@@ -341,7 +341,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		std::atomic<sl::ReflexMode> reflexMode_{ sl::ReflexMode::eLowLatency };
 		std::atomic<DlssgPreset> preset_{ DlssgPreset::B };
 		std::atomic<bool> releaseForPreset_{};
-		std::atomic<bool> xefgFrameTime_{ true }, xefgOnlyGenerated_{}, xefgTagGenerated_{}, xefgGpuInputWait_{}, xefgFlipMetering_{true};
+		std::atomic<bool> xefgFrameTime_{ true }, xefgOnlyGenerated_{}, xefgTagGenerated_{}, xefgGpuInputWait_{true}, xefgFlipMetering_{true};
 		std::atomic<float> xefgSceneChange_{ XeFGDefaultSceneChangeThreshold };
 		std::atomic<bool> nvidiaOverlapNextFrame_{};
 		bool nvidiaOverlapLogged_{}; // Present thread.

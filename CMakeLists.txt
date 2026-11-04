@@ -686,6 +686,17 @@ if(TRP_BUILD_COMPATIBILITY_TESTS)
     target_compile_features(TRPXeFGModelBeatTests PRIVATE cxx_std_23)
     target_include_directories(TRPXeFGModelBeatTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
     add_test(NAME XeFGModelBeat COMMAND TRPXeFGModelBeatTests)
+
+    # CPU/WARP cross-API ownership check: a pending input copy must block the
+    # producer on the GPU timeline without blocking its CPU submission thread.
+    add_executable(TRPXeFGInputReuseTests tests/xefg/XeFGInputReuseTests.cpp
+        src/FrameGen/SourceDLSSGInterop.cpp src/FrameGen/D3D12StageTimer.cpp)
+    target_compile_features(TRPXeFGInputReuseTests PRIVATE cxx_std_23)
+    target_compile_definitions(TRPXeFGInputReuseTests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    target_include_directories(TRPXeFGInputReuseTests PRIVATE src)
+    target_link_libraries(TRPXeFGInputReuseTests PRIVATE d3d11 d3d12 dxgi)
+    add_test(NAME XeFGInputReuse COMMAND TRPXeFGInputReuseTests --warp)
+    set_tests_properties(XeFGInputReuse PROPERTIES TIMEOUT 30)
     add_executable(TRPNeuralModelRateTests tests/NeuralModelRateTests.cpp)
     target_compile_features(TRPNeuralModelRateTests PRIVATE cxx_std_23)
     target_compile_definitions(TRPNeuralModelRateTests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
