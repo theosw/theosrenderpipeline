@@ -40,7 +40,7 @@ int main()
             originals[f] = gpu.Texture(w, h, pixels[f]);
         }
         UINT64 frequency{}; Check(gpu.queue->GetTimestampFrequency(&frequency), "timestamp frequency");
-        NeuralPass pass;
+        NeuralPass pass;pass.SetRateClock(&TestClock::Now);
         unsigned serial = 0, modelSamples = 0;
         auto record = [&](unsigned content, bool reset) {
             Fixture::frame = serial; const auto evaluations = Fixture::evaluations;
@@ -52,11 +52,10 @@ int main()
             modelSamples += Fixture::evaluations != evaluations;
             return Fixture::evaluations - evaluations;
         };
-        // Warm every feature/kernel, including deferred creation, before testing
-        // the recorder's real 100 ms gap invalidation policy.
+        // Warm every feature/kernel, including deferred creation. The 100 ms gap
+        // rule runs on TestClock, so slow first-use compilation cannot trip it.
         for (unsigned f = 0; f < 9; ++f) { record(0, true); }
-        // Also warm skip-only PSOs (reprojection and accumulated motion), so
-        // first-use compilation cannot trip the production gap reset.
+        // Also warm skip-only PSOs (reprojection and accumulated motion).
         record(0, true); record(1, false); record(2, false);
         const auto telemetryBefore = pass.Telemetry().gpuSamples;
         const auto framesBefore = pass.Telemetry().frameSamples;

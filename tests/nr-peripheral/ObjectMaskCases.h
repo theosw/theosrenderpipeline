@@ -37,7 +37,7 @@ static void ObjectMaskCases(GPU& gpu)
             options.objectMasks.previewGroups=run==2?0xFu:0u; options.objectMasks.previewClassesOnly=run==2;
             Fixture::creations=Fixture::evaluations=Fixture::resets=0;
             Fixture::objectControls=masked;Fixture::controlEvaluations=0;
-            NeuralPass pass;
+            NeuralPass pass;pass.SetRateClock(&TestClock::Now);
             auto scene=gpu.Texture(w,h,pixels);
             gpu.Begin(); Require(pass.Record(gpu.device.Get(),gpu.list.Get(),0,options,true,true,float(gw),float(gh),
                 motion.Get(),depth.Get(),world?nullptr:ui.Get(),scene.Get(),world?nullptr:composed.Get(),0,{},masked?mask.Get():nullptr,offset),pass.Status().c_str()); gpu.End();
@@ -105,7 +105,7 @@ static void PassObjectStrengthCases(GPU& gpu)
             for (auto& rule:options.objectMasks.passes) { rule.groups[0].enabled=scenario!=9; }
             Fixture::creations=Fixture::evaluations=Fixture::resets=0;
             Fixture::objectControls=scenario!=7&&scenario!=9; Fixture::controlEvaluations=0;
-            NeuralPass pass;
+            NeuralPass pass;pass.SetRateClock(&TestClock::Now);
             // Reuse the owner and all retired-slot descriptor tables across frames.
             std::vector<Pixel> actual;
             for (unsigned frame=0;frame<4;++frame) {

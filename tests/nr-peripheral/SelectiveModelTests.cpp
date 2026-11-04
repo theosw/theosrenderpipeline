@@ -90,7 +90,7 @@ int main()
         auto depth=gpu.Texture(w,h,std::vector<Pixel>(w*h,{.5f,0,0,0}),DXGI_FORMAT_R32_FLOAT);
         auto mask=gpu.Texture(w,h,std::vector<Pixel>(w*h,{PackObjectPixel(ObjectGroup::FirstPerson,.5f),0,0,0}),DXGI_FORMAT_R32_FLOAT);
         auto ui=gpu.Texture(w,h,std::vector<Pixel>(w*h,{0,0,0,0})), composed=gpu.Texture(w,h);
-        NeuralPass pass; unsigned frame=0;
+        NeuralPass pass;pass.SetRateClock(&TestClock::Now); unsigned frame=0;
         auto record=[&] {
             Fixture::frame=frame++; Fixture::evaluatedFeatures.clear();
             gpu.Begin(); Check(Interop::RecordCopy(gpu.list.Get(),original.Get(),scene.Get()),"fresh input");

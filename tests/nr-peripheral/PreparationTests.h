@@ -47,7 +47,7 @@ static void PreparationRecorder(GPU& gpu){
         if(passes==2){r.method=ResolveMethod::Ratio;r.colorIsHDR=!producer;}
         Fixture::peripheral=peripheral;Fixture::worldOnly=world;Fixture::sourceWidth=w;Fixture::sourceHeight=h;
         Fixture::guideWidth=gw;Fixture::guideHeight=gh;Fixture::workWidth=ModelExtent(w,r);Fixture::workHeight=ModelExtent(h,r);
-        Fixture::creations=Fixture::evaluations=Fixture::resets=0;NeuralPass pass;NeuralHistory history;
+        Fixture::creations=Fixture::evaluations=Fixture::resets=0;NeuralPass pass;pass.SetRateClock(&TestClock::Now);NeuralHistory history;
         auto motion=gpu.Texture(gw,gh,std::vector<Pixel>(gw*gh,{}),DXGI_FORMAT_R16G16_FLOAT);
         auto depth=gpu.Texture(gw,gh,std::vector<Pixel>(gw*gh,{.5f,0,0,0}),DXGI_FORMAT_R32_FLOAT);
         for(unsigned frame=0;frame<6;++frame){

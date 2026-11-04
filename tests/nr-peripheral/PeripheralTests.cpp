@@ -188,7 +188,7 @@ static void Passes(GPU& gpu){
         auto motion=gpu.Texture(gw,gh,std::vector<Pixel>(gw*gh,{}),DXGI_FORMAT_R32G32_FLOAT);
         auto uiPixels=std::vector<Pixel>(w*h,{.05f,.025f,0,.25f});
         auto ui=gpu.Texture(w,h,uiPixels),composed=gpu.Texture(w,h);
-        NeuralPass pass;
+        NeuralPass pass;pass.SetRateClock(&TestClock::Now);
         Require(pass.RetainedRuntimeBuild(options.runtimePath)==RuntimeBuild::Unknown,"uninitialized pass has no verified module");
         for(unsigned frame=0;frame<4;++frame){
             auto pixels=Pattern(w,h,producer);for(auto& p:pixels)p[2]+=.01f*frame;
@@ -246,7 +246,7 @@ static void IndependentPasses(GPU& gpu,bool adaptive=false){
         auto motion=gpu.Texture(gw,gh,std::vector<Pixel>(gw*gh,{}),DXGI_FORMAT_R32G32_FLOAT);
         auto depth=gpu.Texture(gw,gh,std::vector<Pixel>(gw*gh,{.4f,0,0,0}),DXGI_FORMAT_R32_FLOAT);
         auto ui=gpu.Texture(w,h,std::vector<Pixel>(w*h,{.05f,.025f,0,.25f})),composed=gpu.Texture(w,h);
-        NeuralPass pass;NeuralHistory history;
+        NeuralPass pass;pass.SetRateClock(&TestClock::Now);NeuralHistory history;
         for(unsigned frame=0;frame<(adaptive?8u:4u);++frame){
             const bool reduced=adaptive && (frame==0 || frame==1 || frame==4 || frame==5);
             options.passOverride=reduced?(frame==5?PassOverride::Recovery:PassOverride::Combat):PassOverride::None;
@@ -326,7 +326,7 @@ static void ManyPasses(GPU& gpu){
         auto mask=gpu.Texture(gw,gh,std::vector<Pixel>(gw*gh,{PackObjectPixel(ObjectGroup::FirstPerson,.4f),0,0,0}),DXGI_FORMAT_R32_FLOAT);
         auto ui=gpu.Texture(w,h,std::vector<Pixel>(w*h,{.05f,.025f,0,.25f})),composed=gpu.Texture(w,h);
         const std::vector<Pixel> pixels(w*h,{.2f,.3f,.4f,.5f});
-        NeuralPass pass;unsigned expectedEvaluations=0;
+        NeuralPass pass;pass.SetRateClock(&TestClock::Now);unsigned expectedEvaluations=0;
         for(unsigned frame=0;frame<7;++frame){
             Fixture::frame=frame;
             // Frame 0 runs Pass 1 and 2; each later pass runs from the frame after its creation.

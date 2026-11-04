@@ -31,6 +31,10 @@ namespace TheosRenderPipeline::SourceDLSSG
 		ID3D12Resource* Composed() const { return composed_.Get(); }
 		ID3D12Resource* Corrected() const { return corrected_.Get(); }
 		NeuralTelemetrySnapshot Telemetry() const { return telemetry_.Snapshot(); }
+		// The clock of the model-rate gap rule (frames over 100 ms apart break the
+		// motion chain). Tests drive it, so a busy machine cannot add a gap.
+		using RateClock = std::chrono::steady_clock::time_point (*)();
+		void SetRateClock(RateClock clock) { rateClock_ = clock ? clock : &std::chrono::steady_clock::now; }
 		NRModelActivity ModelActivity() const { return modelActivity_; }
 		void RetireTelemetry();
 		NeuralRendering::RuntimeBuild RetainedRuntimeBuild(const std::filesystem::path& request) const
@@ -192,6 +196,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		NeuralOptions rateOptions_;
 		int rateEffectivePasses_{};
 		std::chrono::steady_clock::time_point rateTime_{};
+		RateClock rateClock_{ &std::chrono::steady_clock::now };
 		// The previous captured frame's camera jitter and whether it classified objects.
 		std::array<float, 2> rateJitter_{};
 		bool rateMask_{};

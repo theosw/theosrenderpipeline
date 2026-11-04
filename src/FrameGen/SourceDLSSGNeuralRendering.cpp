@@ -476,7 +476,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		}
 
 		// Model rate: decide before preparing anything for the model (NeuralModelRate.h).
-		const auto rateNow = std::chrono::steady_clock::now();
+		const auto rateNow = rateClock_();
 		// Frames NR did not record (a menu, a stall) break the motion chain.
 		const bool gap = rateTime_ != std::chrono::steady_clock::time_point{} && rateNow - rateTime_ > std::chrono::milliseconds(100);
 		rateTime_ = rateNow;
