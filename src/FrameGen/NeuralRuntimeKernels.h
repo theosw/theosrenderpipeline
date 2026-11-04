@@ -40,9 +40,10 @@ namespace TheosRenderPipeline::NeuralRendering
 		return pack.parent_path() / L"nvngx_dlssnr_310.9.16.dll";
 	}
 	// NVIDIA's 310.9.16 builds its GPU modules once per loaded image and keeps them,
-	// so a second pack needs a second image: a hard link to the same file beside the
-	// real runtime (MO2's virtual Data path resolved first). Returns the link, or an
-	// empty path and why (another drive, not NTFS, no permission).
+	// so a second pack needs a second image: a copy of the runtime beside the real
+	// file (MO2's virtual Data path resolved first), made once. A hard link does not
+	// work: Windows loads the same file once whatever its name. Returns the copy, or
+	// an empty path and why (no space, no permission).
 	std::filesystem::path KernelPackImage(const std::filesystem::path& runtime, const std::filesystem::path& pack, std::string& why);
 	constexpr bool NeedsRuntimeKernels(int capability)
 	{

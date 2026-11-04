@@ -365,19 +365,30 @@ namespace TheosRenderPipeline::NeuralRendering
         const auto physical = PhysicalPath(runtime);
         if (physical.empty()) { why = std::format("cannot locate the file behind {} (error {})", runtime.string(), GetLastError()); return {}; }
         // Not nvngx_dlssnr*.dll, so the runtime list never offers it as a runtime.
-        const auto link = physical.parent_path() / (pack.stem().wstring() + L".runtime.bin");
+        const auto image = physical.parent_path() / (pack.stem().wstring() + L".runtime.bin");
         std::error_code error;
-        if (std::filesystem::exists(link, error)) {
-            if (SameFile(link, physical)) { return link; }
-            // Left from a runtime file since replaced: only this name of ours is removed.
-            if (!DeleteFileW(link.c_str())) { why = std::format("cannot replace the outdated {} (error {})", link.filename().string(), GetLastError()); return {}; }
+        const auto bytes = std::filesystem::file_size(physical, error);
+        if (error) { why = std::format("cannot read the size of {}", physical.string()); return {}; }
+        if (std::filesystem::exists(image, error)) {
+            // A copy of the right size is reused; loading verifies its SHA-256. A hard
+            // link (2026-11-03 test) is the same file to Windows, which then hands back
+            // the runtime already loaded, so it is replaced like an outdated copy.
+            if (!SameFile(image, physical) && std::filesystem::file_size(image, error) == bytes && !error) { return image; }
+            if (!DeleteFileW(image.c_str())) { why = std::format("cannot replace the outdated {} (error {})", image.filename().string(), GetLastError()); return {}; }
         }
-        if (!CreateHardLinkW(link.c_str(), physical.c_str(), nullptr)) {
-            why = std::format("cannot create {} beside {} (error {}); kernel pack images need the runtime's NTFS drive",
-                link.filename().string(), physical.string(), GetLastError());
+        // A separate file, so Windows loads a separate image. Written under a
+        // temporary name first: an interrupted copy is never taken for a runtime.
+        auto partial = image;
+        partial += L".partial";
+        DeleteFileW(partial.c_str());
+        if (!CopyFileExW(physical.c_str(), partial.c_str(), nullptr, nullptr, nullptr, COPY_FILE_FAIL_IF_EXISTS) ||
+            !MoveFileExW(partial.c_str(), image.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+            const auto code = GetLastError();
+            DeleteFileW(partial.c_str());
+            why = std::format("cannot copy the runtime to {} (error {}); it needs about {} MB free beside it",
+                image.filename().string(), code, bytes / (1024 * 1024));
             return {};
         }
-        if (!SameFile(link, physical)) { why = std::format("{} does not resolve to the runtime", link.filename().string()); return {}; }
-        return link;
+        return image;
     }
 }

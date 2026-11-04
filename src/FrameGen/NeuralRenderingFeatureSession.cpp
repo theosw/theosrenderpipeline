@@ -332,8 +332,8 @@ namespace TheosRenderPipeline::NeuralRendering
 			}
 		}
 
-		// A kernel pack chosen in the runtime list: NVIDIA's 310.9.16 under a second
-		// name, a separate image whose GPU modules come from that pack.
+		// A kernel pack chosen in the runtime list: NVIDIA's 310.9.16 copied beside
+		// itself, a separate image whose GPU modules come from that pack.
 		const bool packChoice = IsKernelPackChoice(a_info.runtimePath);
 		auto loadPath = identity.path;
 		if (packChoice) {
@@ -362,6 +362,11 @@ namespace TheosRenderPipeline::NeuralRendering
 		state.ownsModule = state.module != nullptr;
 		if (!state.module) {
 			state.status = std::format("runtime LoadLibrary failed ({})", ::GetLastError());
+			state.runtimeRefused = true;
+			return false;
+		}
+		if (packChoice && !EqualPath(loadPath, identity.path) && EqualPath(ModulePath(state.module), identity.path)) {
+			state.status = "Windows reused the runtime already loaded for another kernel set; restart Skyrim to switch";
 			state.runtimeRefused = true;
 			return false;
 		}
