@@ -3,6 +3,8 @@
 #include <Windows.h>
 #include <wrl/client.h>
 #include <charconv>
+#include <array>
+#include <type_traits>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -237,19 +239,27 @@ namespace KernelProfiler
 			return result;
 		}
 
-		int __cdecl CreateCuFunction(ID3D12Device* d, Handle module, const char* name, Handle* function)
-		{
-			const auto result = realCreate(d, module, name, function);
-			std::scoped_lock lock(mutex);
-			if (result == 0 && function && *function) { names[*function] = name ? name : "<null>"; }
-			return result;
-		}
-
 		D3D12_RESOURCE_BARRIER UavBarrier()
 		{
 			D3D12_RESOURCE_BARRIER barrier{ D3D12_RESOURCE_BARRIER_TYPE_UAV };
 			barrier.UAV.pResource = nullptr;
 			return barrier;
+		}
+
+#include "PreparedWeights.inl"
+
+		int __cdecl CreateCuFunction(ID3D12Device* d, Handle module, const char* name, Handle* function)
+		{
+			const bool prepared = preparedEnabled && PreparedName(name);
+			const std::string selected = prepared ? std::string(name) + "_trp_prepared_v1" : (name ? name : "");
+			const auto result = realCreate(d, module, prepared ? selected.c_str() : name, function);
+			std::scoped_lock lock(mutex);
+			if (result == 0 && function && *function) {
+				names[*function] = name ? name : "<null>";
+				preparedFunctions.erase(*function);
+				if (prepared) { preparedFunctions.insert(*function); }
+			}
+			return result;
 		}
 
 		bool EnsureCapture(ID3D12GraphicsCommandList* list)
@@ -343,7 +353,10 @@ namespace KernelProfiler
 			std::scoped_lock lock(mutex);
 			std::vector<Launch> rewritten;
 			kernels = OverrideLaunches(kernels, count, rewritten, "chain");
-			// Plain research runs must preserve chain overlap: no queries, copies or barriers.
+			std::vector<std::array<std::uint8_t, 80>> parameters;
+			if (!PrepareLaunches(list, kernels, count, rewritten, parameters)) { return -1; }
+			// Preserve chain overlap after any first-use weight preparation. Plain
+			// steady-state runs add no queries, copies, barriers or split dispatches.
 			if (!profiling) { return realChain(list, kernels, count); }
 			if (wholeChains && count) {
 				return Timed(list, kernels[0].function, kernels[0].grid, kernels[0].block, kernels[0].sharedBytes,
@@ -363,6 +376,8 @@ namespace KernelProfiler
 			std::scoped_lock lock(mutex);
 			std::vector<LaunchEx> rewritten;
 			kernels = OverrideLaunches(kernels, count, rewritten, "chain-ex");
+			std::vector<std::array<std::uint8_t, 80>> parameters;
+			if (!PrepareLaunches(list, kernels, count, rewritten, parameters)) { return -1; }
 			if (!profiling) { return realChainEx(list, kernels, count); }
 			if (wholeChains && count) {
 				return Timed(list, kernels[0].function, kernels[0].grid, kernels[0].block, kernels[0].sharedBytes,
@@ -445,7 +460,17 @@ namespace KernelProfiler
 				}
 			}
 		}
-		if (!profiling && overrides.empty()) { return false; }
+		char helper[32768]{};
+		const auto helperSize = GetEnvironmentVariableA("TRP_NR_PREPARED_WEIGHTS", helper, sizeof(helper));
+		if (helperSize) {
+			char research[4]{};
+			if (helperSize >= sizeof(helper) || GetEnvironmentVariableA("TRP_NR_PASCAL_RESEARCH", research, sizeof(research)) != 1 || research[0] != '1' || !overrides.empty()) {
+				std::puts("PREPARED rejected: requires research=1 and no launch overrides");
+				std::exit(1);
+			}
+			preparedEnabled = true; preparedHelperPath = helper;
+		}
+		if (!profiling && overrides.empty() && !preparedEnabled) { return false; }
 		char params[8]{};
 		dumpParams = GetEnvironmentVariableA("TRP_NR_KERNEL_PARAMS", params, sizeof(params)) && params[0] == '1';
 		barriers = GetEnvironmentVariableA("TRP_NR_KERNEL_BARRIERS", params, sizeof(params)) && params[0] == '1';
@@ -475,8 +500,27 @@ namespace KernelProfiler
 		auto* original = PatchImport(GetModuleHandleW(nullptr), "KERNEL32.dll", "LoadLibraryExW", reinterpret_cast<void*>(&LoadLibraryExWHook));
 		realLoadLibraryExW = reinterpret_cast<LoadLibraryExWFn>(original);
 		if (!original) { std::printf("KERNELHOOK failed to intercept LoadLibraryExW\n"); }
+		if (!original && preparedEnabled) { std::exit(1); }
 		// The caller starts collection only for profiling, even when plain hooks are installed.
 		return original != nullptr && profiling;
+	}
+
+	bool RetirePreparedWeights()
+	{
+		std::scoped_lock lock(mutex);
+		if (!preparedEnabled) { return true; }
+		bool ok = !preparedCaches.empty() && preparedHits > 0;
+		std::printf("PREPARED_RETIRED caches=%zu bytes=%llu hits=%llu\n", preparedCaches.size(), preparedBytes, preparedHits);
+		preparedCaches.clear(); // Caller has retired every submission.
+		using Destroy = int (__cdecl*)(ID3D12Device*, Handle);
+		// Retain failed handles and their device; do not destroy a module whose
+		// function could not be retired. The manual fixture reports failure.
+		if (preparedHelper && reinterpret_cast<Destroy>(realQuery(0xdf295ea6))(preparedDevice.Get(), preparedHelper)) { return false; }
+		preparedHelper = nullptr;
+		if (preparedModule && reinterpret_cast<Destroy>(realQuery(0x41c65285))(preparedDevice.Get(), preparedModule)) { return false; }
+		preparedModule = nullptr; preparedDevice.Reset();
+		preparedBytes = preparedHits = 0;
+		return ok;
 	}
 
 	std::string Diagnostics()

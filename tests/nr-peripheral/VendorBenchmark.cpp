@@ -17,6 +17,7 @@ int wmain(int argc,wchar_t** argv){
     if(argument<argc && !std::wstring_view(argv[argument]).starts_with(L"--"))preset=std::stoi(argv[argument++]);
     if(argument<argc && !std::wstring_view(argv[argument]).starts_with(L"--"))outputFile=argv[argument++];
     bool skipCleanup=false;
+    unsigned warmupFrames=10, measuredFrames=40;
     unsigned recoveryPoint=0, recoveryOccurrence=1, recoveryRoute=0, recoveryPasses=1, injectFrame=0;
     while(argument<argc){
         const std::wstring_view option=argv[argument++];
@@ -30,6 +31,8 @@ int wmain(int argc,wchar_t** argv){
             else if(option==L"--route")recoveryRoute=std::stoul(argv[argument++]);
             else if(option==L"--nr-passes")recoveryPasses=std::stoul(argv[argument++]);
             else if(option==L"--inject-frame")injectFrame=std::stoul(argv[argument++]);
+            else if(option==L"--warmup")warmupFrames=std::stoul(argv[argument++]);
+            else if(option==L"--samples")measuredFrames=std::stoul(argv[argument++]);
             else Require(false,"unknown benchmark option");
         }
     }
@@ -43,6 +46,11 @@ int wmain(int argc,wchar_t** argv){
     const bool production = mode == L"production" || mode == L"production-startup" || mode == L"admission-low-budget";
     const bool coldStart = mode == L"coldpasses" || production;
     const bool twoPassCases = mode == L"passes" || mode == L"coldpasses";
+    Require(warmupFrames<=1000 && measuredFrames>=1 && measuredFrames<=1000,"bounded warmup and sample count");
+    Require(!twoPassCases || (warmupFrames==10 && measuredFrames==40),"two-pass lifecycle cases use the fixed 50-frame sequence");
+    std::printf("WINDOW warmup=%u measured=%u\n",warmupFrames,measuredFrames);
+    if(GetEnvironmentVariableW(L"TRP_NR_PREPARED_WEIGHTS",nullptr,0))
+        Require(mode==L"native" && !recoveryPoint && !skipCleanup,"prepared weights require one native feature with normal retired teardown");
     Require(mode == L"native" || mode == L"uniform" || mode == L"peripheral" || twoPassCases || production, "benchmark mode");
     const auto w=static_cast<unsigned>(std::stoul(argv[3])),h=static_cast<unsigned>(std::stoul(argv[4]));
 #if defined(TRP_NR_PRODUCTION_ADMISSION)
@@ -186,7 +194,7 @@ int wmain(int argc,wchar_t** argv){
     Check(gpu.queue->GetTimestampFrequency(&frequency),"timestamp frequency");
     {
     auto pass=std::make_unique<NeuralPass>();std::vector<double> total,inference;
-    for(unsigned frame=0;frame<50;++frame){
+    for(unsigned frame=0;frame<warmupFrames+measuredFrames;++frame){
         const bool recreate = twoPassCases && frame % 10 == 0;
         if(recreate){
             options.beforeUpscaling=(frame/10)%2==0;
@@ -202,7 +210,7 @@ int wmain(int argc,wchar_t** argv){
             pass=std::make_unique<NeuralPass>(); // Last GPU.End completed every submission.
         }
         gpu.Begin();Check(Interop::RecordCopy(gpu.list.Get(),original.Get(),scene.Get()),"fresh scene");
-        if(profileKernels && frame>=10)KernelProfiler::BeginFrame();
+        if(profileKernels && frame>=warmupFrames)KernelProfiler::BeginFrame();
         gpu.list->EndQuery(query.Get(),D3D12_QUERY_TYPE_TIMESTAMP,0);
         const bool recorded=pass->Record(gpu.device.Get(),gpu.list.Get(),frame%kCommandSlots,options,frame==0 || recreate,true,float(w),float(h),
             motion.Get(),depth.Get(),options.beforeUpscaling?nullptr:ui.Get(),scene.Get(),options.beforeUpscaling?nullptr:composed.Get(),frequency);
@@ -225,7 +233,13 @@ int wmain(int argc,wchar_t** argv){
         }
         gpu.list->EndQuery(query.Get(),D3D12_QUERY_TYPE_TIMESTAMP,1);
         gpu.list->ResolveQueryData(query.Get(),D3D12_QUERY_TYPE_TIMESTAMP,0,2,timestamps.Get(),0);gpu.End();
-        if(profileKernels && frame>=10){
+        if(frame==0){
+            void* data{};D3D12_RANGE range{0,16};Check(timestamps->Map(0,&range,&data),"cold evaluation readback");
+            const auto* t=static_cast<const UINT64*>(data);Require(t[1]>=t[0],"cold monotonic timestamps");
+            std::printf("COLD_EVALUATION gpu_ms=%.6f (includes first-use GPU work; excludes CPU initialization)\n",(t[1]-t[0])*1000.0/frequency);
+            D3D12_RANGE noWrite{};timestamps->Unmap(0,&noWrite);
+        }
+        if(profileKernels && frame>=warmupFrames){
             ++profiledFrames;
             for(const auto& s:KernelProfiler::EndFrame(frequency)){
                 auto& t=kernelTotals[s.name];t.ms+=s.ms;t.maxMs=(std::max)(t.maxMs,s.ms);++t.count;
@@ -235,12 +249,12 @@ int wmain(int argc,wchar_t** argv){
         if(recreate)std::printf("CASE frame=%u %s\n",frame,pass->Status().c_str());
         sampleMemory();
         pass->RetireTelemetry();
-        if(exportFrames && frame>=10){
+        if(exportFrames && frame>=warmupFrames){
             const auto image=gpu.Read(pass->Corrected());validOutput(image);
             frames.write(reinterpret_cast<const char*>(image.data()),static_cast<std::streamsize>(image.size()*sizeof(Pixel)));
             Require(frames.good(),"write complete measured frame");
         }
-        if(frame>=10){
+        if(frame>=warmupFrames){
             void* data{};D3D12_RANGE range{0,16};Check(timestamps->Map(0,&range,&data),"query readback");
             auto* t=static_cast<UINT64*>(data);Require(t[1]>=t[0],"monotonic timestamps");total.push_back((t[1]-t[0])*1000.0/frequency);
             D3D12_RANGE noWrite{};timestamps->Unmap(0,&noWrite);
@@ -277,7 +291,7 @@ int wmain(int argc,wchar_t** argv){
         total.size(),mean(total),mean(inference),changed);
     else {
         frames.close();Require(frames.good(),"close measured float4 output");
-        std::printf("QUALITY mode=%ls source=%ux%u first_frame=10 frames=40 channels=RGBA storage=float32 untimed=1\n",mode.c_str(),w,h);
+        std::printf("QUALITY mode=%ls source=%ux%u first_frame=%u frames=%u channels=RGBA storage=float32 untimed=1\n",mode.c_str(),w,h,warmupFrames,measuredFrames);
     }
     std::printf("STATE %s\n",pass->Status().c_str());
     if(profileKernels){
@@ -292,6 +306,7 @@ int wmain(int argc,wchar_t** argv){
                 t.grid[0],t.grid[1],t.grid[2],t.block[0],t.block[1],t.block[2],t.shared,n.c_str());
     }
     if(!exportFrames)for(size_t i=0;i<total.size();++i)std::printf("SAMPLE %zu %.6f %.6f\n",i,total[i],inference[i]);
+    Require(KernelProfiler::RetirePreparedWeights(),"prepared kernels used and cache teardown succeeded");
     // Research runtimes can fail/hang in NGX shutdown after successful output.
     // Explicit opt-in only: this never qualifies normal feature teardown.
     if(skipCleanup){std::puts("CLEANUP skipped by --skip-cleanup (shutdown untested)");std::fflush(nullptr);std::_Exit(0);}

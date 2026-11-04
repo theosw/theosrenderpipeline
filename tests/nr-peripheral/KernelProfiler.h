@@ -28,8 +28,10 @@ namespace KernelProfiler
 		double ms{};
 	};
 	// Before the NR runtime is loaded. Returns whether profiling collection is enabled;
-	// false can also mean plain override hooks were installed successfully.
+	// false can also mean plain override/prepared-weight hooks installed successfully.
 	bool Install();
+	// Manual single-feature prepared-weight probe: call only after all GPU work retired.
+	bool RetirePreparedWeights();
 	// Statistics for the requests NR made, for checking the hook took effect.
 	std::string Diagnostics();
 	// Begin collecting for one frame's command list recording.

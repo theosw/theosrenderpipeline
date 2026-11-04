@@ -6,6 +6,9 @@ namespace
 {
 	unsigned calls{};
 	int status{};
+	unsigned destroyCalls{};
+	int __cdecl DestroyFailure(ID3D12Device*, void*) { ++destroyCalls; return -1; }
+	void* __cdecl DestroyQuery(std::uint32_t) { return reinterpret_cast<void*>(&DestroyFailure); }
 	std::vector<KernelProfiler::Launch> forwarded;
 	std::vector<KernelProfiler::LaunchEx> forwardedEx;
 	void Require(bool ok, const char* what)
@@ -92,5 +95,27 @@ int main()
 	overrides.clear(); profiling = false; calls = 0;
 	Require(LaunchChain(nullptr, nullptr, 0) == 0 && calls == 1 && forwarded.empty(), "empty chain forwarded");
 	Require(LaunchChainEx(nullptr, nullptr, 0) == 0 && calls == 2 && forwardedEx.empty(), "empty Ex chain forwarded");
+	std::array<std::uint8_t, 72> preparedParams{};
+	const std::uint64_t weightAddress = 0x10000;
+	const std::uint32_t width = 17, height = 19;
+	std::memcpy(preparedParams.data() + 24, &weightAddress, 8);
+	std::memcpy(preparedParams.data() + 64, &width, 4);
+	std::memcpy(preparedParams.data() + 68, &height, 4);
+	std::uint64_t decodedSource{};
+	Require(PreparedContract({96,1,1}, {32,4,1}, preparedParams.data(), 72, decodedSource) && decodedSource == weightAddress,
+		"prepared ABI allows rounded spatial tiles and returns the original weight pointer");
+	Require(!PreparedContract({96,1,1}, {32,4,1}, nullptr, 72, decodedSource) &&
+		!PreparedContract({96,1,1}, {32,4,1}, preparedParams.data(), 71, decodedSource) &&
+		!PreparedContract({96,1,1}, {32,8,1}, preparedParams.data(), 72, decodedSource) &&
+		!PreparedContract({97,1,1}, {32,4,1}, preparedParams.data(), 72, decodedSource) &&
+		!PreparedContract({96,1,9}, {32,4,1}, preparedParams.data(), 72, decodedSource), "prepared rejects incompatible ABI or out-of-bank reads");
+	preparedEnabled = true; preparedFunctions.insert(a); calls = 0;
+	Require(LaunchChain(nullptr, kernels, 3) != 0 && calls == 0, "invalid prepared ABI never reaches GPU");
+	Require(LaunchChainEx(nullptr, ex, 2) != 0 && calls == 0, "prepared rejects pointer-array Ex ABI");
+	realQuery = DestroyQuery; preparedHelper = a; preparedModule = b;
+	Require(!RetirePreparedWeights() && preparedHelper == a && preparedModule == b && destroyCalls == 1,
+		"failed helper retirement retains both handles and never destroys its module");
+	preparedHelper = preparedModule = nullptr;
+	preparedEnabled = false; preparedFunctions.clear();
 	std::puts("PASS launch override parsing, research gate, ordinary/Ex forwarding, plain flags and whole-chain profiling");
 }

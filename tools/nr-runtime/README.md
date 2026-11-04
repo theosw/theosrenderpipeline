@@ -238,3 +238,50 @@ exports. Stage only in a dedicated `C:/trp-work/runs/` directory with an
 lock; a failure or teardown hang stops the campaign. `-SkipProbe` is appropriate
 only when that separately recorded probe is unavailable or blocked; it does not
 count as passing the GPU allocator test.
+
+## Prepared FFN weights experiment
+
+`build_prepared_weights.py` builds an opt-in **manual benchmark** candidate for
+two Fast sm_86 ViT FFN expansion kernels. It consumes hash-pinned, locally
+supplied Fast PTX and the sm_86-only Fast pack. These inputs and generated vendor
+code remain outside Git. The build adds suffixed entries alongside the original
+entries, changes only bundle 05, and verifies the fatbin and pack read-back.
+
+```powershell
+python -I tools/nr-runtime/build_prepared_weights.py --ptx <Fast-module05.ptx> --base-pack <Fast-sm86.trpk> --cuda <CUDA13.4> --output out/prepared
+python -I tools/nr-runtime/test_prepared_weights.py
+```
+
+Build `TRPNeuralPeripheralBenchmark` with `TRP_NR_VENDOR_BENCHMARK=ON` and
+`TRP_NR_ADA_KERNELS=ON`. The benchmark's `KernelProfiler` installs the experiment
+when both `TRP_NR_PASCAL_RESEARCH=1` and
+`TRP_NR_PREPARED_WEIGHTS=<absolute helper.fatbin>` are set. Point
+`TRP_NR_PASCAL_PACK` at the generated `prepared-sm86.trpk`. Without the prepared
+environment variable, the candidate pack uses its original entries. Use the
+supplied Fast pack for the independent baseline.
+
+The first use of each immutable weight bank records a decode dispatch and UAV
+barriers before its original chain. Later uses reuse a separate FP16 buffer;
+original weights, activation math, tensor instruction order and flag protocols
+remain intact. All 256 packed byte values retain the existing decoder's behavior.
+Each 4 MiB packed bank costs an additional 8 MiB cache. The fixture caps the
+cache at 256 MiB and validates the two kernels' packed parameter ABI and geometry.
+Preparation or ABI failures reject the evaluation rather than silently using
+an incompatible entry. A successful run must actually use the cache.
+
+This fixture accepts only `native` mode with one immutable feature, normal
+teardown, and no recovery injection or launch overrides. It is **not** a cache
+implementation for feature recreation, model switching, concurrent queues,
+multiple devices, or the game renderer. Cache buffers are released only after
+the benchmark retires every submission. No renderer policy or packaged Fast
+asset changes. sm_86 execution on an Ada GPU is a proxy, not physical RTX 30
+qualification; this experiment supplies no sm_75/Turing candidate.
+
+The benchmark defaults to 10 warmup frames and 40 measured frames. For timing,
+`--warmup 150 --samples 300` gives a longer observation window; each count is
+bounded by 1000. Two-pass lifecycle probes retain their fixed 50-frame sequence.
+`COLD_EVALUATION` reports the first evaluation's GPU duration, including any
+first-use work but excluding CPU initialization. Use separate `--frames` quality
+runs for complete RGBA byte comparisons; do not use their timing for performance
+claims. Run each GPU process under the workstation's exclusive GPU lock and
+compare interleaved baseline/candidate processes with identical settings.
