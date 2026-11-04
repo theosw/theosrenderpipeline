@@ -96,12 +96,11 @@ It uses the official FidelityFX SDK 1.1.4 / FSR 3.1.4 DX12 backend through TRP's
 existing fenced D3D11/D3D12 bridge. FSR needs no tensor cores and is separate
 from frame generation. DLSS remains the RTX default.
 
-The installation needs `amd_fidelityfx_dx12.dll` under
+Both packages include AMD's official, signed `amd_fidelityfx_dx12.dll` in
 `Data/SKSE/Plugins/TheosRenderPipeline/AMD/`, with `FSR-LICENSE.txt` beside it.
 The [pinned download, hashes and MIT notice](extern/fidelityfx-api/README.md)
-identify the official AMD runtime; binaries stay outside the source repository.
-Both editions compile the same FSR integration. The option is unavailable until
-the runtime is installed and the game restarted. A saved FSR selection with a
+identify it; binaries stay outside the source repository. Both editions compile
+the same FSR integration. The option is unavailable if the runtime is missing. A saved FSR selection with a
 missing runtime uses XeSS for the session and logs the reason. A present but
 unloadable runtime still reports a load failure.
 

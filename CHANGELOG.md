@@ -1,3 +1,12 @@
+# Unreleased
+
+- Experimental FSR 3.1 upscaling: Image > Mode > FSR 3.1. AMD's temporal
+  upscaler needs no tensor cores, so it suits GTX 10 and AMD or Intel cards;
+  on a GTX 1070 Ti the upscaling step took about 40% less time than XeSS. AMD's
+  official runtime is included. NR still runs before upscaling. Defaults are
+  unchanged (DLSS on RTX, XeSS elsewhere). FSR has no reactive mask yet, so
+  fire, particles and spell effects may smear.
+
 # 0.6.3
 
 - NR runs while the world fades in after a load, so it no longer switches on

@@ -28,7 +28,7 @@ namespace TheosRenderPipeline
         }
         module_ = LoadLibraryExW((directory_ / L"amd_fidelityfx_dx12.dll").c_str(), nullptr,
             LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
-        if (!module_) { status_ = "install AMD/amd_fidelityfx_dx12.dll from SDK 1.1.4"; return HRESULT_FROM_WIN32(GetLastError()); }
+        if (!module_) { status_ = "AMD/amd_fidelityfx_dx12.dll missing or not loadable; reinstall TRP"; return HRESULT_FROM_WIN32(GetLastError()); }
         device12_ = device;
         create_ = reinterpret_cast<PfnFfxCreateContext>(GetProcAddress(module_, "ffxCreateContext"));
         destroy_ = reinterpret_cast<PfnFfxDestroyContext>(GetProcAddress(module_, "ffxDestroyContext"));
