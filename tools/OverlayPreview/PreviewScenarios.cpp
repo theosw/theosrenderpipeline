@@ -464,6 +464,18 @@ PreviewScenario Pascal(const char* name, const char* reason)
     return scenario;
 }
 
+PreviewScenario PascalOldNetwork()
+{
+    auto scenario = Pascal("pascal-old-network", "");
+    scenario.summary = "Pascal NR keeps Old selectable and explains its cost";
+    scenario.view.neuralApplied.enabled = true;
+    scenario.view.neuralApplied.reconstruction.preset = 1;
+    scenario.applied.sourceDLSSG.neuralEnabled = true;
+    scenario.applied.sourceDLSSG.neuralReconstruction.preset = 1;
+    scenario.draft = scenario.applied;
+    return scenario;
+}
+
 // The runtime list on Universal with an RTX 30: bundled, community and a
 // user's own file, with times measured for the ones already tried.
 PreviewScenario Runtimes()
@@ -510,5 +522,5 @@ std::vector<PreviewScenario> PreviewScenarios()
         Pascal("pascal-standard", NeuralRendering::kPascalEditionReason),
         Pascal("pascal-driver", NeuralRendering::kPascalDriverReason),
         Pascal("pascal-missing-pack", NeuralRendering::kPascalAssetReason),
-        Pascal("pascal-low-budget", NeuralRendering::kPascalBudgetReason), Runtimes(), Lab()};
+        Pascal("pascal-low-budget", NeuralRendering::kPascalBudgetReason), PascalOldNetwork(), Runtimes(), Lab()};
 }
