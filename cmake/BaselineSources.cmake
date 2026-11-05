@@ -203,6 +203,7 @@ set(ARP_BASELINE_SOURCES
     src/TextureProviderBridge.cpp
     src/TextureProviderBridge.h
     src/NeuralObjectHooks.cpp
+    src/NeuralObjectHookContract.h
     src/FrameGen/NeuralObjectCapture.cpp
     src/UpscalerHooks.cpp
     src/UpscalerHooks.h

@@ -78,7 +78,7 @@ There is no whole-chain object strength: set strength to zero in every running p
 
 The session-only mask preview, drawn over the finished NR result, tints the groups you choose to show, or with Classes only shows just those groups' colours on black: green for first-person objects, blue for the player, orange for other humanoids and purple for creatures. Any combination of groups can be shown; showing none turns the preview off. Preview is never saved to the INI and does not reset inference history. UI is composed after the preview, and the same completed scene feeds real frames and frame generation.
 
-Masks default off. The initial capture supports opaque lighting draws on Skyrim 1.6.1170, accepts the original hook entry or another plugin's entry jump (such as SSE Engine Fixes') and chains behind it, and checks capture-frame identity and final depth. Missing, conflicting, transparent, alpha-tested or unclassified capture keeps normal NR behavior. The feature adds geometry replay, classification storage and a composition pass; its game quality, mod compatibility, VRAM use and overhead still need acceptance.
+Masks default off. Capture supports opaque lighting draws on Skyrim 1.5.97 and 1.6.1170, accepts the version's verified original hook entry or another plugin's entry jump (such as SSE Engine Fixes') and chains behind it, and checks capture-frame identity and final depth. Missing, conflicting, transparent, alpha-tested or unclassified capture keeps normal NR behavior. The 1.5.97 hook has offline verification; gameplay acceptance is pending. The feature adds geometry replay, classification storage and a composition pass; its game quality, mod compatibility, VRAM use and overhead still need acceptance.
 
 ## Localization
 

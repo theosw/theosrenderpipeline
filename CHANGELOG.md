@@ -1,3 +1,7 @@
+# Unreleased
+
+- NR Object rules support Skyrim 1.5.97, with a version-specific draw-hook guard.
+
 # 0.6.4
 
 - Experimental FSR 3.1 upscaling: Image > Mode > FSR 3.1. AMD's temporal
