@@ -48,6 +48,11 @@ struct Owner
     // DLSS-G CPU pacer interval for the SDK's own pacing (all counts).
     cadence::BatchIntervalEstimator batchInterval;
     cadence::VSyncCadence vsyncCadence;
+    struct Refresh {
+        HWND window{};
+        HMONITOR monitor{};
+        int64_t periodNs{}, checkedNs{};
+    } vsyncRefresh; // clockMutex; no retained COM reference or new resource owner.
     std::atomic<unsigned> intervalLogs{};
     // hitch.1: batch-start hitches and estimator resets for the log (clockMutex).
     struct Hitches
@@ -73,12 +78,14 @@ struct Owner
     std::atomic<unsigned> flipLogs{}, flipSkipLogs{};
 };
 using Owners = std::vector<std::shared_ptr<Owner>>;
+int64_t ReadVSyncRefresh(Owner& owner, int64_t now) noexcept;
 struct Route
 {
     HMODULE module{};
     Present original{};
     Pace pace{};
     Deadline deadline{};
+    int64_t (*refreshQuery)(Owner&, int64_t) noexcept = ReadVSyncRefresh;
     std::atomic<bool> enabled{};
     std::atomic<std::shared_ptr<const Owners>> owners;
     std::mutex ownersMutex;
@@ -249,6 +256,7 @@ const char* Prepare(const Route& current, Owner& owner, const Invocation& call, 
         std::lock_guard lock(owner.clockMutex);
         if (!owner.vsyncCadence.Matches(uint32_t(call.frame), uint32_t(count + 1), call.sync))
             return "vsync_first_output_unverified";
+        if (!owner.vsyncCadence.NeedsCadence()) return "vsync_refresh_limited";
     }
     output = {reinterpret_cast<void*>(bundle), reinterpret_cast<void*>(call.returnSlot+kSummaryFromReturn),
         uint32_t((resourceSlot-resources)/8), uint32_t(count), uint8_t(data[0xc0] & 1), summary[1]};
@@ -260,6 +268,7 @@ void Revoke(Owner& owner) noexcept
     std::lock_guard lock(owner.clockMutex);
     owner.batchInterval.Reset();
     owner.vsyncCadence.Reset();
+    owner.vsyncRefresh = {};
     ++owner.hitches.revoked; ++resets;
 }
 
@@ -289,6 +298,45 @@ int64_t NowNs() noexcept
         || ticks.QuadPart/frequency.QuadPart > INT64_MAX/1000000000) return 0;
     return (ticks.QuadPart/frequency.QuadPart)*1000000000
         + (ticks.QuadPart%frequency.QuadPart)*1000000000/frequency.QuadPart;
+}
+
+HRESULT NativeDescription(IDXGISwapChain* chain, DXGI_SWAP_CHAIN_DESC* description) noexcept
+{
+    __try { return chain->GetDesc(description); }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return E_FAIL; }
+}
+
+// Read-only display budget, only on a verified nonzero-sync first output.
+// Monitor moves refresh the cache immediately; mode changes are rechecked once
+// per second. This is a nominal period for admission, never a guessed vblank
+// phase or another wait. Failure keeps the SDK's original presentation path.
+int64_t ReadVSyncRefresh(Owner& owner, int64_t now) noexcept
+{
+    auto& cached = owner.vsyncRefresh;
+    constexpr int64_t retryNs = 1000000000;
+    if (now <= 0) return 0;
+    if (!cached.window) {
+        if (cached.checkedNs > 0 && now >= cached.checkedNs && now-cached.checkedNs < retryNs) return 0;
+        cached.checkedNs = now;
+        auto* native = reinterpret_cast<IDXGISwapChain*>(owner.native);
+        DXGI_SWAP_CHAIN_DESC description{};
+        // GetDesc is slot 12 on the verified native DXGI swap chain. Pin its
+        // System32 implementation before invoking it; do not retain the chain.
+        if (!single_overlay::native::PinInterface(native, 12)
+            || FAILED(NativeDescription(native, &description)) || !description.OutputWindow) return 0;
+        cached.window = description.OutputWindow;
+    }
+    const auto monitor = MonitorFromWindow(cached.window, MONITOR_DEFAULTTONULL);
+    if (!monitor) { cached = {}; return 0; }
+    if (monitor == cached.monitor && now >= cached.checkedNs && now-cached.checkedNs < retryNs)
+        return cached.periodNs;
+    cached.monitor = monitor; cached.checkedNs = now; cached.periodNs = 0;
+    MONITORINFOEXW info{}; info.cbSize = sizeof(info);
+    DEVMODEW mode{}; mode.dmSize = sizeof(mode);
+    if (GetMonitorInfoW(monitor, &info) && EnumDisplaySettingsExW(info.szDevice, ENUM_CURRENT_SETTINGS, &mode, 0)
+        && (mode.dmFields & DM_DISPLAYFREQUENCY) && mode.dmDisplayFrequency >= 20 && mode.dmDisplayFrequency <= 1000)
+        cached.periodNs = 1000000000 / int64_t(mode.dmDisplayFrequency);
+    return cached.periodNs;
 }
 
 // ---- flipmeter.1: NVIDIA driver flip metering ---------------------------------
@@ -584,7 +632,9 @@ HRESULT Dispatch(Route& current, const Invocation& call)
             const bool admitted = FirstVSync(current, *owner, call, generated);
             std::lock_guard lock(owner->clockMutex);
             if (admitted) {
-                owner->vsyncCadence.Begin(uint32_t(call.frame), generated + 1, call.sync, NowNs());
+                const auto ready = NowNs();
+                const auto refresh = current.refreshQuery(*owner, ready);
+                owner->vsyncCadence.Begin(uint32_t(call.frame), generated + 1, call.sync, ready, refresh);
                 vsyncFirst = owner;
             } else owner->vsyncCadence.Reset();
             break;
@@ -758,12 +808,14 @@ void NativeDeadline(Route& current, void* timing, int64_t* output, const void* r
         uint32_t excluded{};
         bool vsyncApplied{};
         int64_t vsyncReady{};
+        int64_t refreshPeriod{};
         {
             std::lock_guard lock(owner.clockMutex);
             vsyncApplied = owner.vsyncCadence.Matches(frame, total);
             if (vsyncApplied) {
                 if (unsafe.load(std::memory_order_acquire) || owner.retiring.load(std::memory_order_acquire)) return;
                 vsyncReady = owner.vsyncCadence.Ready();
+                refreshPeriod = owner.vsyncCadence.RefreshPeriod();
                 planned = owner.vsyncCadence.Plan(frame, total, index, now, batchStart, gpuLatency, decision);
                 meanInterval = owner.vsyncCadence.Interval().Mean() / int64_t(total);
                 excluded = owner.vsyncCadence.Interval().Excluded();
@@ -813,7 +865,8 @@ void NativeDeadline(Route& current, void* timing, int64_t* output, const void* r
                 ",\"flip_spacing_ns\":"+std::to_string(spacing)+",\"mean_interval_ns\":"+std::to_string(meanInterval)+
                 ",\"excluded\":"+std::to_string(excluded)+",\"gpu_latency_ns\":"+std::to_string(gpuLatency)+
                 ",\"latency_lead_ns\":"+std::to_string(decision.lead)+
-                ",\"vsync_cadence\":"+(vsyncApplied ? "true" : "false")+",\"vsync_ready_ns\":"+std::to_string(vsyncReady));
+                ",\"vsync_cadence\":"+(vsyncApplied ? "true" : "false")+",\"vsync_ready_ns\":"+std::to_string(vsyncReady)+
+                ",\"vsync_refresh_ns\":"+std::to_string(refreshPeriod));
         return;
     }
 }

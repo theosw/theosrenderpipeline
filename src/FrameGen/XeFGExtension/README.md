@@ -30,6 +30,11 @@ Intel's first-output completion stamp with its existing latency credit. This
 avoids counting the current batch's presentation waits as frame time; producer
 back-pressure can still reduce base FPS. Native x2 cadence and sync-0 driver
 metering retain their existing paths.
+Near the native refresh limit, VSync already spaces the outputs: batches within
+one additional sync quantum of that minimum retain native pacing. The helper
+reads the native swap chain's window and nominal monitor refresh for this
+admission check; it adds no vblank sleep and retains no new graphics resource.
+Unknown refresh information keeps the original SDK path.
 
 ## Source and asset provenance
 

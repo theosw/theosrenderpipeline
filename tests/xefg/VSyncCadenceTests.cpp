@@ -29,6 +29,7 @@ int __cdecl FakeDriver(IUnknown*, UINT source, void* packet) {
     return value->nFramesPerBatch ? 0 : driverOffResult;
 }
 bool FakePace(void*, const void*, uint8_t, const void*, uint32_t) { ++calledPace; return true; }
+int64_t FakeRefresh(Owner&, int64_t) noexcept { return 1000000; }
 HRESULT FakePresent(void*, UINT sync, UINT flags, uint64_t, const DXGI_PRESENT_PARAMETERS*, ID3D12Resource* const*, bool) {
     Require(sync == expectedSync && flags == 0, "forward submitted sync unchanged");
     ++calledPresent; SetLastError(1234); return presentResult;
@@ -46,7 +47,7 @@ struct Fixture {
     Fixture() {
         unsafe.store(false); flipFunction.store(nullptr); flipEnabled.store(false);
         current.module = reinterpret_cast<HMODULE>(0x10000000);
-        current.original = FakePresent; current.pace = FakePace; current.enabled.store(true);
+        current.original = FakePresent; current.pace = FakePace; current.refreshQuery = FakeRefresh; current.enabled.store(true);
         owner->handle = handle.data(); owner->generation = 1;
         owner->implementation = uintptr_t(implementation.data()); owner->chain = uintptr_t(chain.data());
         owner->presenter = uintptr_t(presenter.data()); owner->native = 0x20000000; owner->device = 0x30000000;
@@ -62,10 +63,15 @@ struct Fixture {
         Put(stack, kSummaryFromReturn, int64_t(6)); Put(stack, kSummaryFromReturn + 8, int64_t(55000000));
         Put(bundle, 0, uintptr_t(resources.data())); Put(bundle, 8, uint64_t(3));
         Mode(1, 0); Put(bundle, 0x30, call.frame); Put(bundle, 0xc0, uint8_t(1));
-        owner->vsyncCadence.Begin(100, 4, 1, NowNs());
+        Seed(4,1);
         current.owners.store(std::make_shared<const Owners>(Owners{owner}));
     }
     void Mode(UINT sync, UINT flags) { call.sync = sync; call.flags = flags; Put(bundle, 0x28, sync); Put(bundle, 0x2c, flags); }
+    void Seed(uint32_t outputs, UINT sync) {
+        const auto now=NowNs(); owner->vsyncCadence.Reset();
+        owner->vsyncCadence.Begin(99,outputs,sync,now-54000000,1000000);
+        owner->vsyncCadence.Begin(100,outputs,sync,now,1000000);
+    }
     void FirstCall() {
         firstLayout = true;
         call.returnAddress = uintptr_t(current.module) + kFirstReturn;
@@ -87,14 +93,14 @@ int main() {
     {
         Fixture f;
         for (UINT sync : {0u, 1u, 2u, 3u, 4u}) {
-            f.Mode(sync, 0); if(sync) f.owner->vsyncCadence.Begin(100,4,sync,NowNs());
+            f.Mode(sync, 0); if(sync) f.Seed(4,sync);
             Require(!f.PrepareCall(), "valid sync admission");
         }
         f.Mode(0, DXGI_PRESENT_ALLOW_TEARING); Require(!f.PrepareCall(), "existing immediate admission");
         f.Mode(1, 0);
-        Put(f.bundle, 8, uint64_t(2)); f.owner->vsyncCadence.Begin(100,3,1,NowNs());
+        Put(f.bundle, 8, uint64_t(2)); f.Seed(3,1);
         Require(!f.PrepareCall(), "x3 admission");
-        Put(f.bundle, 8, uint64_t(3)); f.owner->vsyncCadence.Begin(100,4,1,NowNs());
+        Put(f.bundle, 8, uint64_t(3)); f.Seed(4,1);
         Require(!f.PrepareCall(), "x4 admission");
         uint32_t generated{};
         f.call.returnAddress = uintptr_t(f.current.module) + kFirstReturn;
@@ -113,6 +119,11 @@ int main() {
     Refuses([](auto& f){f.owner->flip.configured=true;}, "off acknowledgement required");
     Refuses([](auto& f){f.owner->flip.metered=true;}, "metered owner");
     Refuses([](auto& f){f.owner->vsyncCadence.Reset();}, "unverified first output");
+    Refuses([](auto& f){
+        const auto now=NowNs(); f.owner->vsyncCadence.Reset();
+        f.owner->vsyncCadence.Begin(99,4,1,now-27777776,6944444);
+        f.owner->vsyncCadence.Begin(100,4,1,now,6944444);
+    }, "native refresh-limited batch refuses supplemental wait");
     Refuses([](auto& f){f.Mode(2,0);}, "first and supplemental sync must match");
     Refuses([](auto& f){f.call.returnSlot++;}, "stack alignment");
     Refuses([](auto& f){f.call.returnSlot=uintptr_t(f.owner.get());}, "stack bounds");
@@ -154,7 +165,7 @@ int main() {
         presentResult=S_FALSE;
         f.Mode(0,0); Put(f.stack,0xc8,UINT(0));
         Require(First(f.current,*f.owner,f.call,generated) && generated==3,"original sync-0 driver first admission unchanged");
-        f.owner->vsyncCadence.Begin(100,4,1,NowNs()); expectedSync=0;
+        f.owner->vsyncCadence.Begin(100,4,1,NowNs(),1000000); expectedSync=0;
         Require(Dispatch(f.current,f.call)==S_FALSE && !f.owner->vsyncCadence.Matches(100,4),
             "immediate first output clears stale VSync identity even if the frame id repeats");
         expectedSync=1;
@@ -170,8 +181,8 @@ int main() {
         Fixture f;
         const auto start=NowNs()-60000000;
         f.owner->vsyncCadence.Reset();
-        f.owner->vsyncCadence.Begin(99,4,1,start);
-        f.owner->vsyncCadence.Begin(100,4,1,start+54000000);
+        f.owner->vsyncCadence.Begin(99,4,1,start,1000000);
+        f.owner->vsyncCadence.Begin(100,4,1,start+54000000,1000000);
         alignas(8) std::array<unsigned char,0x28> record{};
         Put(record,0,start+55000000); Put(record,0x10,uint32_t(100));
         Put(record,0x14,9.0f); Put(record,0x20,start+59000000);
@@ -255,13 +266,38 @@ int main() {
         SetFlipMetering(nullptr,false,2500000); driverOffResult=0;
     }
     {
+        Fixture f;
+        Require(ReadVSyncRefresh(*f.owner,NowNs())==0,"unverified native GetDesc cannot supply a display budget");
+        f.owner->vsyncRefresh.periodNs=6944444;
+        Revoke(*f.owner);
+        Require(!f.owner->vsyncRefresh.periodNs && !f.owner->vsyncRefresh.window,"reset clears display budget cache");
+        cadence::VSyncCadence sync;
+        constexpr int64_t refresh=6944444;
+        int64_t ready=1000000000;
+        for(uint32_t frame=1;frame<=8;++frame){
+            ready+=refresh*4; sync.Begin(frame,4,1,ready,refresh);
+        }
+        cadence::BatchIntervalEstimator::Decision d;
+        Require(!sync.NeedsCadence() && !sync.Plan(8,4,1,ready+1000000,ready+1000000,0,d),
+            "one native VSync quantum per output never adds a deadline");
+        for(uint32_t frame=9;frame<=16;++frame){ready+=54000000;sync.Begin(frame,4,1,ready,refresh);}
+        Require(sync.NeedsCadence(),"slower producer admits cadence beyond native refresh budget");
+        for(uint32_t frame=17;frame<=24;++frame){ready+=31000000;sync.Begin(frame,4,1,ready,refresh);}
+        Require(!sync.NeedsCadence(),"near-refresh return escapes earlier software back-pressure");
+        sync.Begin(25,4,1,ready+27777776,8333333);
+        Require(!sync.Interval().Samples(),"refresh-rate change invalidates prior interval history");
+        Require(!sync.Begin(26,4,1,ready+54000000,0),"unknown refresh retains native pacing");
+        sync.Begin(30,4,2,2000000000,refresh); sync.Begin(31,4,2,2056000000,refresh);
+        Require(!sync.NeedsCadence(),"sync greater than one scales native refresh budget");
+    }
+    {
         // Real arrivals stay at 54 ms while the first Present/fence and later
         // deadlines vary. Only the arrival observes frame time; SDK completion
         // and the current deadline's invocation time must not train it.
         cadence::VSyncCadence sync;
         for (uint32_t frame=1; frame<=12; ++frame) {
             const int64_t ready=1000000000+int64_t(frame)*54000000;
-            Require(sync.Begin(frame,4,1,ready), "sync batch arrival");
+            Require(sync.Begin(frame,4,1,ready,1000000), "sync batch arrival");
             for (uint32_t index=1; index<4; ++index) {
                 cadence::BatchIntervalEstimator::Decision d;
                 const auto now=ready+int64_t(index)*13000000+(frame%2?1000000:8000000);
@@ -270,21 +306,21 @@ int main() {
             }
         }
         Require(sync.Interval().Typical()==54000000, "sync interval remains stable after repeated waits");
-        sync.Begin(13,3,1,1702000000);
+        sync.Begin(13,3,1,1702000000,1000000);
         Require(sync.Interval().Outputs()==3 && sync.Interval().Samples()>0, "count change uses existing estimator policy");
-        sync.Begin(14,4,1,1756000000);
+        sync.Begin(14,4,1,1756000000,1000000);
         Require(sync.Interval().Outputs()==4 && !sync.Matches(13,3), "new multiplier replaces old batch identity");
-        sync.Begin(15,4,2,1810000000);
+        sync.Begin(15,4,2,1810000000,1000000);
         Require(sync.Interval().Samples()==0, "sync interval change clears history");
         sync.Reset();
         cadence::BatchIntervalEstimator::Decision d;
         Require(!sync.Plan(15,4,1,1820000000,1811000000,1000000,d), "no deadline after reset");
-        Require(!sync.Begin(16,2,1,1864000000), "native x2 stays outside added VSync adapter");
-        sync.Begin(20,4,1,2000000000); sync.Begin(21,4,1,2054000000);
+        Require(!sync.Begin(16,2,1,1864000000,1000000), "native x2 stays outside added VSync adapter");
+        sync.Begin(20,4,1,2000000000,1000000); sync.Begin(21,4,1,2054000000,1000000);
         Require(!sync.Plan(21,4,1,2055000000,2053000000,0,d), "completion cannot precede verified arrival");
         Require(!sync.Plan(21,4,1,2055000000,2056000000,0,d), "completion cannot be in the future");
         Require(!sync.Plan(21,4,1,2355000000,2055000000,0,d), "stale sync batch refuses deadline");
-        sync.Begin(22,4,1,2500000000);
+        sync.Begin(22,4,1,2500000000,1000000);
         Require(sync.Interval().Samples()==0, "pause discards old sync interval history");
     }
     std::puts("PASS production VSync admission, refusal gates, forwarding, reset and teardown");

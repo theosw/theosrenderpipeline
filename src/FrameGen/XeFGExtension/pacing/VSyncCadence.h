@@ -9,10 +9,11 @@ namespace sdk_pacing::cadence {
 class VSyncCadence {
 public:
     void Reset() noexcept { *this = {}; }
-    bool Begin(uint32_t frame, uint32_t outputs, uint32_t sync, int64_t ready) noexcept {
-        if (outputs < 3 || outputs > 4 || sync < 1 || sync > 4 || ready <= 0) { Reset(); return false; }
-        if (sync_ && sync != sync_) interval_.Reset();
-        frame_ = frame; outputs_ = outputs; sync_ = sync; ready_ = ready;
+    bool Begin(uint32_t frame, uint32_t outputs, uint32_t sync, int64_t ready, int64_t refreshPeriod) noexcept {
+        if (outputs < 3 || outputs > 4 || sync < 1 || sync > 4 || ready <= 0
+            || refreshPeriod < 1000000 || refreshPeriod > 50000000) { Reset(); return false; }
+        if ((sync_ && sync != sync_) || (refreshPeriod_ && refreshPeriod != refreshPeriod_)) interval_.Reset();
+        frame_ = frame; outputs_ = outputs; sync_ = sync; ready_ = ready; refreshPeriod_ = refreshPeriod;
         interval_.Observe(frame, outputs, ready);
         return true;
     }
@@ -22,9 +23,16 @@ public:
     bool Matches(uint32_t frame, uint32_t outputs, uint32_t sync) const noexcept {
         return Matches(frame, outputs) && sync_ == sync;
     }
+    bool NeedsCadence() const noexcept {
+        // Native sync already consumes one sync quantum per output. Allow one
+        // further quantum of batch jitter before adding software waits. Near
+        // that floor, another Pace misses refreshes instead of smoothing them.
+        return interval_.Samples() && interval_.Typical() >
+            int64_t(outputs_ + 1) * int64_t(sync_) * refreshPeriod_;
+    }
     bool Plan(uint32_t frame, uint32_t outputs, uint32_t index, int64_t now,
         int64_t batchStart, int64_t gpuLatency, BatchIntervalEstimator::Decision& decision) const noexcept {
-        if (!Matches(frame, outputs) || batchStart < ready_ || now < batchStart
+        if (!Matches(frame, outputs) || !NeedsCadence() || batchStart < ready_ || now < batchStart
             || now - ready_ > BatchIntervalEstimator::kMaximumDelta) return false;
         // Arrival measures cadence; the completed first output places this
         // batch on the presentation timeline. Using arrival for both releases
@@ -38,9 +46,10 @@ public:
     }
     const BatchIntervalEstimator& Interval() const noexcept { return interval_; }
     int64_t Ready() const noexcept { return ready_; }
+    int64_t RefreshPeriod() const noexcept { return refreshPeriod_; }
 private:
     BatchIntervalEstimator interval_;
     uint32_t frame_{}, outputs_{}, sync_{};
-    int64_t ready_{};
+    int64_t ready_{}, refreshPeriod_{};
 };
 }
