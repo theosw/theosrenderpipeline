@@ -1,5 +1,6 @@
 #include <PCH.h>
 #include "NeuralObjectHooks.h"
+#include "NeuralObjectHookContract.h"
 #include "HookDetour.h"
 #include "FrameGen/NvidiaHost.h"
 #include <Psapi.h>
@@ -11,7 +12,7 @@ namespace TheosRenderPipeline::NeuralObjects
     namespace
     {
         using Group = NeuralRendering::ObjectGroup;
-        // The actual 1.6.1170 ABI is (pass, technique, alphaTest, flags).
+        // The verified 1.5.97 and 1.6.1170 ABI is (pass, technique, alphaTest, flags).
         // It is a static draw helper, despite the member declaration in CommonLib.
         using DrawPass = void(*)(RE::BSRenderPass*, std::uint32_t, bool, std::uint32_t);
         DrawPass original{};
@@ -22,7 +23,7 @@ namespace TheosRenderPipeline::NeuralObjects
         std::atomic<const char*> status{"Object capture is unavailable on this Skyrim version"};
         // Set when installing was refused, so the rows grey out instead of retrying.
         std::atomic<bool> declined{};
-        bool SupportedVersion() { return REL::Module::get().version() == REL::Version{1,6,1170,0}; }
+        bool SupportedVersion() { return DrawHook::ForVersion(REL::Module::get().version()) != nullptr; }
         // Where draws leave the capture path, summarized in the log while masks are on.
         using Skip = NeuralRendering::ObjectCapture::Skip;
         struct Counters
@@ -95,16 +96,15 @@ namespace TheosRenderPipeline::NeuralObjects
     }
     void Install()
     {
-        if (original || !SupportedVersion()) { return; }
-        const auto site = REL::ID(107644).address();
-        // Verified in the retained, statically unpacked executable. SSE Engine
+        const auto* contract = DrawHook::ForVersion(REL::Module::get().version());
+        if (original || !contract) { return; }
+        const auto site = REL::ID(contract->relocationID).address();
+        // Verified in the retained, exact-version offline executables. SSE Engine
         // Fixes already replaces this entry with a jump out of the image; chain
         // behind such a plugin. Any other change is an unknown patch: decline it.
-        constexpr std::array<std::uint8_t, 19> prefix{0x48,0x8b,0xc4,0x57,0x41,0x54,0x41,0x55,
-            0x41,0x56,0x41,0x57,0x48,0x81,0xec,0x80,0x00,0x00,0x00};
         MODULEINFO image{};
         if (!K32GetModuleInformation(GetCurrentProcess(), GetModuleHandleW(nullptr), &image, sizeof(image)) ||
-            !HookSafety::Entry(site, prefix, REL::Module::get().base(), image.SizeOfImage)) {
+            !HookSafety::Entry(site, contract->prefix, REL::Module::get().base(), image.SizeOfImage)) {
             status.store("Object capture hook conflicts with another patch; normal NR retained");
             declined.store(true);
             logger::warn("[NR Objects] draw-helper entry is neither the original code nor another plugin's jump; capture unavailable");
