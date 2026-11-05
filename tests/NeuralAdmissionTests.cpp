@@ -212,18 +212,9 @@ int wmain(int argc, wchar_t** argv)
             !NeuralRuntimeChoiceReason(false,false), "per-choice Pascal reasons preserve admitted repair and RTX choices");
         {
             // Kernel statistics: DXGI usage can sit far below the process's dedicated memory.
-            auto k = Valid(); k.adapterKnown = true; k.adapterFreeBytes = k.estimateBytes;
-            Require(!k.Refusal(), "working set that fits the card's free memory admits");
-            k.adapterFreeBytes = k.estimateBytes - 1;
-            Require(k.Refusal() == kPascalBudgetReason, "working set larger than the card's free memory refuses");
-            k.retainedEstimateBytes = k.estimateBytes; k.adapterFreeBytes = 0;
-            Require(!k.Refusal(), "running NR's retained working set is not charged twice");
-            k = Valid(); k.adapterKnown = true; k.adapterFreeBytes = k.estimateBytes; k.budgetPendingRetirement = true; k.adapterFreeBytes = 0;
-            Require(!k.Refusal(), "replacement preflight waits for retirement before budget checks");
-            k = Valid(); k.processCommittedBytes = k.budgetBytes - k.estimateBytes;
-            Require(!k.Refusal(), "actual process usage within budget admits");
-            k.processCommittedBytes += 1;
-            Require(k.Refusal() == kPascalBudgetReason, "actual process usage above DXGI's charged usage refuses");
+            // Card statistics are diagnostic only: they never refuse what DXGI's budget admits.
+            auto k = Valid(); k.adapterKnown = true; k.adapterFreeBytes = 0; k.processCommittedBytes = k.budgetBytes;
+            Require(!k.Refusal(), "card statistics do not refuse what the DXGI budget admits");
             k = Valid(); k.assetsPending = true; k.assetsVerified = false;
             Require(k.Refusal() == kPascalAssetsChecking, "background asset check is pending, not a missing-asset refusal");
             k.extentPending = true;

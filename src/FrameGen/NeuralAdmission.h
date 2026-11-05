@@ -44,8 +44,8 @@ namespace TheosRenderPipeline::NeuralRendering
         bool assetsVerified{}, budgetKnown{};
         // The menu's non-blocking check: verification still running off the render thread.
         bool assetsPending{};
-        // Kernel statistics. DXGI's usage is only what the budget charges and can be
-        // gigabytes below the process's dedicated memory on a nearly full card.
+        // Kernel statistics, logged for diagnosis. DXGI's usage is only what the budget
+        // charges and can be gigabytes below the process's dedicated memory.
         bool adapterKnown{};
         std::uint64_t adapterFreeBytes{}, processCommittedBytes{};
         // UI preflight only. The old owner is still charged by DXGI; replacement
@@ -70,11 +70,11 @@ namespace TheosRenderPipeline::NeuralRendering
             if (!estimateBytes) { return kPascalEstimateReason; }
             if (!budgetKnown) { return kPascalBudgetUnknownReason; }
             const auto additional = estimateBytes > retainedEstimateBytes ? estimateBytes - retainedEstimateBytes : 0;
-            if (!budgetPendingRetirement && additional) {
-                const auto used = usageBytes > processCommittedBytes ? usageBytes : processCommittedBytes;
-                if (used >= budgetBytes || additional > budgetBytes - used) { return kPascalBudgetReason; }
-                // The working set must also fit in the card's free memory, or it is paged.
-                if (adapterKnown && additional > adapterFreeBytes) { return kPascalBudgetReason; }
+            // DXGI's charged usage only. Admission by the card's committed and free memory
+            // (logged below) refused NR in LoreRim on a nearly full 1070 Ti, so it stays
+            // diagnostic until a looser rule is game-tested.
+            if (!budgetPendingRetirement && additional && (usageBytes >= budgetBytes || additional > budgetBytes - usageBytes)) {
+                return kPascalBudgetReason;
             }
             return nullptr;
         }
