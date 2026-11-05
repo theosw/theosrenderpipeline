@@ -1,4 +1,4 @@
-# Unreleased
+# 0.6.4
 
 - Experimental FSR 3.1 upscaling: Image > Mode > FSR 3.1. AMD's temporal
   upscaler needs no tensor cores, so it suits GTX 10 and AMD or Intel cards;
@@ -6,6 +6,16 @@
   official runtime is included. NR still runs before upscaling. Defaults are
   unchanged (DLSS on RTX, XeSS elsewhere). FSR has no reactive mask yet, so
   fire, particles and spell effects may smear.
+- NR's "Every other frame" keeps alternating at low frame rates. Below about
+  10 fps it used to treat every frame as a break and run the model each frame.
+- XeFG waits for its input copies on the GPU instead of the CPU, so the CPU can
+  prepare the next frame. On a GTX 1070 Ti that wait was up to about 90 ms.
+- GTX 10: the first menu open no longer freezes for several seconds while TRP
+  checks the NR runtime files; the check runs in the background. The memory
+  bar shows the whole card, including what Windows moved to system RAM.
+- GTX 10: the NR Network row notes that Old is about 3x slower than Small, and
+  the XeFG tensor model row says the card has no tensor cores, so its shader
+  version runs.
 
 # 0.6.3
 

@@ -3,7 +3,7 @@
 Rendering integration for Skyrim: NVIDIA DLSS/DLAA and frame generation,
 experimental Intel XeSS upscaling and XeFG frame generation, optional Neural
 Rendering (NR), and native-resolution menus and HUD. Current version:
-**0.6.3**. See [CHANGELOG.md](CHANGELOG.md) for release changes.
+**0.6.4**. See [CHANGELOG.md](CHANGELOG.md) for release changes.
 
 Universal adds experimental Neural Rendering on GTX 10 (Pascal, sm_61), using
 NVIDIA NR 310.9.16 and Universal's compatibility pack. Tested on a GTX 1070 Ti;
