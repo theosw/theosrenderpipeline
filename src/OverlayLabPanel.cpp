@@ -87,7 +87,7 @@ void OverlayUI::DrawLabXeFGControls()
         sourceBackend.ConfigureXeFGVSyncCadence(cadence);
     ImGui::EndDisabled();
     if (cadenceReason) DrawSettingsHelp(TR(cadenceReason));
-    DrawSettingsHelp(TR("Off by default, not saved. Spaces generated frames evenly with VSync when NVIDIA flip metering is unavailable (GTX 10, and windowed play on any card). Costs base frame rate: about 20-25% on a GTX 1070 Ti at x3/x4 with NR."));
+    DrawSettingsHelp(TR("Off by default, not saved. Changing this briefly restarts frame generation. Spaces generated frames evenly with VSync when NVIDIA flip metering is unavailable (GTX 10, and windowed play on any card). Costs base frame rate: about 20-25% on a GTX 1070 Ti at x3/x4 with NR."));
     bool gpuInputWait = sourceBackend.XeFGGpuInputWait();
     if (ImGui::Checkbox(TR("Input reuse: GPU fence wait (Lab)"), &gpuInputWait))
         sourceBackend.ConfigureXeFGGpuInputWait(gpuInputWait);

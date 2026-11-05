@@ -209,12 +209,16 @@ namespace TheosRenderPipeline
     }
     HRESULT XeFGPresenter::Create(ID3D12Device* device, ID3D12CommandQueue* queue, IDXGIFactory* factory,
         const DXGI_SWAP_CHAIN_DESC& desc, bool inverted, IDXGISwapChain** swapchain, std::uint32_t lastApplicationFrame, XeFGOptions options,
-        ID3D12PipelineLibrary* pipelines, IDXGISwapChain* existingNative)
+        ID3D12PipelineLibrary* pipelines, IDXGISwapChain* existingNative, bool vsyncCadence)
     {
         if (!swapchain) { return E_POINTER; }
         *swapchain = nullptr;
         if (!apiReady_ || initialized_ || fg_ || ll_ || !device || !queue || !factory || !SupportsFormat(desc.BufferDesc.Format)) { return E_INVALIDARG; }
         options = SanitizeXeFG(options);
+        // No SDK context or pacing owner exists at this boundary. Apply before
+        // registration so startup and live replacement train the same history.
+        snapshot_.vsyncCadence = vsyncCadence;
+        tensor_.SetVSyncCadence(vsyncCadence);
         // The previous presenter has retired: bind the copy Probe chose.
         if (auto hr = Activate(wanted_); FAILED(hr)) { return hr; }
         usingTensor_ = wantTensor_;

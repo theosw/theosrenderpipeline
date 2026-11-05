@@ -101,6 +101,15 @@ int main()
 	Require(!XeFGNeedsRecreation(true, {false, 1}) && !XeFGNeedsRecreation(true, {true, 3}),
 		"a presenter that tried the unlock serves x2-x6 live, including a refused unlock at x2");
 	Require(!XeFGNeedsRecreation(false, {false, 1}), "official x2 never recreates");
+
+    for (bool startup : {false, true}) {
+        bool applied = startup;
+        Require(!XeFGNeedsRecreation(true, {true,3}, applied, startup), "startup mode does not recreate itself");
+        Require(XeFGNeedsRecreation(true, {true,3}, applied, !startup), "cadence change requests presenter recreation");
+        applied = !startup; // Successful Create publishes its creation-time cadence mode.
+        Require(!XeFGNeedsRecreation(true, {true,3}, applied, !startup), "same mode after recreation requests no further recreation");
+        Require(XeFGNeedsRecreation(true, {true,3}, applied, startup), "reverse cadence change recreates too");
+    }
 	Require(XeFGCount({false, 5}, 5) == 1 && XeFGCount({true, 5}, 0) == 1,
 		"resident unlock does not defeat disable or absent capacity");
 	Require(SanitizeXeFG({true, 99}).generatedFrames == 5 && SanitizeXeFG({true, 0}).generatedFrames == 1,

@@ -38,6 +38,16 @@ int wmain(int argc,wchar_t** argv){
                 Require(runtime.Snapshot().matchedPSOs==1&&runtime.Snapshot().cachedPSOs==0,"no later extension callbacks");
             }else {
                 Require(SUCCEEDED(retired)&&!runtime.Unsafe(),"pacing retires cleanly");
+                runtime.SetVSyncCadence(true);
+                Require(runtime.RegisterPacing(context,device.Get(),nullptr)==S_OK &&
+                    (runtime.PacingStats().flags & TheosRenderPipeline::XeFGPacing::VSyncCadenceRequested),
+                    "replacement owner registers in startup-enabled state");
+                Require(SUCCEEDED(runtime.UnregisterPacing(context)),"enabled replacement retires");
+                runtime.SetVSyncCadence(false);
+                Require(runtime.RegisterPacing(context,device.Get(),nullptr)==S_OK &&
+                    !(runtime.PacingStats().flags & TheosRenderPipeline::XeFGPacing::VSyncCadenceRequested),
+                    "replacement owner registers in default startup state");
+                Require(SUCCEEDED(runtime.UnregisterPacing(context)),"off replacement retires");
                 Require(SUCCEEDED(runtime.Retire())&&runtime.Snapshot().cachedPSOs==1,"tensor cleanup follows pacing retirement");
             }
         }

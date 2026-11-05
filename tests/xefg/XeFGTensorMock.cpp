@@ -18,12 +18,12 @@ namespace {
 unsigned pacingFlags{};
 HRESULT __cdecl RegisterPacing(void*,ID3D12Device*,char*,std::uint32_t){
     if(Mode("pacing-safe-register"))return S_FALSE;
-    pacingFlags=TheosRenderPipeline::XeFGPacing::Registered;
+    pacingFlags|=TheosRenderPipeline::XeFGPacing::Registered;
     return Mode("pacing-unsafe-register")?E_FAIL:S_OK;
 }
 HRESULT __cdecl UnregisterPacing(void*,char*,std::uint32_t){
     if(Mode("pacing-retire-fail"))return E_FAIL;
-    pacingFlags=0;return S_OK;
+    pacingFlags&=TheosRenderPipeline::XeFGPacing::VSyncCadenceRequested;return S_OK;
 }
 void __cdecl ResetPacing(void*){}
 void __cdecl SetMetering(bool){}
