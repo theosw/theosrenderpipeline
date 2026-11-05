@@ -23,7 +23,7 @@ Acquire only the official release asset:
 Keep the download and extraction in their own ignored directory. Verify both
 hashes before assembling a package. Place the runtime at
 `SKSE/Plugins/TheosRenderPipeline/AMD/amd_fidelityfx_dx12.dll`, beside the supplied
-`FSR-LICENSE.txt`. Release packages include it in both editions. Runtime binaries
+`FSR-LICENSE.txt`. The Standard package includes it; Universal uses it from Standard. Runtime binaries
 and original archives stay out of source Git.
 No additional AMD sample, Agility SDK, frame-generation or compiler DLL is needed.
 

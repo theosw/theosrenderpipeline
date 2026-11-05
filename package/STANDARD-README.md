@@ -69,7 +69,7 @@ It also fixes the vanilla main menu disappearing, NR stopping while the interfac
 is hidden, and a possible XeFG freeze when gameplay starts. See CHANGELOG.md.
 
 Experimental **Image > Mode > FSR 3.1** (`UpscaleType=5`) uses AMD's official
-FidelityFX SDK 1.1.4 runtime, included as `SKSE/Plugins/TheosRenderPipeline/AMD/amd_fidelityfx_dx12.dll`
+FidelityFX SDK 1.1.4 runtime, included here as `SKSE/Plugins/TheosRenderPipeline/AMD/amd_fidelityfx_dx12.dll`
 beside AMD's MIT notice `FSR-LICENSE.txt`. It needs no tensor cores. XeSS/FSR can
 switch with Apply at the current render size; render-scale changes require save
 and restart. NR and native UI composition remain available. Defaults are

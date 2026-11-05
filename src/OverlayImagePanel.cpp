@@ -241,7 +241,7 @@ void OverlayUI::DrawImagePanel(float tabCardHeight, const FrameView& view)
                         {TR("XeSS"), true, TR("Intel XeSS (experimental). After restart it uses Intel's quality resolutions.")},
                         {"FSR 3.1", view.fsrRuntimePresent, view.fsrRuntimePresent // not translated: product name and version
                             ? TR("AMD FSR 3.1 temporal upscaling (experimental).")
-                            : TR("AMD's FSR runtime is missing from TheosRenderPipeline\\AMD. Reinstall TRP, then restart.")}});
+                            : TR("AMD's FSR runtime is missing from TheosRenderPipeline\\AMD. Reinstall TRP Standard, then restart.")}});
                     if (changed) { settingsDraft.upscaleType = mode == 3 ? FSR : mode == 2 ? XeSS : mode == 1 ? DLAA : DLSS; }
                     return changed;
                 });

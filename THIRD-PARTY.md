@@ -52,9 +52,9 @@ runtimes retain the license files accompanying their downloads.
 - **AMD FidelityFX Super Resolution 3.1.4** — Advanced Micro Devices, Inc., MIT.
   Unmodified public API headers from FidelityFX SDK 1.1.4, commit
   `c6efa6bf7f2027b3ec94f28578bb5965eabb9e55`, are in `extern/fidelityfx-api`.
-  Both packages include the official, unmodified and AMD-signed
-  `amd_fidelityfx_dx12.dll` (temporal upscaling only), with AMD's MIT notice as
-  `AMD/FSR-LICENSE.txt` beside it.
+  Standard includes the official, unmodified and AMD-signed
+  `amd_fidelityfx_dx12.dll` (temporal upscaling only). Both packages carry AMD's
+  MIT notice as `AMD/FSR-LICENSE.txt`, since both renderers compile the headers.
   See [version, hashes and acquisition](extern/fidelityfx-api/README.md).
   https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK/tree/v1.1.4
 - **FidelityFX RCAS / RCAS for ReShade** — AMD and RdenBlaauwen, MIT; sharpening
