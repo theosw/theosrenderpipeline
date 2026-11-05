@@ -19,6 +19,7 @@ template<class T, size_t N> void Put(std::array<unsigned char, N>& bytes, size_t
     std::memcpy(bytes.data() + offset, &value, sizeof(value));
 }
 unsigned calledPace{}, calledPresent{};
+UINT expectedSync = 1;
 HRESULT presentResult = S_FALSE;
 NvFlipConfigV2 lastPacket{};
 int driverOffResult{};
@@ -29,7 +30,7 @@ int __cdecl FakeDriver(IUnknown*, UINT source, void* packet) {
 }
 bool FakePace(void*, const void*, uint8_t, const void*, uint32_t) { ++calledPace; return true; }
 HRESULT FakePresent(void*, UINT sync, UINT flags, uint64_t, const DXGI_PRESENT_PARAMETERS*, ID3D12Resource* const*, bool) {
-    Require(sync == 1 && flags == 0, "forward submitted VSync unchanged");
+    Require(sync == expectedSync && flags == 0, "forward submitted sync unchanged");
     ++calledPresent; SetLastError(1234); return presentResult;
 }
 struct Fixture {
@@ -153,6 +154,10 @@ int main() {
         presentResult=S_FALSE;
         f.Mode(0,0); Put(f.stack,0xc8,UINT(0));
         Require(First(f.current,*f.owner,f.call,generated) && generated==3,"original sync-0 driver first admission unchanged");
+        f.owner->vsyncCadence.Begin(100,4,1,NowNs()); expectedSync=0;
+        Require(Dispatch(f.current,f.call)==S_FALSE && !f.owner->vsyncCadence.Matches(100,4),
+            "immediate first output clears stale VSync identity even if the frame id repeats");
+        expectedSync=1;
     }
     {
         Fixture f; calledPace=calledPresent=0;

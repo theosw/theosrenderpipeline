@@ -568,10 +568,18 @@ HRESULT Dispatch(Route& current, const Invocation& call)
         catch (...) {} // Flip metering must not replace the original Present result.
     }
     std::shared_ptr<Owner> vsyncFirst;
-    if (call.sync && current.enabled.load(std::memory_order_acquire)
+    if (current.enabled.load(std::memory_order_acquire)
         && call.returnAddress == uintptr_t(current.module) + kFirstReturn && call.generated) {
         if (const auto owners = current.owners.load(std::memory_order_acquire)) for (const auto& owner : *owners) {
             if (owner->presenter != uintptr_t(call.presenter)) continue;
+            // Do not bridge a return to VSync across immediate-mode batches,
+            // or let a reused frame id select a stale sync-only observation.
+            // This does not change the legacy estimator or driver admission.
+            if (!call.sync) {
+                std::lock_guard lock(owner->clockMutex);
+                owner->vsyncCadence.Reset();
+                break;
+            }
             uint32_t generated{};
             const bool admitted = FirstVSync(current, *owner, call, generated);
             std::lock_guard lock(owner->clockMutex);
