@@ -507,6 +507,15 @@ PreviewScenario Runtimes()
     return scenario;
 }
 
+PreviewScenario VSyncCadenceLab()
+{
+    auto scenario = Intel();
+    scenario.name = "vsync-cadence-lab";
+    scenario.summary = "XeFG Lab controls with session-only VSync cadence off";
+    scenario.labMode = true;
+    return scenario;
+}
+
 PreviewScenario Lab()
 {
     auto scenario = Healthy();
@@ -533,5 +542,5 @@ std::vector<PreviewScenario> PreviewScenarios()
         Pascal("pascal-driver", NeuralRendering::kPascalDriverReason),
         Pascal("pascal-missing-pack", NeuralRendering::kPascalAssetReason),
         Pascal("pascal-checking", NeuralRendering::kPascalAssetsChecking),
-        Pascal("pascal-low-budget", NeuralRendering::kPascalBudgetReason), PascalOldNetwork(), Runtimes(), Lab()};
+        Pascal("pascal-low-budget", NeuralRendering::kPascalBudgetReason), PascalOldNetwork(), Runtimes(), Lab(), VSyncCadenceLab()};
 }

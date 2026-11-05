@@ -93,6 +93,7 @@ namespace TheosRenderPipeline
         XeFGPacing::Stats PacingStats() const { return tensor_.PacingStats(); }
         const std::string& PacingStatus() const { return tensor_.PacingStatus(); }
         bool FlipMeteringRequested() const { return tensor_.FlipMeteringRequested(); }
+        void SetVSyncCadence(bool enabled) { tensor_.SetVSyncCadence(enabled); }
         void SetFlipMetering(bool enabled) { tensor_.SetFlipMetering(enabled); }
         static bool SupportsFormat(DXGI_FORMAT format);
     private:

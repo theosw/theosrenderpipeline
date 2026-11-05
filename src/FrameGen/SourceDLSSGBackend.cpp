@@ -905,7 +905,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 				if (ui.Format != destination.Format || ui.Width != destination.Width || ui.Height != destination.Height) { intelUI = nullptr; }
 			}
 			if (!CheckXeFG(xefg_.SetDebugView(XeFGOnlyGenerated(), XeFGTagGenerated()))) { return fault_; }
-			const bool meter = XeFGFlipMetering() && VSyncConfigurationMode() != VSyncMode::On;
+			xefg_.SetVSyncCadence(XeFGVSyncCadence());
+            const bool meter = XeFGFlipMetering() && VSyncConfigurationMode() != VSyncMode::On;
 			if (xefg_.FlipMeteringRequested() != meter) xefg_.SetFlipMetering(meter);
 			xefg_.SetSceneChangeThreshold(XeFGSceneChangeThresholdConfiguration());
 			if (enabled_ && (!generationAllowed || !prepared || !compatible) && xefg_.Snapshot().presents % 600 == 0) {
@@ -1691,7 +1692,18 @@ namespace TheosRenderPipeline::SourceDLSSG
 		}
 		return cache.Library();
 	}
-	const char* Backend::XeFGModelBeatUnavailable() const
+	const char* Backend::XeFGVSyncCadenceUnavailable() const
+    {
+        if (provider_ != FrameGenerationProvider::XeFG) return "Select Intel XeFG.";
+        if (!xefg_.TensorInUse()) return "Enable the XeFG tensor helper and Apply.";
+        const auto flags = xefg_.PacingStats().flags;
+        if (!(flags & XeFGPacing::Registered) || (flags & XeFGPacing::Unsafe)) return "XeFG pacing helper is not ready.";
+        if (xefg_.Snapshot().generatedFrames != 2 && xefg_.Snapshot().generatedFrames != 3) return "Select XeFG x3 or x4.";
+        if (flags & XeFGPacing::Metered) return "NVIDIA flip metering is active.";
+        if (!VSyncState().submission.sync) return "VSync is off; the helper already paces without VSync.";
+        return nullptr;
+    }
+    const char* Backend::XeFGModelBeatUnavailable() const
 	{
 		if (provider_ != FrameGenerationProvider::XeFG) return "Select Intel XeFG.";
 		if (!ready_ || !enabled_) return "Enable frame generation.";

@@ -8,9 +8,9 @@
 // unregister only after successful SDK destruction has joined its presentation threads.
 namespace TheosRenderPipeline::XeFGPacing
 {
-    inline constexpr std::uint32_t Version = 1;
-    enum Flags : std::uint32_t { Installed=1, Registered=2, DriverAvailable=4, Requested=8, QueueReady=16, Metered=32, Unsafe=64, Unavailable=128 };
-    // Unavailable is an additive flag: existing version-1 helpers remain usable.
+    inline constexpr std::uint32_t Version = 2;
+    enum Flags : std::uint32_t { Installed=1, Registered=2, DriverAvailable=4, Requested=8, QueueReady=16, Metered=32, Unsafe=64, Unavailable=128, VSyncCadenceRequested=256 };
+    // Version 2 adds the session-only software VSync cadence switch.
     constexpr bool CanMeter(std::uint32_t flags) {
         constexpr auto required = Installed | Registered | DriverAvailable | QueueReady;
         return (flags & required) == required && !(flags & (Unsafe | Unavailable));
@@ -29,6 +29,7 @@ namespace TheosRenderPipeline::XeFGPacing
         void (__cdecl* setMetering)(bool){};
         void (__cdecl* snapshot)(Stats*){};
         void (__cdecl* setLogger)(void (*)(const char*)){};
+        void (__cdecl* setVSyncCadence)(bool){};
     };
     using GetAPI = HRESULT (__cdecl*)(API*);
 }

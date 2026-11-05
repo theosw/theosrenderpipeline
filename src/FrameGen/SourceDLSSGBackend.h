@@ -173,6 +173,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 		void ConfigureXeFGModelBeat(bool enabled) { xefgModelBeatRequested_.store(enabled, std::memory_order_relaxed); }
 		bool XeFGModelBeatRequested() const { return xefgModelBeatRequested_.load(std::memory_order_relaxed); }
 		const char* XeFGModelBeatUnavailable() const;
+        void ConfigureXeFGVSyncCadence(bool enabled) { xefgVSyncCadence_.store(enabled, std::memory_order_relaxed); }
+        bool XeFGVSyncCadence() const { return xefgVSyncCadence_.load(std::memory_order_relaxed); }
+        const char* XeFGVSyncCadenceUnavailable() const;
 		// Lab A/B, not saved: NVIDIA's next frame waits for frame generation's
 		// inputs only where TRP first writes a shared texture, not at its start.
 		void ConfigureNvidiaOverlapNextFrame(bool a_enabled) { nvidiaOverlapNextFrame_.store(a_enabled, std::memory_order_relaxed); }
@@ -343,7 +346,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 		std::atomic<sl::ReflexMode> reflexMode_{ sl::ReflexMode::eLowLatency };
 		std::atomic<DlssgPreset> preset_{ DlssgPreset::B };
 		std::atomic<bool> releaseForPreset_{};
-		std::atomic<bool> xefgFrameTime_{ true }, xefgOnlyGenerated_{}, xefgTagGenerated_{}, xefgGpuInputWait_{}, xefgFlipMetering_{true};
+		std::atomic<bool> xefgVSyncCadence_{};
+        std::atomic<bool> xefgFrameTime_{ true }, xefgOnlyGenerated_{}, xefgTagGenerated_{}, xefgGpuInputWait_{}, xefgFlipMetering_{true};
 		std::atomic<float> xefgSceneChange_{ XeFGDefaultSceneChangeThreshold };
 		std::atomic<bool> nvidiaOverlapNextFrame_{};
 		bool nvidiaOverlapLogged_{}; // Present thread.

@@ -42,6 +42,7 @@ HRESULT __cdecl Unregister(void* handle,char* reason,uint32_t bytes) {
 }
 void __cdecl Reset(void* handle){try{std::lock_guard lock(mutex);if(context==handle)sdk_pacing::Reset(context,generation);}catch(...){}}
 void __cdecl SetMetering(bool enabled){try{std::lock_guard lock(mutex);requested=enabled;sdk_pacing::SetFlipMetering(setFlip,enabled,2500000);}catch(...){}}
+void __cdecl SetVSyncCadence(bool enabled){try{std::lock_guard lock(mutex);sdk_pacing::SetVSyncCadence(enabled);}catch(...){}}
 void __cdecl Snapshot(Stats* output){if(output && output->size==sizeof(Stats))*output=sdk_pacing::Snapshot();}
 void __cdecl SetLogger(void (*callback)(const char*)){logger.store(callback,std::memory_order_release);}
 }
@@ -80,5 +81,5 @@ extern "C" __declspec(dllexport) HRESULT __cdecl TRPXeFGPacingGetAPI(TheosRender
     using namespace TheosRenderPipeline::XeFGPacing;
     if(!api || api->size!=sizeof(API) || api->version!=Version)return E_NOINTERFACE;
     api->registerContext=&Register;api->unregisterContext=&Unregister;api->reset=&Reset;
-    api->setMetering=&SetMetering;api->snapshot=&Snapshot;api->setLogger=&SetLogger;return S_OK;
+    api->setVSyncCadence=&SetVSyncCadence;api->setMetering=&SetMetering;api->snapshot=&Snapshot;api->setLogger=&SetLogger;return S_OK;
 }

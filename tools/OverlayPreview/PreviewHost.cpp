@@ -1,3 +1,4 @@
+#include "Localization.h"
 #include "OverlayPreview.h"
 
 #include <imgui_impl_dx11.h>
@@ -141,6 +142,10 @@ void OverlayUI::DrawLabImageDetails(const FrameView&)
 
 void OverlayUI::DrawLabXeFGControls()
 {
+    bool cadence = false;
+    ImGui::BeginDisabled();
+    ImGui::Checkbox(TR("XeFG x3/x4 even pacing with VSync (Lab)"), &cadence);
+    ImGui::EndDisabled();
     LabDetailsUnavailable();
 }
 

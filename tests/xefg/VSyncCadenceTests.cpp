@@ -4,10 +4,7 @@
 #include <cstdio>
 #include <cstdlib>
 
-namespace trp_pacing_bridge {
-HMODULE Self() noexcept { return GetModuleHandleW(nullptr); }
-void WriteLog(const std::string&, const std::string&) {}
-}
+#include "FrameGen/XeFGExtension/PacingBridge.cpp"
 
 namespace {
 using namespace sdk_pacing;
@@ -45,7 +42,7 @@ struct Fixture {
     std::shared_ptr<Owner> owner{std::make_shared<Owner>()};
     Invocation call{};
     Fixture() {
-        unsafe.store(false); flipFunction.store(nullptr); flipEnabled.store(false);
+        vsyncCadenceEnabled.store(true); unsafe.store(false); flipFunction.store(nullptr); flipEnabled.store(false);
         current.module = reinterpret_cast<HMODULE>(0x10000000);
         current.original = FakePresent; current.pace = FakePace; current.refreshQuery = FakeRefresh; current.enabled.store(true);
         owner->handle = handle.data(); owner->generation = 1;
@@ -90,6 +87,40 @@ template<class Mutation> void Refuses(Mutation mutation, const char* message) {
 
 int main() {
     using namespace sdk_pacing;
+    Require(!vsyncCadenceEnabled.load(), "VSync cadence defaults off");
+    {
+        TheosRenderPipeline::XeFGPacing::API api;
+        api.version=1;
+        Require(TRPXeFGPacingGetAPI(&api)==E_NOINTERFACE && !api.setVSyncCadence, "v1 caller refused without writing callbacks");
+        api.version=TheosRenderPipeline::XeFGPacing::Version; api.size-=sizeof(void*);
+        Require(TRPXeFGPacingGetAPI(&api)==E_NOINTERFACE, "old API size refused");
+        api.size=sizeof(api);
+        Require(TRPXeFGPacingGetAPI(&api)==S_OK && api.setVSyncCadence, "v2 switch exported");
+        api.setVSyncCadence(true); Require(vsyncCadenceEnabled.load(), "API enables live cadence");
+        api.setVSyncCadence(false); Require(!vsyncCadenceEnabled.load(), "API disables live cadence");
+    }
+
+    {
+        Fixture f; route.store(&f.current);
+        f.owner->vsyncRefresh.periodNs=6944444;
+        f.owner->flip.anchorNs=123456; f.owner->flip.calls=42;
+        const auto flipBefore = f.owner->flip;
+        sdk_pacing::SetVSyncCadence(false);
+        Require(std::strcmp(f.PrepareCall(), "different_present_mode")==0, "off gives exact legacy refusal");
+        Require(!f.owner->vsyncCadence.Matches(100,4) && !f.owner->vsyncRefresh.periodNs, "off clears sync state");
+        f.Mode(0,0); Require(!f.PrepareCall(), "off preserves sync zero");
+        expectedSync=0; calledPace=0; calledPresent=0;
+        Dispatch(f.current,f.call);
+        Require(calledPace==1 && calledPresent==1, "off dispatch still invokes supplemental sync-zero Pace");
+        expectedSync=1;
+        f.Mode(1,0); sdk_pacing::SetVSyncCadence(true);
+        Require(f.PrepareCall()!=nullptr, "on requires fresh witness");
+        f.Seed(4,1); Require(!f.PrepareCall(), "live on admits fresh batch");
+        sdk_pacing::SetVSyncCadence(false);
+        Require(std::strcmp(f.PrepareCall(), "different_present_mode")==0, "live off restores legacy refusal");
+        Require(std::memcmp(&flipBefore,&f.owner->flip,sizeof(flipBefore))==0, "toggle leaves driver state byte exact");
+        route.store(nullptr);
+    }
     {
         Fixture f;
         for (UINT sync : {0u, 1u, 2u, 3u, 4u}) {

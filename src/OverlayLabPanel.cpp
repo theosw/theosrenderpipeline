@@ -80,6 +80,14 @@ void OverlayUI::DrawLabXeFGControls()
         sourceBackend.ConfigureXeFGDebugView(onlyGenerated, tagGenerated);
     DrawSettingsHelp(TR("Intel debug views, not saved. Only generated frames hides every real frame; "
                      "tagging marks generated frames with corner boxes."));
+    const auto* cadenceReason = sourceBackend.XeFGVSyncCadenceUnavailable();
+    bool cadence = sourceBackend.XeFGVSyncCadence();
+    ImGui::BeginDisabled(cadenceReason != nullptr);
+    if (ImGui::Checkbox(TR("XeFG x3/x4 even pacing with VSync (Lab)"), &cadence))
+        sourceBackend.ConfigureXeFGVSyncCadence(cadence);
+    ImGui::EndDisabled();
+    if (cadenceReason) DrawSettingsHelp(TR(cadenceReason));
+    DrawSettingsHelp(TR("Off by default, not saved. Spaces generated frames evenly with VSync when NVIDIA flip metering is unavailable (GTX 10, and windowed play on any card). Costs base frame rate: about 20-25% on a GTX 1070 Ti at x3/x4 with NR."));
     bool gpuInputWait = sourceBackend.XeFGGpuInputWait();
     if (ImGui::Checkbox(TR("Input reuse: GPU fence wait (Lab)"), &gpuInputWait))
         sourceBackend.ConfigureXeFGGpuInputWait(gpuInputWait);
@@ -104,6 +112,12 @@ void OverlayUI::DrawLabGenerationControls(const FrameView& view)
         "Turn off and on to learn a new scene. Frame limit must be Off."));
     if (view.provider != TheosRenderPipeline::FrameGenerationProvider::XeFG)
     {
+        const auto* reason = sourceBackend.XeFGVSyncCadenceUnavailable();
+        bool cadence = sourceBackend.XeFGVSyncCadence();
+        ImGui::BeginDisabled(true);
+        ImGui::Checkbox(TR("XeFG x3/x4 even pacing with VSync (Lab)"), &cadence);
+        ImGui::EndDisabled();
+        if (reason) DrawSettingsHelp(TR(reason));
         // Session-only diagnostic: an artifact only in generated frames comes from generation.
         bool onlyGenerated = sourceBackend.XeFGOnlyGenerated();
         if (ImGui::Checkbox(TR("Show only generated frames (Lab)"), &onlyGenerated))

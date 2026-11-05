@@ -26,6 +26,10 @@ int wmain(int argc,wchar_t** argv){
             Require(FAILED(runtime.Retire())&&runtime.Snapshot().cachedPSOs==0,"retained pacing blocks tensor cleanup");
         }else {
             Require(SUCCEEDED(registered),"pacing registered");
+            runtime.SetVSyncCadence(true);
+            Require(runtime.PacingStats().flags & TheosRenderPipeline::XeFGPacing::VSyncCadenceRequested,"runtime forwards live on");
+            runtime.SetVSyncCadence(false);
+            Require(!(runtime.PacingStats().flags & TheosRenderPipeline::XeFGPacing::VSyncCadenceRequested),"runtime forwards live off");
             runtime.SetFlipMetering(false);runtime.ResetPacing(context);
             const auto retired=runtime.UnregisterPacing(context);
             if(mode==L"pacing-retire-fail") {

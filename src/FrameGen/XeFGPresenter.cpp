@@ -503,7 +503,7 @@ namespace TheosRenderPipeline
                 " refused="+std::to_string(pacing.refused)+" wallWaits="+std::to_string(pacing.wallWaits)+
                 " tensor="+std::to_string(snapshot_.tensorActive)+" tensorLaunches="+std::to_string(snapshot_.tensorLaunches)+
                 " tensorFallbacks="+std::to_string(snapshot_.tensorFallbacks)+
-                " pacingFlags="+std::to_string(snapshot_.pacing.flags)+" flipCalls="+std::to_string(snapshot_.pacing.flipCalls)+
+                " vsyncCadence="+std::to_string(bool(snapshot_.pacing.flags & XeFGPacing::VSyncCadenceRequested))+" pacingFlags="+std::to_string(snapshot_.pacing.flags)+" flipCalls="+std::to_string(snapshot_.pacing.flipCalls)+
                 " meteredCalls="+std::to_string(snapshot_.pacing.meteredCalls)+" driverFailures="+std::to_string(snapshot_.pacing.driverFailures)+
                 " pacedDeadlines="+std::to_string(snapshot_.pacing.deadlines);
             log_(text.c_str());

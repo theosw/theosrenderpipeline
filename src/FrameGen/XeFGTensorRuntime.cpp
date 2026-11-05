@@ -73,7 +73,7 @@ namespace TheosRenderPipeline
         if (const auto getPacing = reinterpret_cast<XeFGPacing::GetAPI>(GetProcAddress(module, "TRPXeFGPacingGetAPI"))) {
             XeFGPacing::API pacing{};
             if (SUCCEEDED(getPacing(&pacing)) && pacing.size == sizeof(pacing) && pacing.version == XeFGPacing::Version &&
-                pacing.registerContext && pacing.unregisterContext && pacing.reset && pacing.setMetering && pacing.snapshot && pacing.setLogger)
+                pacing.registerContext && pacing.unregisterContext && pacing.reset && pacing.setMetering && pacing.snapshot && pacing.setLogger && pacing.setVSyncCadence)
                 pacing_ = pacing;
         }
         return true;
@@ -82,7 +82,7 @@ namespace TheosRenderPipeline
     {
         if (Unsafe()) return E_UNEXPECTED;
         if (!pacing_.registerContext) return S_FALSE;
-        pacing_.setLogger(logger); pacing_.setMetering(meteringRequested_);
+        pacing_.setLogger(logger); pacing_.setMetering(meteringRequested_); pacing_.setVSyncCadence(vsyncCadenceRequested_);
         char reason[512]{};
         const auto hr = pacing_.registerContext(context, device, reason, sizeof(reason));
         reason[sizeof(reason)-1] = 0; pacingStatus_ = reason;

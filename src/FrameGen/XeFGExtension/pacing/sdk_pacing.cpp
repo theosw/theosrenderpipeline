@@ -101,6 +101,7 @@ std::atomic<int64_t> flipLeadNs{2500000};
 std::atomic<unsigned> flipToggleLogs{};
 std::atomic<uint64_t> deadlines{}, extraPaces{}, flipCalls{}, meteredCalls{}, driverFailures{}, resets{};
 std::atomic<bool> unsafe{};
+std::atomic<bool> vsyncCadenceEnabled{};
 // A batch is configured once the estimate holds this many batch deltas (DLSS-G averages six).
 constexpr uint32_t kFlipMinimumSamples = 3;
 // Repeated driver refusals select software pacing after checked driver disable.
@@ -213,7 +214,7 @@ const char* Prepare(const Route& current, Owner& owner, const Invocation& call, 
     if (call.returnAddress != uintptr_t(current.module)+kExtraReturn || !call.generated)
         return "different_call_site";
     if (call.presenter != reinterpret_cast<void*>(owner.presenter)) return "different_presenter";
-    if (call.sync > 4 || (call.sync ? call.flags != 0 : (call.flags & ~UINT(DXGI_PRESENT_ALLOW_TEARING)) != 0))
+    if ((call.sync && !vsyncCadenceEnabled.load(std::memory_order_acquire)) || call.sync > 4 || (call.sync ? call.flags != 0 : (call.flags & ~UINT(DXGI_PRESENT_ALLOW_TEARING)) != 0))
         return "different_present_mode";
     if (call.sync) {
         if (unsafe.load(std::memory_order_acquire) || owner.retiring.load(std::memory_order_acquire) || !Live(owner))
@@ -372,7 +373,7 @@ bool First(const Route& current, const Owner& owner, const Invocation& call, uin
 // configuration. No additional wait is installed on output zero.
 bool FirstVSync(const Route& current, Owner& owner, const Invocation& call, uint32_t& generated) noexcept
 {
-    if (!firstLayout.load(std::memory_order_acquire) || unsafe.load(std::memory_order_acquire)
+    if (!vsyncCadenceEnabled.load(std::memory_order_acquire) || !firstLayout.load(std::memory_order_acquire) || unsafe.load(std::memory_order_acquire)
         || owner.retiring.load(std::memory_order_acquire)
         || !call.generated || call.returnAddress != uintptr_t(current.module) + kFirstReturn
         || call.presenter != reinterpret_cast<void*>(owner.presenter)
@@ -408,7 +409,7 @@ bool ObserveVSyncFirst(Route& current, Owner& owner, const Invocation& call,
     // Admission can precede retirement. Recheck under the same lock that
     // Revoke must acquire before Unregister returns and the native chain may
     // be released. A stale admission must never invoke its refresh query.
-    if (!admitted || owner.retiring.load(std::memory_order_acquire)
+    if (!vsyncCadenceEnabled.load(std::memory_order_acquire) || !admitted || owner.retiring.load(std::memory_order_acquire)
         || owner.retired.load(std::memory_order_acquire) || owner.disabled.load(std::memory_order_acquire)
         || unsafe.load(std::memory_order_acquire)) {
         owner.vsyncCadence.Reset();
@@ -637,7 +638,7 @@ HRESULT Dispatch(Route& current, const Invocation& call)
         catch (...) {} // Flip metering must not replace the original Present result.
     }
     std::shared_ptr<Owner> vsyncFirst;
-    if (current.enabled.load(std::memory_order_acquire)
+    if (vsyncCadenceEnabled.load(std::memory_order_acquire) && current.enabled.load(std::memory_order_acquire)
         && call.returnAddress == uintptr_t(current.module) + kFirstReturn && call.generated) {
         if (const auto owners = current.owners.load(std::memory_order_acquire)) for (const auto& owner : *owners) {
             if (owner->presenter != uintptr_t(call.presenter)) continue;
@@ -779,7 +780,7 @@ void LogHitches(const Owner& owner, uint32_t frame, const HitchNote& note, int64
         if (note.stats)
         {
             const auto& c = note.counters;
-            trp_pacing_bridge::WriteLog("pacing_stats", "\"batches\":"+std::to_string(c.batches)+generation+
+            trp_pacing_bridge::WriteLog("pacing_stats", "\"vsync_cadence_enabled\":"+std::string(vsyncCadenceEnabled.load() ? "true" : "false")+",\"batches\":"+std::to_string(c.batches)+generation+
                 ",\"hitches\":"+std::to_string(c.hitches)+",\"bridged\":"+std::to_string(c.bridged)+
                 ",\"reset_gap\":"+std::to_string(c.resetGap)+",\"reset_range\":"+std::to_string(c.resetRange)+
                 ",\"reset_base\":"+std::to_string(c.resetBase)+",\"revoked\":"+std::to_string(c.revoked)+
@@ -826,7 +827,7 @@ void NativeDeadline(Route& current, void* timing, int64_t* output, const void* r
         int64_t refreshPeriod{};
         {
             std::lock_guard lock(owner.clockMutex);
-            vsyncApplied = owner.vsyncCadence.Matches(frame, total);
+            vsyncApplied = vsyncCadenceEnabled.load(std::memory_order_acquire) && owner.vsyncCadence.Matches(frame, total);
             if (vsyncApplied) {
                 if (unsafe.load(std::memory_order_acquire) || owner.retiring.load(std::memory_order_acquire)) return;
                 vsyncReady = owner.vsyncCadence.Ready();
@@ -1115,6 +1116,21 @@ bool Unregister(void* handle, uint64_t generation) noexcept
     } catch (...) { unsafe.store(true); return false; }
 }
 
+void SetVSyncCadence(bool enabled) noexcept
+{
+    if (vsyncCadenceEnabled.load(std::memory_order_acquire) == enabled) return;
+    vsyncCadenceEnabled.store(false, std::memory_order_release);
+    if (auto* current = route.load(std::memory_order_acquire))
+        if (const auto owners = current->owners.load(std::memory_order_acquire))
+            for (const auto& owner : *owners) {
+                std::lock_guard lock(owner->clockMutex);
+                owner->vsyncCadence.Reset();
+                owner->vsyncRefresh = {};
+            }
+    vsyncCadenceEnabled.store(enabled, std::memory_order_release);
+    trp_pacing_bridge::WriteLog("vsync_cadence_switch", enabled ? "enabled=true" : "enabled=false");
+}
+
 void SetFlipMetering(SetFlipConfigFunction setFlipConfig, bool enabled, int64_t innerLeadNs) noexcept
 {
     flipLeadNs.store(innerLeadNs >= 0 && innerLeadNs <= 8000000 ? innerLeadNs : 2500000, std::memory_order_relaxed);
@@ -1131,7 +1147,7 @@ void SetFlipToggleHotkey(bool enabled) noexcept
 TheosRenderPipeline::XeFGPacing::Stats Snapshot() noexcept
 {
     using namespace TheosRenderPipeline::XeFGPacing;
-    Stats s{}; s.deadlines=deadlines.load(); s.extraPaces=extraPaces.load();
+    Stats s{}; if (vsyncCadenceEnabled.load()) s.flags |= VSyncCadenceRequested; s.deadlines=deadlines.load(); s.extraPaces=extraPaces.load();
     s.flipCalls=flipCalls.load(); s.meteredCalls=meteredCalls.load();
     s.driverFailures=driverFailures.load(); s.resets=resets.load();
     if (unsafe.load()) s.flags|=Unsafe;

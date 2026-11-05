@@ -17,6 +17,7 @@ namespace TheosRenderPipeline
         HRESULT UnregisterPacing(void*);
         void ResetPacing(void* context) { if (pacing_.reset) pacing_.reset(context); }
         void SetFlipMetering(bool enabled) { meteringRequested_ = enabled; if (pacing_.setMetering) pacing_.setMetering(enabled); }
+        void SetVSyncCadence(bool enabled) { if (vsyncCadenceRequested_ == enabled) return; vsyncCadenceRequested_ = enabled; if (pacing_.setVSyncCadence) pacing_.setVSyncCadence(enabled); }
         bool FlipMeteringRequested() const { return meteringRequested_; }
         XeFGPacing::Stats PacingStats() const;
         const std::string& PacingStatus() const { return pacingStatus_; }
@@ -32,6 +33,7 @@ namespace TheosRenderPipeline
         XeFGPacing::API pacing_{};
         std::string pacingStatus_{"XeFG pacing extension unavailable; SDK pacing retained"};
         bool meteringRequested_{true};
+        bool vsyncCadenceRequested_{};
         std::filesystem::path directory_;
         std::string status_{"Tensor backend off"};
         bool active_{};
