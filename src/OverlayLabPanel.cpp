@@ -83,7 +83,7 @@ void OverlayUI::DrawLabXeFGControls()
     bool gpuInputWait = sourceBackend.XeFGGpuInputWait();
     if (ImGui::Checkbox(TR("Input reuse: GPU fence wait (Lab)"), &gpuInputWait))
         sourceBackend.ConfigureXeFGGpuInputWait(gpuInputWait);
-    DrawSettingsHelp(TR("On by default, not saved. Off drains every host lane on the CPU; "
+    DrawSettingsHelp(TR("A/B for the post-Present wait, not saved. Off drains every host lane on the CPU; "
                      "on queues a GPU wait for Intel's input copies. The log reports both waits every 600 frames. "
                      "With heavy NR, on can make rendered frames alternate long and short."));
 }

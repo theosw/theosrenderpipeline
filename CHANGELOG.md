@@ -8,8 +8,6 @@
   fire, particles and spell effects may smear.
 - NR's "Every other frame" keeps alternating at low frame rates. Below about
   10 fps it used to treat every frame as a break and run the model each frame.
-- XeFG waits for its input copies on the GPU instead of the CPU, so the CPU can
-  prepare the next frame. On a GTX 1070 Ti that wait was up to about 90 ms.
 - GTX 10: the first menu open no longer freezes for several seconds while TRP
   checks the NR runtime files; the check runs in the background. The memory
   bar shows the whole card, including what Windows moved to system RAM.

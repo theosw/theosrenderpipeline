@@ -1,8 +1,8 @@
 # Theo's Render Pipeline — Universal, 0.6.4
 
 Version 0.6.4 adds experimental FSR 3.1 upscaling with AMD's runtime included,
-keeps NR's Every other frame working at low frame rates, lets XeFG wait on the
-GPU, and stops the first-menu freeze on GTX 10. See CHANGELOG.md.
+keeps NR's Every other frame working at low frame rates and stops the
+first-menu freeze on GTX 10. See CHANGELOG.md.
 
 Version 0.6.3 runs NR during the fade-in after a load and keeps NR's change on
 its side of edges below 100% NR Input. See CHANGELOG.md.
