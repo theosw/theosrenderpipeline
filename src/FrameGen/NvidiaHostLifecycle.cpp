@@ -132,6 +132,11 @@ HRESULT NvidiaHost::ReleaseSourceUpscaler()
             return FailLifecycle(result, "XeSS context destruction");
         }
     }
+    {
+        auto& sr = TheosRenderPipeline::SourceDLSSG::Backend::Get().FSR();
+        const auto result = sr.ReleaseAfterRetirement();
+        if (FAILED(result)) { status_ = sr.Status(); return FailLifecycle(result, "FSR context destruction"); }
+    }
     { // Release partial/inactive DLSS allocations as well as the active method.
         const auto result = DLSSBackend::GetSingleton()->ReleaseFeature();
         if (FAILED(result)) { return FailLifecycle(result, "DLSS feature destruction"); }
@@ -158,7 +163,7 @@ HRESULT NvidiaHost::ReleaseSourceUpscaler()
     nativeUI_.ResetAfterRetirement();
     gameTargets_.ResetUpscalerAfterRetirement();
     upscalerReady_ = false;
-    splitSourceDLSSActive_ = xeSSActive_ = false;
+    splitSourceDLSSActive_ = xeSSActive_ = fsrActive_ = false;
     return S_OK;
 }
 

@@ -148,7 +148,21 @@ struct NvidiaHost::SourceNvidiaEvaluationOperations
                 }
             }
         } else {
-            if (host.XeSSActive()) {
+            if (host.FSRActive()) {
+                ScopedD3D11PerformanceStage timer{host.context_.Get(), PerformanceTuning::D3D11Stage::kDLSS};
+                auto& backend = TheosRenderPipeline::SourceDLSSG::Backend::Get();
+                TheosRenderPipeline::FSRCamera parameters;
+                if (previewValid) {
+                    parameters.nearPlane = preview.cameraNear; parameters.farPlane = preview.cameraFar;
+                    parameters.verticalFov = preview.cameraFOV; parameters.invertedDepth = preview.depthInverted == sl::eTrue;
+                }
+                parameters.frameTimeMs = 0; // backend measures the real submission interval
+                const auto hr = backend.FSR().Evaluate(host.context_.Get(), frame.input, frame.motion, frame.depth,
+                    frame.output, frame.jitterX, frame.jitterY, frame.reset || (previewValid && preview.reset == sl::eTrue), frame.sharpness, parameters);
+                evaluated = SUCCEEDED(hr);
+                if (!evaluated) { logger::error("[FSR] evaluation failed {} hr=0x{:08X}", backend.FSR().Status(), static_cast<unsigned>(hr)); }
+                if (evaluated && backend.FSR().Frames() % 600 == 0) { logger::info("[FSR] evaluatedFrames={} historyReset={} render={}x{}", backend.FSR().Frames(), frame.reset, frame.renderWidth, frame.renderHeight); }
+            } else if (host.XeSSActive()) {
                 ScopedD3D11PerformanceStage timer{host.context_.Get(), PerformanceTuning::D3D11Stage::kDLSS};
                 auto& backend = TheosRenderPipeline::SourceDLSSG::Backend::Get();
                 const auto hr = backend.XeSS().Evaluate(host.context_.Get(), frame.input, frame.motion, frame.depth,
@@ -266,6 +280,7 @@ bool NvidiaHost::EvaluateSourceNvidiaFrame(bool nativeUIHandoff, bool resetHisto
                 static_cast<std::uint32_t>(loadingScreenResult_));
         } else {
             status_ = !backend.Ready() ? backend.Status() :
+                fsrActive_ ? std::format("FSR evaluation failed: {}; generation held off", backend.FSR().Status()) :
                 xeSSActive_ ? std::format("XeSS evaluation failed: {}; generation held off", backend.XeSS().Status()) :
                 std::format("TheosRenderPipeline direct DLSS evaluation failed (0x{:08X}); generation held off",
                     DLSSBackend::GetSingleton()->LastEvalResult());

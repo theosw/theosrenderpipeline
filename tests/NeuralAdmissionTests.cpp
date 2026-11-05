@@ -210,6 +210,41 @@ int wmain(int argc, wchar_t** argv)
         }
         Require(NeuralRuntimeChoiceReason(true,false) && !NeuralRuntimeChoiceReason(true,true) &&
             !NeuralRuntimeChoiceReason(false,false), "per-choice Pascal reasons preserve admitted repair and RTX choices");
+        {
+            // Kernel statistics: DXGI usage can sit far below the process's dedicated memory.
+            // Card statistics are diagnostic only: they never refuse what DXGI's budget admits.
+            auto k = Valid(); k.adapterKnown = true; k.adapterFreeBytes = 0; k.processCommittedBytes = k.budgetBytes;
+            Require(!k.Refusal(), "card statistics do not refuse what the DXGI budget admits");
+            k = Valid(); k.assetsPending = true; k.assetsVerified = false;
+            Require(k.Refusal() == kPascalAssetsChecking, "background asset check is pending, not a missing-asset refusal");
+            k.extentPending = true;
+            Require(!k.Refusal(), "pending extent still precedes asset checks");
+        }
+        {
+            // Menu polling never hashes on the caller's thread.
+            const auto dir = temp / "poll";
+            std::filesystem::create_directories(dir);
+            const auto runtime = dir / "nvngx_dlssnr_310.9.16.dll";
+            { std::ofstream out(runtime, std::ios::binary); out << "abc"; }
+            auto hashes = TheosRenderPipeline::NeuralRenderingRuntimeIdentity::HashInvocations();
+            Require(!VerifyPascalAssets(runtime, true) && TheosRenderPipeline::NeuralRenderingRuntimeIdentity::HashInvocations() == hashes,
+                "wrong-size runtime refused without hashing, even on Apply");
+            const auto polledSmall = PollPascalAssets(runtime);
+            Require(polledSmall && !*polledSmall, "wrong-size runtime polls refused at once");
+            { std::ofstream out(runtime, std::ios::binary); out.seekp(kPascalRuntimeBytes - 1); out.put(0); }
+            { std::ofstream out(dir / kPascalPackName, std::ios::binary); out.seekp(kPascalPackBytes - 1); out.put(0); }
+            const auto start = std::chrono::steady_clock::now();
+            Require(!PollPascalAssets(runtime), "first full-size poll starts a background check");
+            Require(std::chrono::steady_clock::now() - start < std::chrono::milliseconds(100), "starting the check does not hash on the caller");
+            std::optional<bool> polled;
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+            while (!(polled = PollPascalAssets(runtime)) && std::chrono::steady_clock::now() < deadline) { Sleep(20); }
+            Require(polled && !*polled, "background check refuses an unpinned full-size runtime");
+            hashes = TheosRenderPipeline::NeuralRenderingRuntimeIdentity::HashInvocations();
+            for (int i = 0; i < 100; ++i) { Require(PollPascalAssets(runtime) == false, "later polls stay refused"); }
+            Require(TheosRenderPipeline::NeuralRenderingRuntimeIdentity::HashInvocations() == hashes, "later polls answer from the identity cache");
+            std::filesystem::remove_all(dir);
+        }
         std::filesystem::remove(pack); std::filesystem::remove(temp);
         std::cout << "PASS admission matrix, unknown facts, budget boundaries and pack integrity\n";
         return 0;

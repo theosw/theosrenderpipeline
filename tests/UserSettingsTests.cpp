@@ -190,6 +190,15 @@ int main(int argc, char** argv)
         Require(UserSettings::WriteText(target, next) && Read(target) == next && !std::filesystem::exists(temporary),
             "a complete write replaces the file");
     }
+    {   // FSR uses the same persisted mode path as existing upscalers.
+        Write(paths.defaults, Defaults); std::filesystem::remove(paths.user);
+        CSimpleIniA ini; load(ini); ini.SetLongValue("Settings", "UpscaleType", 5);
+        Require(UserSettings::Save(ini, paths), "FSR user override saves");
+        CSimpleIniA reloaded; load(reloaded);
+        Require(reloaded.GetLongValue("Settings", "UpscaleType", -1) == 5,
+            "FSR survives save/restart merge without changing packaged RTX defaults");
+        Require(Read(paths.defaults) == Defaults, "saving FSR preserves packaged defaults");
+    }
     std::filesystem::remove_all(root, error);
     std::puts("PASS user settings merge order, fallback, save differences, one-time migration and failed-write durability");
 }

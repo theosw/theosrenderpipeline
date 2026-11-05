@@ -366,7 +366,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 		const bool communityShaders = CommunityShaders::Active();
 		// The host has already replaced DLSS/DLAA with XeSS on other GPUs.
 		const bool xeSSStartup = !communityShaders && RenderPipeline::GetSingleton()->mUpscaleType == ::XeSS;
-		const auto startup = SelectProviderStartup(xeSSStartup, NvidiaFrameGenerationAvailable(), RequestedProvider());
+		const bool fsrStartup = !communityShaders && RenderPipeline::GetSingleton()->mUpscaleType == ::FSR;
+		const auto startup = SelectProviderStartup(xeSSStartup || fsrStartup, NvidiaFrameGenerationAvailable(), RequestedProvider());
 		RequestProvider(startup.requested);
 		provider_ = startup.presenter;
 		const bool intelStartup = provider_ == FrameGenerationProvider::XeFG;
@@ -378,7 +379,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			logger::info("[FrameGeneration] Intel startup uses XeFG/XeLL; NVIDIA runtimes are not initialized");
 		} else if (!InitializeNvidia(a_directory) && !EnterStartupTransport()) { return fault_; }
 		logger::info("[FrameGeneration] startup upscaler={} requested={} presenter={}",
-			communityShaders ? "Community Shaders" : xeSSStartup ? "XeSS" : "DLSS/DLAA",
+			communityShaders ? "Community Shaders" : fsrStartup ? "FSR" : xeSSStartup ? "XeSS" : "DLSS/DLAA",
 			ProviderName(startup.requested), ProviderName(startup.presenter));
 		D3D12_COMMAND_QUEUE_DESC queueDesc{};
 		queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
@@ -827,7 +828,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 				frameConstants_.mvecScale.x * motion_.desc.Width, frameConstants_.mvecScale.y * motion_.desc.Height,
 				motion_.texture12.Get(), depth_.texture12.Get(), ui_.texture12.Get(), hudless_.texture12.Get(), a_source,
 				neuralTimestampFrequency_, interop_.Marks(Work::SwapChain), objectMaskCurrent_ ? objectMask_.texture12.Get() : nullptr,
-                {frameConstants_.jitterOffset.x,frameConstants_.jitterOffset.y});
+                {frameConstants_.jitterOffset.x,frameConstants_.jitterOffset.y}, {}, FrameIndex());
             } catch (const std::bad_alloc&) {
                 failure = "NR CPU allocation failed";
             }
@@ -1031,9 +1032,13 @@ namespace TheosRenderPipeline::SourceDLSSG
 			if (!CheckXeFG(xefg_.AfterPresent(a_result))) { return fault_; }
 			// ONLY_NOW tags record Intel's input copies in the submitted SwapChain
 			// list, whose completion also covers the late output/NR readers. The
-			// Lab GPU wait queues that dependency before the next D3D11 frame writes
-			// the singleton inputs; the default drains every host lane on the CPU.
-			// Resize, recreation and teardown still drain.
+			// The default drains every host lane on the CPU. The Lab GPU wait queues
+			// that dependency before the next D3D11 frame writes the singleton inputs
+			// (waiting for this list is sufficient: later SDK work reads Intel's
+			// private copies), but on an RTX 4080 with NR (2026-11-04) it made
+			// rendered frames alternate about 20/45 ms with 155-186 ms XeFG hitches,
+			// against an even 28 ms with the drain. Resize, recreation and teardown
+			// always retain CPU retirement.
 			const bool gpuInputWait = XeFGGpuInputWait();
 			if (gpuInputWait != xefgReuseWindowGpu_) {
 				xefgReuseMs_.clear(); xefgSleepMs_.clear(); xefgReuseWindowGpu_ = gpuInputWait;

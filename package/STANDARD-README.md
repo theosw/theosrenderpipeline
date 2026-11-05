@@ -1,4 +1,8 @@
-# Theo's Render Pipeline — Standard, 0.6.3
+# Theo's Render Pipeline — Standard, 0.6.4
+
+Version 0.6.4 adds experimental FSR 3.1 upscaling with AMD's runtime included,
+keeps NR's Every other frame working at low frame rates and stops the
+first-menu freeze on GTX 10. See CHANGELOG.md.
 
 Version 0.6.3 runs NR during the fade-in after a load and keeps NR's change on
 its side of edges below 100% NR Input. See CHANGELOG.md.
@@ -63,6 +67,14 @@ every other frame for roughly half NR's GPU cost (best with 2x frame generation)
 and Frame generation > Frame limit with a Steady mode that evens out frame times.
 It also fixes the vanilla main menu disappearing, NR stopping while the interface
 is hidden, and a possible XeFG freeze when gameplay starts. See CHANGELOG.md.
+
+Experimental **Image > Mode > FSR 3.1** (`UpscaleType=5`) uses AMD's official
+FidelityFX SDK 1.1.4 runtime, included here as `SKSE/Plugins/TheosRenderPipeline/AMD/amd_fidelityfx_dx12.dll`
+beside AMD's MIT notice `FSR-LICENSE.txt`. It needs no tensor cores. XeSS/FSR can
+switch with Apply at the current render size; render-scale changes require save
+and restart. NR and native UI composition remain available. Defaults are
+unchanged: DLSS on RTX, XeSS elsewhere. FSR has no reactive mask yet, so fire,
+particles and spell effects may smear. See THIRD-PARTY.md for attribution.
 
 Version 0.5.1 adds NR comparison and tuning. Neural Rendering > Compare shows
 NR on and off side by side (Split) and can hold one frame (Freeze frame) while
@@ -322,7 +334,7 @@ an RTX 4080 SUPER: ordinary 6.8.0.2158 and full add-on 6.8.0.2155, with
 early NR and x4. Sky Reflection Fix's ReShade registration was excluded;
 Rumble passed a separate initial test. Combined third-party add-ons,
 Standard gameplay and CS with ReShade remain unverified. These were earlier
-development builds; the exact 0.6.3 package has not been tested with ReShade.
+development builds; the exact 0.6.4 package has not been tested with ReShade.
 
 MartysMods ReGrade+ (ReShade 6.6 or newer) used to crash the game while TRP
 started ReShade: it prepares itself only in a device event that ReShade does not
@@ -384,7 +396,7 @@ rendering dimensions.
 ## With the Universal edition
 
 For the RTX 40 MFG unlock or experimental RTX 20/30 support, install the matching
-0.6.3 Universal ZIP after Standard in MO2's left pane. Let Universal win file conflicts. Universal uses
+0.6.4 Universal ZIP after Standard in MO2's left pane. Let Universal win file conflicts. Universal uses
 the NVIDIA runtimes included here, including NR.
 
 Both editions contain settings files; the later mod's files win. Switching

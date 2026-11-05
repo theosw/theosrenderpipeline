@@ -221,23 +221,28 @@ void OverlayUI::DrawImagePanel(float tabCardHeight, const FrameView& view)
     else
     {
         const bool warmSwitch = view.sourceDLSSGActive && (view.upscalerStartupMode == DLSS ||
-            (view.upscalerStartupMode == XeSS && view.nvidiaServicesReady));
+            view.upscalerStartupMode == XeSS || view.upscalerStartupMode == FSR);
         const bool xess = settingsDraft.upscaleType == XeSS;
+        const bool fsr = settingsDraft.upscaleType == FSR;
+        const bool vendorNeutral = xess || fsr;
         const bool native = settingsDraft.upscaleType == DLAA;
         const float label = ImageLabelWidth();
         if (BeginSettingRows("upscaling", label))
         {
             {
                 const RestartHelpScope restart(warmSwitch
-                    ? TR("DLSS and XeSS can switch on Apply.\nDLAA needs Save as default and a restart.")
+                    ? TR("FSR and XeSS can switch on Apply at the current render size. DLSS also requires initialized NVIDIA services.\nDLAA needs Save as default and a restart.")
                     : TR("Changing the mode needs Save as default and a restart."));
                 SettingRow(TR("Mode"), nullptr, true, false, [&] {
-                    int mode = xess ? 2 : native ? 1 : 0;
+                    int mode = fsr ? 3 : xess ? 2 : native ? 1 : 0;
                     const bool changed = Segmented("mode", mode, {
                         {"DLSS", view.nvidiaFeatures, TR("Requires NVIDIA RTX hardware.")},
                         {"DLAA", view.nvidiaFeatures, TR("Requires NVIDIA RTX hardware.")},
-                        {TR("XeSS"), true, TR("Intel XeSS (experimental). After restart it uses Intel's quality resolutions.")}});
-                    if (changed) { settingsDraft.upscaleType = mode == 2 ? XeSS : mode == 1 ? DLAA : DLSS; }
+                        {TR("XeSS"), true, TR("Intel XeSS (experimental). After restart it uses Intel's quality resolutions.")},
+                        {"FSR 3.1", view.fsrRuntimePresent, view.fsrRuntimePresent // not translated: product name and version
+                            ? TR("AMD FSR 3.1 temporal upscaling (experimental).")
+                            : TR("AMD's FSR runtime is missing from TheosRenderPipeline\\AMD. Reinstall TRP Standard, then restart.")}});
+                    if (changed) { settingsDraft.upscaleType = mode == 3 ? FSR : mode == 2 ? XeSS : mode == 1 ? DLAA : DLSS; }
                     return changed;
                 });
             }
@@ -247,7 +252,8 @@ void OverlayUI::DrawImagePanel(float tabCardHeight, const FrameView& view)
                     const char* dlssScales[]{TR("50% | Performance"), TR("58% | Balanced"), TR("67% | Quality"), TR("33% | Ultra Performance"),
                                              TR("78% | Ultra Quality")};
                     const char* xessScales[]{TR("Performance"), TR("Balanced"), TR("Quality"), TR("Ultra Performance"), TR("Ultra Quality")};
-                    const auto* scales = xess ? xessScales : dlssScales;
+                    const char* fsrScales[]{TR("50% | Performance"), TR("59% | Balanced"), TR("67% | Quality"), TR("33% | Ultra Performance"), TR("77% | Ultra Quality (custom)")};
+                    const auto* scales = fsr ? fsrScales : xess ? xessScales : dlssScales;
                     bool changed = false;
                     if (ImGui::BeginCombo("##renderScale", native ? TR("100% | Native") : scales[std::clamp(settingsDraft.qualityLevel, 0, 4)]))
                     {
@@ -268,7 +274,7 @@ void OverlayUI::DrawImagePanel(float tabCardHeight, const FrameView& view)
                     return changed;
                 });
             }
-            SettingRow(TR("Model preset"), nullptr, false, xess, [&] {
+            SettingRow(TR("Model preset"), nullptr, false, vendorNeutral, [&] {
                 bool changed = false;
                 if (ImGui::BeginCombo("##dlssPreset", TheosRenderPipeline::DLSSPreset::Label(settingsDraft.dlssPreset)))
                 {
@@ -282,14 +288,14 @@ void OverlayUI::DrawImagePanel(float tabCardHeight, const FrameView& view)
                     }
                     ImGui::EndCombo();
                 }
-                DrawSettingsHelp(xess ? TR("DLSS and DLAA only.")
+                DrawSettingsHelp(vendorNeutral ? TR("DLSS and DLAA only.")
                     : TRF("{}\nRequested preset; NVIDIA chooses the actual model. L/M require a supporting runtime.",
                                   TR(TheosRenderPipeline::DLSSPreset::Description(settingsDraft.dlssPreset))).c_str());
                 return changed;
             });
-            SettingRow(TR("Auto exposure"), nullptr, false, xess, [&] {
+            SettingRow(TR("Auto exposure"), nullptr, false, vendorNeutral, [&] {
                 const bool changed = ImGui::Checkbox("##autoExposure", &settingsDraft.autoExposure);
-                DrawSettingsHelp(xess ? TR("XeSS preserves the SDR exposure supplied by the game and ENB.")
+                DrawSettingsHelp(vendorNeutral ? TR("XeSS and FSR preserve the SDR exposure supplied by the game and ENB.")
                                       : TR("Lets the upscaler estimate exposure."));
                 return changed;
             });

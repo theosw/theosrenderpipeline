@@ -924,6 +924,11 @@ void DrawNeuralSettings(const OverlayUI::FrameView& view, TheosRenderPipeline::S
                               "Preset A in OptiScaler forks.")}});
             if (changed) { network = index; }
             DrawSettingsHelp(TR("NR network, separate from the DLSS model preset."));
+            if (view.neuralPascal) {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+                ImGui::TextWrapped("%s", TR("On GTX 10, Old is about 3x slower than Small. The compatibility kernels are tuned for Small."));
+                ImGui::PopStyleColor();
+            }
             return changed;
         });
         SettingRowFor(TR("Peripheral compression"), {"PeripheralCompression", "CombinedPreparation"}, true, unavailable, [&] {

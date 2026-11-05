@@ -52,7 +52,7 @@ int main()
             modelSamples += Fixture::evaluations != evaluations;
             return Fixture::evaluations - evaluations;
         };
-        // Warm every feature/kernel, including deferred creation. The 100 ms gap
+        // Warm every feature/kernel, including deferred creation. The cadence gap
         // rule runs on TestClock, so slow first-use compilation cannot trip it.
         for (unsigned f = 0; f < 9; ++f) { record(0, true); }
         // Also warm skip-only PSOs (reprojection and accumulated motion).

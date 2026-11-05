@@ -700,11 +700,12 @@ void PerformanceTuning::MaybeLogTimingSummary()
 		auto* memory = VideoMemoryTelemetry::GetSingleton();
 		memory->Update(); // Sample with the menu closed too; internally rate-limited.
 		const auto& vram = memory->GetSnapshot();
-		logger::info("[Performance NR] epoch={} earlyGpuMs={} samples={} cpuTotalNs={} gpuTotalNs={} allocatorWaits={} allocatorWaitTotalNs={} cpuMaxNs={} allocatorWaitMaxNs={} vramAvailable={} vramUsageBytes={} vramBudgetBytes={}",
+		logger::info("[Performance NR] epoch={} earlyGpuMs={} samples={} cpuTotalNs={} gpuTotalNs={} allocatorWaits={} allocatorWaitTotalNs={} cpuMaxNs={} allocatorWaitMaxNs={} vramAvailable={} vramUsageBytes={} vramBudgetBytes={} vramCardResidentBytes={} vramCardLimitBytes={} vramProcessCommittedBytes={} vramProcessDemotedBytes={}",
 			timingEpoch_, d11ms(D3D11Stage::kNeuralEarlyRoundTrip), nr.samples,
 			nr.cpuNanoseconds, nr.gpuNanoseconds, nr.allocatorWaits, nr.allocatorWaitNanoseconds,
 			nr.cpuMaximumNanoseconds, nr.allocatorWaitMaximumNanoseconds,
-			vram.available, vram.currentUsage, vram.budget);
+			vram.available, vram.currentUsage, vram.budget,
+			vram.adapterResident, vram.adapterLimit, vram.processCommitted, vram.processDemoted);
 	}
 
 	const auto& cadence = timingSnapshot_.gameFrameCadence;

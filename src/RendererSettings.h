@@ -123,12 +123,13 @@ inline const char* ValidateRendererSettings(const RendererSettingsDraft& draft,
     {
         return "Choose a valid menu key.";
     }
-    if (draft.upscaleType != DLSS && draft.upscaleType != DLAA && draft.upscaleType != XeSS)
+    if (draft.upscaleType != DLSS && draft.upscaleType != DLAA && draft.upscaleType != XeSS && draft.upscaleType != FSR)
     {
-        return "Choose DLSS, DLAA or XeSS.";
+        return "Choose DLSS, DLAA, XeSS or FSR.";
     }
-    if ((!capabilities.nvidiaAdapter || !capabilities.nvidiaFeatures) && !capabilities.externalWorld && draft.upscaleType != XeSS) {
-        return "DLSS/DLAA require NVIDIA RTX hardware. Select XeSS for this GPU.";
+    if ((!capabilities.nvidiaAdapter || !capabilities.nvidiaFeatures) && !capabilities.externalWorld &&
+        draft.upscaleType != XeSS && draft.upscaleType != FSR) {
+        return "DLSS/DLAA require NVIDIA RTX hardware. Select XeSS or FSR for this GPU.";
     }
     if (!Appearance::ValidHours(draft.appearance.hours)) {
         return "Preset times must increase from Night to Dusk and stay between 0 and 24 hours.";

@@ -137,6 +137,8 @@ set(ARP_BASELINE_SOURCES
     src/FrameGen/XeFGPresenter.cpp
     src/FrameGen/XeSSUpscaler.cpp
     src/FrameGen/XeSSUpscaler.h
+    src/FrameGen/FSRUpscaler.cpp
+    src/FrameGen/FSRUpscaler.h
     src/FrameGen/XeFGPresenter.h
     src/FrameGen/FrameGenerationProvider.h
     src/FrameGen/SourceDLSSGBackend.h
@@ -213,6 +215,7 @@ set(ARP_BASELINE_SOURCES
     src/UpscalerSamplerHooks.h
     src/VideoMemoryTelemetry.cpp
     src/VideoMemoryTelemetry.h
+    src/GpuMemoryStatistics.h
     src/XSEPlugin.cpp
 )
 

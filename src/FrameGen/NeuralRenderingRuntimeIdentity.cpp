@@ -142,13 +142,17 @@ namespace TheosRenderPipeline::NeuralRenderingRuntimeIdentity
         static std::mutex cacheMutex;
         static std::unordered_map<std::wstring, Cached> cache;
         const auto key = result.path.wstring();
-        std::scoped_lock lock(cacheMutex);
+        std::unique_lock lock(cacheMutex);
         const auto found = cache.find(key);
         if (!fresh && found != cache.end() && found->second.identity == identity) {
             result.version = found->second.version; result.sha256 = found->second.sha256;
         } else {
+            // Hash without the cache lock: a background menu check must not stall
+            // render-thread lookups of other files. The open handle still denies writes.
+            lock.unlock();
             result.version = FileVersion(result.path);
             result.sha256 = Sha256(file.value);
+            lock.lock();
             if (!result.sha256.empty()) { cache[key] = {identity, result.version, result.sha256}; }
         }
         result.matched = result.size == a_expectedSize && result.sha256 == a_expectedSha256;

@@ -143,14 +143,15 @@ namespace TheosRenderPipeline::SourceDLSSG
 		neuralReportedUnavailable_ = reason;
 		return reason;
 	}
-    NeuralRendering::NeuralCapability Backend::CheckNeuralAdmission(const NeuralOptions& options, unsigned width, unsigned height, bool log)
+    NeuralRendering::NeuralCapability Backend::CheckNeuralAdmission(const NeuralOptions& options, unsigned width, unsigned height, bool log,
+        bool pollAssets)
     {
         std::scoped_lock lock(neuralMutex_);
         if (!device12_) { return {}; }
         const bool replacement = neuralPass_ && neuralPass_->NeedsRecreation(options, motion_.desc.Width, motion_.desc.Height);
         const auto retained = neuralPass_ && !replacement ? NeuralRendering::EstimatePascalMemory(width, height, options.passes) : 0;
         auto admission = NeuralRendering::QueryNeuralAdmission(device12_->GetAdapterLuid(), options.runtimePath,
-            width, height, options.passes, NeuralRendering::RuntimeKernelsSupported(), log, retained, log);
+            width, height, options.passes, NeuralRendering::RuntimeKernelsSupported(), log, retained, log, pollAssets);
         admission.budgetPendingRetirement = replacement;
         return admission;
     }
@@ -366,7 +367,7 @@ namespace TheosRenderPipeline::SourceDLSSG
             frameNeuralOptions_.beforeUpscaling ? std::array<float,2>{} :
                 std::array<float,2>{camera->jitterOffset.x,camera->jitterOffset.y},
             frameNeuralOptions_.beforeUpscaling ? std::array<float,2>{camera->jitterOffset.x,camera->jitterOffset.y} :
-                std::array<float,2>{});
+                std::array<float,2>{}, FrameIndex());
         } catch (const std::bad_alloc&) { reset = true; return FailNeuralRecording("NR CPU allocation failed"); }
         if (!recorded) {
             // Producer colour was never overwritten; discard every transition
