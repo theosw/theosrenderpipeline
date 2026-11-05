@@ -9,6 +9,15 @@
 
 using namespace TheosRenderPipeline::Overlay;
 
+namespace
+{
+// Tensor cores start with RTX 20 (compute capability 7.5); unknown until the GPU is queried.
+bool NoTensorCores(const OverlayUI::FrameView& view)
+{
+    return view.neuralComputeCapability >= 0 && view.neuralComputeCapability < 75;
+}
+}
+
 void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& view)
 {
     const auto& sourceDLSSGActive = view.sourceDLSSGActive;
@@ -92,7 +101,10 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& v
             if (view.xefgTensorRequested)
             {
                 const auto& pacing = state.pacing;
-                DrawSettingsValue(TR("Tensor model"), view.xefgTensorStatus.c_str());
+                // GTX 10 and older: the ported model runs as ordinary shaders, as the status
+                // line's "tensor fallback" said less plainly.
+                DrawSettingsValue(TR("Tensor model"), NoTensorCores(view)
+                    ? TR("This GPU has no tensor cores; using the shader version") : view.xefgTensorStatus.c_str());
                 if (pacing.flags & TheosRenderPipeline::XeFGPacing::Installed)
                 {
                     DrawSettingsValue(TR("Driver metering"), TRF("{} | {} accepted batches",
@@ -384,6 +396,8 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& v
                 ImGui::EndDisabled();
                 DrawSettingsHelp(!editIntel ? xefgOnly
                     : !view.xefgUnlockAvailable ? TR("Universal only.")
+                    : NoTensorCores(view) ? TR("This GPU has no tensor cores, so the ported model runs as ordinary shaders: "
+                                               "no tensor speed-up. Apply switches it, with a short pause while XeFG restarts.")
                     : TR("Uses the optional XeFG tensor helper on NVIDIA when its bundle is installed; otherwise "
                          "XeFG uses its normal path. Apply switches it, with a short pause while XeFG restarts."));
                 ImGui::SameLine();
