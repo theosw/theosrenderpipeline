@@ -373,15 +373,11 @@ bool First(const Route& current, const Owner& owner, const Invocation& call, uin
 bool FirstVSync(const Route& current, Owner& owner, const Invocation& call, uint32_t& generated) noexcept
 {
     if (!firstLayout.load(std::memory_order_acquire) || unsafe.load(std::memory_order_acquire)
-        || owner.retiring.load(std::memory_order_acquire) || !Live(owner)
+        || owner.retiring.load(std::memory_order_acquire)
         || !call.generated || call.returnAddress != uintptr_t(current.module) + kFirstReturn
         || call.presenter != reinterpret_cast<void*>(owner.presenter)
         || call.sync < 1 || call.sync > 4 || call.flags || (call.returnSlot & 7)
         || !StackRange(call.returnSlot, 0xf4)) return false;
-    {
-        std::lock_guard lock(owner.flipMutex);
-        if (owner.flip.configured || owner.flip.metered) return false;
-    }
     uintptr_t saved{}, pair{}, parameters{}, resources{}, resource{};
     uint64_t frame{}, count{}; uint32_t presented{}, sync{}, flags{};
     if (!Value(call.returnSlot, saved) || saved != call.returnAddress
@@ -394,8 +390,33 @@ bool FirstVSync(const Route& current, Owner& owner, const Invocation& call, uint
         || !Value(call.returnSlot + 0xc8, sync) || sync != call.sync
         || !Value(call.returnSlot + 0xd0, flags) || flags != call.flags
         || !Value(resources, resource) || !resource) return false;
+    // Refuse native x2 by its verified count before walking the owner chain or
+    // taking the driver lock. Its pacing path needs none of this new work.
+    if (!Live(owner)) return false;
+    {
+        std::lock_guard lock(owner.flipMutex);
+        if (owner.flip.configured || owner.flip.metered) return false;
+    }
     generated = uint32_t(count);
     return true;
+}
+
+bool ObserveVSyncFirst(Route& current, Owner& owner, const Invocation& call,
+    uint32_t generated, bool admitted)
+{
+    std::lock_guard lock(owner.clockMutex);
+    // Admission can precede retirement. Recheck under the same lock that
+    // Revoke must acquire before Unregister returns and the native chain may
+    // be released. A stale admission must never invoke its refresh query.
+    if (!admitted || owner.retiring.load(std::memory_order_acquire)
+        || owner.retired.load(std::memory_order_acquire) || owner.disabled.load(std::memory_order_acquire)
+        || unsafe.load(std::memory_order_acquire)) {
+        owner.vsyncCadence.Reset();
+        return false;
+    }
+    const auto ready = NowNs();
+    const auto refresh = current.refreshQuery(owner, ready);
+    return owner.vsyncCadence.Begin(uint32_t(call.frame), generated + 1, call.sync, ready, refresh);
 }
 
 // The SDK's presentation queue for SetFlipConfig: the presenter's queue field equals the chain's
@@ -630,13 +651,7 @@ HRESULT Dispatch(Route& current, const Invocation& call)
             }
             uint32_t generated{};
             const bool admitted = FirstVSync(current, *owner, call, generated);
-            std::lock_guard lock(owner->clockMutex);
-            if (admitted) {
-                const auto ready = NowNs();
-                const auto refresh = current.refreshQuery(*owner, ready);
-                owner->vsyncCadence.Begin(uint32_t(call.frame), generated + 1, call.sync, ready, refresh);
-                vsyncFirst = owner;
-            } else owner->vsyncCadence.Reset();
+            if (ObserveVSyncFirst(current, *owner, call, generated, admitted)) vsyncFirst = owner;
             break;
         }
     }

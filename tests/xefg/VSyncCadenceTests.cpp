@@ -18,7 +18,7 @@ template<class T, size_t N> void Put(std::array<unsigned char, N>& bytes, size_t
     Require(offset + sizeof(value) <= N, "fixture bounds");
     std::memcpy(bytes.data() + offset, &value, sizeof(value));
 }
-unsigned calledPace{}, calledPresent{};
+unsigned calledPace{}, calledPresent{}, calledRefresh{};
 UINT expectedSync = 1;
 HRESULT presentResult = S_FALSE;
 NvFlipConfigV2 lastPacket{};
@@ -29,7 +29,7 @@ int __cdecl FakeDriver(IUnknown*, UINT source, void* packet) {
     return value->nFramesPerBatch ? 0 : driverOffResult;
 }
 bool FakePace(void*, const void*, uint8_t, const void*, uint32_t) { ++calledPace; return true; }
-int64_t FakeRefresh(Owner&, int64_t) noexcept { return 1000000; }
+int64_t FakeRefresh(Owner&, int64_t) noexcept { ++calledRefresh; return 1000000; }
 HRESULT FakePresent(void*, UINT sync, UINT flags, uint64_t, const DXGI_PRESENT_PARAMETERS*, ID3D12Resource* const*, bool) {
     Require(sync == expectedSync && flags == 0, "forward submitted sync unchanged");
     ++calledPresent; SetLastError(1234); return presentResult;
@@ -169,6 +169,32 @@ int main() {
         Require(Dispatch(f.current,f.call)==S_FALSE && !f.owner->vsyncCadence.Matches(100,4),
             "immediate first output clears stale VSync identity even if the frame id repeats");
         expectedSync=1;
+    }
+    {
+        // A successful witness can be stale by the time observation takes the
+        // retirement lock. Exercise that boundary without a racy thread test.
+        for (unsigned state=0; state<4; ++state) {
+            Fixture f; f.FirstCall(); uint32_t generated{};
+            const bool admitted=FirstVSync(f.current,*f.owner,f.call,generated);
+            Require(admitted,"live witness before retirement boundary");
+            f.Seed(4,1);
+            if(state==0) f.owner->retiring=true;
+            if(state==1) f.owner->retired=true;
+            if(state==2) f.owner->disabled=true;
+            if(state==3) unsafe=true;
+            const auto queries=calledRefresh;
+            Require(!ObserveVSyncFirst(f.current,*f.owner,f.call,generated,admitted)
+                && calledRefresh==queries && !f.owner->vsyncCadence.Matches(100,4),
+                "stale admission cannot query a retired native chain or retain cadence");
+        }
+        Fixture f; f.FirstCall(); uint32_t generated{};
+        Require(FirstVSync(f.current,*f.owner,f.call,generated),"live observation witness");
+        const auto queries=calledRefresh;
+        Require(ObserveVSyncFirst(f.current,*f.owner,f.call,generated,true)
+            && calledRefresh==queries+1 && f.owner->vsyncCadence.Matches(100,4),
+            "live observation invokes one refresh query under the retirement lock");
+        Put(f.bundle,8,uint64_t(1));
+        Require(!FirstVSync(f.current,*f.owner,f.call,generated),"native x2 first output is refused before the new owner walk");
     }
     {
         Fixture f; calledPace=calledPresent=0;
