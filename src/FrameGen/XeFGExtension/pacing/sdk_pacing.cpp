@@ -1,5 +1,6 @@
 #include "sdk_pacing.h"
 #include "sdk_pacing_dlssg.h"
+#include "VSyncCadence.h"
 #include "MinHook.h"
 #include "PacingSupport.h"
 #include "FlipMeteringState.h"
@@ -46,6 +47,7 @@ struct Owner
     std::mutex clockMutex;
     // DLSS-G CPU pacer interval for the SDK's own pacing (all counts).
     cadence::BatchIntervalEstimator batchInterval;
+    cadence::VSyncCadence vsyncCadence;
     std::atomic<unsigned> intervalLogs{};
     // hitch.1: batch-start hitches and estimator resets for the log (clockMutex).
     struct Hitches
@@ -196,13 +198,24 @@ struct Extra
     int64_t periodNs{};
 };
 
-const char* Prepare(const Route& current, const Owner& owner, const Invocation& call, Extra& output) noexcept
+bool Live(const Owner& owner) noexcept;
+
+const char* Prepare(const Route& current, Owner& owner, const Invocation& call, Extra& output) noexcept
 {
     if (owner.retired.load(std::memory_order_acquire)) return "retired_owner";
     if (call.returnAddress != uintptr_t(current.module)+kExtraReturn || !call.generated)
         return "different_call_site";
     if (call.presenter != reinterpret_cast<void*>(owner.presenter)) return "different_presenter";
-    if (call.sync || (call.flags & ~UINT(DXGI_PRESENT_ALLOW_TEARING))) return "different_present_mode";
+    if (call.sync > 4 || (call.sync ? call.flags != 0 : (call.flags & ~UINT(DXGI_PRESENT_ALLOW_TEARING)) != 0))
+        return "different_present_mode";
+    if (call.sync) {
+        if (unsafe.load(std::memory_order_acquire) || owner.retiring.load(std::memory_order_acquire) || !Live(owner))
+            return "vsync_owner_unavailable";
+        std::lock_guard lock(owner.flipMutex);
+        // Even an unsuccessful enable needs an acknowledged off before the
+        // software VSync path can take over. Driver admission is unchanged.
+        if (owner.flip.configured || owner.flip.metered) return "vsync_driver_not_retired";
+    }
     if ((call.returnSlot & 7) || !StackRange(call.returnSlot, kBundleFromReturn+8)) return "caller_stack_bounds";
     uintptr_t savedReturn{}, bundle{}, currentPresenter{}, native{};
     if (!Value(call.returnSlot, savedReturn) || savedReturn != call.returnAddress
@@ -222,6 +235,7 @@ const char* Prepare(const Route& current, const Owner& owner, const Invocation& 
     const auto resourceSlot = uintptr_t(call.resource);
     if (count < 2 || count > trp_pacing_bridge::kGeneratedCapacity || !resources || resourceSlot <= resources
         || resourceSlot-resources >= count*8 || ((resourceSlot-resources) & 7)) return "intermediate_index_rejected";
+    if (call.sync && count > 3) return "vsync_output_count";
     if (At<UINT>(data, 0x28) != call.sync || At<UINT>(data, 0x2c) != call.flags
         || At<uint64_t>(data, 0x30) != call.frame || uintptr_t(call.parameters) != bundle+0x38)
         return "bundle_arguments_changed";
@@ -231,6 +245,11 @@ const char* Prepare(const Route& current, const Owner& owner, const Invocation& 
     // entries. Startup/paused/very slow frames retain the SDK's original path.
     if (summary[0] < 1 || summary[0] > 9 || summary[1] < 1000 || summary[1] > 250000000)
         return "timing_history_unavailable";
+    if (call.sync) {
+        std::lock_guard lock(owner.clockMutex);
+        if (!owner.vsyncCadence.Matches(uint32_t(call.frame), uint32_t(count + 1), call.sync))
+            return "vsync_first_output_unverified";
+    }
     output = {reinterpret_cast<void*>(bundle), reinterpret_cast<void*>(call.returnSlot+kSummaryFromReturn),
         uint32_t((resourceSlot-resources)/8), uint32_t(count), uint8_t(data[0xc0] & 1), summary[1]};
     return nullptr;
@@ -240,6 +259,7 @@ void Revoke(Owner& owner) noexcept
 {
     std::lock_guard lock(owner.clockMutex);
     owner.batchInterval.Reset();
+    owner.vsyncCadence.Reset();
     ++owner.hitches.revoked; ++resets;
 }
 
@@ -293,6 +313,38 @@ bool First(const Route& current, const Owner& owner, const Invocation& call, uin
         || !Value(call.returnSlot+0xe0, parameters) || parameters != uintptr_t(call.parameters)
         || !Value(call.returnSlot+0xc8, sync) || sync != call.sync
         || !Value(call.returnSlot+0xd0, flags) || flags != call.flags
+        || !Value(resources, resource) || !resource) return false;
+    generated = uint32_t(count);
+    return true;
+}
+
+// Separate from First(): its sync-0 driver-metering contract is unchanged.
+// The new software path needs the same profiled first-output stack/resource
+// identity before observing an arrival, and never owns an outstanding driver
+// configuration. No additional wait is installed on output zero.
+bool FirstVSync(const Route& current, Owner& owner, const Invocation& call, uint32_t& generated) noexcept
+{
+    if (!firstLayout.load(std::memory_order_acquire) || unsafe.load(std::memory_order_acquire)
+        || owner.retiring.load(std::memory_order_acquire) || !Live(owner)
+        || !call.generated || call.returnAddress != uintptr_t(current.module) + kFirstReturn
+        || call.presenter != reinterpret_cast<void*>(owner.presenter)
+        || call.sync < 1 || call.sync > 4 || call.flags || (call.returnSlot & 7)
+        || !StackRange(call.returnSlot, 0xf4)) return false;
+    {
+        std::lock_guard lock(owner.flipMutex);
+        if (owner.flip.configured || owner.flip.metered) return false;
+    }
+    uintptr_t saved{}, pair{}, parameters{}, resources{}, resource{};
+    uint64_t frame{}, count{}; uint32_t presented{}, sync{}, flags{};
+    if (!Value(call.returnSlot, saved) || saved != call.returnAddress
+        || !Value(call.returnSlot + 0xe8, pair) || !pair
+        || !Value(pair, resources) || resources != uintptr_t(call.resource)
+        || !Value(pair + 8, count) || count < 2 || count > 3
+        || !Value(call.returnSlot + 0xf0, presented) || presented != 1
+        || !Value(call.returnSlot + 0xd8, frame) || frame != call.frame
+        || !Value(call.returnSlot + 0xe0, parameters) || parameters != uintptr_t(call.parameters)
+        || !Value(call.returnSlot + 0xc8, sync) || sync != call.sync
+        || !Value(call.returnSlot + 0xd0, flags) || flags != call.flags
         || !Value(resources, resource) || !resource) return false;
     generated = uint32_t(count);
     return true;
@@ -515,6 +567,21 @@ HRESULT Dispatch(Route& current, const Invocation& call)
         try { FlipBeforePresent(current, call); }
         catch (...) {} // Flip metering must not replace the original Present result.
     }
+    std::shared_ptr<Owner> vsyncFirst;
+    if (call.sync && current.enabled.load(std::memory_order_acquire)
+        && call.returnAddress == uintptr_t(current.module) + kFirstReturn && call.generated) {
+        if (const auto owners = current.owners.load(std::memory_order_acquire)) for (const auto& owner : *owners) {
+            if (owner->presenter != uintptr_t(call.presenter)) continue;
+            uint32_t generated{};
+            const bool admitted = FirstVSync(current, *owner, call, generated);
+            std::lock_guard lock(owner->clockMutex);
+            if (admitted) {
+                owner->vsyncCadence.Begin(uint32_t(call.frame), generated + 1, call.sync, NowNs());
+                vsyncFirst = owner;
+            } else owner->vsyncCadence.Reset();
+            break;
+        }
+    }
     if (current.enabled.load(std::memory_order_acquire)
         && call.returnAddress == uintptr_t(current.module)+kExtraReturn && call.generated)
     {
@@ -563,7 +630,14 @@ HRESULT Dispatch(Route& current, const Invocation& call)
         catch (...) {} // The added pacing must not replace the original Present result.
     }
     SetLastError(incomingError);
-    return current.original(call.presenter, call.sync, call.flags, call.frame, call.parameters, call.resource, call.generated);
+    const auto result = current.original(call.presenter, call.sync, call.flags, call.frame, call.parameters, call.resource, call.generated);
+    const DWORD outgoingError = GetLastError();
+    if (vsyncFirst && result != S_OK) {
+        std::lock_guard lock(vsyncFirst->clockMutex);
+        vsyncFirst->vsyncCadence.Reset();
+    }
+    SetLastError(outgoingError);
+    return result;
 }
 
 __declspec(noinline) HRESULT HookPresent(void* presenter, UINT sync, UINT flags, uint64_t frame,
@@ -674,12 +748,23 @@ void NativeDeadline(Route& current, void* timing, int64_t* output, const void* r
         HitchNote note{};
         int64_t meanInterval{};
         uint32_t excluded{};
+        bool vsyncApplied{};
+        int64_t vsyncReady{};
         {
             std::lock_guard lock(owner.clockMutex);
-            if (index == 1) NoteBatch(owner, owner.batchInterval.Observe(frame, total, batchStart), note);
-            planned = owner.batchInterval.Plan(frame, total, index, now, decision, gpuLatency);
-            if (const auto outputs = owner.batchInterval.Outputs()) meanInterval = owner.batchInterval.Mean()/int64_t(outputs);
-            excluded = owner.batchInterval.Excluded();
+            vsyncApplied = owner.vsyncCadence.Matches(frame, total);
+            if (vsyncApplied) {
+                if (unsafe.load(std::memory_order_acquire) || owner.retiring.load(std::memory_order_acquire)) return;
+                vsyncReady = owner.vsyncCadence.Ready();
+                planned = owner.vsyncCadence.Plan(frame, total, index, now, batchStart, gpuLatency, decision);
+                meanInterval = owner.vsyncCadence.Interval().Mean() / int64_t(total);
+                excluded = owner.vsyncCadence.Interval().Excluded();
+            } else {
+                if (index == 1) NoteBatch(owner, owner.batchInterval.Observe(frame, total, batchStart), note);
+                planned = owner.batchInterval.Plan(frame, total, index, now, decision, gpuLatency);
+                if (const auto outputs = owner.batchInterval.Outputs()) meanInterval = owner.batchInterval.Mean()/int64_t(outputs);
+                excluded = owner.batchInterval.Excluded();
+            }
         }
         const auto sdkDeadline = *output;
         if (planned) { *output = decision.deadline; ++deadlines; }
@@ -719,7 +804,8 @@ void NativeDeadline(Route& current, void* timing, int64_t* output, const void* r
                 ",\"flip_lead_ns\":"+std::to_string(metered.lead)+
                 ",\"flip_spacing_ns\":"+std::to_string(spacing)+",\"mean_interval_ns\":"+std::to_string(meanInterval)+
                 ",\"excluded\":"+std::to_string(excluded)+",\"gpu_latency_ns\":"+std::to_string(gpuLatency)+
-                ",\"latency_lead_ns\":"+std::to_string(decision.lead));
+                ",\"latency_lead_ns\":"+std::to_string(decision.lead)+
+                ",\"vsync_cadence\":"+(vsyncApplied ? "true" : "false")+",\"vsync_ready_ns\":"+std::to_string(vsyncReady));
         return;
     }
 }
