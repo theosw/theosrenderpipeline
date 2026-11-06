@@ -182,6 +182,7 @@ OverlayUI::FrameView OverlayUI::CaptureFrameView()
     view.xefgTensorStatus = backend.XeFGTensorStatus();
     view.xefgPacingStatus = backend.XeFGPacingStatus();
     view.xefgFlipMetering = backend.XeFGFlipMetering();
+    view.xefgEvenPacingInactive = backend.XeFGVSyncCadenceUnavailable();
     view.steadyRenderedFPS = backend.SteadyRenderedFPS();
     view.session = backend.Snapshot();
     view.mfg = backend.MFGState();

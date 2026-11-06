@@ -84,6 +84,8 @@ struct OverlayUI::FrameView
     bool vsyncObserved{}, vsyncIncoming{}, vsyncRequested{}, vsyncFailed{}, vsyncRequiredOff{};
     TheosRenderPipeline::SourceDLSSG::VSyncMode vsyncConfigured{};
     bool xefgTensorRequested{}, xefgFlipMetering{};
+    // Why applied XeFG even pacing is not pacing now; null while it can apply.
+    const char* xefgEvenPacingInactive{};
     float steadyRenderedFPS{}; // Steady frame limit's current cap; 0 while measuring or off.
     std::string xefgTensorStatus, xefgPacingStatus;
     TheosRenderPipeline::SourceDLSSG::SessionSnapshot session{};

@@ -507,12 +507,23 @@ PreviewScenario Runtimes()
     return scenario;
 }
 
-PreviewScenario VSyncCadenceLab()
+// Universal on a GTX 10: XeFG x4 with the tensor model and saved even pacing on.
+PreviewScenario EvenPacing()
 {
     auto scenario = Intel();
-    scenario.name = "vsync-cadence-lab";
-    scenario.summary = "XeFG Lab controls with session-only VSync cadence off";
-    scenario.labMode = true;
+    scenario.name = "even-pacing";
+    scenario.summary = "XeFG x4 with the tensor model and even pacing applied";
+    auto& view = scenario.view;
+    view.nvidiaAdapter = true;
+    view.xefgUnlockAvailable = true;
+    view.xefgTensorRequested = true;
+    view.xefg.experimentalMFG = true;
+    view.effectiveMultiplier = 4;
+    scenario.applied.sourceDLSSG.xefgTensorCores = true;
+    scenario.applied.sourceDLSSG.xefg.generatedFrames = 3;
+    scenario.applied.sourceDLSSG.xefg.experimentalMFG = true;
+    scenario.applied.sourceDLSSG.xefgEvenPacing = true;
+    scenario.draft = scenario.applied;
     return scenario;
 }
 
@@ -542,5 +553,5 @@ std::vector<PreviewScenario> PreviewScenarios()
         Pascal("pascal-driver", NeuralRendering::kPascalDriverReason),
         Pascal("pascal-missing-pack", NeuralRendering::kPascalAssetReason),
         Pascal("pascal-checking", NeuralRendering::kPascalAssetsChecking),
-        Pascal("pascal-low-budget", NeuralRendering::kPascalBudgetReason), PascalOldNetwork(), Runtimes(), Lab(), VSyncCadenceLab()};
+        Pascal("pascal-low-budget", NeuralRendering::kPascalBudgetReason), PascalOldNetwork(), Runtimes(), Lab(), EvenPacing()};
 }

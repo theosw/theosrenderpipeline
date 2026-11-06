@@ -36,6 +36,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 		bool xefgFrameTime{ true };
 		// Optional private Universal backend; runtime selection needs a restart.
 		bool xefgTensorCores{ false };
+		// XeFG x3/x4 with VSync: space generated frames evenly in software when
+		// NVIDIA flip metering is unavailable. Costs base FPS; recreates XeFG.
+		bool xefgEvenPacing{ false };
 		// Intel XeFG scene-change sensitivity, 0-1. Live.
 		float xefgSceneChangeThreshold{ XeFGDefaultSceneChangeThreshold };
 		GenerationRequest generation{};
@@ -89,6 +92,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		value.vsync = vsync >= 0 && vsync <= 2 ? static_cast<VSyncMode>(vsync) : VSyncMode::Auto;
 		value.xefgFrameTime = ini.GetBoolValue("FrameGeneration", "XeFGFrameTime", true);
 		value.xefgTensorCores = ini.GetBoolValue("FrameGeneration", "XeFGTensorCores", false);
+		value.xefgEvenPacing = ini.GetBoolValue("FrameGeneration", "XeFGEvenPacing", false);
 		value.xefgSceneChangeThreshold = static_cast<float>(ini.GetDoubleValue("FrameGeneration", "XeFGSceneChangeThreshold",
 			XeFGDefaultSceneChangeThreshold));
 		value.xefg.generatedFrames = static_cast<std::uint32_t>(std::clamp(ini.GetLongValue("FrameGeneration", "XeFGMultiplier", 2), 2L, static_cast<long>(XeFGMaxGeneratedFrames+1))-1);
@@ -140,6 +144,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		ini.SetLongValue("FrameGeneration", "VSync", static_cast<int>(value.vsync));
 		ini.SetBoolValue("FrameGeneration", "XeFGFrameTime", value.xefgFrameTime);
 		ini.SetBoolValue("FrameGeneration", "XeFGTensorCores", value.xefgTensorCores);
+		ini.SetBoolValue("FrameGeneration", "XeFGEvenPacing", value.xefgEvenPacing);
 		ini.SetDoubleValue("FrameGeneration", "XeFGSceneChangeThreshold", value.xefgSceneChangeThreshold);
 		ini.Delete("FrameGeneration", "XeFGExperimentalMFG");
 		ini.SetLongValue("FrameGeneration", "XeFGMultiplier", value.xefg.generatedFrames+1);
