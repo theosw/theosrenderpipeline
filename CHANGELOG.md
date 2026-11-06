@@ -1,6 +1,11 @@
 # Unreleased
 
 - NR Object rules support Skyrim 1.5.97, with a version-specific draw-hook guard.
+- XeFG Even pacing (Universal, off by default): Frame generation > Even pacing
+  spaces x3/x4 generated frames evenly with VSync where NVIDIA flip metering
+  is unavailable, such as on GTX 10 or in windowed play. It needs the XeFG
+  tensor model. On a GTX 1070 Ti at x4 in LoreRim, frames went from bursts
+  (40% of gaps long) to a steady 13.9 ms, at about 15% lower base FPS.
 
 # 0.6.4
 
