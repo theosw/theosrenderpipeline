@@ -602,7 +602,7 @@ PreviewScenario VendorFSR()
 }
 PreviewScenario VulkanBackground()
 {
-    auto s=VulkanNvidia();s.name="vulkan-background";
+    auto s=VulkanNvidia();s.name="vulkan-background";s.labMode=true;
     s.summary="Illustrative Vulkan timing readout and experimental background scheduling; not benchmark data";
     s.view.frameGenerationRequested=true;s.view.neuralState.active=true;
     s.applied.sourceDLSSG.generation.generatedFrames=3;
@@ -635,7 +635,7 @@ PreviewScenario VulkanAmdPortable()
 {
     auto s=VulkanNvidia();s.name="vulkan-amd-portable";
     s.summary="AMD native path refused, portable fallback available; illustrative, Radeon unvalidated";
-    s.view.nvidiaAdapter=false;
+    s.view.nvidiaAdapter=false;s.view.amdAdapter=true;s.view.neuralHIPReason.clear();
     s.view.neuralVulkanPath="RDNA 3 path refused by fragment probe; using portable KHR path";
     return s;
 }

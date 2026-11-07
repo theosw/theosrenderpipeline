@@ -760,7 +760,7 @@ void DrawNeuralSettings(const OverlayUI::FrameView& view, TheosRenderPipeline::S
                 return changed;
             });
         }
-        if (base && draft.neuralBackend == NR::Backend::Vulkan)
+        if (base && g_labModelRate && draft.neuralBackend == NR::Backend::Vulkan)
         {
             SettingRow(TR("Vulkan scheduling (Lab)"), "VulkanScheduling", true, unavailable, [&] {
                 int schedule = static_cast<int>(draft.vulkanScheduling);

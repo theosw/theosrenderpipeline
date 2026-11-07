@@ -26,6 +26,8 @@ class SourceFrameGeneration
         bool emulateRTX30OnRTX40{};
         std::string sourceDLSSGStreamlineDirectory;
         TheosRenderPipeline::SourceDLSSG::Preferences sourceDLSSG;
+        // Startup-only automatic markers; live preferences store resolved choices.
+        bool neuralBackendAutomatic{true}, neuralInputAutomatic{true};
         int nativeUICompositionMode{}; // 0 = dedicated UI; 1 = HUD-less detection.
         std::string neuralRenderingRuntimePath;
         TheosRenderPipeline::RuntimePathSettings configuredRuntimePaths;
@@ -46,6 +48,8 @@ class SourceFrameGeneration
         settings.configuredRuntimePaths.Load(ini);
         settings.sourceDLSSGStreamlineDirectory = settings.configuredRuntimePaths.streamline;
         settings.sourceDLSSG = TheosRenderPipeline::SourceDLSSG::LoadPreferences(ini);
+        settings.neuralBackendAutomatic = ini.GetLongValue("SourceDLSSG", "NeuralBackend", -1) < 0;
+        settings.neuralInputAutomatic = ini.GetDoubleValue("SourceDLSSG", "NRInputScale", 0) <= 0;
         settings.nativeUICompositionMode = std::clamp(static_cast<int>(ini.GetLongValue(
             "Experimental", "NativeUICompositionMode", ini.GetLongValue("Experimental", "PureDarkHUDFixMethod", 0))), 0, 1);
         settings.neuralRenderingRuntimePath = settings.configuredRuntimePaths.neural;

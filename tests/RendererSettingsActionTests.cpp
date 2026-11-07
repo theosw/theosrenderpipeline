@@ -190,7 +190,7 @@ void Neural()
 {
     {
         RendererSettingsDraft draft; draft.valid = true; draft.upscaleType = XeSS;
-        auto waitDraft = draft; waitDraft.sourceDLSSG.amdNRWaitForNetwork = true;
+        auto waitDraft = draft; waitDraft.sourceDLSSG.amdNRWaitForNetwork = false;
         Require(CountRendererSettingsChanges(waitDraft, draft) == 1 &&
             !SameNeuralPreferences(waitDraft.sourceDLSSG, draft.sourceDLSSG), "AMD wait mode participates in Apply/Discard and NR validation");
         auto trackingDraft = draft; trackingDraft.sourceDLSSG.amdNRShowTracking = true;

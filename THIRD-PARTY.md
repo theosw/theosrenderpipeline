@@ -923,3 +923,8 @@ ZLUDA (MIT OR Apache-2.0). ZLUDA licence texts are retained in
 `third_party/amd-nr/licenses/` and distributed in AMDNR. The upstream notice
 also describes GPL SR kernels, OptiScaler and d4r; those files are excluded.
 See `third_party/amd-nr/bundle-assets.json` for the pinned binary allowlist.
+
+The AMDNR bundle also retains the pinned ZLUDA tree's detours-sys MIT/Apache-2.0,
+Microsoft Detours MIT, and ROCm device libraries University of Illinois/NCSA
+notices under `AMDNR/ZLUDA-*-LICENSE*`. These are attribution files, not extra
+runtime DLLs.

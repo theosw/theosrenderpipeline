@@ -70,7 +70,7 @@ int main()
     }
 
 	auto empty = LoadPreferences(ini);
-	Require(!empty.amdNRWaitForNetwork, "old INIs preserve Async");
+	Require(empty.amdNRWaitForNetwork, "fresh installs default to Regular (wait)");
 	Require(!empty.amdNRShowTracking, "missing tracking setting keeps normal pixels");
 	empty.amdNRShowTracking = true;
 	empty.amdNRWaitForNetwork = true;

@@ -54,9 +54,8 @@ int main(int argc, char**) {
         SourceDLSSG::ApplyNeuralHardwareDefaults(nvidia,false);
         Require(amd.neuralBackend==Backend::HIP && amd.neuralReconstruction.inputScale==.5f && amd.amdNRWaitForNetwork,"AMD fresh-install defaults");
         Require(nvidia.neuralBackend==Backend::Native && nvidia.neuralReconstruction.inputScale==1,"NVIDIA defaults retained");
-        custom.neuralBackendAutomatic=custom.neuralInputAutomatic=false;
         custom.neuralBackend=Backend::Vulkan;custom.neuralReconstruction.inputScale=.75f;custom.amdNRWaitForNetwork=false;
-        SourceDLSSG::ApplyNeuralHardwareDefaults(custom,true);
+        SourceDLSSG::ApplyNeuralHardwareDefaults(custom,true,false,false);
         Require(custom.neuralBackend==Backend::Vulkan && custom.neuralReconstruction.inputScale==.75f && !custom.amdNRWaitForNetwork,"explicit choices retained");
         std::cout << "PASS: hardware defaults, explicit preferences, exclusive claims and capability-query retirement\n";
         return 0;

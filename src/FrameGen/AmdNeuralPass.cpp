@@ -69,7 +69,7 @@ namespace TheosRenderPipeline::SourceDLSSG {
         // The package is immutable during a game session. Retry after a restart.
         static const auto missing = []() -> std::string {
             for (const wchar_t* name : {L"dlss5nr_runtime.dll", L"zluda/zluda_real.dll",
-                 L"zluda/nvcuda.dll", L"zluda/nvapi64.dll", L"zluda/nvngx.dll", L"kernels/kernels.txt",
+                 L"zluda/nvcuda.dll", L"zluda/nvapi64.dll", L"zluda/nvapi_trp_upstream.dll", L"zluda/nvngx.dll", L"kernels/kernels.txt",
                  L"cache/ComputeCache/zluda2.db", L"cache/ComputeCache/coverage.txt"}) {
                 std::error_code error;
                 if (!std::filesystem::is_regular_file(Directory()/name, error))
@@ -346,7 +346,7 @@ namespace TheosRenderPipeline::SourceDLSSG {
             !m.Width || !m.Height || m.Width > UINT_MAX || m.DepthOrArraySize != 1 || z.DepthOrArraySize != 1 ||
             m.MipLevels != 1 || z.MipLevels != 1 || m.SampleDesc.Count != 1 || z.SampleDesc.Count != 1 ||
             m.Width != z.Width || m.Height != z.Height) {
-            message_ = "Experimental AMD NR requires one world pass before XeSS with supported colour/guides"; return false;
+            message_ = "HIP/ZLUDA NR requires one world pass before XeSS with supported colour/guides"; return false;
         }
         const bool supportedColor = d.Format == DXGI_FORMAT_R8G8B8A8_UNORM || d.Format == DXGI_FORMAT_R16G16B16A16_FLOAT;
         if (output_ && NeedsRecreation(options, static_cast<UINT>(m.Width), m.Height, color)) {

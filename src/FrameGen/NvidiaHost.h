@@ -1,5 +1,4 @@
 #pragma once
-#include "RuntimeStateDiagnostics.h"
 
 #include <d3d11.h>
 #include <dxgi.h>
@@ -201,7 +200,6 @@ class NvidiaHost
     bool fsrActive_{};
     bool splitSourceRuntimeFailureLogged_{false};
     bool frameGenerationStateKnown_{false};
-    TheosRenderPipeline::SourceDLSSG::StateLogLimiter<TheosRenderPipeline::SourceDLSSG::HostFGDiagnosticState> fgHostDiagnosticLog_;
     bool frameGenerationEnabled_{false};
     bool resetNextEvaluation_{true};
     bool evaluationFailureLogged_{false};

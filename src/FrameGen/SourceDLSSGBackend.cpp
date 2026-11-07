@@ -983,7 +983,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 #if !defined(TRP_NO_NEURAL_RENDERING)
 		{
 			std::scoped_lock lock(neuralMutex_);
-			const bool actuallyActive = active && (!neuralPass_->AMD() || neuralPass_->AMDRunning());
+			const bool actuallyActive = active && neuralPass_ && (!neuralPass_->AMD() || neuralPass_->AMDRunning());
 			const bool changed = neuralSnapshot_.active != actuallyActive;
 			neuralSnapshot_.active = actuallyActive;
 			// A new pass runs from the frame after its feature's creation.
@@ -998,6 +998,11 @@ namespace TheosRenderPipeline::SourceDLSSG
 			neuralSnapshot_.status = neuralPass_ && neuralPass_->Preparing() ? NeuralRendering::kPreparingVulkan : neuralSnapshot_.sessionDisabled ? neuralSnapshot_.reason : unavailable ? unavailable : active ? neuralPass_->Status() : options.enabled ?
 				"NR waiting for world inputs and dedicated native UI; standard DLSS active" : "standard DLSS; source NR is off";
             const bool amd = neuralPass_ && neuralPass_->AMD();
+            if (!amd && (changed || (active && (reset || neuralSnapshot_.evaluations % 600 == 0)))) {
+                logger::info("[SourceDLSSG NR] frame={} active={} evaluations={} reset={} style={} fgRequested={} {}",
+                    FrameIndex(), active, neuralSnapshot_.evaluations, reset,
+                    options.tuning.style, enabled_, neuralSnapshot_.status);
+            }
             if (amd && options.enabled && !neuralSnapshot_.sessionDisabled) { neuralSnapshot_.status = neuralPass_->Status(); }
             const NRDiagnosticState state{options.enabled, eligible, active, actuallyActive,
                 neuralSnapshot_.failed, options.amdWaitForNetwork, amd ? neuralPass_->AMDModelState() : -1,

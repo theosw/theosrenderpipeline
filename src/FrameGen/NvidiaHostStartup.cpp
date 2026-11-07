@@ -90,7 +90,9 @@ HRESULT NvidiaHost::CreateSwapChain(IDXGIFactory* a_factory, ID3D11Device* a_dev
     DXGI_ADAPTER_DESC nrDesc{};
     if (SUCCEEDED(a_device->QueryInterface(IID_PPV_ARGS(&nrDevice))) && SUCCEEDED(nrDevice->GetAdapter(&nrAdapter)) &&
         SUCCEEDED(nrAdapter->GetDesc(&nrDesc))) {
-        TheosRenderPipeline::SourceDLSSG::ApplyNeuralHardwareDefaults(settings.sourceDLSSG, nrDesc.VendorId == 0x1002);
+        TheosRenderPipeline::SourceDLSSG::ApplyNeuralHardwareDefaults(settings.sourceDLSSG, nrDesc.VendorId == 0x1002,
+            settings.neuralBackendAutomatic, settings.neuralInputAutomatic);
+        settings.neuralBackendAutomatic = settings.neuralInputAutomatic = false;
     }
     auto& backend = TheosRenderPipeline::SourceDLSSG::Backend::Get();
     backend.RequestProvider(settings.sourceDLSSG.provider);

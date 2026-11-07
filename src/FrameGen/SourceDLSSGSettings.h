@@ -48,10 +48,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// absolute. Any file loads by its version; see NeuralRuntimeFiles.h.
 		std::string neuralRuntime{ kAutomaticNeuralRuntime };
         NeuralRendering::Backend neuralBackend{};
-        bool neuralBackendAutomatic{true}, neuralInputAutomatic{true};
         NeuralRendering::VulkanScheduling vulkanScheduling{};
 		bool amdNRWaitForNetwork{ true }; // Regular is the Radeon default.
-		bool amdNRShowTracking{ false }; // Private AMD pixel-coverage diagnostic; off by default.
+		bool amdNRShowTracking{ false }; // Lab pixel-coverage diagnostic; off by default.
 		bool neuralBeforeUpscaling{ true };
 		int neuralPasses{ 1 };
 		NeuralRendering::CombatSettings neuralCombat{};
@@ -64,11 +63,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 		bool operator==(const Preferences&) const = default;
 	};
 
-    inline void ApplyNeuralHardwareDefaults(Preferences& value, bool amd) {
-        if (value.neuralBackendAutomatic) value.neuralBackend = amd ? NeuralRendering::Backend::HIP : NeuralRendering::Backend::Native;
-        if (value.neuralInputAutomatic) value.neuralReconstruction.inputScale = amd ? 0.5f : 1.0f;
-        // Resolve once for this process. Save as default stores the effective choices.
-        value.neuralBackendAutomatic = value.neuralInputAutomatic = false;
+    inline void ApplyNeuralHardwareDefaults(Preferences& value, bool amd, bool automaticBackend = true, bool automaticInput = true) {
+        if (automaticBackend) value.neuralBackend = amd ? NeuralRendering::Backend::HIP : NeuralRendering::Backend::Native;
+        if (automaticInput) value.neuralReconstruction.inputScale = amd ? 0.5f : 1.0f;
     }
 
 	inline Preferences SanitizePreferences(Preferences value)
@@ -129,8 +126,6 @@ namespace TheosRenderPipeline::SourceDLSSG
 		value.neuralRuntime = NormalizeNeuralRuntimeSetting(
 			ini.GetValue("Experimental", "NeuralRenderingRuntimePath", std::string(kAutomaticNeuralRuntime).c_str()),
 			ini.GetBoolValue("Experimental", "NeuralRenderingRuntimeExplicit", false));
-        value.neuralBackendAutomatic = ini.GetLongValue(section, "NeuralBackend", -1) < 0;
-        value.neuralInputAutomatic = ini.GetDoubleValue(section, "NRInputScale", 0) <= 0;
         value.neuralBackend = NeuralRendering::SanitizeBackend(ini.GetLongValue(section, "NeuralBackend", -1));
         value.vulkanScheduling = NeuralRendering::SanitizeVulkanScheduling(ini.GetLongValue(section, "VulkanScheduling", 0));
 		value.amdNRWaitForNetwork = ini.GetBoolValue(section, "AMDNRWaitForNetwork", true);

@@ -323,7 +323,6 @@ namespace TheosRenderPipeline::SourceDLSSG
 		Session session_;
 		XeFGPresenter xefg_;
 		std::atomic<bool> xefgTensorRequested_{};
-        StateLogLimiter<FGDiagnosticState> fgDiagnosticLog_;
 		std::atomic<std::uint32_t> xefgOptions_{1};
 		XeSSUpscaler xess_;
 		FSRUpscaler fsr_;

@@ -97,6 +97,28 @@ int main(int argc, char** argv)
         Require(!LoadReconstruction(spatial,"SourceDLSSG").fusedPreparation,"explicit preparation opt-out wins");
         spatial.SetBoolValue("SourceDLSSG","NRPeripheralCompression",false);
         Require(!LoadReconstruction(spatial,"SourceDLSSG").peripheralCompression,"explicit spatial opt-out wins");
+        // The package requests hardware defaults; saved explicit values resolve only once.
+        owner.LoadStartupPreferences(packaged);
+        Require(owner.settings.neuralBackendAutomatic && owner.settings.neuralInputAutomatic,
+            "fresh package requests adapter-specific NR defaults");
+        TheosRenderPipeline::SourceDLSSG::ApplyNeuralHardwareDefaults(owner.settings.sourceDLSSG, true,
+            owner.settings.neuralBackendAutomatic, owner.settings.neuralInputAutomatic);
+        Require(owner.settings.sourceDLSSG.neuralBackend == Backend::HIP &&
+            owner.settings.sourceDLSSG.neuralReconstruction.inputScale == .5f &&
+            owner.settings.sourceDLSSG.amdNRWaitForNetwork, "Radeon starts with HIP, half input and Regular");
+        CSimpleIniA chosenNR;
+        owner.settings.sourceDLSSG.neuralBackend = Backend::Vulkan;
+        owner.settings.sourceDLSSG.neuralReconstruction.inputScale = .75f;
+        owner.settings.sourceDLSSG.amdNRWaitForNetwork = false;
+        TheosRenderPipeline::SourceDLSSG::StorePreferences(chosenNR, owner.settings.sourceDLSSG);
+        owner.LoadStartupPreferences(chosenNR);
+        Require(!owner.settings.neuralBackendAutomatic && !owner.settings.neuralInputAutomatic,
+            "saved choices are explicit startup preferences");
+        TheosRenderPipeline::SourceDLSSG::ApplyNeuralHardwareDefaults(owner.settings.sourceDLSSG, true,
+            owner.settings.neuralBackendAutomatic, owner.settings.neuralInputAutomatic);
+        Require(owner.settings.sourceDLSSG.neuralBackend == Backend::Vulkan &&
+            owner.settings.sourceDLSSG.neuralReconstruction.inputScale == .75f &&
+            !owner.settings.sourceDLSSG.amdNRWaitForNetwork, "restart preserves backend, input and execution choices");
         owner.LoadStartupPreferences(packaged);
         const std::string configuredStreamline = packaged.GetValue("Experimental", "SourceDLSSGStreamlineDirectory", "");
         const std::string configuredNeural = packaged.GetValue("Experimental", "NeuralRenderingRuntimePath", "");

@@ -60,7 +60,7 @@ struct OverlayUI::FrameView
     // (0 if not tried) and why it cannot run (empty if it can).
     float neuralHIPMilliseconds{}, neuralVulkanMilliseconds{};
     std::string neuralVulkanReason, neuralVulkanPath;
-    std::string neuralHIPReason;
+    std::string neuralHIPReason{"HIP/ZLUDA NR requires an AMD Radeon GPU."};
     int neuralComputeCapability{-1};
     bool neuralRuntimeKernels{};
     bool sourceReady{};
