@@ -11,6 +11,7 @@
 #include "NeuralFrameContinuity.h"
 #include "XeFGModelBeat.h"
 #include <chrono>
+#include "AmdNeuralPass.h"
 #include <array>
 
 namespace TheosRenderPipeline::SourceDLSSG
@@ -28,10 +29,33 @@ namespace TheosRenderPipeline::SourceDLSSG
 			ID3D12Resource* hudless, ID3D12Resource* composed,
 			std::uint64_t timestampFrequency = 0, const D3D12StageMarks& marks = {}, ID3D12Resource* objectMask = nullptr,
             std::array<float,2> objectMaskGuideOffset = {},
-			std::array<float,2> colorJitter = {}, std::optional<std::uint32_t> applicationFrame = {});
-		ID3D12Resource* Composed() const { return composed_.Get(); }
-		ID3D12Resource* Corrected() const { return corrected_.Get(); }
-		NeuralTelemetrySnapshot Telemetry() const { return telemetry_.Snapshot(); }
+			std::array<float,2> colorJitter = {}, std::optional<std::uint32_t> applicationFrame = {}, Interop* splitInterop = nullptr, ID3D12CommandQueue* queue = nullptr);
+		ID3D12Resource* Corrected() const { return amd_ ? amd_->Output() : corrected_.Get(); }
+        ID3D12Resource* Composed() const { return composed_.Get(); }
+        unsigned VulkanJobsInFlight() const { return background_.schedule.InFlight(); }
+        std::uint64_t VulkanResultAge() const { return background_.schedule.DisplayedAge(background_.frame); }
+        std::uint64_t VulkanDropped() const { return background_.schedule.Dropped(); }
+        NeuralTelemetrySnapshot Telemetry() const {
+            auto result=telemetry_.Snapshot();
+            if(backend_==NeuralRendering::Backend::Vulkan){
+                const auto measured=feature_.VulkanMeasurements();
+                result.vulkanInferenceMs=measured.NetworkMs();result.vulkanCopiesMs=measured.CopiesPerFrameMs();
+                result.vulkanBackground=vulkanScheduling_==NeuralRendering::VulkanScheduling::Background;
+                if(measured.completed&&measured.frames){
+                    const auto host=result.frameSamples?result.AverageFrameGPUMicroseconds()/1000:result.vulkanCopiesMs;
+                    result.vulkanFrameMs=result.vulkanBackground?host+measured.NetworkPerFrameMs():
+                        result.frameSamples?host:measured.NetworkPerFrameMs()+result.vulkanCopiesMs;
+                }
+            }
+            return result;
+        }
+		bool Submitted(ID3D12CommandQueue* queue) { return !amd_ || amd_->Submitted(queue); }
+		bool AMD() const { return !!amd_; }
+		int AMDModelState() const { return amd_ ? amd_->ModelState() : -1; }
+        std::uint64_t AMDSubmissions() const { return amd_ ? amd_->Submissions() : 0; }
+        std::uint64_t AMDComposedResults() const { return amd_ ? amd_->ComposedResults() : 0; }
+        bool AMDFailed() const { return amd_ && amd_->Failed(); }
+		bool AMDRunning() const { return amd_ && amd_->Running(); }
 		// Tests drive the cadence clock, so host scheduling cannot add a stall.
 		using RateClock = std::chrono::steady_clock::time_point (*)();
 		void SetRateClock(RateClock clock) { rateClock_ = clock ? clock : &std::chrono::steady_clock::now; }
@@ -44,16 +68,21 @@ namespace TheosRenderPipeline::SourceDLSSG
 			return request.is_absolute() && runtimePath_ == request && feature_.IsInitialized() ? feature_.Build() :
 				NeuralRendering::RuntimeBuild::Unknown;
 		}
-		bool NeedsRecreation(const NeuralOptions& options, UINT guideWidth = 0, UINT guideHeight = 0) const
+		bool NeedsRecreation(const NeuralOptions& options, UINT guideWidth = 0, UINT guideHeight = 0, ID3D12Resource* color = nullptr) const
 		{
-			return NeedsResourceRecreation(options, guideWidth, guideHeight) || ModelsChanged(options);
+			if (backend_ != options.backend) return true;
+			return amd_ ? amd_->NeedsRecreation(options, guideWidth, guideHeight, color) :
+                NeedsResourceRecreation(options, guideWidth, guideHeight) || ModelsChanged(options);
 		}
-		bool ModelChangePending(const NeuralOptions& options) const { return ModelsChanged(options); }
+		bool ModelChangePending(const NeuralOptions& options) const { return (options.backend == TheosRenderPipeline::NeuralRendering::Backend::Native) && ModelsChanged(options); }
 		bool NeedsResourceRecreation(const NeuralOptions& options, UINT guideWidth = 0, UINT guideHeight = 0) const
 		{
+            if (backend_ != options.backend) { return true; }
+            if (feature_.IsInitialized() && vulkanScheduling_ != options.vulkanScheduling) { return true; }
+            if (amd_) { return amd_->NeedsRecreation(options, guideWidth, guideHeight, nullptr); }
 			auto resources = reconstruction_;
 			resources.preset = options.reconstruction.preset;
-			return feature_.IsInitialized() && (runtimePath_ != options.runtimePath || beforeUpscaling_ != options.beforeUpscaling || worldOnly_ != options.WorldOnly() || passes_ != options.passes ||
+			return corrected_ && (runtimePath_ != options.runtimePath || beforeUpscaling_ != options.beforeUpscaling || worldOnly_ != options.WorldOnly() || passes_ != options.passes ||
 				!NeuralRendering::SameReconstructionResources(resources, options.reconstruction) ||
 				ExtraPassesChanged(options) ||
 				((guideWidth || guideHeight) && (guideWidth != guideWidth_ || guideHeight != guideHeight_)));
@@ -61,8 +90,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// No list may be open. Backend drains first, just as for a full rebuild.
 		bool RetireChangedModels(const NeuralOptions& options);
 		bool RecoverySafe() const;
+        bool Preparing() const { return feature_.Preparing(); }
+        const std::string& Status() const { return amd_ ? amd_->Status() : status_; }
 		bool ReleaseAfterRetirement();
-		const std::string& Status() const { return status_; }
 		// NGX refused to create Pass 1. Every initialization/recording refusal,
 		// including a later pass, is handled by the backend recovery owner.
 		std::uint32_t RefusedCreation() const { return feature_.RefusedCreation(); }
@@ -138,6 +168,25 @@ namespace TheosRenderPipeline::SourceDLSSG
 			bool modelRan{};
 		};
 		std::array<Microsoft::WRL::ComPtr<ID3D12Resource>, 6> retainedInputs_;
+        NeuralRendering::Backend backend_{};
+        NeuralRendering::VulkanScheduling vulkanScheduling_{};
+        struct BackgroundFrame {
+            Microsoft::WRL::ComPtr<ID3D12Resource> colour,guides;
+            std::array<float,2> jitter{};
+            std::uint64_t serial{};
+        };
+        struct Background {
+            NeuralRendering::VulkanNRSchedule schedule;
+            std::array<BackgroundFrame,NeuralRendering::VulkanNRSchedule::HistorySlots> history;
+            Microsoft::WRL::ComPtr<ID3D12Resource> modelInput,exposure;
+            ResolveConstants captured;
+            std::uint64_t frame{},lastCapture{};
+            bool forceReset{true};
+        } background_;
+        bool RecordVulkanBackground(ID3D12Device*,ID3D12GraphicsCommandList*&,std::size_t,const NeuralOptions&,bool,bool,float,float,
+            ID3D12Resource*,ID3D12Resource*,ID3D12Resource*,std::array<float,2>,std::optional<std::uint32_t>,Interop*,ID3D12CommandQueue*);
+        std::unique_ptr<AmdNeuralPass> amd_;
+        bool adapterChecked_{}, amdAdapter_{};
 		NeuralRendering::FeatureSession feature_;
 		// Passes 2 to 5. Each runs the model on the previous pass's result with its
 		// own feature, history and model raster, and is restored to Pass 1's grid

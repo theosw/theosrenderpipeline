@@ -877,3 +877,49 @@ Redistribution and use in source and binary forms, with or without modification,
   * Neither the name of the copyright holder nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
 
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+## Vulkan Neural Rendering (Universal, experimental)
+
+`third_party/vknr` contains the MIT mauri870/DLSSNR-RDNA3 subset at
+`a2b4edebcd236c8c6d189b340542ce0bf0c3d673`, with inherited
+mochizuki/Overclockers Windows bridge attribution and TRP Windows portability,
+opaque cooperative-matrix, coord-r005 and explicit host-handoff changes.
+See its [LICENSE](third_party/vknr/LICENSE), [NOTICE](third_party/vknr/NOTICE.txt),
+[upstream manifest](third_party/vknr/UPSTREAM-MANIFEST.json) and
+[source manifest](third_party/vknr/SOURCE-MANIFEST.json). Its upstream third-party
+inventory is historical; unrelated injectors and modified loaders are not shipped.
+Shader compilation uses pinned Khronos glslang and SPIR-V Tools build tools;
+the Windows system Vulkan loader is used at runtime. No model weights are part
+of this source or engine payload. The original NVIDIA runtime retains its terms.
+
+## AMD HIP/ZLUDA Neural Rendering (Universal)
+
+The AMD runtime C interface in `third_party/amd-nr/dlss5nr.h` and separately
+built runtime/gate/NGX host come from RedDukeDev's `dlss5-nr-amd-custom`,
+revision `620d54fb2c112ae657f18a4b3bfef37d448e473e` (NR 1.2.0), MIT. Its license is in
+`third_party/amd-nr/LICENSE`. Bundled runtime files retain its LICENSE and
+THIRD_PARTY.md (including RenoDX and OkLab attribution). ZLUDA retains its own
+MIT/Apache-2.0 terms. NVIDIA's original signed model remains proprietary and
+retains the accompanying NVIDIA notices. The AMD host adapter is a local TRP
+experimental integration; it does not establish AMD or Skyrim acceptance.
+
+The runtime adds a size-checked TRP adapter-selection extension and
+uses TRP's `AmdAdapterSelection.h` to match HIP and ZLUDA devices independently
+to Skyrim's adapter. These local additions retain TRP's project license; the
+upstream runtime and notices remain attributed separately above.
+
+The NVAPI adapter forwards the unchanged upstream shim and corrects
+its logical adapter LUID to the independently validated CUDA device. The adapter
+and its CPU fake-driver regression are TRP additions under the project license.
+
+The complete modified runtime source and source manifest are retained under
+`third_party/amd-nr/runtime/` and `runtime-source.json`; build instructions are
+in `third_party/amd-nr/README.md`. These source files do not include proprietary
+models, ZLUDA binaries, native kernel binaries or translation caches.
+
+The Universal AMDNR bundle is restricted to the NR manifest's eleven MIT native
+code objects, its translation cache, MIT runtime/gate/NGX/NVAPI components and
+ZLUDA (MIT OR Apache-2.0). ZLUDA licence texts are retained in
+`third_party/amd-nr/licenses/` and distributed in AMDNR. The upstream notice
+also describes GPL SR kernels, OptiScaler and d4r; those files are excluded.
+See `third_party/amd-nr/bundle-assets.json` for the pinned binary allowlist.

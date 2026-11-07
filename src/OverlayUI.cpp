@@ -1,4 +1,5 @@
 #include "FrameGen/NeuralRuntimeKernels.h"
+#include "FrameGen/SourceDLSSGBackend.h"
 #include "Localization.h"
 #include "PluginPaths.h"
 #include "OverlayUI.h"

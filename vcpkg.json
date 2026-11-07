@@ -18,5 +18,52 @@
       ]
     }
   ],
-  "builtin-baseline": "1dc5ee30eb1032221d29f281f4a94b73f06b4284"
+  "builtin-baseline": "1dc5ee30eb1032221d29f281f4a94b73f06b4284",
+  "features": {
+    "vulkan-nr": {
+      "description": "Build the Universal Vulkan NR engine and compile/validate its SPIR-V with host tools",
+      "dependencies": [
+        {
+          "name": "vulkan",
+          "host": true
+        },
+        {
+          "name": "glslang",
+          "host": true,
+          "features": [
+            "tools"
+          ]
+        },
+        {
+          "name": "spirv-tools",
+          "host": true,
+          "features": [
+            "tools"
+          ]
+        }
+      ]
+    }
+  },
+  "overrides": [
+    {
+      "name": "glslang",
+      "version": "16.4.0"
+    },
+    {
+      "name": "spirv-tools",
+      "version": "1.4.357.0"
+    },
+    {
+      "name": "spirv-headers",
+      "version": "1.4.357.0"
+    },
+    {
+      "name": "vulkan-headers",
+      "version": "1.4.357.0"
+    },
+    {
+      "name": "vulkan-loader",
+      "version": "1.4.357.0"
+    }
+  ]
 }

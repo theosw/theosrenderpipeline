@@ -1,5 +1,7 @@
+#include "FrameGen/VulkanNRHost.h"
 #include <PCH.h>
 #include "OverlayUI.h"
+#include "FrameGen/NeuralRuntimeSession.h"
 #include "OverlayFrameView.h"
 #include "RenderPipeline.h"
 #include "CommunityShaderIntegration.h"
@@ -11,6 +13,7 @@
 #include "FrameGen/DlssgLiteBlending.h"
 #include "FrameGen/NeuralRuntimeFiles.h"
 #include "FrameGen/NeuralRuntimeKernels.h"
+#include "FrameGen/NeuralRenderingFeatureSession.h"
 #include "FrameGen/XeFGUnlock.h"
 #include "PluginPaths.h"
 #include "NeuralObjectHooks.h"
@@ -78,6 +81,7 @@ OverlayUI::FrameView OverlayUI::CaptureFrameView()
     view.reShadeStatus = TheosRenderPipeline::ReShadeIntegration::Get().Status();
     view.menuHotkey = upscaler->mToggleOverlayHotkey;
 
+    auto& backend = TheosRenderPipeline::SourceDLSSG::Backend::Get();
     auto* frameGen = SourceFrameGeneration::GetSingleton();
     view.frameGenerationRequested = frameGen->RuntimeInterpolationRequested();
     view.refreshRate = frameGen->refreshRate;
@@ -99,13 +103,13 @@ OverlayUI::FrameView OverlayUI::CaptureFrameView()
     view.neuralRuntimes = runtimes;
 #endif
 
-    auto& backend = TheosRenderPipeline::SourceDLSSG::Backend::Get();
     view.sourceReady = backend.Ready();
 #if !defined(TRP_NO_NEURAL_RENDERING)
     static TheosRenderPipeline::NeuralRendering::NeuralCapability admission;
     static Clock::time_point admittedAt{};
     static TheosRenderPipeline::SourceDLSSG::Preferences admittedPreferences;
     static std::vector<std::string> runtimeReasons, admittedRuntimes;
+    static std::string hipReason, vulkanReason, vulkanPath;
     static bool checksPending{};
     // While GTX 10 runtime checks run in the background, look again soon after they finish.
     if (Clock::now() - admittedAt > (checksPending ? std::chrono::milliseconds(250) : std::chrono::seconds(3)) ||
@@ -117,6 +121,7 @@ OverlayUI::FrameView OverlayUI::CaptureFrameView()
         options.runtimePath = TheosRenderPipeline::SourceDLSSG::ResolveNeuralRuntimeSetting(draft.neuralRuntime,
             TheosRenderPipeline::PluginPaths::Directory(), backend.NeuralComputeCapability(),
             TheosRenderPipeline::NeuralRendering::RuntimeKernelsSupported());
+        options.backend = draft.neuralBackend;
         options.passes = draft.neuralPasses;
         options.beforeUpscaling = draft.neuralBeforeUpscaling;
         options.reconstruction = draft.neuralReconstruction;
@@ -148,14 +153,34 @@ OverlayUI::FrameView OverlayUI::CaptureFrameView()
             }
             runtimeReasons.emplace_back(reason ? reason : "");
         }
+        const auto* hip = TheosRenderPipeline::SourceDLSSG::AmdNeuralPass::Availability(backend.AmdAdapter());
+        hipReason = hip ? hip : "";
+        const auto vk = TheosRenderPipeline::NeuralRendering::VulkanNRHost::Probe(backend.Device12());
+        vulkanReason = vk.available ? "" : vk.reason;
+        vulkanPath = vk.pathReason;
         admittedRuntimes = view.neuralRuntimes;
         admittedPreferences = draft; admittedAt = Clock::now();
     }
     view.neuralRuntimeReasons = runtimeReasons;
+    view.neuralHIPReason = hipReason;
+    if (const auto* reason = TheosRenderPipeline::NeuralRendering::runtimeSession.Refusal(TheosRenderPipeline::NeuralRendering::Backend::HIP)) view.neuralHIPReason=reason;
+    if (const auto* reason = TheosRenderPipeline::NeuralRendering::runtimeSession.Refusal(TheosRenderPipeline::NeuralRendering::Backend::Vulkan)) vulkanReason=reason;
+    view.neuralVulkanReason = vulkanReason;view.neuralVulkanPath = vulkanPath;
+    if (settingsDraft.sourceDLSSG.neuralBackend == TheosRenderPipeline::NeuralRendering::Backend::HIP)
+        view.neuralRuntimePath = TheosRenderPipeline::SourceDLSSG::AmdNeuralPass::RuntimePath().string();
+    else if (settingsDraft.sourceDLSSG.neuralBackend == TheosRenderPipeline::NeuralRendering::Backend::Vulkan)
+        view.neuralRuntimePath = TheosRenderPipeline::NeuralRendering::VulkanNRHost::Path().string();
     view.neuralPascal = admission.Pascal();
     view.neuralAdmissionReason = admission.Refusal() ? admission.Refusal() : "";
 #endif
     view.nvidiaAdapter = backend.NvidiaAdapter();
+    view.amdAdapter = backend.AmdAdapter();
+#if !defined(TRP_NO_NEURAL_RENDERING)
+    if (view.amdAdapter) {
+        const auto* reason = TheosRenderPipeline::SourceDLSSG::AmdNeuralPass::Availability(backend.AmdAdapter());
+        view.amdNeuralPrerequisite = reason ? reason : "";
+    }
+#endif
     view.nvidiaFeatures = backend.NvidiaFeaturesAvailable();
     view.nvidiaFrameGeneration = backend.NvidiaFrameGenerationAvailable();
     view.videoMemoryFull = backend.VideoMemoryFullRecently();
@@ -204,9 +229,10 @@ OverlayUI::FrameView OverlayUI::CaptureFrameView()
             const auto extra = applied.EffectiveExtra(i);
             cost += std::format("|{}:{}", extra.inputScale, extra.preset);
         }
+        cost += std::format("|{}", static_cast<int>(applied.vulkanScheduling));
         if (cost != measuredWith) { measured.clear(); measuredWith = std::move(cost); }
         const auto& telemetry = view.neuralState.telemetry;
-        if (view.neuralState.active && telemetry.frameSamples && !view.neuralApplied.runtimePath.empty()) {
+        if (view.neuralState.active && telemetry.HasFrame() && !view.neuralApplied.runtimePath.empty()) {
             measured[TheosRenderPipeline::SourceDLSSG::NeuralRuntimeKey(view.neuralApplied.runtimePath.string())] =
                 static_cast<float>(telemetry.AverageFrameGPUMicroseconds() / 1000.0);
         }
@@ -219,6 +245,12 @@ OverlayUI::FrameView OverlayUI::CaptureFrameView()
             const auto found = key.empty() ? measured.end() : measured.find(key);
             view.neuralRuntimeMilliseconds.push_back(found == measured.end() ? 0.0f : found->second);
         }
+        const auto hip = measured.find(TheosRenderPipeline::SourceDLSSG::NeuralRuntimeKey(
+            TheosRenderPipeline::SourceDLSSG::AmdNeuralPass::RuntimePath().string()));
+        view.neuralHIPMilliseconds = hip == measured.end() ? 0.0f : hip->second;
+        const auto vulkan = measured.find(TheosRenderPipeline::SourceDLSSG::NeuralRuntimeKey(
+            TheosRenderPipeline::NeuralRendering::VulkanNRHost::Path().string()));
+        view.neuralVulkanMilliseconds = vulkan == measured.end() ? 0.0f : vulkan->second;
         view.neuralComputeCapability = backend.NeuralComputeCapability();
         view.neuralRuntimeKernels = TheosRenderPipeline::NeuralRendering::RuntimeKernelsSupported();
     }

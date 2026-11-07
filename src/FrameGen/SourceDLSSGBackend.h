@@ -14,6 +14,7 @@
 #include "SourceDLSSGSession.h"
 #include "DlssgPreset.h"
 #include "SourceDLSSGNeuralState.h"
+#include "RuntimeStateDiagnostics.h"
 #if !defined(TRP_NO_NEURAL_RENDERING)
 #include "SourceDLSSGNeuralRendering.h"
 #include "SourceDLSSGNeuralAvailability.h"
@@ -258,6 +259,7 @@ namespace TheosRenderPipeline::SourceDLSSG
         }
 		bool NvidiaFrameGenerationAvailable() const { return NvidiaFeaturesAvailable() && !FrameGenerationUnsupportedReported(); }
 		bool PascalResearchActive() const { return pascalResearch_; }
+		bool AmdAdapter() const { return adapterVendor_ == 0x1002; }
 		HRESULT BeforePresent(ID3D12Resource* a_source, ID3D12Resource* a_destination, DXGI_COLOR_SPACE_TYPE a_colorSpace);
 		HRESULT AfterPresent(HRESULT a_result);
 #if defined(ARP_DEVELOPER_DIAGNOSTICS)
@@ -321,6 +323,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		Session session_;
 		XeFGPresenter xefg_;
 		std::atomic<bool> xefgTensorRequested_{};
+        StateLogLimiter<FGDiagnosticState> fgDiagnosticLog_;
 		std::atomic<std::uint32_t> xefgOptions_{1};
 		XeSSUpscaler xess_;
 		FSRUpscaler fsr_;
@@ -476,6 +479,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		NeuralSnapshot neuralSnapshot_;
 		NeuralRendering::Recovery neuralRecovery_;
 		std::atomic<bool> neuralRetryRequested_{};
+        StateLogLimiter<NRDiagnosticState> nrDiagnosticLog_;
 		sl::Constants frameConstants_{};
 		bool neuralEligible_{};
 		bool frameNeuralReset_{};

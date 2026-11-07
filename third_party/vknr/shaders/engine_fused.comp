@@ -1,0 +1,26 @@
+#version 460
+#extension GL_KHR_cooperative_matrix : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_KHR_memory_scope_semantics : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_GOOGLE_include_directive : require
+// Exact prepared headers used by the full portable graph.
+#include "include/rounding.glsl"
+#include "include/portable_fragments.glsl"
+#include "include/e4m3_emul.glsl"
+layout(local_size_x=32) in;
+layout(set=0,binding=0,std430) readonly buffer A {float16_t a[];};
+layout(set=0,binding=1,std430) readonly buffer B {float16_t b[];};
+layout(set=0,binding=2,std430) writeonly buffer C {float output_values[];};
+layout(push_constant) uniform Params {uint fused_rounding;} pc;
+shared float16_t quantized[256];
+void main(){
+ NR_FRAG_A aa;NR_FRAG_B bb;NR_LOAD_A(aa,a,0,16);NR_LOAD_B_ROW(bb,b,0,16);
+ NR_FRAG_ACC cc=nr_port_mma(aa,bb,nr_soft_acc(0.0));
+ if(pc.fused_rounding!=0u){
+  NR_FRAG_ACC16 hh=nr_soft_acc16(cc);for(uint i=0;i<8;++i)hh[i]=pc.fused_rounding==2u?nr_quant_e4m3(cc[i]):nr_quant_e4m3(hh[i]);
+  NR_STORE_ACC(hh,quantized,0,16);barrier();NR_LOAD_A(aa,quantized,0,16);cc=nr_port_mma(aa,bb,nr_soft_acc(0.0));
+ }
+ NR_STORE_ACC(cc,output_values,0,16);
+}

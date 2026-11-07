@@ -1,3 +1,22 @@
+# 0.7.0 RC1 — draft for Theo's review
+
+- Neural Rendering on AMD Radeon in Universal: HIP/ZLUDA is the default AMD
+  backend, with Regular (wait) execution and 50% NR input. Earlier volunteer
+  sessions ran on an RX 7900 GRE; this exact RC is not Radeon-tested.
+- Experimental Vulkan NR uses TRP's source-built engine, with asynchronous
+  pipeline preparation, Same frame scheduling and optional Background scheduling
+  in Lab. It has not run on a Radeon. Capability checks explain unavailable paths.
+- TRP XeSS or FSR is required. HIP currently admits XeSS only; FSR remains greyed
+  out for HIP pending validation. Vulkan admits both. Standard shows the AMD
+  backends with an edition reason; NVIDIA keeps native NR by default.
+- Switching between HIP/ZLUDA and Vulkan requires restarting Skyrim. Universal
+  carries the identified AMD runtime, kernels, ZLUDA cache and notices; both
+  backends reuse Standard's original NVIDIA model.
+- Known limits: about 30–34 ms per full-input NR run in earlier RX 7900 GRE
+  evidence, mouth smearing in Async, an unconfirmed integrated-GPU workaround
+  for an earlier HIP crash, and higher input latency at low base fps with frame
+  generation. See the README for hardware coverage and test limits.
+
 # 0.6.5
 
 - NR Object rules support Skyrim 1.5.97, with a version-specific draw-hook guard.

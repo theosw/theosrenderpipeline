@@ -1,4 +1,5 @@
 #pragma once
+#include "NeuralBackend.h"
 
 #include <string>
 #include <string_view>
@@ -46,6 +47,11 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// Automatic, or an NR runtime DLL relative to Data/SKSE/Plugins unless
 		// absolute. Any file loads by its version; see NeuralRuntimeFiles.h.
 		std::string neuralRuntime{ kAutomaticNeuralRuntime };
+        NeuralRendering::Backend neuralBackend{};
+        bool neuralBackendAutomatic{true}, neuralInputAutomatic{true};
+        NeuralRendering::VulkanScheduling vulkanScheduling{};
+		bool amdNRWaitForNetwork{ true }; // Regular is the Radeon default.
+		bool amdNRShowTracking{ false }; // Private AMD pixel-coverage diagnostic; off by default.
 		bool neuralBeforeUpscaling{ true };
 		int neuralPasses{ 1 };
 		NeuralRendering::CombatSettings neuralCombat{};
@@ -57,6 +63,13 @@ namespace TheosRenderPipeline::SourceDLSSG
 		HDROutput::Settings hdrOutput{};
 		bool operator==(const Preferences&) const = default;
 	};
+
+    inline void ApplyNeuralHardwareDefaults(Preferences& value, bool amd) {
+        if (value.neuralBackendAutomatic) value.neuralBackend = amd ? NeuralRendering::Backend::HIP : NeuralRendering::Backend::Native;
+        if (value.neuralInputAutomatic) value.neuralReconstruction.inputScale = amd ? 0.5f : 1.0f;
+        // Resolve once for this process. Save as default stores the effective choices.
+        value.neuralBackendAutomatic = value.neuralInputAutomatic = false;
+    }
 
 	inline Preferences SanitizePreferences(Preferences value)
 	{
@@ -116,6 +129,12 @@ namespace TheosRenderPipeline::SourceDLSSG
 		value.neuralRuntime = NormalizeNeuralRuntimeSetting(
 			ini.GetValue("Experimental", "NeuralRenderingRuntimePath", std::string(kAutomaticNeuralRuntime).c_str()),
 			ini.GetBoolValue("Experimental", "NeuralRenderingRuntimeExplicit", false));
+        value.neuralBackendAutomatic = ini.GetLongValue(section, "NeuralBackend", -1) < 0;
+        value.neuralInputAutomatic = ini.GetDoubleValue(section, "NRInputScale", 0) <= 0;
+        value.neuralBackend = NeuralRendering::SanitizeBackend(ini.GetLongValue(section, "NeuralBackend", -1));
+        value.vulkanScheduling = NeuralRendering::SanitizeVulkanScheduling(ini.GetLongValue(section, "VulkanScheduling", 0));
+		value.amdNRWaitForNetwork = ini.GetBoolValue(section, "AMDNRWaitForNetwork", true);
+		value.amdNRShowTracking = ini.GetBoolValue(section, "AMDNRShowTracking", false);
 		value.neuralBeforeUpscaling = ini.GetBoolValue(section, "NRBeforeUpscaling", value.neuralBeforeUpscaling);
 		value.neuralPasses = static_cast<int>(ini.GetLongValue(section, "NRPasses", 1));
 		value.neuralCombat.inCombat = ini.GetBoolValue(section, "NROnePassInCombat", false);
@@ -162,6 +181,10 @@ namespace TheosRenderPipeline::SourceDLSSG
 		ini.SetValue("Experimental", "NeuralRenderingRuntimePath", value.neuralRuntime.c_str());
 		// Keeps a chosen 310.8 from being read back as Automatic.
 		ini.SetBoolValue("Experimental", "NeuralRenderingRuntimeExplicit", !IsAutomaticNeuralRuntime(value.neuralRuntime));
+        ini.SetLongValue(section, "NeuralBackend", static_cast<long>(value.neuralBackend));
+        ini.SetLongValue(section, "VulkanScheduling", static_cast<long>(value.vulkanScheduling));
+		ini.SetBoolValue(section, "AMDNRWaitForNetwork", value.amdNRWaitForNetwork);
+		ini.SetBoolValue(section, "AMDNRShowTracking", value.amdNRShowTracking);
 		ini.SetBoolValue(section, "NRBeforeUpscaling", value.neuralBeforeUpscaling);
 		ini.SetLongValue(section, "NRPasses", value.neuralPasses);
 		ini.SetBoolValue(section, "NROnePassInCombat", value.neuralCombat.inCombat);

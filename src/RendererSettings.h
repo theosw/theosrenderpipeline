@@ -79,6 +79,10 @@ struct RendererSettingsCapabilities
     bool nvidiaAdapter{true};
     bool nvidiaFeatures{true};
     const char* neuralAdmissionReason{};
+    NeuralRendering::Backend backend{};
+    bool xeSSReady{}, fsrReady{};
+    bool amdAdapter{};
+    const char* amdNeuralPrerequisite{};
 };
 
 inline bool CanEditNeuralEnabled(bool enabled, bool available) { return enabled || available; }
@@ -88,12 +92,20 @@ inline bool SameNeuralPreferences(const SourceDLSSG::Preferences& a, const Sourc
     return a.neuralEnabled == b.neuralEnabled && a.neuralBeforeUpscaling == b.neuralBeforeUpscaling &&
         a.neuralPasses == b.neuralPasses && a.neuralCombat == b.neuralCombat && a.neuralTuning == b.neuralTuning &&
         a.neuralReconstruction == b.neuralReconstruction && a.neuralExtraPasses == b.neuralExtraPasses &&
-        a.neuralObjectMasks == b.neuralObjectMasks;
+        a.neuralObjectMasks == b.neuralObjectMasks && a.neuralBackend == b.neuralBackend && a.vulkanScheduling == b.vulkanScheduling &&
+        a.amdNRWaitForNetwork == b.amdNRWaitForNetwork && a.amdNRShowTracking == b.amdNRShowTracking;
 }
 
 inline const char* NeuralSettingsUnavailable(int mode, RendererSettingsCapabilities capabilities)
 {
-    if (!capabilities.nvidiaAdapter) { return "Neural Rendering requires NVIDIA RTX hardware; XeSS and XeFG remain available."; }
+    if (capabilities.backend == NeuralRendering::Backend::HIP) {
+        if (!capabilities.amdAdapter) return "HIP/ZLUDA NR requires an AMD Radeon GPU.";
+        if (capabilities.amdNeuralPrerequisite) return capabilities.amdNeuralPrerequisite;
+        if (mode != XeSS || !capabilities.xeSSReady || capabilities.externalWorld) return NeuralRendering::kHIPUpscalerReason;
+    }
+    if (NeuralRendering::TestBackend(capabilities.backend)) {
+        if (!((mode == XeSS && capabilities.xeSSReady) || (mode == FSR && capabilities.fsrReady)) || capabilities.externalWorld) { return NeuralRendering::kVendorUpscalerReason; }
+    } else if (!capabilities.nvidiaAdapter) { return NeuralRendering::kNativeGPUReason; }
     if (capabilities.neuralAdmissionReason) { return capabilities.neuralAdmissionReason; }
     if (!capabilities.neuralRuntime) {
         return "NR runtime DLL not found. Install nvngx_dlssnr.dll at the configured path and restart Skyrim.";

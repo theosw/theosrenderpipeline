@@ -153,3 +153,12 @@ bool FeatureSession::ResetAfterRetirement() {
 std::uint64_t FeatureSession::EvaluationsRecorded() const {return state_->evaluations;}
 const std::string& FeatureSession::Status() const {return state_->status;}
 }
+
+namespace TheosRenderPipeline::NeuralRendering {
+bool FeatureSession::EvaluateVulkan(const EvaluationInput&, SourceDLSSG::Interop&, ID3D12CommandQueue*, std::size_t, ID3D12GraphicsCommandList*&,bool) { return false; }
+bool FeatureSession::PollVulkan(std::size_t,ID3D12CommandQueue*,bool&) { return false; }
+bool FeatureSession::ConsumeVulkan(const EvaluationInput&,ID3D12CommandQueue*,std::size_t,ID3D12GraphicsCommandList*) { return false; }
+bool FeatureSession::DropVulkan(ID3D12CommandQueue*) { return false; }
+VulkanNRMeasurements FeatureSession::VulkanMeasurements() const { return {}; }
+bool FeatureSession::Preparing() const { return false; }
+}

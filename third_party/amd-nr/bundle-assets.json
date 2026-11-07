@@ -1,0 +1,103 @@
+{
+  "source": "RedDukeDev NR 1.3.2 subset qualified by C14",
+  "zludaCommit": "b135e233bb7a6ff7f8690e49701f87f4944adcee",
+  "privateDonorSHA256": "434172E42BD31940F989B1010624C752C4B0825DD73BBEC16032584A9277C10F",
+  "assets": [
+    {
+      "path": "cache/ComputeCache/coverage.txt",
+      "bytes": 153,
+      "sha256": "1FEFCDD820B507AED251AA820EDB5371FFF4378A254EBD51F9FF98943E9D1E05",
+      "license": "NVIDIA model / ZLUDA translation terms"
+    },
+    {
+      "path": "cache/ComputeCache/zluda2.db",
+      "bytes": 250736640,
+      "sha256": "32F2C474B037B701B4E63F9C7CE778CF3AC8CAD0FB29D9895FCF251F74B97C41",
+      "license": "NVIDIA model / ZLUDA translation terms"
+    },
+    {
+      "path": "kernels/conv1x1_512.hsaco",
+      "bytes": 1165296,
+      "sha256": "9A53C0C4B0C22A1BE8D794705FDF15242747742DBF612A930CC532E9BDE834E6",
+      "license": "MIT"
+    },
+    {
+      "path": "kernels/ffwd_512.hsaco",
+      "bytes": 691720,
+      "sha256": "5F997B482B4F789F6100DE6239DB71A97535154B4D81E0B66B3A59BF6439CE2C",
+      "license": "MIT"
+    },
+    {
+      "path": "kernels/kernels.txt",
+      "bytes": 17142,
+      "sha256": "EDE182E50614C1FBA513DD94E7E7F4AD3698E4885123401A429073813C504D58",
+      "license": "MIT"
+    },
+    {
+      "path": "kernels/qkv_512.hsaco",
+      "bytes": 495992,
+      "sha256": "808F4D2B43C7F7BAFAEA341BC1E1C80B07909953EBADD54EC9BA73A6D8E7A5EE",
+      "license": "MIT"
+    },
+    {
+      "path": "kernels/swin_1h.hsaco",
+      "bytes": 5996336,
+      "sha256": "AB40B1C0EBCBF7E43B069BB69159BF56E2F09BB0C7D08C1A50AA75117A501714",
+      "license": "MIT"
+    },
+    {
+      "path": "kernels/swin_2h.hsaco",
+      "bytes": 5318432,
+      "sha256": "96C09006BB896A6AE93F1DD4695CF23CF167261F4E7028364EF804511252705A",
+      "license": "MIT"
+    },
+    {
+      "path": "kernels/swin_4h.hsaco",
+      "bytes": 4222288,
+      "sha256": "1CA5AF7D20AF9AA5B5172F9EF50389364E925C60BE301CFB0DAC5DEB8AF002FB",
+      "license": "MIT"
+    },
+    {
+      "path": "kernels/swin_8h.hsaco",
+      "bytes": 7302736,
+      "sha256": "CD22DD31AE6A4223C094D73BDCE61B1A4214D1707115E184C3B2AC8A11649120",
+      "license": "MIT"
+    },
+    {
+      "path": "kernels/vit_attention.hsaco",
+      "bytes": 246072,
+      "sha256": "78844E14F6869DE6FE2A3C2E5A3306574241AAB62BF5FC3E6DA2A2892F9CFE62",
+      "license": "MIT"
+    },
+    {
+      "path": "kernels/vit_ffn_expand.hsaco",
+      "bytes": 320440,
+      "sha256": "CFE6C174C03D29E438A954CB9B52874BECF78935D0F84FB900A7E36545B1F67F",
+      "license": "MIT"
+    },
+    {
+      "path": "kernels/vit_gemm.hsaco",
+      "bytes": 477728,
+      "sha256": "BE4E1D846BDF40FCB936E22ACB2603FF64B45D6842154CB9C58344A5AE7B65FF",
+      "license": "MIT"
+    },
+    {
+      "path": "kernels/vit_qkv.hsaco",
+      "bytes": 238720,
+      "sha256": "836A7800C76E2E7910EC14B3C3D36B93C71A66305EAEDBAA7CD622090630D1DF",
+      "license": "MIT"
+    },
+    {
+      "path": "zluda/zluda_real.dll",
+      "bytes": 70823424,
+      "sha256": "EE1D9215B3F2BAEDC8BC1AD29412B2FD3B27D15693FD3594D620C87378D14C43",
+      "license": "MIT OR Apache-2.0"
+    },
+    {
+      "path": "zluda/nvapi_trp_upstream.dll",
+      "bytes": 226304,
+      "sha256": "B86425DD67ABF385C58C558A17496BB6F490BFF750269071DA133E0F239A09F6",
+      "license": "MIT"
+    }
+  ]
+}

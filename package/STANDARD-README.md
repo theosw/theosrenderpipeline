@@ -1,8 +1,7 @@
-# Theo's Render Pipeline — Standard, 0.6.5
+# Theo's Render Pipeline — Standard, 0.7.0
 
-Version 0.6.5 adds XeFG Even pacing for x3/x4 with VSync, turns the Steady
-frame limit off with XeFG to stop its microstutter, and supports NR Object
-rules on Skyrim 1.5.97. See CHANGELOG.md.
+Version 0.7.0 RC1 is a local release candidate. The AMD release wording below
+is a draft for Theo's review.
 
 Version 0.6.4 adds experimental FSR 3.1 upscaling with AMD's runtime included,
 keeps NR's Every other frame working at low frame rates and stops the
@@ -338,7 +337,7 @@ an RTX 4080 SUPER: ordinary 6.8.0.2158 and full add-on 6.8.0.2155, with
 early NR and x4. Sky Reflection Fix's ReShade registration was excluded;
 Rumble passed a separate initial test. Combined third-party add-ons,
 Standard gameplay and CS with ReShade remain unverified. These were earlier
-development builds; the exact 0.6.5 package has not been tested with ReShade.
+development builds; the exact 0.7.0 package has not been tested with ReShade.
 
 MartysMods ReGrade+ (ReShade 6.6 or newer) used to crash the game while TRP
 started ReShade: it prepares itself only in a device event that ReShade does not
@@ -400,7 +399,7 @@ rendering dimensions.
 ## With the Universal edition
 
 For the RTX 40 MFG unlock or experimental RTX 20/30 support, install the matching
-0.6.5 Universal ZIP after Standard in MO2's left pane. Let Universal win file conflicts. Universal uses
+0.7.0 Universal ZIP after Standard in MO2's left pane. Let Universal win file conflicts. Universal uses
 the NVIDIA runtimes included here, including NR.
 
 Both editions contain settings files; the later mod's files win. Switching
@@ -472,3 +471,61 @@ See LICENSE and THIRD-PARTY.md for renderer terms, source credits and NVIDIA
 RTX SDK/DLSS terms. NVIDIA-LICENSES.txt retains the accompanying runtime notices.
 NVIDIA components retain their own terms and are not relicensed under the
 renderer's GPL license. This software contains source code provided by NVIDIA Corporation.
+
+## Neural Rendering on AMD Radeon — draft for Theo's review
+
+**0.7.0 adds Radeon NR to Universal.** Install Standard first, then put Universal
+below it in MO2's left pane and let Universal win conflicts. Both editions keep
+native NVIDIA NR; NVIDIA users keep it as their default. Standard shows the AMD
+choices greyed out with an edition reason.
+
+The runtime list offers **HIP/ZLUDA (default)** and **Vulkan (experimental)**.
+HIP/ZLUDA needs a compatible Windows AMD HIP runtime/driver. The complete NR
+runtime, native kernels and matching ZLUDA cache are supplied with Universal;
+do not mix them with files from older test packages. Both backends share Standard's
+original NVIDIA 310.9.16 model, with its attribution and licence notices retained.
+
+HIP/ZLUDA has run across several volunteer sessions on an **RX 7900 GRE**.
+The supplied C14 kernel/cache set targets RX 7000/9000 and includes RX 6000
+(`gfx10-3-generic`) translation coverage. That inventory is not a successful
+RX 6000 or RX 9000 game test, nor a guarantee for every card or driver.
+This exact 0.7.0 RC still needs a Radeon test.
+
+**Use TRP XeSS or FSR:** HIP/ZLUDA currently requires **XeSS**; its FSR choice is
+greyed out because that handoff has not been validated with HIP. Vulkan supports
+both. Community Shaders owns its own upscaling, so these NR backends are unavailable
+on that route. Each runs one world pass before upscaling.
+
+Vulkan is TRP's source-built engine. It targets supporting RX 7000/9000, Intel Arc
+and RTX drivers with Vulkan cooperative matrices; RX 6000 and older do not meet
+this engine's requirements. The capability check decides actual admission. If the
+RDNA 3 probe refuses its native kernels, the engine uses portable kernels when
+those capabilities pass. **Vulkan has not run on a Radeon or Intel GPU yet.**
+RTX 4080 SUPER checks and an earlier game run do not establish Radeon performance.
+
+Vulkan prepares pipelines in the background while the menu shows
+**Preparing Vulkan NR...**. Scheduling defaults to **Same frame**; **Background**
+is an experimental Lab option. An earlier RTX 4080 SUPER game test was smooth
+with Every frame, but Every other frame stuttered with x4 frame generation.
+Background scheduling has not yet been accepted in game.
+
+Once HIP/ZLUDA or Vulkan starts, switching to the other requires restarting
+Skyrim. The menu explains this restriction; turning NR off does not unload the
+process-wide GPU runtime.
+
+AMD defaults are **Regular (wait)** and **NR input 50%**. Earlier RX 7900 GRE
+evidence records roughly **30–34 ms per NR run at full input**, with changing
+workload and settings; this is not a benchmark of this RC. Full input left the
+volunteer near 20 base fps with sluggish input. Async remains available, but the
+volunteer reported mouth smearing with roughly ten fresh inferences per second.
+Regular also uses a delayed result and can reduce base fps.
+
+An earlier HIP crash was reportedly avoided by disabling the integrated GPU.
+The cause and a general multi-GPU fix are unconfirmed; retain same-run logs before
+restarting after a failure. Frame generation at low base fps can look smoother
+while input stays sluggish or becomes more delayed. Start with NR off, then
+Regular NR at 50% with frame generation off, before adding frame generation.
+
+These are draft release notes for Theo's approval. Builds and standalone checks
+do not establish this RC's Radeon image quality, stability, input latency or
+physical display cadence.

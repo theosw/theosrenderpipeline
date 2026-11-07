@@ -1,5 +1,7 @@
 #include <PCH.h>
+#include "NvidiaHost.h"
 #include "SourceDLSSGBackend.h"
+#include "VulkanNRHost.h"
 #include "NeuralRenderingRuntimeIdentity.h"
 #include "PerformanceTuning.h"
 #include "NeuralRuntimeCompatibility.h"
@@ -17,7 +19,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 	void Backend::ConfigureNeuralRendering(NeuralOptions a_options)
 	{
 		const bool requested = a_options.enabled;
-		a_options = SanitizeNeuralOptions(std::move(a_options));
+		a_options = SanitizeNeuralOptions(VendorNeutralOptions(std::move(a_options)));
 		std::scoped_lock lock(neuralMutex_);
         neuralAdmissionCache_.Reset();
         neuralAdmissionReason_.clear();
@@ -37,6 +39,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 	}
 	const std::string* Backend::SelectNeuralRuntime(NeuralOptions& options)
 	{
+        if (options.backend == NeuralRendering::Backend::HIP) { options.runtimePath = SourceDLSSG::AmdNeuralPass::RuntimePath(); return nullptr; }
+        if (options.backend == NeuralRendering::Backend::Vulkan) { options.runtimePath = NeuralRendering::VulkanNRHost::Path(); return nullptr; }
 		if (!options.enabled) { return nullptr; }
 		auto refused = [&](const std::filesystem::path& path) -> const std::string* {
 			const auto entry = std::find_if(neuralRefusedRuntimes_.begin(), neuralRefusedRuntimes_.end(),
@@ -91,7 +95,14 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (neuralRecovery_.Disabled()) { return "NR disabled for this session"; }
 		if (startupTransport_) { return "NR unavailable after frame-generation startup failure; restart to retry"; }
 		std::scoped_lock lock(neuralMutex_);
-		if (!NvidiaAdapter() && options.enabled) { return "Neural Rendering requires an NVIDIA RTX GPU; XeSS and XeFG remain available"; }
+        if (NeuralRendering::TestBackend(options.backend) && options.enabled) {
+            if ((!xess_.Ready() && !fsr_.Ready()) || options.worldOnly) { return NeuralRendering::kVendorUpscalerReason; }
+            if (options.backend == NeuralRendering::Backend::HIP) { return AmdNeuralPass::Availability(AmdAdapter()) ? AmdNeuralPass::Availability(AmdAdapter()) : AmdNeuralPass::AdmissionReason(options, NvidiaHost::GetSingleton()->XeSSActive()); }
+            const auto caps = NeuralRendering::VulkanNRHost::Probe(device12_.Get());
+            neuralAdmissionReason_ = caps.available ? "" : caps.reason;
+            return neuralAdmissionReason_.empty() ? nullptr : neuralAdmissionReason_.c_str();
+        }
+        if (!NvidiaAdapter() && options.enabled) { return NeuralRendering::kNativeGPUReason; }
         if (options.enabled && !neuralCapability_.Pascal()) {
             if (const auto* reason = neuralCapability_.Refusal()) { return reason; }
         }
@@ -148,6 +159,19 @@ namespace TheosRenderPipeline::SourceDLSSG
     {
         std::scoped_lock lock(neuralMutex_);
         if (!device12_) { return {}; }
+        if (NeuralRendering::TestBackend(options.backend)) {
+            NeuralRendering::NeuralCapability admission;
+            admission.luid = device12_->GetAdapterLuid(); admission.vendorBackend = true;
+            if (options.backend == NeuralRendering::Backend::HIP) {
+                admission.vendorRefusal = AmdNeuralPass::Availability(AmdAdapter());
+                if (!admission.vendorRefusal) admission.vendorRefusal = AmdNeuralPass::AdmissionReason(VendorNeutralOptions(options), xess_.Ready());
+            } else {
+                const auto caps = NeuralRendering::VulkanNRHost::Probe(device12_.Get());
+                neuralAdmissionReason_ = caps.available ? "" : caps.reason;
+                admission.vendorRefusal = neuralAdmissionReason_.empty() ? nullptr : neuralAdmissionReason_.c_str();
+            }
+            return admission;
+        }
         const bool replacement = neuralPass_ && neuralPass_->NeedsRecreation(options, motion_.desc.Width, motion_.desc.Height);
         const auto retained = neuralPass_ && !replacement ? NeuralRendering::EstimatePascalMemory(width, height, options.passes) : 0;
         auto admission = NeuralRendering::QueryNeuralAdmission(device12_->GetAdapterLuid(), options.runtimePath,
@@ -182,7 +206,7 @@ namespace TheosRenderPipeline::SourceDLSSG
     {
         const auto guideWidth = guideExtent.width ? guideExtent.width : motion_.desc.Width;
         const auto guideHeight = guideExtent.height ? guideExtent.height : motion_.desc.Height;
-        if (!neuralPass_ || !neuralPass_->NeedsRecreation(options, guideWidth, guideHeight)) { return true; }
+        if (!neuralPass_ || !neuralPass_->NeedsRecreation(options, guideWidth, guideHeight, earlyNeuralColor_.texture12.Get())) { return true; }
         // Private outputs are copied into stable shared textures. Only our
         // queues read the feature, and no command list may be open here.
         const auto started = std::chrono::steady_clock::now();
@@ -197,7 +221,7 @@ namespace TheosRenderPipeline::SourceDLSSG
             neuralSnapshot_.telemetry = neuralPass_->Telemetry();
         }
         const auto releasing = std::chrono::steady_clock::now();
-        if (!neuralPass_->NeedsResourceRecreation(options, guideWidth, guideHeight)) {
+        if (!neuralPass_->AMD() && !neuralPass_->NeedsResourceRecreation(options, guideWidth, guideHeight)) {
             if (!neuralPass_->RetireChangedModels(options)) { return FailNeuralRecording(); }
             neuralAdmissionCache_.Reset();
             logger::info("[SourceDLSSG NR] model change: GPU drain {:.0f} ms, selective retirement {:.0f} ms; resources and unaffected features retained",
@@ -237,7 +261,7 @@ namespace TheosRenderPipeline::SourceDLSSG
         if (admission.extentPending || admission.Refusal()) { return; } // preserve reason and unchanged-Apply affordance
         // Recovery already retired and destroyed the previous owner. No vendor
         // call or list is active here. Retained/unsafe owners never reach this.
-        if (!NeuralRendering::ResetLaunchHookAfterRetirement()) { return; }
+        if (!NeuralRendering::TestBackend(options.backend) && !NeuralRendering::ResetLaunchHookAfterRetirement()) { return; }
         neuralRecovery_.Retry();
         neuralHistory_.Invalidate();
         std::scoped_lock lock(neuralMutex_);
@@ -262,7 +286,7 @@ namespace TheosRenderPipeline::SourceDLSSG
             [&] {
                 const auto removed = device12_->GetDeviceRemovedReason();
                 if (FAILED(removed)) { return Check(removed, reason.c_str()); }
-                return (!neuralPass_ || neuralPass_->RecoverySafe()) && NeuralRendering::LaunchHookRecoverySafe();
+                return (!neuralPass_ || neuralPass_->RecoverySafe()) && (NeuralRendering::TestBackend(neuralOptions_.backend) || NeuralRendering::LaunchHookRecoverySafe());
             },
             [&] {
                 if (neuralPass_ && !neuralPass_->ReleaseAfterRetirement()) {
@@ -355,8 +379,12 @@ namespace TheosRenderPipeline::SourceDLSSG
             !Check(interop_.CopyInputRegion(color, earlyNeuralColor_, colorExtent), "early NR world copy") ||
             !Check(interop_.SignalD3D11(Work::Upscaling), "early NR inputs ready")) { return false; }
         ID3D12GraphicsCommandList* list = nullptr;
-        if (!Check(interop_.Begin(Work::Upscaling, &list, measure ? &allocatorWait : nullptr), "begin NR before DLSS")) { return false; }
+        const auto begun=interop_.Begin(Work::Upscaling,&list,measure?&allocatorWait:nullptr,
+            frameNeuralOptions_.backend==NeuralRendering::Backend::Vulkan);
+        if(begun==S_FALSE) { reset=true;neuralHistory_.Invalidate();return true; }
+        if(!Check(begun,"begin NR before DLSS")) { return false; }
         bool recorded{};
+        const bool wasPreparing = neuralPass_->Preparing();
         try {
         if (!neuralPass_) { neuralPass_ = std::make_unique<NeuralPass>(); }
         recorded = neuralPass_->Record(device12_.Get(), list, interop_.CurrentSlot(Work::Upscaling), frameNeuralOptions_,
@@ -367,8 +395,18 @@ namespace TheosRenderPipeline::SourceDLSSG
             frameNeuralOptions_.beforeUpscaling ? std::array<float,2>{} :
                 std::array<float,2>{camera->jitterOffset.x,camera->jitterOffset.y},
             frameNeuralOptions_.beforeUpscaling ? std::array<float,2>{camera->jitterOffset.x,camera->jitterOffset.y} :
-                std::array<float,2>{}, FrameIndex());
+                std::array<float,2>{}, FrameIndex(), &interop_, queue_.Get());
         } catch (const std::bad_alloc&) { reset = true; return FailNeuralRecording("NR CPU allocation failed"); }
+        if (!recorded && neuralPass_->Preparing()) {
+            if (!Check(interop_.Discard(Work::Upscaling), "discard pending Vulkan NR preparation")) return false;
+            std::scoped_lock lock(neuralMutex_);
+            neuralSnapshot_.active = false;
+            neuralSnapshot_.status = NeuralRendering::kPreparingVulkan;
+            // Keep the upscaler history while preparation runs in the background.
+            return true;
+        }
+        reset |= wasPreparing; // first evaluated NR frame changes the upscaler input
+
         if (!recorded) {
             // Producer colour was never overwritten; discard every transition
             // and inference command, then let reconstruction consume that colour.
@@ -376,9 +414,17 @@ namespace TheosRenderPipeline::SourceDLSSG
             reset = true;
             return recovered;
         }
+        list = interop_.CurrentList(Work::Upscaling); // Vulkan hands off to a distinct continuation.
         if (!Check(Interop::RecordCopy(list, neuralPass_->Corrected(), earlyNeuralColor_.texture12.Get()), "early NR result copy") ||
             !Check(interop_.Submit(Work::Upscaling), "submit NR before DLSS") ||
+            !Check(neuralPass_->Submitted(queue_.Get()) ? S_OK : E_FAIL, "notify AMD NR after host submission") ||
             !Check(interop_.WaitD3D11(Work::Upscaling), "DLSS waits for NR")) { return false; }
+        if (neuralPass_->AMDFailed()) {
+            // The producer's image is still untouched. Retire the AMD owner
+            // through the same safe-off/Apply-retry boundary as native NR.
+            reset = true;
+            return FailNeuralRecording();
+        }
         // This copy and the subsequent NGX D3D11 call follow the GPU wait on
         // the same immediate context. No CPU-wide flush/drain on each frame.
         if (!Check(D3D11FrameCopy::Color(context11_.Get(), earlyNeuralColor_.texture11.Get(), color, colorExtent),

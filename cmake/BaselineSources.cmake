@@ -253,6 +253,9 @@ set(ARP_NEURAL_SOURCES
     src/FrameGen/NeuralObjectBlend.cpp
     src/FrameGen/NeuralObjectControl.cpp
     src/FrameGen/SourceDLSSGNeuralRendering.cpp
+    src/FrameGen/AmdNeuralPass.cpp
+    src/FrameGen/AmdNeuralPass.h
+    third_party/amd-nr/dlss5nr.h
     src/FrameGen/SourceDLSSGNeuralStage.cpp
     src/FrameGen/SourceDLSSGNeuralResolve.cpp
     src/OverlayNeuralPanel.cpp

@@ -3,7 +3,7 @@
 Rendering integration for Skyrim: NVIDIA DLSS/DLAA and frame generation,
 experimental Intel XeSS upscaling and XeFG frame generation, optional Neural
 Rendering (NR), and native-resolution menus and HUD. Current version:
-**0.6.5**. See [CHANGELOG.md](CHANGELOG.md) for release changes.
+**0.7.0 RC1 — draft**. See [CHANGELOG.md](CHANGELOG.md) for release changes.
 
 Universal adds experimental Neural Rendering on GTX 10 (Pascal, sm_61), using
 NVIDIA NR 310.9.16 and Universal's compatibility pack. Tested on a GTX 1070 Ti;
@@ -79,6 +79,64 @@ There is no whole-chain object strength: set strength to zero in every running p
 The session-only mask preview, drawn over the finished NR result, tints the groups you choose to show, or with Classes only shows just those groups' colours on black: green for first-person objects, blue for the player, orange for other humanoids and purple for creatures. Any combination of groups can be shown; showing none turns the preview off. Preview is never saved to the INI and does not reset inference history. UI is composed after the preview, and the same completed scene feeds real frames and frame generation.
 
 Masks default off. Capture supports opaque lighting draws on Skyrim 1.5.97 and 1.6.1170, accepts the version's verified original hook entry or another plugin's entry jump (such as SSE Engine Fixes') and chains behind it, and checks capture-frame identity and final depth. Missing, conflicting, transparent, alpha-tested or unclassified capture keeps normal NR behavior. A Nolvus 1.5.97 game test verified all four object groups and chaining behind SSE Engine Fixes, with positive visual feedback on the mask preview and strength controls; loading recovery remains unverified. The feature adds geometry replay, classification storage and a composition pass; broader mod compatibility, VRAM use and overhead still need acceptance.
+
+## Neural Rendering on AMD Radeon — draft for Theo's review
+
+**0.7.0 adds Radeon NR to Universal.** Install Standard first, then put Universal
+below it in MO2's left pane and let Universal win conflicts. Both editions keep
+native NVIDIA NR; NVIDIA users keep it as their default. Standard shows the AMD
+choices greyed out with an edition reason.
+
+The runtime list offers **HIP/ZLUDA (default)** and **Vulkan (experimental)**.
+HIP/ZLUDA needs a compatible Windows AMD HIP runtime/driver. The complete NR
+runtime, native kernels and matching ZLUDA cache are supplied with Universal;
+do not mix them with files from older test packages. Both backends share Standard's
+original NVIDIA 310.9.16 model, with its attribution and licence notices retained.
+
+HIP/ZLUDA has run across several volunteer sessions on an **RX 7900 GRE**.
+The supplied C14 kernel/cache set targets RX 7000/9000 and includes RX 6000
+(`gfx10-3-generic`) translation coverage. That inventory is not a successful
+RX 6000 or RX 9000 game test, nor a guarantee for every card or driver.
+This exact 0.7.0 RC still needs a Radeon test.
+
+**Use TRP XeSS or FSR:** HIP/ZLUDA currently requires **XeSS**; its FSR choice is
+greyed out because that handoff has not been validated with HIP. Vulkan supports
+both. Community Shaders owns its own upscaling, so these NR backends are unavailable
+on that route. Each runs one world pass before upscaling.
+
+Vulkan is TRP's source-built engine. It targets supporting RX 7000/9000, Intel Arc
+and RTX drivers with Vulkan cooperative matrices; RX 6000 and older do not meet
+this engine's requirements. The capability check decides actual admission. If the
+RDNA 3 probe refuses its native kernels, the engine uses portable kernels when
+those capabilities pass. **Vulkan has not run on a Radeon or Intel GPU yet.**
+RTX 4080 SUPER checks and an earlier game run do not establish Radeon performance.
+
+Vulkan prepares pipelines in the background while the menu shows
+**Preparing Vulkan NR...**. Scheduling defaults to **Same frame**; **Background**
+is an experimental Lab option. An earlier RTX 4080 SUPER game test was smooth
+with Every frame, but Every other frame stuttered with x4 frame generation.
+Background scheduling has not yet been accepted in game.
+
+Once HIP/ZLUDA or Vulkan starts, switching to the other requires restarting
+Skyrim. The menu explains this restriction; turning NR off does not unload the
+process-wide GPU runtime.
+
+AMD defaults are **Regular (wait)** and **NR input 50%**. Earlier RX 7900 GRE
+evidence records roughly **30–34 ms per NR run at full input**, with changing
+workload and settings; this is not a benchmark of this RC. Full input left the
+volunteer near 20 base fps with sluggish input. Async remains available, but the
+volunteer reported mouth smearing with roughly ten fresh inferences per second.
+Regular also uses a delayed result and can reduce base fps.
+
+An earlier HIP crash was reportedly avoided by disabling the integrated GPU.
+The cause and a general multi-GPU fix are unconfirmed; retain same-run logs before
+restarting after a failure. Frame generation at low base fps can look smoother
+while input stays sluggish or becomes more delayed. Start with NR off, then
+Regular NR at 50% with frame generation off, before adding frame generation.
+
+These are draft release notes for Theo's approval. Builds and standalone checks
+do not establish this RC's Radeon image quality, stability, input latency or
+physical display cadence.
 
 ## Localization
 

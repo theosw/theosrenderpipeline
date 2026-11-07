@@ -1,5 +1,6 @@
 #include <PCH.h>
 #include "NeuralFaultInjection.h"
+#include "../../third_party/amd-nr/trp_diagnostics.h"
 #include "SourceDLSSGNeuralRendering.h"
 #include "TRPNeuralShaders.generated.h"
 #include <chrono>
@@ -71,6 +72,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 	{
 		if (reconstruction_.preset != options.reconstruction.preset) {
 			if (!feature_.ResetAfterRetirement()) { status_ = feature_.Status(); return false; }
+			background_ = {}; // ResetAfterRetirement drained the engine before releasing snapshots.
 			firstHistoryInvalid_ = true;
 			reconstruction_.preset = options.reconstruction.preset;
 		}
@@ -94,6 +96,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 
     bool NeuralPass::RecoverySafe() const
     {
+        if (amd_) { return amd_->RecoverySafe(); }
         if (!feature_.RecoverySafe()) { return false; }
         for (const auto& extra : extra_) { if (!extra.feature.RecoverySafe()) { return false; } }
         return true;
@@ -102,7 +105,10 @@ namespace TheosRenderPipeline::SourceDLSSG
     {
         // Check every creation queue before releasing any feature.
         if (!RecoverySafe()) { return false; }
+        background_.schedule.Close();
+        if (amd_) { amd_.reset(); return true; }
         if (!feature_.ReleaseAfterRetirement()) { status_ = feature_.Status(); return false; }
+        background_.schedule.Drained();
         for (auto& extra : extra_) {
             if (!extra.feature.ReleaseAfterRetirement()) { status_ = extra.feature.Status(); return false; }
         }
@@ -275,12 +281,20 @@ namespace TheosRenderPipeline::SourceDLSSG
 		}
 		NeuralRendering::FeatureSession::CreateInfo info;
 		info.device = device; info.runtimePath = options.runtimePath;
+		info.backend = options.backend;
 		info.allowReconstructionRuntime = true;
 		info.displayWidth = workWidth; info.displayHeight = workHeight;
 		info.renderWidth = reconstruction.peripheralCompression ? workWidth : static_cast<UINT>(motion->GetDesc().Width);
 		info.renderHeight = reconstruction.peripheralCompression ? workHeight : motion->GetDesc().Height;
 		// Each identified runtime contract selects its own default preset.
 		info.networkPreset = NeuralRendering::RequestedNetworkPreset(reconstruction.preset);
+		reconstruction_ = reconstruction;
+		runtimePath_ = options.runtimePath;
+		// Recreation watches the producer's extent, not the private packed guides.
+		guideWidth_ = static_cast<UINT>(motion->GetDesc().Width); guideHeight_ = motion->GetDesc().Height;
+		beforeUpscaling_ = options.beforeUpscaling;
+		worldOnly_ = options.WorldOnly();
+		passes_ = options.passes;
 		if (!feature_.EnsureInitialized(info)) { status_ = feature_.Status(); return false; }
 		// Pass 1 and 2 start together as before; Passes 3 to 5 follow one per frame.
 		auto ramp = NeuralRendering::NextFeatureRamp(createdPasses_, options.passes, startablePasses_);
@@ -305,17 +319,12 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (method != NeuralRendering::ResolveMethod::Auto && !NeuralRendering::UsesReconstructionContract(feature_.Build())) {
 			status_ = "Legacy NR supports Auto reconstruction only"; return false;
 		}
-		reconstruction_ = reconstruction;
-		runtimePath_ = options.runtimePath;
-		// Recreation watches the producer's extent, not the private packed guides.
-		guideWidth_ = static_cast<UINT>(motion->GetDesc().Width); guideHeight_ = motion->GetDesc().Height;
-		beforeUpscaling_ = options.beforeUpscaling;
-		worldOnly_ = options.WorldOnly();
-		passes_ = options.passes;
+
 		return true;
 	}
 
 #include "SourceDLSSGNeuralSecondPass.inl"
+#include "SourceDLSSGNeuralBackground.inl"
 
 	bool NeuralPass::EnsureModelRate(ID3D12Device* device, ID3D12Resource* motion, ID3D12Resource* hudless)
 	{
@@ -396,9 +405,24 @@ namespace TheosRenderPipeline::SourceDLSSG
 		ID3D12Resource* motion, ID3D12Resource* depth, ID3D12Resource* ui,
 		ID3D12Resource* hudless, ID3D12Resource* composed, std::uint64_t timestampFrequency,
 		const D3D12StageMarks& marks, ID3D12Resource* objectMask, std::array<float,2> objectMaskGuideOffset,
-		std::array<float,2> colorJitter, std::optional<std::uint32_t> applicationFrame)
+		std::array<float,2> colorJitter, std::optional<std::uint32_t> applicationFrame, Interop* splitInterop, ID3D12CommandQueue* queue)
 	{
 		modelActivity_ = NRModelActivity::Unknown;
+        backend_ = options.backend;
+        if (!feature_.IsInitialized()) vulkanScheduling_ = options.vulkanScheduling;
+        if (device && !adapterChecked_) { adapterChecked_ = true; amdAdapter_ = AmdNeuralPass::IsAMD(device); }
+        if (options.backend == NeuralRendering::Backend::HIP) {
+            if (!amdAdapter_) { status_ = "HIP/ZLUDA NR requires an AMD Radeon GPU."; return false; }
+            if (!amd_) {
+                amd_ = std::make_unique<AmdNeuralPass>();
+                amd_->log = [](int level, const char* text) {
+                    if (level == 0) { logger::error("[AMD NR] {}", text); }
+                    else if (level == 1) { logger::warn("[AMD NR] {}", text); }
+                    else { logger::info("[AMD NR] {}", text); }
+                };
+            }
+            return amd_->Record(device, list, options, reset, depthInverted, scaleX, scaleY, motion, depth, hudless);
+        }
 		if (!device || !list || slot >= heaps_.size() || options.passes < 1 || options.passes > NeuralRendering::kMaxNeuralPasses || !SameSize(motion, depth) ||
 			!Texture(hudless) || (options.WorldOnly() ? (ui || composed || options.tuning.uiCorrection) :
 			(!SameSize(hudless, composed) || !SameSize(ui, hudless) || hudless == composed)) ||
@@ -419,6 +443,12 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// Interop::Begin retired this exact command slot before Record was called.
 		// Reading its previous query pair therefore never adds a CPU wait.
 		HarvestTelemetry(slot);
+        if(backend_==NeuralRendering::Backend::Vulkan){
+            if(vulkanScheduling_==NeuralRendering::VulkanScheduling::Background)
+                return RecordVulkanBackground(device,list,slot,options,reset,depthInverted,scaleX,scaleY,motion,depth,hudless,colorJitter,applicationFrame,splitInterop,queue);
+            bool ready{};
+            if(!feature_.PollVulkan(slot,queue,ready)){status_=feature_.Status();return false;}
+        }
 		const bool gpuTiming = timestampHeap_ && timestampReadback_ && mappedTimestamps_ && timestampFrequency_;
 		const auto query = static_cast<UINT>(slot * 4);
 		if (gpuTiming) { list->EndQuery(timestampHeap_.Get(), D3D12_QUERY_TYPE_TIMESTAMP, query + 2); }
@@ -718,7 +748,15 @@ namespace TheosRenderPipeline::SourceDLSSG
 			std::array<NeuralRendering::FeatureSession::EvaluationInput, NeuralRendering::kExtraPasses> extras;
 			// The previous pass's result on Pass 1's grid, which the next pass reads.
 			ID3D12Resource* previous = featureOutput;
-			bool evaluated = feature_.RecordEvaluation(input);
+			bool evaluated{};
+            if (backend_ == NeuralRendering::Backend::Vulkan) {
+                // A submitted producer must leave EVERY borrowed resource COMMON,
+                // so a later refusal can discard the continuation without repair work.
+                Barriers before{list};transitionInputs(before,read,common);before.Add(featureOutput,write,common).Flush();
+                evaluated=splitInterop && feature_.EvaluateVulkan(input,*splitInterop,queue,slot,list);
+                input.commandList=list;
+                if(evaluated) { Barriers after{list};transitionInputs(after,common,read);after.Add(featureOutput,common,write).Flush(); }
+            } else { evaluated=feature_.RecordEvaluation(input); }
 			if (!evaluated) { status_ = feature_.Status(); }
 			if (evaluated) { evaluated = applyObjectStrength(0, input); }
 			for (int pass = 1; evaluated && pass < effectivePasses; ++pass) {
@@ -1020,6 +1058,10 @@ namespace TheosRenderPipeline::SourceDLSSG
 			else if (key.modelInterval == 3) { successStatus_ += "; model every third frame"; }
 			if(key.objectControlsUnavailable){successStatus_+="; object tone/structure unavailable on legacy NR; per-pass and final strength retained";}
 		}
+		if (NeuralRendering::TestBackend(backend_)) {
+            const auto prefix=std::string(NeuralRendering::BackendName(backend_))+": ";
+            if(!successStatus_.starts_with(prefix)) { successStatus_.insert(0,prefix); }
+        }
 		if (status_ != successStatus_) { status_ = successStatus_; }
 	}
 }

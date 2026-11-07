@@ -84,7 +84,14 @@ HRESULT NvidiaHost::CreateSwapChain(IDXGIFactory* a_factory, ID3D11Device* a_dev
     // first proxied Present while frame inputs are still unavailable.
     SetRuntimeEnabled(false);
 
-    const auto& settings = SourceFrameGeneration::GetSingleton()->settings;
+    auto& settings = SourceFrameGeneration::GetSingleton()->settings;
+    Microsoft::WRL::ComPtr<IDXGIDevice> nrDevice;
+    Microsoft::WRL::ComPtr<IDXGIAdapter> nrAdapter;
+    DXGI_ADAPTER_DESC nrDesc{};
+    if (SUCCEEDED(a_device->QueryInterface(IID_PPV_ARGS(&nrDevice))) && SUCCEEDED(nrDevice->GetAdapter(&nrAdapter)) &&
+        SUCCEEDED(nrAdapter->GetDesc(&nrDesc))) {
+        TheosRenderPipeline::SourceDLSSG::ApplyNeuralHardwareDefaults(settings.sourceDLSSG, nrDesc.VendorId == 0x1002);
+    }
     auto& backend = TheosRenderPipeline::SourceDLSSG::Backend::Get();
     backend.RequestProvider(settings.sourceDLSSG.provider);
     backend.ConfigureReflex(static_cast<sl::ReflexMode>(settings.sourceDLSSG.reflexMode));
@@ -104,13 +111,18 @@ HRESULT NvidiaHost::CreateSwapChain(IDXGIFactory* a_factory, ID3D11Device* a_dev
     TheosRenderPipeline::SourceDLSSG::NeuralOptions options;
     options.runtimePath = settings.neuralRenderingRuntimePath;
     options.automaticRuntime = TheosRenderPipeline::SourceDLSSG::IsAutomaticNeuralRuntime(settings.configuredRuntimePaths.neural);
-    options.enabled = settings.sourceDLSSG.neuralEnabled && !options.runtimePath.empty() &&
+    options.enabled = settings.sourceDLSSG.neuralEnabled &&
+        (TheosRenderPipeline::NeuralRendering::TestBackend(settings.sourceDLSSG.neuralBackend) || !options.runtimePath.empty()) &&
         TheosRenderPipeline::SupportsNeuralRenderingMode(upscalerSettings->mUpscaleType, TheosRenderPipeline::CommunityShaders::Active());
     options.tuning = settings.sourceDLSSG.neuralTuning;
     options.objectMasks = settings.sourceDLSSG.neuralObjectMasks;
     options.reconstruction = settings.sourceDLSSG.neuralReconstruction;
     options.extraPasses = settings.sourceDLSSG.neuralExtraPasses;
     options.beforeUpscaling = settings.sourceDLSSG.neuralBeforeUpscaling;
+        options.backend = settings.sourceDLSSG.neuralBackend;
+        options.vulkanScheduling = settings.sourceDLSSG.vulkanScheduling;
+    options.amdWaitForNetwork = settings.sourceDLSSG.amdNRWaitForNetwork;
+    options.amdShowTracking = settings.sourceDLSSG.amdNRShowTracking;
     options.passes = settings.sourceDLSSG.neuralPasses;
     options.combat = settings.sourceDLSSG.neuralCombat;
     backend.ConfigureNeuralRendering(std::move(options));

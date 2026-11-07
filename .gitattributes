@@ -13,6 +13,7 @@ CMakeLists.txt text eol=lf
 *.json text eol=lf
 .clang-format text eol=lf
 .gitattributes text eol=lf
+*.patch -whitespace
 *.dll binary
 *.lib binary
 *.pdb binary

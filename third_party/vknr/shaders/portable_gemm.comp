@@ -1,0 +1,34 @@
+#version 460
+#extension GL_KHR_cooperative_matrix : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_KHR_memory_scope_semantics : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_GOOGLE_include_directive : require
+#include "rounding.glsl"
+layout(local_size_x=32) in;
+layout(set=0,binding=0,std430) readonly buffer InputA {float16_t a[];};
+layout(set=0,binding=1,std430) readonly buffer InputB {float16_t b[];};
+layout(set=0,binding=2,std430) writeonly buffer Output {float output_values[];};
+layout(push_constant) uniform Params {uint fused_rounding;} pc;
+shared float intermediate[256];
+shared float16_t rounded[256];
+void main() {
+    coopmat<float16_t,gl_ScopeSubgroup,16,16,gl_MatrixUseA> A;
+    coopmat<float16_t,gl_ScopeSubgroup,16,16,gl_MatrixUseB> B;
+    coopmat<float,gl_ScopeSubgroup,16,16,gl_MatrixUseAccumulator> C=coopmat<float,gl_ScopeSubgroup,16,16,gl_MatrixUseAccumulator>(0.0);
+    coopMatLoad(A,a,0,16,gl_CooperativeMatrixLayoutRowMajor);
+    coopMatLoad(B,b,0,16,gl_CooperativeMatrixLayoutRowMajor);
+    C=coopMatMulAdd(A,B,C);
+    if(pc.fused_rounding!=0u) {
+        coopMatStore(C,intermediate,0,16,gl_CooperativeMatrixLayoutRowMajor);
+        barrier();
+        for(uint i=gl_LocalInvocationIndex;i<256u;i+=32u)
+            rounded[i]=float16_t(nr_e4m3_round(pc.fused_rounding==2u?intermediate[i]:nr_half_round(intermediate[i])));
+        barrier();
+        coopMatLoad(A,rounded,0,16,gl_CooperativeMatrixLayoutRowMajor);
+        C=coopmat<float,gl_ScopeSubgroup,16,16,gl_MatrixUseAccumulator>(0.0);
+        C=coopMatMulAdd(A,B,C);
+    }
+    coopMatStore(C,output_values,0,16,gl_CooperativeMatrixLayoutRowMajor);
+}

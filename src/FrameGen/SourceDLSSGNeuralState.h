@@ -1,4 +1,5 @@
 #pragma once
+#include "NeuralBackend.h"
 
 #include "NeuralRenderingReconstruction.h"
 #include "NeuralRenderingPassSettings.h"
@@ -17,6 +18,10 @@ namespace TheosRenderPipeline::SourceDLSSG
 	{
 		bool enabled{ false }; // Standard DLSS unless source NR was explicitly saved.
 		bool beforeUpscaling{ false };
+        NeuralRendering::Backend backend{};
+        NeuralRendering::VulkanScheduling vulkanScheduling{};
+		bool amdWaitForNetwork{ false }; // Read only by the AMD owner.
+		bool amdShowTracking{ false }; // Read only by the AMD owner; never changes model controls.
 		// Input contract supplied by the renderer adapter, never a saved setting.
 		// CS can run either placement before UI composition.
 		bool worldOnly{ false };
@@ -68,6 +73,29 @@ namespace TheosRenderPipeline::SourceDLSSG
         return options;
     }
 
+    // Alternate backends use one world pass; HIP owns its tracking and Vulkan
+    // uses the host reconstruction and scheduling controls.
+    inline NeuralOptions VendorNeutralOptions(NeuralOptions options)
+    {
+        if (NeuralRendering::TestBackend(options.backend)) {
+            options.beforeUpscaling = true;
+            options.passes = 1;
+            if (options.backend == NeuralRendering::Backend::Vulkan) options.tuning.intensity = 1.0f;
+            options.tuning.uiCorrection = false;
+            options.objectMasks = {};
+            options.combat = {};
+            if (options.backend == NeuralRendering::Backend::Vulkan) options.reconstruction.preset = 0;
+            if (options.backend == NeuralRendering::Backend::HIP) options.reconstruction.modelRate = NeuralRendering::ModelRate::EveryFrame;
+            options.reconstruction.peripheralCompression = false;
+            options.reconstruction.fusedPreparation = false;
+            // coord-r005 validates named styles 0..2. A saved custom native
+            // style must never turn into a runtime recording failure.
+            if (options.backend == NeuralRendering::Backend::Vulkan &&
+                (options.tuning.style < 0 || options.tuning.style > 2)) { options.tuning.style = 0; }
+        }
+        return options;
+    }
+
 	inline NeuralOptions SanitizeNeuralOptions(NeuralOptions options)
 	{
 		options.tuning = NeuralRendering::SanitizeBuild14Tuning(options.tuning);
@@ -81,7 +109,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// Automatic is checked by GPU-aware candidate selection after sanitizing.
 		// Explicit paths still fail before any GPU work is recorded.
 		// Runtime identity and initialization checks still belong to the session.
-		options.enabled = options.enabled && (options.automaticRuntime || NeuralRuntimePresent(options.runtimePath));
+		options.enabled = options.enabled && (NeuralRendering::TestBackend(options.backend) || options.automaticRuntime || NeuralRuntimePresent(options.runtimePath));
 		return options;
 	}
 

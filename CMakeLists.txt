@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.21)
 
 project(
 	TheosRenderPipeline
-	VERSION 0.6.5
+	VERSION 0.7.0
 	LANGUAGES C CXX
 )
 
@@ -54,6 +54,12 @@ if(TRP_BUILD_XEFG_TENSOR_HELPER)
 endif()
 if(TRP_ENABLE_NEURAL_RENDERING)
     target_sources(TheosRenderPipeline PRIVATE ${ARP_NEURAL_SOURCES})
+    if(TRP_ENABLE_OPTIONAL_FEATURES)
+        target_compile_definitions(TheosRenderPipeline PRIVATE TRP_VENDOR_NEUTRAL_NR)
+        target_sources(TheosRenderPipeline PRIVATE src/FrameGen/VulkanNRHost.cpp)
+    else()
+        target_sources(TheosRenderPipeline PRIVATE src/FrameGen/VulkanNRHostDisabled.cpp)
+    endif()
     if(TRP_ENABLE_OPTIONAL_FEATURES OR TRP_ENABLE_PASCAL_RESEARCH)
         if(NOT TRP_ENABLE_OPTIONAL_FEATURES)
             target_compile_definitions(TheosRenderPipeline PRIVATE TRP_STANDARD_RESEARCH)
@@ -277,6 +283,25 @@ add_custom_target(ARPBaseline DEPENDS TheosRenderPipeline)
 option(TRP_BUILD_COMPATIBILITY_TESTS "Build offline runtime and frame contract checks" OFF)
 if(TRP_BUILD_COMPATIBILITY_TESTS)
     enable_testing()
+    add_executable(TRPAmdAdapterSelectionTests tests/AmdAdapterSelectionTests.cpp)
+    target_compile_features(TRPAmdAdapterSelectionTests PRIVATE cxx_std_17)
+    target_include_directories(TRPAmdAdapterSelectionTests PRIVATE src)
+    add_test(NAME AMDAdapterSelection COMMAND TRPAmdAdapterSelectionTests)
+    add_executable(TRPRuntimeStateDiagnosticsTests tests/RuntimeStateDiagnosticsTests.cpp)
+    target_compile_features(TRPRuntimeStateDiagnosticsTests PRIVATE cxx_std_23)
+    target_compile_definitions(TRPRuntimeStateDiagnosticsTests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    target_include_directories(TRPRuntimeStateDiagnosticsTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    add_test(NAME RuntimeStateDiagnostics COMMAND TRPRuntimeStateDiagnosticsTests)
+    add_executable(TRPAMDCompositionDiagnosticsTests tests/AMDCompositionDiagnosticsTests.cpp)
+    target_compile_features(TRPAMDCompositionDiagnosticsTests PRIVATE cxx_std_17)
+    add_test(NAME AMDCompositionDiagnostics COMMAND TRPAMDCompositionDiagnosticsTests)
+    add_executable(TRPAmdNeuralPassTests tests/AmdNeuralPassTests.cpp src/FrameGen/AmdNeuralPass.cpp)
+    target_compile_features(TRPAmdNeuralPassTests PRIVATE cxx_std_23)
+    target_compile_definitions(TRPAmdNeuralPassTests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN TRP_AMD_NR_TESTING)
+    target_include_directories(TRPAmdNeuralPassTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_link_libraries(TRPAmdNeuralPassTests PRIVATE d3d12 dxgi bcrypt gdi32)
+    add_test(NAME AMDNeuralHostContract COMMAND TRPAmdNeuralPassTests)
+    set_tests_properties(AMDNeuralHostContract PROPERTIES TIMEOUT 30)
     add_executable(TRPSourceHostLifecycleTests tests/SourceHostLifecycleTests.cpp)
     target_compile_features(TRPSourceHostLifecycleTests PRIVATE cxx_std_23)
     target_compile_definitions(TRPSourceHostLifecycleTests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
@@ -766,4 +791,58 @@ if(TRP_BUILD_COMPATIBILITY_TESTS)
     target_compile_definitions(TRPRenderLifecycleTests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
     target_include_directories(TRPRenderLifecycleTests PRIVATE src)
     add_test(NAME RenderLifecycle COMMAND TRPRenderLifecycleTests)
+endif()
+
+
+# Universal vendor-neutral NR engine and standalone checks.
+if(TRP_BUILD_COMPATIBILITY_TESTS)
+    add_executable(TRPVulkanNRScheduleTests tests/VulkanNRScheduleTests.cpp)
+    target_compile_features(TRPVulkanNRScheduleTests PRIVATE cxx_std_23)
+    target_include_directories(TRPVulkanNRScheduleTests PRIVATE src)
+    add_test(NAME VulkanNRSchedule COMMAND TRPVulkanNRScheduleTests)
+endif()
+if(TRP_ENABLE_NEURAL_RENDERING AND TRP_ENABLE_OPTIONAL_FEATURES)
+    add_subdirectory(third_party/vknr)
+    add_dependencies(ARPBaseline TRPVulkanNR)
+    if(TRP_BUILD_COMPATIBILITY_TESTS)
+        # Opt-in manual test: requires the user's model DLL, never bundled here.
+        add_executable(TRPVulkanNRHostSmoke tests/VulkanNRHostSmoke.cpp src/FrameGen/VulkanNRHost.cpp src/FrameGen/FSRUpscaler.cpp
+            src/FrameGen/SourceDLSSGInterop.cpp src/FrameGen/D3D12StageTimer.cpp
+            src/FrameGen/NeuralRenderingFeatureSession.cpp src/FrameGen/NeuralRenderingModulePathHook.cpp
+            src/FrameGen/NeuralAdmission.cpp src/FrameGen/NeuralRenderingRuntimeIdentity.cpp
+            src/FrameGen/NeuralLaunchHook.cpp src/FrameGen/NeuralRuntimeKernelsNative.cpp src/FrameGen/NeuralRuntimeKernelPlan.cpp)
+        target_compile_features(TRPVulkanNRHostSmoke PRIVATE cxx_std_23)
+        target_compile_definitions(TRPVulkanNRHostSmoke PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN TRP_NR_VENDOR_BENCHMARK TRP_VENDOR_NEUTRAL_NR)
+        target_include_directories(TRPVulkanNRHostSmoke PRIVATE tests/nr-peripheral src "${TRP_NGX_SDK_DIR}/include")
+        target_link_libraries(TRPVulkanNRHostSmoke PRIVATE d3d11 d3d12 dxgi d3dcompiler bcrypt version "${TRP_NGX_SDK_DIR}/lib/Windows_x86_64/nvsdk_ngx_d.lib")
+        trp_target_neural_shaders(TRPVulkanNRHostSmoke)
+        add_dependencies(TRPVulkanNRHostSmoke TRPVulkanNR)
+        add_executable(TRPVulkanNRBackgroundSmoke tests/VulkanNRBackgroundSmoke.cpp src/FrameGen/AmdNeuralPass.cpp
+            src/FrameGen/SourceDLSSGNeuralRendering.cpp src/FrameGen/SourceDLSSGNeuralResolve.cpp
+            src/FrameGen/NeuralObjectBlend.cpp src/FrameGen/NeuralObjectControl.cpp
+            src/FrameGen/SourceDLSSGInterop.cpp src/FrameGen/D3D12StageTimer.cpp src/FrameGen/NeuralLaunchHook.cpp
+            src/FrameGen/VulkanNRHost.cpp src/FrameGen/NeuralRenderingFeatureSession.cpp
+            src/FrameGen/NeuralRenderingModulePathHook.cpp src/FrameGen/NeuralAdmission.cpp
+            src/FrameGen/NeuralRenderingRuntimeIdentity.cpp src/FrameGen/NeuralRuntimeKernelsNative.cpp src/FrameGen/NeuralRuntimeKernelPlan.cpp)
+        target_compile_features(TRPVulkanNRBackgroundSmoke PRIVATE cxx_std_23)
+        target_compile_definitions(TRPVulkanNRBackgroundSmoke PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN TRP_NR_VENDOR_BENCHMARK TRP_VENDOR_NEUTRAL_NR)
+        target_include_directories(TRPVulkanNRBackgroundSmoke PRIVATE tests/nr-peripheral src "${TRP_NGX_SDK_DIR}/include")
+        target_link_libraries(TRPVulkanNRBackgroundSmoke PRIVATE d3d11 d3d12 dxgi d3dcompiler bcrypt gdi32 version
+            "${TRP_NGX_SDK_DIR}/lib/Windows_x86_64/nvsdk_ngx_d.lib")
+        trp_target_neural_shaders(TRPVulkanNRBackgroundSmoke)
+        add_dependencies(TRPVulkanNRBackgroundSmoke TRPVulkanNR)
+    endif()
+endif()
+target_link_libraries(TheosRenderPipeline PRIVATE gdi32)
+
+if(TRP_BUILD_COMPATIBILITY_TESTS)
+    add_executable(TRPAMDReleaseAdmissionTests tests/AMDReleaseAdmissionTests.cpp src/FrameGen/AmdNeuralPass.cpp)
+    target_compile_features(TRPAMDReleaseAdmissionTests PRIVATE cxx_std_23)
+    target_compile_definitions(TRPAMDReleaseAdmissionTests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    if(TRP_ENABLE_OPTIONAL_FEATURES)
+        target_compile_definitions(TRPAMDReleaseAdmissionTests PRIVATE TRP_VENDOR_NEUTRAL_NR)
+    endif()
+    target_include_directories(TRPAMDReleaseAdmissionTests PRIVATE src)
+    target_link_libraries(TRPAMDReleaseAdmissionTests PRIVATE d3d12 dxgi bcrypt gdi32)
+    add_test(NAME AMDReleaseAdmission COMMAND TRPAMDReleaseAdmissionTests)
 endif()

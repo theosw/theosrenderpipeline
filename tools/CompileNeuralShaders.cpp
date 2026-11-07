@@ -1,3 +1,4 @@
+#include "FrameGen/VulkanNRShader.h"
 #include "FrameGen/SourceDLSSGNeuralComposeShader.h"
 #include "FrameGen/SourceDLSSGNeuralResolveShader.h"
 #include <d3dcompiler.h>
@@ -49,6 +50,8 @@ int wmain(int argc, wchar_t** argv)
             Compile(generated, entry, kNeuralResolveShader, sizeof(kNeuralResolveShader) - 1,
                 "TheosRenderPipeline-NR-resolve", entry, "cs_5_1");
         }
+        Compile(generated, "VulkanPack", kVulkanNRShader, sizeof(kVulkanNRShader)-1, "VulkanNR-conversion", "Pack", "cs_5_1");
+        Compile(generated, "VulkanUnpack", kVulkanNRShader, sizeof(kVulkanNRShader)-1, "VulkanNR-conversion", "Unpack", "cs_5_1");
         Compile(generated, "ComposeBytes", kNeuralComposeShader, sizeof(kNeuralComposeShader) - 1,
             "SourceDLSSG-NR-compose", "main", "cs_5_0");
         generated << "inline constexpr std::array<Bytecode, 17> Resolve{{\n";

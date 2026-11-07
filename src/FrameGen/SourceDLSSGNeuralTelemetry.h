@@ -38,14 +38,22 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// whole NR command span, not inference time divided by the model interval.
 		std::size_t frameSamples{};
 		std::uint64_t frameQueryFailures{}, frameTicksTotal{}, frameFrequency{};
+        // Explicit queue domains: Vulkan network and D3D12 copies. Background
+        // work/frame is amortized work, not the sum of concurrent frame latency.
+        double vulkanInferenceMs{-1},vulkanCopiesMs{-1},vulkanFrameMs{-1};
+        bool vulkanBackground{};
+        bool HasInference() const { return vulkanInferenceMs>=0 || (gpuSamples&&gpuFrequency); }
+        bool HasFrame() const { return vulkanFrameMs>=0 || (frameSamples&&frameFrequency); }
 		double AverageFrameGPUMicroseconds() const
 		{
+            if(vulkanFrameMs>=0)return vulkanFrameMs*1000;
 			return frameSamples && frameFrequency ? 1'000'000.0 * static_cast<double>(frameTicksTotal) /
 				(static_cast<double>(frameSamples) * static_cast<double>(frameFrequency)) : 0.0;
 		}
 
 		double AverageGPUMicroseconds() const
 		{
+            if(vulkanInferenceMs>=0)return vulkanInferenceMs*1000;
 			return gpuSamples && gpuFrequency ?
 				1'000'000.0 * static_cast<double>(gpuTicksTotal) /
 				(static_cast<double>(gpuSamples) * static_cast<double>(gpuFrequency)) : 0.0;

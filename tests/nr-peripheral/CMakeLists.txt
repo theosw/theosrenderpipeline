@@ -4,6 +4,7 @@ enable_testing()
 include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/NeuralShaders.cmake")
 add_executable(TRPNeuralPeripheralTests PeripheralTests.cpp FeatureDouble.cpp
     ../../src/FrameGen/SourceDLSSGNeuralRendering.cpp
+    ../../src/FrameGen/AmdNeuralPass.cpp
     ../../src/FrameGen/SourceDLSSGNeuralResolve.cpp
     ../../src/FrameGen/NeuralObjectBlend.cpp
     ../../src/FrameGen/NeuralObjectControl.cpp
@@ -11,7 +12,7 @@ add_executable(TRPNeuralPeripheralTests PeripheralTests.cpp FeatureDouble.cpp
 target_compile_features(TRPNeuralPeripheralTests PRIVATE cxx_std_23)
 target_compile_definitions(TRPNeuralPeripheralTests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
 target_include_directories(TRPNeuralPeripheralTests PRIVATE . ../../src)
-target_link_libraries(TRPNeuralPeripheralTests PRIVATE d3d12 d3d11 d3dcompiler dxgi)
+target_link_libraries(TRPNeuralPeripheralTests PRIVATE d3d12 d3d11 d3dcompiler dxgi bcrypt gdi32)
 trp_target_neural_shaders(TRPNeuralPeripheralTests)
 add_test(NAME NeuralPeripheralPixels COMMAND TRPNeuralPeripheralTests)
 
@@ -68,7 +69,7 @@ if(TRP_NR_VENDOR_BENCHMARK)
     ../../src/FrameGen/NeuralObjectControl.cpp
         ../../src/FrameGen/SourceDLSSGInterop.cpp ../../src/FrameGen/D3D12StageTimer.cpp
         ../../src/FrameGen/NeuralLaunchHook.cpp
-        ../../src/FrameGen/NeuralRenderingFeatureSession.cpp
+        ../../src/FrameGen/VulkanNRHost.cpp ../../src/FrameGen/NeuralRenderingFeatureSession.cpp
         ../../src/FrameGen/NeuralRenderingModulePathHook.cpp
         ../../src/FrameGen/NeuralAdmission.cpp
         ../../src/FrameGen/NeuralRenderingRuntimeIdentity.cpp ${nr_ada_sources})
@@ -77,17 +78,18 @@ if(TRP_NR_VENDOR_BENCHMARK)
     target_compile_definitions(TRPNeuralPeripheralBenchmark PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN TRP_NR_VENDOR_BENCHMARK)
     target_compile_definitions(TRPNeuralPeripheralBenchmark PRIVATE $<$<BOOL:${TRP_NR_PRODUCTION_ADMISSION}>:TRP_NR_PRODUCTION_ADMISSION>)
     target_include_directories(TRPNeuralPeripheralBenchmark PRIVATE . ../../src "${NGX_SDK}/include")
-    target_link_libraries(TRPNeuralPeripheralBenchmark PRIVATE d3d12 d3d11 d3dcompiler dxgi bcrypt version
+    target_link_libraries(TRPNeuralPeripheralBenchmark PRIVATE d3d12 d3d11 d3dcompiler dxgi bcrypt gdi32 version
         "${NGX_SDK}/lib/Windows_x86_64/nvsdk_ngx_d.lib")
     # Manual colour probe: NR behaviour for SDR, linear-HDR and PQ encodings.
     add_executable(TRPNeuralHDRRangeProbe HDRRangeProbe.cpp
+        ../../src/FrameGen/AmdNeuralPass.cpp
         ../../src/FrameGen/SourceDLSSGNeuralRendering.cpp
         ../../src/FrameGen/SourceDLSSGNeuralResolve.cpp
     ../../src/FrameGen/NeuralObjectBlend.cpp
     ../../src/FrameGen/NeuralObjectControl.cpp
         ../../src/FrameGen/SourceDLSSGInterop.cpp ../../src/FrameGen/D3D12StageTimer.cpp
         ../../src/FrameGen/NeuralLaunchHook.cpp
-        ../../src/FrameGen/NeuralRenderingFeatureSession.cpp
+        ../../src/FrameGen/VulkanNRHost.cpp ../../src/FrameGen/NeuralRenderingFeatureSession.cpp
         ../../src/FrameGen/NeuralRenderingModulePathHook.cpp
         ../../src/FrameGen/NeuralAdmission.cpp
         ../../src/FrameGen/NeuralRenderingRuntimeIdentity.cpp ${nr_ada_sources})
@@ -95,14 +97,14 @@ if(TRP_NR_VENDOR_BENCHMARK)
     trp_target_neural_shaders(TRPNeuralHDRRangeProbe)
     target_compile_definitions(TRPNeuralHDRRangeProbe PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN TRP_NR_VENDOR_BENCHMARK)
     target_include_directories(TRPNeuralHDRRangeProbe PRIVATE . ../../src "${NGX_SDK}/include")
-    target_link_libraries(TRPNeuralHDRRangeProbe PRIVATE d3d12 d3d11 d3dcompiler dxgi bcrypt version
+    target_link_libraries(TRPNeuralHDRRangeProbe PRIVATE d3d12 d3d11 d3dcompiler dxgi bcrypt gdi32 version
         "${NGX_SDK}/lib/Windows_x86_64/nvsdk_ngx_d.lib")
     add_executable(TRPNeuralObjectVendorProbe ObjectControlVendorProbe.cpp
         ../../src/FrameGen/SourceDLSSGNeuralRendering.cpp ../../src/FrameGen/SourceDLSSGNeuralResolve.cpp
         ../../src/FrameGen/NeuralObjectBlend.cpp ../../src/FrameGen/NeuralObjectControl.cpp
         ../../src/FrameGen/SourceDLSSGInterop.cpp ../../src/FrameGen/D3D12StageTimer.cpp
         ../../src/FrameGen/NeuralLaunchHook.cpp
-        ../../src/FrameGen/NeuralRenderingFeatureSession.cpp ../../src/FrameGen/NeuralRenderingModulePathHook.cpp
+        ../../src/FrameGen/VulkanNRHost.cpp ../../src/FrameGen/NeuralRenderingFeatureSession.cpp ../../src/FrameGen/NeuralRenderingModulePathHook.cpp
         ../../src/FrameGen/NeuralAdmission.cpp
         ../../src/FrameGen/NeuralRenderingRuntimeIdentity.cpp ${nr_ada_sources})
     target_compile_features(TRPNeuralObjectVendorProbe PRIVATE cxx_std_23)
@@ -157,3 +159,28 @@ target_include_directories(TRPNeuralRecoveryTests PRIVATE . ../../src)
 target_link_libraries(TRPNeuralRecoveryTests PRIVATE d3d12 d3d11 d3dcompiler dxgi user32)
 trp_target_neural_shaders(TRPNeuralRecoveryTests)
 add_test(NAME NeuralRecovery COMMAND TRPNeuralRecoveryTests)
+
+if(TARGET TRPNeuralThirdFrameTests)
+    target_sources(TRPNeuralThirdFrameTests PRIVATE ../../src/FrameGen/AmdNeuralPass.cpp)
+    target_link_libraries(TRPNeuralThirdFrameTests PRIVATE bcrypt gdi32)
+endif()
+
+if(TARGET TRPNeuralSelectiveModelTests)
+    target_sources(TRPNeuralSelectiveModelTests PRIVATE ../../src/FrameGen/AmdNeuralPass.cpp)
+    target_link_libraries(TRPNeuralSelectiveModelTests PRIVATE bcrypt gdi32)
+endif()
+
+if(TARGET TRPNeuralRecoveryTests)
+    target_sources(TRPNeuralRecoveryTests PRIVATE ../../src/FrameGen/AmdNeuralPass.cpp)
+    target_link_libraries(TRPNeuralRecoveryTests PRIVATE bcrypt gdi32)
+endif()
+
+if(TARGET TRPNeuralPeripheralBenchmark)
+    target_sources(TRPNeuralPeripheralBenchmark PRIVATE ../../src/FrameGen/AmdNeuralPass.cpp)
+    target_link_libraries(TRPNeuralPeripheralBenchmark PRIVATE bcrypt gdi32)
+endif()
+
+if(TARGET TRPNeuralObjectVendorProbe)
+    target_sources(TRPNeuralObjectVendorProbe PRIVATE ../../src/FrameGen/AmdNeuralPass.cpp)
+    target_link_libraries(TRPNeuralObjectVendorProbe PRIVATE bcrypt gdi32)
+endif()

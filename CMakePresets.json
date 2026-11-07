@@ -100,7 +100,11 @@
       },
       "binaryDir": "${sourceDir}/out/build/addon",
       "cacheVariables": {
-        "TRP_ENABLE_OPTIONAL_FEATURES": "ON"
+        "TRP_ENABLE_OPTIONAL_FEATURES": "ON",
+        "VCPKG_MANIFEST_INSTALL": "ON",
+        "VCPKG_INSTALLED_DIR": "${sourceDir}/out/vcpkg-universal",
+        "VCPKG_MANIFEST_FEATURES": "vulkan-nr",
+        "VCPKG_HOST_TRIPLET": "x64-windows"
       }
     }
   ],

@@ -1,0 +1,56 @@
+--- a/core/network.cpp
++++ b/core/network.cpp
+@@ -1,5 +1,6 @@
+ #include "network.h"
+ #include "../include/trp_adapter_match.h"
++#include "../include/trp_nvapi_adapter.h"
+ 
+ #define WIN32_LEAN_AND_MEAN
+ #include <windows.h>
+@@ -466,6 +467,46 @@
+     if (!cu_ok(g.cu.cuCtxCreate(&g.context, CU_CTX_SCHED_AUTO, device), "cuCtxCreate", error)) return false;
+     if (!cu_ok(g.cu.cuCtxSetCurrent(g.context), "cuCtxSetCurrent", error)) return false;
+ 
++    // C4: the upstream NVAPI shim otherwise reports CUDA ordinal 0's LUID,
++    // even when the selected inference device is a different physical adapter.
++    auto selectNvapi=reinterpret_cast<uint32_t (*)(uint64_t,int,TRPNvapi::GetLuid)>(
++        GetProcAddress(g.nvapi,"dlss5nr_trp_nvapi_select_adapter"));
++    if(!selectNvapi || !g.cu.cuDeviceGetLuid) {
++        error="C4 NVAPI adapter or CUDA LUID query is missing; use the complete C4 package";return false;
++    }
++    char luidBytes[8]{};unsigned nodeMask{};uint64_t selectedLuid{};
++    if(!cu_ok(g.cu.cuDeviceGetLuid(luidBytes,&nodeMask,device),"selected CUDA LUID",error))return false;
++    memcpy(&selectedLuid,luidBytes,8);
++    if(!selectedLuid || (paths.adapter_luid && selectedLuid!=paths.adapter_luid) ||
++       selectNvapi(selectedLuid,device,g.cu.cuDeviceGetLuid)!=1) {
++        error="C4 NVAPI selected-adapter configuration refused; see runtime log";return false;
++    }
++    auto nvapiQuery=reinterpret_cast<TRPNvapi::Query>(GetProcAddress(g.nvapi,"nvapi_QueryInterface"));
++    using Logical=int (*)(void*,TRPNvapi::LogicalData*);
++    using Architecture=int (*)(void*,TRPNvapi::ArchInfo*);
++    using Enumerate=int (*)(void**,unsigned*);
++    using MapLogical=int (*)(void*,void**);
++    auto enumerate=nvapiQuery ? reinterpret_cast<Enumerate>(nvapiQuery(0xe5ac921f)) : nullptr;
++    auto mapLogical=nvapiQuery ? reinterpret_cast<MapLogical>(nvapiQuery(0xadd604d1)) : nullptr;
++    auto logical=nvapiQuery ? reinterpret_cast<Logical>(nvapiQuery(TRPNvapi::LogicalInfoId)) : nullptr;
++    auto architecture=nvapiQuery ? reinterpret_cast<Architecture>(nvapiQuery(TRPNvapi::ArchInfoId)) : nullptr;
++    if(!enumerate || !mapLogical || !logical || !architecture) {
++        error="C4 NVAPI identity/architecture API is incomplete";return false;
++    }
++    void* handles[64]{};unsigned handleCount{};void* logicalHandle{};uint64_t reportedLuid{};
++    TRPNvapi::LogicalData logicalData{};logicalData.version=TRPNvapi::LogicalVersion;logicalData.osAdapterId=&reportedLuid;
++    TRPNvapi::ArchInfo arch{TRPNvapi::ArchVersion};
++    const int enumerateResult=enumerate(handles,&handleCount);
++    const int mapResult=enumerateResult==0 && handleCount==1 ? mapLogical(handles[0],&logicalHandle) : -1;
++    const int logicalResult=mapResult==0 ? logical(logicalHandle,&logicalData) : -1;
++    const int archResult=logicalResult==0 ? architecture(handles[0],&arch) : -1;
++    log(2,"C4 NVAPI admission: CUDA ordinal=%d device=%d expected LUID=%016llx reported LUID=%016llx architecture=0x%x results=%d/%d/%d/%d count=%u",
++        selectedOrdinal,device,static_cast<unsigned long long>(selectedLuid),static_cast<unsigned long long>(reportedLuid),
++        arch.architecture,enumerateResult,mapResult,logicalResult,archResult,handleCount);
++    if(enumerateResult!=0 || mapResult!=0 || logicalResult!=0 || archResult!=0 || reportedLuid!=selectedLuid || arch.architecture!=0x1b0) {
++        error="C4 NVAPI identity/architecture admission failed; see runtime log";return false;
++    }
++
+     // Our NGX runtime. The snippet only accepts calls that come from a module
+     // named nvngx.dll, so every NGX call is made from inside it.
+     if (!(g.ngx = load_exact(zluda_dir + L"nvngx.dll", error))) return false;

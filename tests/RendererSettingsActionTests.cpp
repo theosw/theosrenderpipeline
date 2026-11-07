@@ -190,6 +190,43 @@ void Neural()
 {
     {
         RendererSettingsDraft draft; draft.valid = true; draft.upscaleType = XeSS;
+        auto waitDraft = draft; waitDraft.sourceDLSSG.amdNRWaitForNetwork = true;
+        Require(CountRendererSettingsChanges(waitDraft, draft) == 1 &&
+            !SameNeuralPreferences(waitDraft.sourceDLSSG, draft.sourceDLSSG), "AMD wait mode participates in Apply/Discard and NR validation");
+        auto trackingDraft = draft; trackingDraft.sourceDLSSG.amdNRShowTracking = true;
+        Require(CountRendererSettingsChanges(trackingDraft, draft) == 1 &&
+            !SameNeuralPreferences(trackingDraft.sourceDLSSG, draft.sourceDLSSG), "AMD tracking participates in Apply/Discard");
+        draft.sourceDLSSG.provider = FrameGenerationProvider::XeFG;
+        draft.sourceDLSSG.neuralEnabled = true;
+        draft.sourceDLSSG.neuralBeforeUpscaling = true;
+        RendererSettingsCapabilities amd{true, true, true, false};
+        amd.nvidiaAdapter = false; amd.amdAdapter = true; amd.xeSSReady = true;
+        amd.backend = draft.sourceDLSSG.neuralBackend = NeuralRendering::Backend::HIP;
+        Require(!ValidateRendererSettings(draft, amd), "AMD XeSS NR off-to-on Apply/Save request reaches its backend");
+        Require(!NeuralSettingsUnavailable(XeSS, amd), "AMD Apply execution gate agrees with enable validation");
+        amd.xeSSReady = false;
+        Require(ValidateRendererSettings(draft, amd), "AMD NR requires initialized XeSS");
+        amd.xeSSReady = true; amd.amdNeuralPrerequisite = "AMD NR prerequisite missing: zluda_real.dll";
+        Require(std::string(ValidateRendererSettings(draft, amd)) == amd.amdNeuralPrerequisite,
+            "AMD missing dependency reason survives Apply validation");
+        amd.amdNeuralPrerequisite = nullptr; amd.neuralOperational = false;
+        Require(ValidateRendererSettings(draft, amd), "AMD failed NR cannot be reenabled");
+        draft.sourceDLSSG.neuralEnabled = false;
+        Require(!ValidateRendererSettings(draft, amd), "AMD NR can be turned off after failure");
+        draft.sourceDLSSG.neuralEnabled = true; amd.neuralOperational = true;
+        amd.dedicatedUI = false;
+        Require(ValidateRendererSettings(draft, amd), "AMD retains dedicated world/UI requirements");
+        amd.dedicatedUI = true;
+        for (const int mode : {DLSS, DLAA}) {
+            draft.upscaleType = mode;
+            Require(ValidateRendererSettings(draft, amd), "AMD NR must not admit NVIDIA DLSS/DLAA");
+            amd.externalWorld = true;
+            Require(ValidateRendererSettings(draft, amd), "external world source cannot bypass AMD XeSS requirement");
+            amd.externalWorld = false;
+        }
+    }
+    {
+        RendererSettingsDraft draft; draft.valid = true; draft.upscaleType = XeSS;
         RendererSettingsCapabilities amd{true, true, true, false}; amd.nvidiaAdapter = false;
         Require(!ValidateRendererSettings(draft, amd), "XeSS settings can apply without NVIDIA hardware");
         draft.sourceDLSSG.neuralEnabled = true;

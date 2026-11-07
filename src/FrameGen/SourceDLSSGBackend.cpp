@@ -2,6 +2,7 @@
 #include "../EngineScreenshot.h"
 #include "SourceDLSSGBackend.h"
 #include "XeFGLayerSelection.h"
+#include "../../third_party/amd-nr/trp_diagnostics.h"
 #include <PCH.h>
 #include "NeuralFrameEligibility.h"
 #include "CommunityShaderIntegration.h"
@@ -982,8 +983,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 #if !defined(TRP_NO_NEURAL_RENDERING)
 		{
 			std::scoped_lock lock(neuralMutex_);
-			const bool changed = neuralSnapshot_.active != active;
-			neuralSnapshot_.active = active;
+			const bool actuallyActive = active && (!neuralPass_->AMD() || neuralPass_->AMDRunning());
+			const bool changed = neuralSnapshot_.active != actuallyActive;
+			neuralSnapshot_.active = actuallyActive;
 			// A new pass runs from the frame after its feature's creation.
 			neuralSnapshot_.effectivePasses = active && neuralPass_ ?
 				(std::max)(1, (std::min)(options.EffectivePasses(), neuralPass_->ReadyPasses())) : options.EffectivePasses();
@@ -993,13 +995,21 @@ namespace TheosRenderPipeline::SourceDLSSG
 			if (reset) { ++neuralSnapshot_.resets; }
 			if (active) { neuralSnapshot_.telemetry = neuralPass_->Telemetry(); }
 			if (active) { neuralRecovery_.Enabled(); }
-			neuralSnapshot_.status = neuralSnapshot_.sessionDisabled ? neuralSnapshot_.reason : unavailable ? unavailable : active ? neuralPass_->Status() : options.enabled ?
+			neuralSnapshot_.status = neuralPass_ && neuralPass_->Preparing() ? NeuralRendering::kPreparingVulkan : neuralSnapshot_.sessionDisabled ? neuralSnapshot_.reason : unavailable ? unavailable : active ? neuralPass_->Status() : options.enabled ?
 				"NR waiting for world inputs and dedicated native UI; standard DLSS active" : "standard DLSS; source NR is off";
-			if (changed || (active && (reset || neuralSnapshot_.evaluations % 600 == 0))) {
-				logger::info("[SourceDLSSG NR] frame={} active={} evaluations={} reset={} style={} fgRequested={} {}",
-					FrameIndex(), active, neuralSnapshot_.evaluations, reset,
-					options.tuning.style, enabled_, neuralSnapshot_.status);
-			}
+            const bool amd = neuralPass_ && neuralPass_->AMD();
+            if (amd && options.enabled && !neuralSnapshot_.sessionDisabled) { neuralSnapshot_.status = neuralPass_->Status(); }
+            const NRDiagnosticState state{options.enabled, eligible, active, actuallyActive,
+                neuralSnapshot_.failed, options.amdWaitForNetwork, amd ? neuralPass_->AMDModelState() : -1,
+                NRReason(options.enabled, unavailable != nullptr, prepared, neuralEligible_, active,
+                    neuralSnapshot_.failed, actuallyActive)};
+            if (amd && nrDiagnosticLog_.ShouldLog(GetTickCount64(), state)) {
+                logger::info("[NR state] session={} frame={} enabledRequest={} eligible={} hostStageEvaluated={} passActive={} failed={} execution={} amdModelState={} reason={} hostEvaluations={} amdSubmissions={} amdComposed={} completed=runtime-log status={}",
+                    TRPAmdDiagnostics::Session(), FrameIndex(), options.enabled, eligible, active, actuallyActive,
+                    neuralSnapshot_.failed, options.amdWaitForNetwork ? "regular-wait" : "async", state.modelState,
+                    NRReasonName(state.reason), neuralSnapshot_.evaluations, amd ? neuralPass_->AMDSubmissions() : 0,
+                    amd ? neuralPass_->AMDComposedResults() : 0, neuralSnapshot_.status);
+            }
 		}
 		neuralFrameBegun_ = neuralEvaluatedEarly_ = frameNeuralModelChanged_ = false;
 #endif
@@ -1256,7 +1266,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		{
 			std::scoped_lock lock(neuralMutex_);
 			neuralSnapshot_.active = false;
-			neuralSnapshot_.status = neuralSnapshot_.sessionDisabled ? neuralSnapshot_.reason : purpose == RetirementPurpose::Resize ?
+			neuralSnapshot_.status = neuralPass_ && neuralPass_->Preparing() ? NeuralRendering::kPreparingVulkan : neuralSnapshot_.sessionDisabled ? neuralSnapshot_.reason : purpose == RetirementPurpose::Resize ?
 				"NR retired for resize; next eligible frame recreates the feature" :
 				"NR retained for fixed-size upscaler replacement; next eligible frame resets history";
 		}

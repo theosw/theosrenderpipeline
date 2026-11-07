@@ -56,6 +56,11 @@ struct OverlayUI::FrameView
     // NR per frame last measured with each runtime this session, in ms; 0 if
     // not tried. Cleared when other NR settings change, so values compare.
     std::vector<float> neuralRuntimeMilliseconds;
+    // Private test backends in the same list: the HIP port's NR per frame
+    // (0 if not tried) and why it cannot run (empty if it can).
+    float neuralHIPMilliseconds{}, neuralVulkanMilliseconds{};
+    std::string neuralVulkanReason, neuralVulkanPath;
+    std::string neuralHIPReason;
     int neuralComputeCapability{-1};
     bool neuralRuntimeKernels{};
     bool sourceReady{};
@@ -63,6 +68,8 @@ struct OverlayUI::FrameView
     bool neuralPascal{};
     bool nvidiaServicesReady{};
     bool nvidiaAdapter{true};
+    bool amdAdapter{};
+    std::string amdNeuralPrerequisite;
     bool nvidiaFeatures{true};
     bool nvidiaFrameGeneration{true};
     bool videoMemoryFull{};
