@@ -1,4 +1,4 @@
-# Unreleased
+# 0.6.5
 
 - NR Object rules support Skyrim 1.5.97, with a version-specific draw-hook guard.
 - XeFG Even pacing (Universal, off by default): Frame generation > Even pacing
@@ -23,8 +23,9 @@
 - NR's "Every other frame" keeps alternating at low frame rates. Below about
   10 fps it used to treat every frame as a break and run the model each frame.
 - GTX 10: the first menu open no longer freezes for several seconds while TRP
-  checks the NR runtime files; the check runs in the background. The memory
-  bar shows the whole card, including what Windows moved to system RAM.
+  checks the NR runtime files; the check runs in the background.
+- The memory bar shows the whole card on every GPU, including what Windows
+  moved to system RAM.
 - GTX 10: the NR Network row notes that Old is about 3x slower than Small, and
   the XeFG tensor model row says the card has no tensor cores, so its shader
   version runs.
