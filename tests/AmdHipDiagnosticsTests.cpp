@@ -16,7 +16,7 @@ int main() {
         select(0,0);auto integrated=CurrentHip(); Require(integrated.device==0 && integrated.luid==0x19981 && integrated.context==reinterpret_cast<void*>(0x1000),"observe a changed context without correcting it");
         auto again=CurrentHip(); Require(again.device==integrated.device && again.context==integrated.context,"observer preserves selection");
         select(1,1);auto failed=CurrentHip(); Require(failed.contextResult==201 && failed.deviceResult==202 && failed.luidResult==-1 && !failed.luid,"query errors remain explicit unknown identity");
-        char prefix[160]{};Prefix(prefix,sizeof(prefix));Require(std::strstr(prefix,Session()) && std::strstr(prefix,"Z C") && std::strstr(prefix," session="),"timestamp and process identity independent of candidate label");
+        char prefix[160]{};Prefix(prefix,sizeof(prefix));Require(std::strstr(prefix,Session()) && std::strstr(prefix,"Z " TRP_AMD_DIAGNOSTIC_LABEL " session=") && std::strstr(prefix," tid="),"timestamp, release label and process identity");
         Require(!GetProcAddress(module,"hipSetDevice") && !GetProcAddress(module,"hipCtxSetCurrent"),"fixture supplies no context mutation API");
         std::puts("PASS: CPU-only HIP observer; unloaded runtime, discrete/integrated contexts, query failures, no context mutation; stable session prefix.");
         return 0;
