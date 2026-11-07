@@ -6,6 +6,11 @@
   is unavailable, such as on GTX 10 or in windowed play. It needs the XeFG
   tensor model. On a GTX 1070 Ti at x4 in LoreRim, frames went from bursts
   (40% of gaps long) to a steady 13.9 ms, at about 15% lower base FPS.
+- Steady frame limit is off while XeFG is selected, and greyed with the reason.
+  XeFG paces its own frames, and Steady's cap fought that pacing: frames
+  microstuttered (a known issue in 0.6.4). Without it XeFG x4 on an RTX 4080
+  showed a frame every 6.2 ms almost every time. Fixed and Steady with DLSS-G
+  are unchanged. Lab > "Allow Steady with XeFG" still allows it for testing.
 
 # 0.6.4
 

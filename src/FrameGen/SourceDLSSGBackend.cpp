@@ -1521,7 +1521,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 	}
 	std::uint32_t Backend::UpdateFrameLimit()
 	{
-		const auto mode = static_cast<FrameLimitMode>(frameLimit_.load(std::memory_order_relaxed));
+		const auto mode = EffectiveFrameLimit(static_cast<FrameLimitMode>(frameLimit_.load(std::memory_order_relaxed)),
+			provider_ == FrameGenerationProvider::XeFG, SteadyWithXeFG());
 		const auto now = std::chrono::steady_clock::now();
 		const bool measured = steadyLast_.time_since_epoch().count() != 0;
 		const double intervalUs = measured ? std::chrono::duration<double, std::micro>(now - steadyLast_).count() : 0;
