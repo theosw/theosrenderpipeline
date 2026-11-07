@@ -633,10 +633,15 @@ PreviewScenario VulkanAmdRefused()
 }
 PreviewScenario VulkanAmdPortable()
 {
-    auto s=VulkanNvidia();s.name="vulkan-amd-portable";
+    auto s=TestBackendsAmd();s.name="vulkan-amd-portable";
     s.summary="AMD native path refused, portable fallback available; illustrative, Radeon unvalidated";
-    s.view.nvidiaAdapter=false;s.view.amdAdapter=true;s.view.neuralHIPReason.clear();
+    s.view.neuralApplied.backend=NeuralRendering::Backend::Vulkan;
+    s.view.neuralApplied.enabled=true;s.view.neuralState.active=true;
+    s.view.neuralState.status="Vulkan: portable, one small-model pass before upscaling";
+    s.view.neuralRuntimePath="Data\\SKSE\\Plugins\\TheosRenderPipeline\\VulkanNR\\TRPVulkanNR.dll";
     s.view.neuralVulkanPath="RDNA 3 path refused by fragment probe; using portable KHR path";
+    s.applied.sourceDLSSG.neuralBackend=NeuralRendering::Backend::Vulkan;
+    s.applied.sourceDLSSG.neuralEnabled=true;s.draft=s.applied;
     return s;
 }
 
@@ -664,7 +669,7 @@ PreviewScenario VulkanLockedHIP() {
 }
 PreviewScenario HIPFSRRefused() {
     auto s=TestBackendsAmd();s.name="hip-fsr-refused";
-    s.view.xessActive=false;s.view.fsrActive=true;s.applied.upscaleType=FSR;s.draft=s.applied;
+    s.view.xessActive=false;s.view.fsrActive=true;s.view.upscaler.mode=FSR;s.applied.upscaleType=FSR;s.draft=s.applied;
     return s;
 }
 PreviewScenario VulkanPreparing()
