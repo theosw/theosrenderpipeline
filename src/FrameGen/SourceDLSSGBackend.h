@@ -190,6 +190,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 		void ConfigureFrameLimit(FrameLimitMode a_mode) { frameLimit_.store(static_cast<int>(a_mode), std::memory_order_relaxed); }
 		// Steady's current rendered-frame cap, 0 while measuring or off.
 		float SteadyRenderedFPS() const { return steadyRenderedFPS_.load(std::memory_order_relaxed); }
+		// Lab, not saved: lets Steady run with XeFG (EffectiveFrameLimit).
+		void ConfigureSteadyWithXeFG(bool a_enabled) { steadyWithXeFG_.store(a_enabled, std::memory_order_relaxed); }
+		bool SteadyWithXeFG() const { return steadyWithXeFG_.load(std::memory_order_relaxed); }
 		// DLSS-G warned about VRAM, or usage reached the OS budget, in the last 10 s.
 		bool VideoMemoryFullRecently() const;
 		// Applied at the next present boundary (UpdateHDRRequest); calibration applies live.
@@ -386,6 +389,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		std::atomic<int> outputFPSLimit_{ 0 };
 		std::atomic<int> frameLimit_{ 0 };
 		std::atomic<float> steadyRenderedFPS_{ 0 };
+		std::atomic<bool> steadyWithXeFG_{};
 		// Render thread only. The output cap Present hands the limiters this frame.
 		SteadyPacing steadyPacing_;
 		std::chrono::steady_clock::time_point steadyLast_{};

@@ -168,5 +168,13 @@ int main()
     Require(SteadyOutputIntervalUs(30770, 1) == 30770, "exact, not rounded to a whole FPS (32.5 FPS stays 32.5)");
     Require(SteadyOutputIntervalUs(0, 4) == 0 && SteadyOutputIntervalUs(20000, 0) == 0, "unmeasured or invalid: no cap");
     Require(SteadyOutputIntervalUs(500, 4) == 1000 && SteadyOutputIntervalUs(2e6, 1) == 1000000, "clamped to the limiters' range");
-    std::puts("Steady pacing: alternating cost, heavier and lighter scenes, limiter wobble, gaps and output conversion passed.");
+    {
+        using TheosRenderPipeline::SourceDLSSG::FrameLimitMode;
+        using TheosRenderPipeline::SourceDLSSG::EffectiveFrameLimit;
+        static_assert(EffectiveFrameLimit(FrameLimitMode::Steady, true, false) == FrameLimitMode::Off, "Steady is off with XeFG");
+        static_assert(EffectiveFrameLimit(FrameLimitMode::Steady, true, true) == FrameLimitMode::Steady, "the Lab can allow it");
+        static_assert(EffectiveFrameLimit(FrameLimitMode::Steady, false, false) == FrameLimitMode::Steady, "DLSS-G and no generation keep Steady");
+        static_assert(EffectiveFrameLimit(FrameLimitMode::Fixed, true, false) == FrameLimitMode::Fixed, "Fixed caps output with XeFG as before");
+    }
+    std::puts("Steady pacing: alternating cost, heavier and lighter scenes, limiter wobble, gaps, output conversion and the XeFG rule passed.");
 }

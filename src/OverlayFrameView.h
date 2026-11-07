@@ -87,6 +87,7 @@ struct OverlayUI::FrameView
     // Why applied XeFG even pacing is not pacing now; null while it can apply.
     const char* xefgEvenPacingInactive{};
     float steadyRenderedFPS{}; // Steady frame limit's current cap; 0 while measuring or off.
+    bool steadyWithXeFG{};     // Lab: Steady allowed with XeFG.
     std::string xefgTensorStatus, xefgPacingStatus;
     TheosRenderPipeline::SourceDLSSG::SessionSnapshot session{};
     TheosRenderPipeline::SourceDLSSG::MFGSnapshot mfg{};

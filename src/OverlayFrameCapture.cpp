@@ -184,6 +184,7 @@ OverlayUI::FrameView OverlayUI::CaptureFrameView()
     view.xefgFlipMetering = backend.XeFGFlipMetering();
     view.xefgEvenPacingInactive = backend.XeFGVSyncCadenceUnavailable();
     view.steadyRenderedFPS = backend.SteadyRenderedFPS();
+    view.steadyWithXeFG = backend.SteadyWithXeFG();
     view.session = backend.Snapshot();
     view.mfg = backend.MFGState();
     view.neuralApplied = backend.NeuralConfiguration();

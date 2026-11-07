@@ -80,6 +80,10 @@ void OverlayUI::DrawLabXeFGControls()
         sourceBackend.ConfigureXeFGDebugView(onlyGenerated, tagGenerated);
     DrawSettingsHelp(TR("Intel debug views, not saved. Only generated frames hides every real frame; "
                      "tagging marks generated frames with corner boxes."));
+    bool steady = sourceBackend.SteadyWithXeFG();
+    if (ImGui::Checkbox(TR("Allow Steady with XeFG (Lab)"), &steady))
+        sourceBackend.ConfigureSteadyWithXeFG(steady);
+    DrawSettingsHelp(TR("Not saved. XeFG paces its own frames, so Steady can make them microstutter."));
     bool gpuInputWait = sourceBackend.XeFGGpuInputWait();
     if (ImGui::Checkbox(TR("Input reuse: GPU fence wait (Lab)"), &gpuInputWait))
         sourceBackend.ConfigureXeFGGpuInputWait(gpuInputWait);
