@@ -99,7 +99,7 @@ inline bool SameNeuralPreferences(const SourceDLSSG::Preferences& a, const Sourc
 inline const char* NeuralSettingsUnavailable(int mode, RendererSettingsCapabilities capabilities)
 {
     if (capabilities.backend == NeuralRendering::Backend::HIP) {
-        if (!capabilities.amdAdapter) return "HIP/ZLUDA NR requires an AMD Radeon GPU.";
+        if (!capabilities.amdAdapter) return NeuralRendering::kHIPGPUReason;
         if (capabilities.amdNeuralPrerequisite) return capabilities.amdNeuralPrerequisite;
         if (mode != XeSS || !capabilities.xeSSReady || capabilities.externalWorld) return NeuralRendering::kHIPUpscalerReason;
     }

@@ -60,7 +60,7 @@ namespace TheosRenderPipeline::SourceDLSSG {
 #if !defined(TRP_VENDOR_NEUTRAL_NR) && !defined(TRP_AMD_NR_TESTING)
         return NeuralRendering::kVendorEditionReason;
 #else
-        if (!amdAdapter) return "HIP/ZLUDA NR requires an AMD Radeon GPU.";
+        if (!amdAdapter) return NeuralRendering::kHIPGPUReason;
         if (const auto* reason = NeuralRendering::runtimeSession.Refusal(NeuralRendering::Backend::HIP)) return reason;
         return PrerequisiteReason();
 #endif

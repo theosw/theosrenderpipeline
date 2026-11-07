@@ -1,4 +1,5 @@
 #pragma once
+#include "FrameGen/NeuralBackend.h"
 
 #include "OverlayUI.h"
 #include "OverlayUIStyle.h"
@@ -60,7 +61,7 @@ struct OverlayUI::FrameView
     // (0 if not tried) and why it cannot run (empty if it can).
     float neuralHIPMilliseconds{}, neuralVulkanMilliseconds{};
     std::string neuralVulkanReason, neuralVulkanPath;
-    std::string neuralHIPReason{"HIP/ZLUDA NR requires an AMD Radeon GPU."};
+    std::string neuralHIPReason{TheosRenderPipeline::NeuralRendering::kHIPGPUReason};
     int neuralComputeCapability{-1};
     bool neuralRuntimeKernels{};
     bool sourceReady{};
