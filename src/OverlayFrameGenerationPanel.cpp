@@ -405,6 +405,27 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& v
                 ImGui::TextDisabled("%s", TR("experimental"));
                 return changed;
             });
+            const auto multiplier = draft.xefg.generatedFrames + 1;
+            const char* evenReason = !editIntel ? xefgOnly
+                : !view.xefgUnlockAvailable ? TR("Universal only.")
+                : !draft.xefgTensorCores ? TR("Needs the Tensor model option.")
+                : multiplier != 3 && multiplier != 4 ? TR("For x3 and x4.")
+                : draft.vsync == SD::VSyncMode::Off ? TR("Needs VSync On or Auto. With VSync Off, XeFG already spaces frames evenly.")
+                : nullptr;
+            SettingRow(TR("Even pacing"), nullptr, false, evenReason != nullptr, [&] {
+                const bool changed = ImGui::Checkbox("##evenPacing", &draft.xefgEvenPacing);
+                // Saved and applied: show why an applied choice is not pacing right now.
+                const auto* inactive = draft.xefgEvenPacing && !evenReason ? view.xefgEvenPacingInactive : nullptr;
+                DrawSettingsHelp(evenReason ? evenReason
+                    : TR("Spaces x3/x4 generated frames evenly with VSync when NVIDIA flip metering is unavailable "
+                         "(GTX 10, and windowed play on any card). Costs base frame rate: about 20-25% on a GTX 1070 Ti "
+                         "at x3/x4 with NR. Apply restarts frame generation briefly."));
+                ImGui::SameLine();
+                ImGui::AlignTextToFramePadding();
+                if (inactive) ImGui::TextDisabled(TR("inactive | %s"), TR(inactive));
+                else ImGui::TextDisabled("%s", TR("with VSync"));
+                return changed;
+            });
             const auto& pacing = view.xefg.pacing;
             const bool meteringReady = view.xefgTensorRequested && (pacing.flags & TheosRenderPipeline::XeFGPacing::Installed);
             const bool vsyncOn = draft.vsync == SD::VSyncMode::On;

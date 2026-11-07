@@ -11,30 +11,36 @@ HRESULT __cdecl Start(ID3D12Device*,HMODULE,HMODULE,const wchar_t*,char*,std::ui
     if(Mode("unsafe-start")){flags=Unsafe;return E_FAIL;}
     flags=ModelReady;return S_OK;
 }
-HRESULT __cdecl Retire(char*,std::uint32_t){++retires;return Mode("pacing-success")?S_OK:E_FAIL;} // Deliberately does not set Unsafe.
+HRESULT __cdecl Retire(char*,std::uint32_t){++retires;return Mode("pacing-success")||Mode("pacing-v1")?S_OK:E_FAIL;} // Deliberately does not set Unsafe.
 void __cdecl Snapshot(Stats* s){if(s&&s->size==sizeof(Stats)){s->flags=flags;s->matchedPSOs=starts;s->cachedPSOs=retires;}}
 }
 namespace {
 unsigned pacingFlags{};
 HRESULT __cdecl RegisterPacing(void*,ID3D12Device*,char*,std::uint32_t){
     if(Mode("pacing-safe-register"))return S_FALSE;
-    pacingFlags=TheosRenderPipeline::XeFGPacing::Registered;
+    pacingFlags|=TheosRenderPipeline::XeFGPacing::Registered;
     return Mode("pacing-unsafe-register")?E_FAIL:S_OK;
 }
 HRESULT __cdecl UnregisterPacing(void*,char*,std::uint32_t){
     if(Mode("pacing-retire-fail"))return E_FAIL;
-    pacingFlags=0;return S_OK;
+    pacingFlags&=TheosRenderPipeline::XeFGPacing::VSyncCadenceRequested;return S_OK;
 }
 void __cdecl ResetPacing(void*){}
 void __cdecl SetMetering(bool){}
+void __cdecl SetVSyncCadence(bool enabled){if(enabled)pacingFlags|=TheosRenderPipeline::XeFGPacing::VSyncCadenceRequested;else pacingFlags&=~TheosRenderPipeline::XeFGPacing::VSyncCadenceRequested;}
 void __cdecl PacingSnapshot(TheosRenderPipeline::XeFGPacing::Stats* s){if(s&&s->size==sizeof(*s))s->flags=pacingFlags;}
 void __cdecl SetLogger(void (*)(const char*)){}
 }
 extern "C" __declspec(dllexport) HRESULT __cdecl TRPXeFGPacingGetAPI(TheosRenderPipeline::XeFGPacing::API* api){
     using namespace TheosRenderPipeline::XeFGPacing;
+    if(Mode("pacing-v1")){ // A 0.6.4 helper: version-1 table only, nothing written past it.
+        if(!api||api->size!=Version1Size||api->version!=Version1)return E_NOINTERFACE;
+        api->registerContext=&RegisterPacing;api->unregisterContext=&UnregisterPacing;api->reset=&ResetPacing;
+        api->setMetering=&SetMetering;api->snapshot=&PacingSnapshot;api->setLogger=&SetLogger;return S_OK;
+    }
     if(Mode("pacing-api-version")||!api||api->size!=sizeof(*api)||api->version!=TheosRenderPipeline::XeFGPacing::Version)return E_NOINTERFACE;
     api->registerContext=&RegisterPacing;api->unregisterContext=&UnregisterPacing;api->reset=&ResetPacing;
-    api->setMetering=&SetMetering;api->snapshot=&PacingSnapshot;api->setLogger=&SetLogger;return S_OK;
+    api->setVSyncCadence=&SetVSyncCadence;api->setMetering=&SetMetering;api->snapshot=&PacingSnapshot;api->setLogger=&SetLogger;return S_OK;
 }
 extern "C" __declspec(dllexport) HRESULT __cdecl TRPXeFGTensorGetAPI(API* api){
     if(!api||api->size!=sizeof(API)||api->version!=Version)return E_NOINTERFACE;

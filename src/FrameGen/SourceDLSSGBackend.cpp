@@ -441,7 +441,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		} else if (intelStartup) {
 			if (!CheckXeFG(xefg_.Probe(device12_.Get(), PluginPaths::IntelDirectory(), xefgTensorRequested_)) ||
 				!CheckXeFG(xefg_.Create(device12_.Get(), queue_.Get(), nativeFactory_.Get(), desc, XeFGStartupInvertedDepth(communityShaders), &native, 0,
-					XeFGConfiguration(), IntelPipelines(XeFGPipelineCache(), xefg_.PipelineCacheName(), xefg_.RuntimeModule())))) { return fault_; }
+					XeFGConfiguration(), IntelPipelines(XeFGPipelineCache(), xefg_.PipelineCacheName(), xefg_.RuntimeModule()), nullptr, XeFGVSyncCadence()))) { return fault_; }
 			providerStatus_ = "Intel XeFG presenter; latency owner=XeLL";
 		} else if (!Check(streamlineFactory_->CreateSwapChain(queue_.Get(), &desc, &native), "Streamline swapchain")) { return fault_; }
 		retainedNative_ = native;
@@ -638,7 +638,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (provider_ == FrameGenerationProvider::XeFG) {
 			if (!CheckXeFG(xefg_.Prepare(frameConstants_, XeFGFrameTimeConfiguration()))) { return false; }
 			recreateXeFG_ = xefg_.Snapshot().invertedDepth != (frameConstants_.depthInverted == sl::eTrue) ||
-				XeFGNeedsRecreation(xefg_.Snapshot().experimentalMFG, XeFGConfiguration()) ||
+				XeFGNeedsRecreation(xefg_.Snapshot().experimentalMFG, XeFGConfiguration(),
+                    xefg_.Snapshot().vsyncCadence, XeFGVSyncCadence()) ||
 				xefg_.ProbedTensorRequest() != xefgTensorRequested_.load();
 			return true; // Intel copies the final HUD-less image after late NR, at Present.
 		}
@@ -905,7 +906,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 				if (ui.Format != destination.Format || ui.Width != destination.Width || ui.Height != destination.Height) { intelUI = nullptr; }
 			}
 			if (!CheckXeFG(xefg_.SetDebugView(XeFGOnlyGenerated(), XeFGTagGenerated()))) { return fault_; }
-			const bool meter = XeFGFlipMetering() && VSyncConfigurationMode() != VSyncMode::On;
+            const bool meter = XeFGFlipMetering() && VSyncConfigurationMode() != VSyncMode::On;
 			if (xefg_.FlipMeteringRequested() != meter) xefg_.SetFlipMetering(meter);
 			xefg_.SetSceneChangeThreshold(XeFGSceneChangeThresholdConfiguration());
 			if (enabled_ && (!generationAllowed || !prepared || !compatible) && xefg_.Snapshot().presents % 600 == 0) {
@@ -1558,7 +1559,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		return provider == FrameGenerationProvider::XeFG ?
 			xefg_.Create(device12_.Get(), queue_.Get(), nativeFactory_.Get(), presenterDesc_,
 				frameConstants_.depthInverted == sl::eTrue, result, replacementFrame_, XeFGConfiguration(),
-				IntelPipelines(XeFGPipelineCache(), xefg_.PipelineCacheName(), xefg_.RuntimeModule()), replacementNative_.Get()) :
+				IntelPipelines(XeFGPipelineCache(), xefg_.PipelineCacheName(), xefg_.RuntimeModule()), replacementNative_.Get(), XeFGVSyncCadence()) :
 			streamlineFactory_->CreateSwapChain(queue_.Get(), &presenterDesc_, result);
 	}
 	HRESULT Backend::ReleasePresenter(SwapChain& wrapper)
@@ -1622,7 +1623,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 			replacementFrame_ = FrameIndex();
 			logger::info("[FrameGeneration] replacing presenter current={} requested={} depth={}->{} mfgRecreate={} tensorRecreate={}",
 				ProviderName(provider_), ProviderName(replacementProvider_), xefg_.Snapshot().invertedDepth,
-				frameConstants_.depthInverted == sl::eTrue, XeFGNeedsRecreation(xefg_.Snapshot().experimentalMFG, XeFGConfiguration()),
+				frameConstants_.depthInverted == sl::eTrue, XeFGNeedsRecreation(xefg_.Snapshot().experimentalMFG, XeFGConfiguration(),
+                    xefg_.Snapshot().vsyncCadence, XeFGVSyncCadence()),
 				xefg_.ProbedTensorRequest() != xefgTensorRequested_.load());
 			if (provider_ == FrameGenerationProvider::XeFG && !CheckXeFG(xefg_.Disable())) { return false; }
 			if (!Check(interop_.SignalD3D11(Work::SwapChain), "last producer work before provider change") ||
@@ -1691,7 +1693,19 @@ namespace TheosRenderPipeline::SourceDLSSG
 		}
 		return cache.Library();
 	}
-	const char* Backend::XeFGModelBeatUnavailable() const
+	const char* Backend::XeFGVSyncCadenceUnavailable() const
+    {
+        if (provider_ != FrameGenerationProvider::XeFG) return "Select Intel XeFG.";
+        if (!xefg_.TensorInUse()) return "Enable the XeFG tensor helper and Apply.";
+        if (!xefg_.VSyncCadenceSupported()) return "This XeFG helper is too old for even pacing. Reinstall Universal.";
+        const auto flags = xefg_.PacingStats().flags;
+        if (!(flags & XeFGPacing::Registered) || (flags & XeFGPacing::Unsafe)) return "XeFG pacing helper is not ready.";
+        if (xefg_.Snapshot().generatedFrames != 2 && xefg_.Snapshot().generatedFrames != 3) return "Select XeFG x3 or x4.";
+        if (flags & XeFGPacing::Metered) return "NVIDIA flip metering is active.";
+        if (!VSyncState().submission.sync) return "VSync is off; the helper already paces without VSync.";
+        return nullptr;
+    }
+    const char* Backend::XeFGModelBeatUnavailable() const
 	{
 		if (provider_ != FrameGenerationProvider::XeFG) return "Select Intel XeFG.";
 		if (!ready_ || !enabled_) return "Enable frame generation.";

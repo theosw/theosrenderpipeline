@@ -31,7 +31,7 @@ namespace TheosRenderPipeline
         float sleepMs{}; // CPU time in the last XeLL sleep.
         float sceneChangeThreshold{-1}; // Last value Intel accepted; -1 is Intel's default.
         std::uint32_t maxGeneratedFrames{1}, generatedFrames{1};
-        bool experimentalMFG{}, unlockReady{};
+        bool experimentalMFG{}, unlockReady{}, vsyncCadence{};
         bool tensorRequested{}, tensorModel{}, tensorActive{};
         std::uint64_t tensorLaunches{}, tensorFallbacks{};
         XeFGPacing::Stats pacing;
@@ -49,7 +49,7 @@ namespace TheosRenderPipeline
         HRESULT Create(ID3D12Device* device, ID3D12CommandQueue* queue, IDXGIFactory* factory,
             const DXGI_SWAP_CHAIN_DESC& desc, bool inverted, IDXGISwapChain** swapchain,
             std::uint32_t lastApplicationFrame = 0, XeFGOptions options = {}, ID3D12PipelineLibrary* pipelines = nullptr,
-            IDXGISwapChain* existingNative = nullptr);
+            IDXGISwapChain* existingNative = nullptr, bool vsyncCadence = false);
         HRESULT BeginFrame();
         IDXGISwapChain* NativeSwapChain() const { return factoryCapture_ ? factoryCapture_->Native() : nullptr; }
         bool HasContext() const { return fg_ != nullptr; }
@@ -91,6 +91,7 @@ namespace TheosRenderPipeline
         const std::string& TensorStatus() const { return tensor_.Status(); }
         XeFGTensor::Stats TensorStats() const { return tensor_.Snapshot(); }
         XeFGPacing::Stats PacingStats() const { return tensor_.PacingStats(); }
+        bool VSyncCadenceSupported() const { return tensor_.VSyncCadenceSupported(); }
         const std::string& PacingStatus() const { return tensor_.PacingStatus(); }
         bool FlipMeteringRequested() const { return tensor_.FlipMeteringRequested(); }
         void SetFlipMetering(bool enabled) { tensor_.SetFlipMetering(enabled); }

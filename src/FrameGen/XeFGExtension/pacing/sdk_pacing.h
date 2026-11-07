@@ -36,6 +36,7 @@ bool Unregister(void* handle, uint64_t generation) noexcept;
 // the caller on an NVIDIA adapter (never a fakenvapi); nullptr keeps the path off. enabled: the user's
 // switch, which Page Up toggles live (logged as flip_metering_toggle) after SetFlipToggleHotkey(true).
 using SetFlipConfigFunction = int (__cdecl*)(IUnknown* queue, UINT vidPnSourceId, void* config);
+void SetVSyncCadence(bool enabled) noexcept;
 void SetFlipMetering(SetFlipConfigFunction setFlipConfig, bool enabled, int64_t innerLeadNs) noexcept;
 // V1.5.1: Page Up toggles the switch live only after the user's opt-in (OptiScaler.ini [XeFG]
 // XeFGFlipMeteringHotkey = on); off by default, as Page Up is also OptiScaler's FPS overlay key.

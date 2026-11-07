@@ -144,6 +144,16 @@ void Generation()
         Require(CountRendererSettingsChanges(draft, current) == 1, "XeFG frame time participates in Apply/Discard");
     }
     {
+        CSimpleIniA ini;
+        Require(!LoadPreferences(ini).xefgEvenPacing, "existing INIs leave XeFG even pacing off");
+        Preferences preferences; preferences.xefgEvenPacing = true;
+        StorePreferences(ini, preferences);
+        Require(LoadPreferences(ini).xefgEvenPacing, "a saved XeFG even-pacing opt-in round trips");
+        RendererSettingsDraft current; current.valid = true;
+        auto draft = current; draft.sourceDLSSG.xefgEvenPacing = true;
+        Require(CountRendererSettingsChanges(draft, current) == 1, "XeFG even pacing participates in Apply/Discard");
+    }
+    {
         using TheosRenderPipeline::XeFGDefaultSceneChangeThreshold;
         CSimpleIniA ini;
         Require(LoadPreferences(ini).xefgSceneChangeThreshold == XeFGDefaultSceneChangeThreshold,

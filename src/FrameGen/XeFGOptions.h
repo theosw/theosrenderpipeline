@@ -35,8 +35,11 @@ namespace TheosRenderPipeline
     // that tried it serves x2-x6 live: x2 bursts pass the pacing hooks untouched.
     // Only a presenter created without trying it is rebuilt for x3-x6; a refused
     // unlock keeps official x2 until restart rather than retrying every frame.
-    inline bool XeFGNeedsRecreation(bool unlockTried, XeFGOptions requested)
+    inline bool XeFGNeedsRecreation(bool unlockTried, XeFGOptions requested,
+        bool currentVSyncCadence = false, bool requestedVSyncCadence = false)
     {
-        return requested.experimentalMFG && !unlockTried;
+        // Cadence belongs to SDK context creation: its latency history must not
+        // carry from an unpaced context into a newly enabled paced context.
+        return (requested.experimentalMFG && !unlockTried) || currentVSyncCadence != requestedVSyncCadence;
     }
 }

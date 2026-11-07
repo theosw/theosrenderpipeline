@@ -178,6 +178,8 @@ RendererSettingsResult RendererSettingsController::Apply(const RendererSettingsD
         source.ConfigureXeFGSceneChangeThreshold(frameGen_.settings.sourceDLSSG.xefgSceneChangeThreshold);
         // A running XeFG presenter is recreated on the other SDK copy.
         source.ConfigureXeFGTensor(frameGen_.settings.sourceDLSSG.xefgTensorCores);
+        // A running XeFG presenter is recreated with or without even pacing.
+        source.ConfigureXeFGVSyncCadence(frameGen_.settings.sourceDLSSG.xefgEvenPacing);
         source.ConfigureOutputFPSLimit(frameGen_.settings.sourceDLSSG.outputFPSLimit);
         source.ConfigureFrameLimit(frameGen_.settings.sourceDLSSG.frameLimit);
         source.ConfigureGeneration(frameGen_.settings.sourceDLSSG.generation);

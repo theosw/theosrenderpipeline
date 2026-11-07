@@ -1,3 +1,4 @@
+#include "Localization.h"
 #include "OverlayPreview.h"
 
 #include <imgui_impl_dx11.h>

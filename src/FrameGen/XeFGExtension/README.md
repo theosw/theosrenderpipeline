@@ -23,6 +23,19 @@ Once configuration attempts start,
 retirement still requires an acknowledged off call. A failed off retains the
 queue, owner and model instead of allowing replacement.
 
+Verified x3/x4 batches also admit supplemental software cadence with VSync on
+when no driver configuration remains outstanding. The sync-specific adapter
+samples before the first output's native Present, then anchors deadlines to
+Intel's first-output completion stamp with its existing latency credit. This
+avoids counting the current batch's presentation waits as frame time; producer
+back-pressure can still reduce base FPS. Native x2 cadence and sync-0 driver
+metering retain their existing paths.
+Near the native refresh limit, VSync already spaces the outputs: batches within
+one additional sync quantum of that minimum retain native pacing. The helper
+reads the native swap chain's window and nominal monitor refresh for this
+admission check; it adds no vblank sleep and retains no new graphics resource.
+Unknown refresh information keeps the original SDK path.
+
 ## Source and asset provenance
 
 - `Extension.cpp`, `TensorEngine.h`, `KernelMetadata.h`, `PacingBridge.*` and
@@ -103,6 +116,18 @@ change. It produces the DLL and matching private PDB in its build directory.
 It does not acquire runtimes, deploy files or launch a GPU test or game.
 `TRP_XEFG_HELPER_BUILD_FAULT_TARGET=ON` additionally builds the separate
 `trp_xefg_tensor_fault` test target under `fault/`; never package that DLL.
+
+The standalone build also provides CPU-only admission and lifetime tests for
+the production pacing hooks:
+
+```powershell
+cmake --build out/build/xefg-helper --config Release --target TRPXeFGVSyncCadenceTests
+ctest --test-dir out/build/xefg-helper -C Release --output-on-failure
+```
+
+These check VSync admission/refusal, timing samples, multiplier changes,
+reset/retirement and unchanged driver packet bytes without creating a graphics
+device or loading Intel's runtime. They do not establish display cadence.
 
 ## Runtime bundle and validation
 
