@@ -1697,6 +1697,7 @@ namespace TheosRenderPipeline::SourceDLSSG
     {
         if (provider_ != FrameGenerationProvider::XeFG) return "Select Intel XeFG.";
         if (!xefg_.TensorInUse()) return "Enable the XeFG tensor helper and Apply.";
+        if (!xefg_.VSyncCadenceSupported()) return "This XeFG helper is too old for even pacing. Reinstall Universal.";
         const auto flags = xefg_.PacingStats().flags;
         if (!(flags & XeFGPacing::Registered) || (flags & XeFGPacing::Unsafe)) return "XeFG pacing helper is not ready.";
         if (xefg_.Snapshot().generatedFrames != 2 && xefg_.Snapshot().generatedFrames != 3) return "Select XeFG x3 or x4.";

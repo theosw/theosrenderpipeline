@@ -11,7 +11,7 @@ HRESULT __cdecl Start(ID3D12Device*,HMODULE,HMODULE,const wchar_t*,char*,std::ui
     if(Mode("unsafe-start")){flags=Unsafe;return E_FAIL;}
     flags=ModelReady;return S_OK;
 }
-HRESULT __cdecl Retire(char*,std::uint32_t){++retires;return Mode("pacing-success")?S_OK:E_FAIL;} // Deliberately does not set Unsafe.
+HRESULT __cdecl Retire(char*,std::uint32_t){++retires;return Mode("pacing-success")||Mode("pacing-v1")?S_OK:E_FAIL;} // Deliberately does not set Unsafe.
 void __cdecl Snapshot(Stats* s){if(s&&s->size==sizeof(Stats)){s->flags=flags;s->matchedPSOs=starts;s->cachedPSOs=retires;}}
 }
 namespace {
@@ -33,6 +33,11 @@ void __cdecl SetLogger(void (*)(const char*)){}
 }
 extern "C" __declspec(dllexport) HRESULT __cdecl TRPXeFGPacingGetAPI(TheosRenderPipeline::XeFGPacing::API* api){
     using namespace TheosRenderPipeline::XeFGPacing;
+    if(Mode("pacing-v1")){ // A 0.6.4 helper: version-1 table only, nothing written past it.
+        if(!api||api->size!=Version1Size||api->version!=Version1)return E_NOINTERFACE;
+        api->registerContext=&RegisterPacing;api->unregisterContext=&UnregisterPacing;api->reset=&ResetPacing;
+        api->setMetering=&SetMetering;api->snapshot=&PacingSnapshot;api->setLogger=&SetLogger;return S_OK;
+    }
     if(Mode("pacing-api-version")||!api||api->size!=sizeof(*api)||api->version!=TheosRenderPipeline::XeFGPacing::Version)return E_NOINTERFACE;
     api->registerContext=&RegisterPacing;api->unregisterContext=&UnregisterPacing;api->reset=&ResetPacing;
     api->setVSyncCadence=&SetVSyncCadence;api->setMetering=&SetMetering;api->snapshot=&PacingSnapshot;api->setLogger=&SetLogger;return S_OK;

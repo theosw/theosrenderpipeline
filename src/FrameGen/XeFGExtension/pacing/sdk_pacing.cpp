@@ -830,6 +830,9 @@ void NativeDeadline(Route& current, void* timing, int64_t* output, const void* r
             vsyncApplied = vsyncCadenceEnabled.load(std::memory_order_acquire) && owner.vsyncCadence.Matches(frame, total);
             if (vsyncApplied) {
                 if (unsafe.load(std::memory_order_acquire) || owner.retiring.load(std::memory_order_acquire)) return;
+                // Driver metering configures from this history after a return to sync 0; history
+                // from before the VSync period is stale, so it starts again from fresh batches.
+                owner.batchInterval.Reset();
                 vsyncReady = owner.vsyncCadence.Ready();
                 refreshPeriod = owner.vsyncCadence.RefreshPeriod();
                 planned = owner.vsyncCadence.Plan(frame, total, index, now, batchStart, gpuLatency, decision);

@@ -1,6 +1,7 @@
 #pragma once
 #include <Windows.h>
 #include <d3d12.h>
+#include <cstddef>
 #include <cstdint>
 
 // Optional companion to the private tensor ABI; older tensor helpers remain usable.
@@ -31,5 +32,9 @@ namespace TheosRenderPipeline::XeFGPacing
         void (__cdecl* setLogger)(void (*)(const char*)){};
         void (__cdecl* setVSyncCadence)(bool){};
     };
+    // A version-1 table is the same layout without setVSyncCadence. Either side accepts it,
+    // so mixed renderer/helper files keep pacing and metering; only VSync cadence is absent.
+    inline constexpr std::uint32_t Version1 = 1;
+    inline constexpr std::uint32_t Version1Size = offsetof(API, setVSyncCadence);
     using GetAPI = HRESULT (__cdecl*)(API*);
 }

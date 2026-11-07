@@ -380,5 +380,25 @@ int main() {
         sync.Begin(22,4,1,2500000000,1000000);
         Require(sync.Interval().Samples()==0, "pause discards old sync interval history");
     }
+    {
+        // Driver metering after a return to sync 0 must not use batch history from before VSync.
+        Fixture f;
+        const auto now=NowNs();
+        for(uint32_t frame=1;frame<=5;++frame)
+            f.owner->batchInterval.Observe(frame,4,now-10000000000LL+int64_t(frame)*100000000);
+        Require(f.owner->batchInterval.Typical()==100000000,"old immediate-mode history is 100 ms");
+        alignas(8) std::array<unsigned char,0x28> record{};
+        Put(record,0,now); Put(record,0x10,uint32_t(100)); Put(record,0x14,1.0f); Put(record,0x20,now);
+        int64_t output{};
+        NativeDeadline(f.current,f.presenter.data()+0x168,&output,record.data(),1,4);
+        Require(f.owner->batchInterval.Samples()==0,"VSync cadence clears pre-VSync driver history");
+        f.call.frame=101; f.Mode(0,0); f.FirstCall();
+        f.owner->flipQueue.Attach(reinterpret_cast<ID3D12CommandQueue*>(0x12340));
+        SetFlipMetering(FakeDriver,true,2500000); driverOffResult=0; lastPacket={};
+        FlipBeforePresent(f.current,f.call);
+        Require(lastPacket.nFramesPerBatch==0 && !f.owner->flip.configured,
+            "return to sync 0 waits for fresh batches instead of configuring stale timing");
+        SetFlipMetering(nullptr,false,2500000);
+    }
     std::puts("PASS production VSync admission, refusal gates, forwarding, reset and teardown");
 }

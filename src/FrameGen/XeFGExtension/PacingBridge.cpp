@@ -79,7 +79,10 @@ void TRPPreparePacing(ID3D12Device*,HMODULE fg) noexcept {
 }
 extern "C" __declspec(dllexport) HRESULT __cdecl TRPXeFGPacingGetAPI(TheosRenderPipeline::XeFGPacing::API* api){
     using namespace TheosRenderPipeline::XeFGPacing;
-    if(!api || api->size!=sizeof(API) || api->version!=Version)return E_NOINTERFACE;
+    const bool current=api && api->size==sizeof(API) && api->version==Version;
+    if(!current && !(api && api->size==Version1Size && api->version==Version1))return E_NOINTERFACE;
     api->registerContext=&Register;api->unregisterContext=&Unregister;api->reset=&Reset;
-    api->setVSyncCadence=&SetVSyncCadence;api->setMetering=&SetMetering;api->snapshot=&Snapshot;api->setLogger=&SetLogger;return S_OK;
+    api->setMetering=&SetMetering;api->snapshot=&Snapshot;api->setLogger=&SetLogger;
+    if(current)api->setVSyncCadence=&SetVSyncCadence; // A version-1 caller's table ends before it.
+    return S_OK;
 }

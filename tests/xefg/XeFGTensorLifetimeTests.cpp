@@ -21,6 +21,13 @@ int wmain(int argc,wchar_t** argv){
         const auto registered=runtime.RegisterPacing(context,device.Get(),nullptr);
         if(mode==L"pacing-api-version" || mode==L"pacing-safe-register") {
             Require(registered==S_FALSE&&!runtime.Unsafe(),"clean/absent pacing is compatible with existing tensor helper");
+        }else if(mode==L"pacing-v1") {
+            Require(registered==S_OK&&!runtime.Unsafe(),"a version-1 helper keeps pacing registration and metering");
+            Require(!runtime.VSyncCadenceSupported(),"a version-1 helper has no VSync cadence");
+            runtime.SetVSyncCadence(true);
+            Require(!(runtime.PacingStats().flags & TheosRenderPipeline::XeFGPacing::VSyncCadenceRequested),"VSync cadence stays off with a version-1 helper");
+            runtime.SetVSyncCadence(false);
+            Require(SUCCEEDED(runtime.UnregisterPacing(context))&&SUCCEEDED(runtime.Retire()),"version-1 pacing and tensor retire cleanly");
         }else if(mode==L"pacing-unsafe-register") {
             Require(FAILED(registered)&&runtime.Unsafe(),"failed publication with retained pacing owner is unsafe");
             Require(FAILED(runtime.Retire())&&runtime.Snapshot().cachedPSOs==0,"retained pacing blocks tensor cleanup");

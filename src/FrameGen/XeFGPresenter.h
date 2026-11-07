@@ -91,6 +91,7 @@ namespace TheosRenderPipeline
         const std::string& TensorStatus() const { return tensor_.Status(); }
         XeFGTensor::Stats TensorStats() const { return tensor_.Snapshot(); }
         XeFGPacing::Stats PacingStats() const { return tensor_.PacingStats(); }
+        bool VSyncCadenceSupported() const { return tensor_.VSyncCadenceSupported(); }
         const std::string& PacingStatus() const { return tensor_.PacingStatus(); }
         bool FlipMeteringRequested() const { return tensor_.FlipMeteringRequested(); }
         void SetFlipMetering(bool enabled) { tensor_.SetFlipMetering(enabled); }
