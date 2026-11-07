@@ -297,7 +297,7 @@ int wmain(int argc, wchar_t** argv)
                 const unsigned rising = std::min(1u + frame / 18u, maximum);
                 const unsigned count = !experimental ? 1u : round == 0 && frame >= 80 ? (frame < 96 ? 1u : 3u) : rising;
                 Check(presenter.BeforePresent(list, input.motion.texture12.Get(), input.depth.texture12.Get(),
-                          input.hudless.texture12.Get(), ui, enable, true, profile || beatTest ? 0 : 60, count),
+                          input.hudless.texture12.Get(), ui, enable, true, profile || beatTest ? 0 : 16667, count),
                     "production preparation");
                 Require(presenter.Snapshot().uiTexture == uiExpected,
                     "UI layer tagged only when it matches the HUD-less layer");

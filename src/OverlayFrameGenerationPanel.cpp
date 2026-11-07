@@ -287,13 +287,16 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& v
             });
             SettingRow(TR("Frame limit"), nullptr, false, false, [&] {
                 int mode = static_cast<int>(draft.frameLimit);
+                const bool steadyAllowed = !editIntel || view.steadyWithXeFG;
                 ImGui::SetNextItemWidth(Px(200.0f));
                 bool changed = Segmented("frameLimit", mode, {
                     {TRC("Off", "FrameLimit"), true, TR("No cap from TRP.")},
                     {TR("Fixed"), true, TR("Caps output at the FPS you set, including generated frames.")},
-                    {TR("Steady"), true, TR("TRP measures recent frame times and caps rendered frames just below what the "
-                                     "slower frames manage, so frames arrive evenly. Average FPS drops a little; dips "
-                                     "and stutter go. Frame generation multiplies from there.")}});
+                    {TR("Steady"), steadyAllowed, steadyAllowed
+                        ? TR("TRP measures recent frame times and caps rendered frames just below what the "
+                             "slower frames manage, so frames arrive evenly. Average FPS drops a little; dips "
+                             "and stutter go. Frame generation multiplies from there.")
+                        : TR("Off with XeFG, which paces its own frames.")}});
                 if (changed) {
                     draft.frameLimit = static_cast<SD::FrameLimitMode>(mode);
                     // Fixed needs a number to start from.
@@ -313,6 +316,7 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& v
                     ImGui::AlignTextToFramePadding();
                     const bool steadyApplied = draft.frameLimit == SD::FrameLimitMode::Steady && view.steadyRenderedFPS > 0;
                     ImGui::TextDisabled("%s", draft.frameLimit == SD::FrameLimitMode::Off ? TR("no cap") :
+                        !steadyAllowed ? TR("off with XeFG") :
                         steadyApplied ? TRF("now {:.0f} FPS rendered", view.steadyRenderedFPS).c_str() : TR("measuring"));
                 }
                 return changed;

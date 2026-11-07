@@ -1,4 +1,8 @@
-# Theo's Render Pipeline — Universal, 0.6.4
+# Theo's Render Pipeline — Universal, 0.6.5
+
+Version 0.6.5 adds XeFG Even pacing for x3/x4 with VSync, turns the Steady
+frame limit off with XeFG to stop its microstutter, and supports NR Object
+rules on Skyrim 1.5.97. See CHANGELOG.md.
 
 Version 0.6.4 adds experimental FSR 3.1 upscaling with AMD's runtime included,
 keeps NR's Every other frame working at low frame rates and stops the
@@ -175,7 +179,7 @@ This package includes the full renderer, configuration and sharpening shader.
 It requires no other Theo's Render Pipeline package. NVIDIA DLLs are supplied
 separately: download the SR/FG files below, and the NR runtime if you want NR.
 Alternatively, install Standard first and Universal after it in MO2; Standard
-0.6.4 supplies the complete NVIDIA and Intel runtime bundles, including the
+0.6.5 supplies the complete NVIDIA and Intel runtime bundles, including the
 original NR 310.9.16 and the retained older NR runtime. Universal adds the
 compatibility pack and legacy INT8 alternative. In that setup,
 skip the runtime downloads below.
@@ -335,6 +339,12 @@ It excludes object capture, the D3D11/D3D12 handoff and frame generation. See
   the normal XeFG path when unavailable. Universal installs it in
   `SKSE/Plugins/TheosRenderPipeline/Intel/XeFG-Tensor/` with its notices. Flip
   metering compares driver and software timing for that session only.
+- With the tensor model at XeFG x3/x4 and VSync on, Frame generation > Even
+  pacing spaces generated frames evenly where NVIDIA flip metering is
+  unavailable (GTX 10, windowed play). It is off by default and costs some
+  base FPS.
+- The Steady frame limit is off while XeFG is selected: XeFG paces its own
+  frames. Lab > Allow Steady with XeFG re-enables it for testing.
 - **Advanced → Request loading-screen artwork** defaults on. It asks Skyrim
   to select artwork on eligible cell transitions; startup loading is unchanged.
 
@@ -426,7 +436,7 @@ an RTX 4080 SUPER: ordinary 6.8.0.2158 and full add-on 6.8.0.2155, with
 early NR and x4. Sky Reflection Fix's ReShade registration was excluded;
 Rumble passed a separate initial test. Combined third-party add-ons,
 Standard gameplay and CS with ReShade remain unverified. These were earlier
-development builds; the exact 0.6.4 package has not been tested with ReShade.
+development builds; the exact 0.6.5 package has not been tested with ReShade.
 
 MartysMods ReGrade+ (ReShade 6.6 or newer) used to crash the game while TRP
 started ReShade: it prepares itself only in a device event that ReShade does not

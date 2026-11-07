@@ -1,4 +1,4 @@
-# Unreleased
+# 0.6.5
 
 - NR Object rules support Skyrim 1.5.97, with a version-specific draw-hook guard.
 - XeFG Even pacing (Universal, off by default): Frame generation > Even pacing
@@ -6,6 +6,11 @@
   is unavailable, such as on GTX 10 or in windowed play. It needs the XeFG
   tensor model. On a GTX 1070 Ti at x4 in LoreRim, frames went from bursts
   (40% of gaps long) to a steady 13.9 ms, at about 15% lower base FPS.
+- Steady frame limit is off while XeFG is selected, and greyed with the reason.
+  XeFG paces its own frames, and Steady's cap fought that pacing: frames
+  microstuttered (a known issue in 0.6.4). Without it XeFG x4 on an RTX 4080
+  showed a frame every 6.2 ms almost every time. Fixed and Steady with DLSS-G
+  are unchanged. Lab > "Allow Steady with XeFG" still allows it for testing.
 
 # 0.6.4
 
@@ -18,8 +23,9 @@
 - NR's "Every other frame" keeps alternating at low frame rates. Below about
   10 fps it used to treat every frame as a break and run the model each frame.
 - GTX 10: the first menu open no longer freezes for several seconds while TRP
-  checks the NR runtime files; the check runs in the background. The memory
-  bar shows the whole card, including what Windows moved to system RAM.
+  checks the NR runtime files; the check runs in the background.
+- The memory bar shows the whole card on every GPU, including what Windows
+  moved to system RAM.
 - GTX 10: the NR Network row notes that Old is about 3x slower than Small, and
   the XeFG tensor model row says the card has no tensor cores, so its shader
   version runs.

@@ -507,6 +507,17 @@ PreviewScenario Runtimes()
     return scenario;
 }
 
+// XeFG with a saved Steady limit: Steady is greyed with its reason and reads "off with XeFG".
+PreviewScenario IntelSteady()
+{
+    auto scenario = Intel();
+    scenario.name = "intel-steady";
+    scenario.summary = "XeFG with a saved Steady frame limit, greyed off";
+    scenario.applied.sourceDLSSG.frameLimit = SourceDLSSG::FrameLimitMode::Steady;
+    scenario.draft = scenario.applied;
+    return scenario;
+}
+
 // Universal on a GTX 10: XeFG x4 with the tensor model and saved even pacing on.
 PreviewScenario EvenPacing()
 {
@@ -553,5 +564,5 @@ std::vector<PreviewScenario> PreviewScenarios()
         Pascal("pascal-driver", NeuralRendering::kPascalDriverReason),
         Pascal("pascal-missing-pack", NeuralRendering::kPascalAssetReason),
         Pascal("pascal-checking", NeuralRendering::kPascalAssetsChecking),
-        Pascal("pascal-low-budget", NeuralRendering::kPascalBudgetReason), PascalOldNetwork(), Runtimes(), Lab(), EvenPacing()};
+        Pascal("pascal-low-budget", NeuralRendering::kPascalBudgetReason), PascalOldNetwork(), Runtimes(), Lab(), EvenPacing(), IntelSteady()};
 }

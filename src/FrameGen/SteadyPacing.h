@@ -10,6 +10,16 @@ namespace TheosRenderPipeline::SourceDLSSG
     // Fixed caps output at the saved FPS; Steady holds rendered frames to the
     // interval the slower frames sustain (SteadyPacing below). Live.
     enum class FrameLimitMode : int { Off, Fixed, Steady };
+
+    // Steady is off with XeFG unless the Lab allows it. XeFG paces its own outputs
+    // (flip metering, Even pacing, Intel's pacing) and a CPU-side cap fights that
+    // clock: 2026-11-06 RTX 4080 x4 with NR, Steady on gave short/long output pairs
+    // (metering) or a repeating 3.7/5/7/7.5 ms pattern (Even pacing), while
+    // uncapped XeFG showed 6.2 ms almost every frame. Fixed stays: it caps output.
+    constexpr FrameLimitMode EffectiveFrameLimit(FrameLimitMode saved, bool xefg, bool allowSteadyWithXeFG)
+    {
+        return saved == FrameLimitMode::Steady && xefg && !allowSteadyWithXeFG ? FrameLimitMode::Off : saved;
+    }
 }
 
 namespace TheosRenderPipeline
