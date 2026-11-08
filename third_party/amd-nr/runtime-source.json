@@ -19,12 +19,13 @@
     "C14 rejects stale arriving results by capture age; retains previous result and fade clock",
     "C14 logs/cache identity, detailed allocation tracing opt-in; safe-off/Apply-retry integrated with TRP 0.6.0",
     "C14 shader literals split for MSVC without altering HLSL; regenerated source-hashed DXBC and source/bytecode fixtures",
-    "TRP 0.7.0 release labels; bounded runtime diagnostics; original model supplied by explicit snippet_path from Standard"
+    "TRP 0.7.0 release labels; bounded runtime diagnostics; original model supplied by explicit snippet_path from Standard",
+    "Test-only WARP selection/version diagnostics and optional GPU validation; production shader and pass code unchanged"
   ],
   "files": {
     "build.bat": "c1a4a239ebb28e8242522065711023f3ea9ca7a0f74828dfa8f5f979ffca736f",
     "build.sh": "d07c3275b1549df8f9fc098d31f3eae00b4097c84d788e3d72c71036986bcb4f",
-    "CMakeLists.txt": "038cec71f39683a4ef805796d44d965f58a954824dddc1247a9237e41468b2d8",
+    "CMakeLists.txt": "24704ad555f548d0064a2b93c774579cd1144dcc10343d3013ccaf165b5a566c",
     "common/cuda_min.h": "d8f4560cad247c2ef374a957b9dc1c9600e318b0694c0820552a196187f20050",
     "common/ngx_cuda.h": "ca7b367ca2bd9c48d0c1aa03c99048e8c39afa2cba7a3952aa08a03282020586",
     "core/composition_diagnostics.h": "7c1b4b610ed6ef99337f06de37ecd4581e3bf691c91722b494f44970dc274527",
@@ -65,7 +66,7 @@
     "tests/memory_mock.cpp": "b4061e6cdcbbd37f2bf898415fd7ac91d17f215898bf283b7ddd90ae06f54b8f",
     "tests/memory_probe.cpp": "e8ed72b7f28b2e215f18a49b2c62ebaaa78063ebe79dd62ffaf2a09cd01cb0fe",
     "tests/result_admission.cpp": "eb2f076f5bca57c251eca25ac2fc46dd28248e7ef6d63de0bb688b256b8cf319",
-    "tests/tracking_pixels.cpp": "a70555d137bf1de268ec1d2e7680ca4e7b56e1d76222814ace7e610ac198d4f8",
+    "tests/tracking_pixels.cpp": "866fc23ec5fa3d58b2f08e51323476532ffad79a95a25bdfc79ab588c6f10825",
     "THIRD_PARTY.md": "51818f69427c740dc4133f5e31f643dfc1442d0bfb623f8941c04de540b05f1b",
     "tools/gen_dxbc.cpp": "2b2dfbe80a41382cd50d12fd5c96d83fb14d5f70f85693a404142c08b35159d6",
     "tools/prepare_cache.py": "01e5515e04ca4360038e93d3f89e571abe4504f47492d2222c635d8eb64c1997",

@@ -1,4 +1,10 @@
 // Exercises the shipped production passes on WARP; no model, CUDA or HIP.
+// Windows WARP 10.0.26100.9711 misexecutes the optimized compose shader's
+// nested halo accumulation (even with fully initialized float textures).
+// The identical executable/DXBC passes with Microsoft.Direct3D.WARP 1.0.21
+// and RTX hardware. Select a tested WARP DLL with TRP_AMD_TEST_WARP_DLL;
+// this is a test-process override, never a shipped runtime dependency.
+// Keep every pixel assertion active, including on the affected system WARP.
 #include "../core/passes.h"
 #include <windows.h>
 #include <dxgi1_4.h>
@@ -9,25 +15,71 @@
 #include <stdexcept>
 #include <vector>
 #include <cstring>
+#include <filesystem>
+#include <string>
+#include <cstdlib>
 using Microsoft::WRL::ComPtr;
 using namespace dlss5nr;
 static void Check(bool ok, const char* message) { if (!ok) throw std::runtime_error(message); }
-static void HR(HRESULT hr) { Check(SUCCEEDED(hr), "D3D12 operation failed"); }
+static void HR(HRESULT hr) {
+    if (FAILED(hr)) {
+        fprintf(stderr,"D3D12 operation failed: 0x%08lx\n",static_cast<unsigned long>(hr));
+        throw std::runtime_error("D3D12 operation failed");
+    }
+}
+static void SelectTestWarp() {
+    const DWORD size=GetEnvironmentVariableW(L"TRP_AMD_TEST_WARP_DLL",nullptr,0);
+    if (!size) return;
+    std::wstring path(size,L'\0');
+    const DWORD copied=GetEnvironmentVariableW(L"TRP_AMD_TEST_WARP_DLL",path.data(),size);
+    Check(copied && copied<size,"TRP_AMD_TEST_WARP_DLL could not be read");path.resize(copied);
+    Check(std::filesystem::path(path).is_absolute(),"TRP_AMD_TEST_WARP_DLL must be an absolute path");
+    Check(LoadLibraryExW(path.c_str(),nullptr,LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR|LOAD_LIBRARY_SEARCH_SYSTEM32)!=nullptr,
+        "could not load the explicitly selected test WARP DLL");
+    // Retain the module for this test process, including D3D12 teardown.
+}
+static void ReportWarp() {
+    wchar_t path[32768]{};const HMODULE module=GetModuleHandleW(L"d3d10warp.dll");
+    Check(module && GetModuleFileNameW(module,path,32768),"loaded WARP identity unavailable");
+    DWORD unused{};const DWORD size=GetFileVersionInfoSizeW(path,&unused);
+    Check(size!=0,"WARP version unavailable");std::vector<char> data(size);
+    Check(GetFileVersionInfoW(path,0,size,data.data())!=FALSE,"WARP version read failed");
+    VS_FIXEDFILEINFO* version{};UINT bytes{};
+    Check(VerQueryValueW(data.data(),L"\\",reinterpret_cast<void**>(&version),&bytes)!=FALSE &&
+        bytes>=sizeof(*version),"WARP version record unavailable");
+    printf("WARP=%ls API-reported version=%u.%u.%u.%u\n",path,HIWORD(version->dwFileVersionMS),
+        LOWORD(version->dwFileVersionMS),HIWORD(version->dwFileVersionLS),LOWORD(version->dwFileVersionLS));
+    // Windows can report 6.2 for an executable without a supportedOS manifest;
+    // the diagnosed DLL is 10.0.26100.9711 on disk in both cases.
+    if((version->dwFileVersionMS==MAKELONG(0,10) || version->dwFileVersionMS==MAKELONG(2,6)) &&
+        version->dwFileVersionLS==MAKELONG(9711,26100))
+        fprintf(stderr,"Known WARP 10.0.26100.9711 halo code-generation defect; assertions remain enabled. "
+            "Repeat with TRP_AMD_TEST_WARP_DLL pointing to Microsoft.Direct3D.WARP 1.0.21, or --hardware.\n");
+}
 struct Texture { ComPtr<ID3D12Resource> resource; D3D12_RESOURCE_STATES state = D3D12_RESOURCE_STATE_COMMON; };
 struct Fixture {
     ComPtr<ID3D12Device> device; ComPtr<ID3D12CommandQueue> queue;
     ComPtr<ID3D12CommandAllocator> allocator; ComPtr<ID3D12GraphicsCommandList> list;
     ComPtr<ID3D12Fence> fence; ComPtr<ID3D12InfoQueue> messages;
-    Passes passes; HANDLE event{}; UINT64 tick{}; UINT width=32,height=16;
-    Fixture(bool hardware=false) {
+    Passes passes; HANDLE event{}; UINT64 tick{}; UINT width=32,height=16; DWORD waitMs=15000;
+    Fixture(bool hardware=false,bool gpuValidation=false,UINT adapterIndex=0) {
+        if(gpuValidation) waitMs=120000;
+        if(!hardware) SelectTestWarp();
         ComPtr<ID3D12Debug> debug;
-        if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debug)))) debug->EnableDebugLayer();
+        if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debug)))) {
+            debug->EnableDebugLayer();puts("D3D12 debug layer enabled");
+            if(gpuValidation) { ComPtr<ID3D12Debug1> validation;HR(debug.As(&validation));
+                validation->SetEnableGPUBasedValidation(TRUE);puts("D3D12 GPU-based validation enabled"); }
+        } else Check(!gpuValidation,"GPU-based validation requested but debug layer unavailable");
         ComPtr<IDXGIFactory4> factory; ComPtr<IDXGIAdapter> warp;
         HR(CreateDXGIFactory1(IID_PPV_ARGS(&factory)));
-        HR(hardware?factory->EnumAdapters(0,&warp):factory->EnumWarpAdapter(IID_PPV_ARGS(&warp)));
+        HR(hardware?factory->EnumAdapters(adapterIndex,&warp):factory->EnumWarpAdapter(IID_PPV_ARGS(&warp)));
         DXGI_ADAPTER_DESC identity{};HR(warp->GetDesc(&identity));
         printf("adapter=%ls mode=%s\n",identity.Description,hardware?"hardware":"WARP");fflush(stdout);
+        printf("vendor=0x%04x device=0x%04x LUID=%08lx:%08lx adapterIndex=%u\n",identity.VendorId,
+            identity.DeviceId,static_cast<unsigned long>(identity.AdapterLuid.HighPart),identity.AdapterLuid.LowPart,adapterIndex);
         HR(D3D12CreateDevice(warp.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device)));
+        if(!hardware) ReportWarp();
         device.As(&messages);
         D3D12_COMMAND_QUEUE_DESC q{}; HR(device->CreateCommandQueue(&q,IID_PPV_ARGS(&queue)));
         HR(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,IID_PPV_ARGS(&allocator)));
@@ -36,12 +88,18 @@ struct Fixture {
         event=CreateEventW(nullptr,FALSE,FALSE,nullptr); Check(event!=nullptr,"event");
         std::string error; Check(passes.init(device.Get(),error),error.c_str());
     }
-    ~Fixture() { passes.shutdown(); if(event) CloseHandle(event); }
+    ~Fixture() {
+        if(device && FAILED(device->GetDeviceRemovedReason())) {
+            fprintf(stderr,"Device removed reason: 0x%08lx\n",static_cast<unsigned long>(device->GetDeviceRemovedReason()));
+            try { DebugClean(); } catch(const std::exception& e) { fprintf(stderr,"%s\n",e.what()); }
+        }
+        passes.shutdown(); if(event) CloseHandle(event);
+    }
     void Begin() { HR(allocator->Reset()); HR(list->Reset(allocator.Get(),nullptr)); }
     void Finish() {
         HR(list->Close()); ID3D12CommandList* commands[]={list.Get()};queue->ExecuteCommandLists(1,commands);
         HR(queue->Signal(fence.Get(),++tick));HR(fence->SetEventOnCompletion(tick,event));
-        Check(WaitForSingleObject(event,15000)==WAIT_OBJECT_0,"GPU completion timeout");
+        Check(WaitForSingleObject(event,waitMs)==WAIT_OBJECT_0,"GPU completion timeout");
     }
     void State(Texture& t,D3D12_RESOURCE_STATES after) {
         if(t.state==after)return;
@@ -124,7 +182,8 @@ struct Fixture {
         // so the existing correction must remain untouched.
         auto untouched=Make(Solid(10, .73535698f));b.srv[8]=untouched.resource.Get();
         Run(Pass::Compose,K(FLAG_DEPTH_INVERTED|FLAG_EDGES),b,out);
-        Check(std::abs(Read(out)[at]-halo)<.002f,"unchanged edge distance retains correction");
+        const float retained=Read(out)[at];printf("unchanged edge distance %.6f\n",retained);
+        Check(std::abs(retained-halo)<.002f,"unchanged edge distance retains correction");
     }
     void AppearanceValidity() {
         auto scene=Make(Solid(.5f,.5f,.5f,.7f)), residual=Make(Solid(.12f,.12f,.12f,std::log2(.1f))),
@@ -145,12 +204,25 @@ struct Fixture {
         printf("appearance matching %.6f, wrong-light %.6f, wrong-colour %.6f\n",accepted[0],rejectedLight[0],rejectedColour[0]);
     }
     void DebugClean() {
-        if(!messages)return;for(UINT64 i=0;i<messages->GetNumStoredMessages();++i){SIZE_T size{};messages->GetMessage(i,nullptr,&size);
+        if(!messages)return;UINT errors=0,warnings=0;for(UINT64 i=0;i<messages->GetNumStoredMessages();++i){SIZE_T size{};messages->GetMessage(i,nullptr,&size);
             std::vector<char> data(size);auto* m=reinterpret_cast<D3D12_MESSAGE*>(data.data());HR(messages->GetMessage(i,m,&size));
-            if(m->Severity<=D3D12_MESSAGE_SEVERITY_ERROR){fprintf(stderr,"%s\n",m->pDescription);Check(false,"D3D12 debug layer error");}}
+            if(m->Severity<=D3D12_MESSAGE_SEVERITY_WARNING)fprintf(stderr,"D3D12 severity=%d id=%d: %s\n",int(m->Severity),int(m->ID),m->pDescription);
+            errors+=m->Severity<=D3D12_MESSAGE_SEVERITY_ERROR;warnings+=m->Severity==D3D12_MESSAGE_SEVERITY_WARNING;}
+        printf("D3D12 debug messages: %u errors, %u warnings\n",errors,warnings);
+        messages->ClearStoredMessages();Check(errors==0,"D3D12 debug layer error");
     }
 };
-int main(int argc,char**){try{Fixture f(argc>1);f.Camera(.1f,.105f,true,true);f.Camera(.1f,.05f,true,false);
+int main(int argc,char** argv){setvbuf(stdout,nullptr,_IONBF,0);try{
+    bool hardware=false,gpuValidation=false;UINT adapterIndex=0;
+    for(int i=1;i<argc;++i) { if(std::strcmp(argv[i],"--hardware")==0)hardware=true;
+        else if(std::strcmp(argv[i],"--gpu-validation")==0)gpuValidation=true;
+        else if(std::strcmp(argv[i],"--adapter")==0) {
+            Check(++i<argc,"--adapter requires an index");char* end{};
+            const auto index=std::strtoul(argv[i],&end,10);
+            Check(argv[i][0]>='0' && argv[i][0]<='9' && *end=='\0' && index<128,"invalid adapter index");
+            adapterIndex=static_cast<UINT>(index);hardware=true;
+        } else throw std::runtime_error("usage: tracking_pixels [--hardware | --adapter INDEX] [--gpu-validation]"); }
+    Fixture f(hardware,gpuValidation,adapterIndex);f.Camera(.1f,.105f,true,true);f.Camera(.1f,.05f,true,false);
     f.Camera(.9f,.905f,false,true);f.Camera(.99f,.995f,false,false);f.Camera(.00001f,0,true,false);
     f.BlendAndHalo();f.AppearanceValidity();f.DebugClean();puts("AMD NR 1.2 tracking/blending/halo/appearance pixels passed");return 0;
 }catch(const std::exception& e){fprintf(stderr,"%s\n",e.what());return 1;}}
