@@ -71,6 +71,8 @@ namespace TheosRenderPipeline::Overlay
 			if (table) {
 				codepoints = table->Codepoints();
 			}
+            // The unchecked Vulkan choice uses an em dash in English too.
+            codepoints.push_back(U'\u2014');
 			for (const auto& language : Localization::Catalog()) {
 				const auto name = Localization::Codepoints(language.name);
 				codepoints.insert(codepoints.end(), name.begin(), name.end());
@@ -123,7 +125,7 @@ namespace TheosRenderPipeline::Overlay
 			// Fonts Windows ships for the UI languages this plugin runs with:
 			// Simplified Chinese, Japanese, Korean, then a pan-CJK fallback.
 			for (const auto* font : { "msyh.ttc", "msyh.ttf", "simhei.ttf", "YuGothM.ttc", "meiryo.ttc", "malgun.ttf",
-				     "arialuni.ttf" }) {
+				     "arialuni.ttf", "arial.ttf" }) {
 				add(font);
 			}
 			for (const auto& candidate : candidates) {
