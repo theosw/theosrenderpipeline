@@ -7,7 +7,8 @@ namespace vknr {
 struct DeviceContext;
 struct DeviceDelete { void operator()(DeviceContext*) const; };
 using DeviceOwner = std::unique_ptr<DeviceContext,DeviceDelete>;
-DeviceOwner make_device(ID3D12Device*, const std::filesystem::path&, bool, Capability&, Diagnostics = nullptr);
+DeviceOwner make_device(ID3D12Device*, const std::filesystem::path&, bool, Capability&, Diagnostics = nullptr,
+    const Capability* admitted = nullptr);
 VkInstance instance(DeviceContext*);
 VkPhysicalDevice physical(DeviceContext*);
 VkDevice device(DeviceContext*);

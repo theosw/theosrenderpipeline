@@ -64,6 +64,14 @@ int wmain(int argc,wchar_t** argv){try{
  if(!selected.available)throw std::runtime_error(selected.reason);
  const auto cached=NeuralRendering::VulkanNRHost::Probe(d12.Get());
  if(!cached.available||std::string_view(cached.pathReason)!=selected.pathReason)throw std::runtime_error("selected probe not cached");
+ // Verify the engine's admission cache too: initialization/recreation must not
+ // rediscover the device or repeat Radeon arithmetic probes behind the host cache.
+ const auto query=reinterpret_cast<vknr::Query>(GetProcAddress(GetModuleHandleW(L"TRPVulkanNR.dll"),"vknrQuery"));
+ if(!query)throw std::runtime_error("engine query missing");
+ static unsigned repeatedDiagnostics{};vknr::Capability engineCached;
+ if(query(d12.Get(),argv[1],&engineCached,[](const char*){++repeatedDiagnostics;})!=vknr::Result::Ok ||
+    !engineCached.available || repeatedDiagnostics || std::string_view(engineCached.pathReason)!=selected.pathReason)
+  throw std::runtime_error("engine repeated capability discovery instead of reusing admission");
  if(!NeuralRendering::runtimeSession.Refusal(NeuralRendering::Backend::HIP))throw std::runtime_error("selected probe must retain ownership");
  std::cout<<"PASS: no engine before selection; explicit probe cached; HIP requires restart\n";
  ComPtr<ID3D12CommandQueue> queue;D3D12_COMMAND_QUEUE_DESC q{};check(d12->CreateCommandQueue(&q,IID_PPV_ARGS(&queue)),"queue");

@@ -12,10 +12,16 @@
 #include <cstring>
 #include <stdexcept>
 #include <limits>
+#include <map>
 
 namespace {
 std::mutex apiMutex; // also serializes the engine's in-memory weight construction hook
 thread_local std::string lastError;
+std::map<std::uint64_t,vknr::Capability> admissions; // protected by apiMutex; survives feature retirement
+std::uint64_t adapter_key(ID3D12Device* device) {
+    const auto luid=device->GetAdapterLuid();
+    return (std::uint64_t(std::uint32_t(luid.HighPart))<<32)|luid.LowPart;
+}
 struct Session {
     vknr::DeviceOwner owner;
     nrvk::Context ctx;
@@ -117,21 +123,33 @@ API vknr::Result __cdecl vknrQuery(ID3D12Device* d3d,const wchar_t* root,vknr::C
     std::lock_guard<std::mutex> lock(apiMutex);
     if(!caps||caps->size!=sizeof(*caps)||caps->version!=vknr::Version||!root)return vknr::Result::Refused;
     *caps={};
-    try { auto probe=vknr::make_device(d3d,root,false,*caps,diagnostics); return vknr::Result::Ok; }
-    catch(const std::exception& e){caps->available=false;strncpy_s(caps->reason,e.what(),_TRUNCATE);lastError=e.what();return vknr::Result::Refused;}
+    if(!d3d){strcpy_s(caps->reason,"Vulkan NR needs the rendering device");return vknr::Result::Refused;}
+    const auto key=adapter_key(d3d);
+    if(const auto found=admissions.find(key);found!=admissions.end()) {
+        *caps=found->second;return caps->available?vknr::Result::Ok:vknr::Result::Refused;
+    }
+    try { auto probe=vknr::make_device(d3d,root,false,*caps,diagnostics); }
+    catch(const std::exception& e){caps->available=false;strncpy_s(caps->reason,e.what(),_TRUNCATE);lastError=e.what();}
+    admissions.emplace(key,*caps);
+    return caps->available?vknr::Result::Ok:vknr::Result::Refused;
 }
 API vknr::Result __cdecl vknrCreate(const vknr::Create* info,vknr::Handle* handle,vknr::Capability* caps) {
     std::lock_guard<std::mutex> lock(apiMutex);
     if(!handle)return vknr::Result::Refused; *handle=nullptr;
     if(!info||info->size!=sizeof(*info)||info->version!=vknr::Version||!caps||caps->size!=sizeof(*caps)||
-        !info->weightsPath||!info->shaderRoot||!info->cacheRoot||!info->fence)return vknr::Result::Refused;
+        !info->device||!info->weightsPath||!info->shaderRoot||!info->cacheRoot||!info->fence)return vknr::Result::Refused;
+    const auto admitted=admissions.find(adapter_key(info->device));
+    if(admitted==admissions.end()||!admitted->second.available) {
+        lastError="Vulkan NR needs a successful selected capability check before initialization";
+        return vknr::Result::Refused;
+    }
 #ifndef TRP_VKNR_VALIDATION
     if(info->validation){lastError="Validation is available only in debug/test builds";return vknr::Result::Refused;}
 #endif
     auto session=std::make_unique<Session>();
     try {
         auto& s=*session; *caps={};
-        s.owner=vknr::make_device(info->device,info->shaderRoot,info->validation,*caps);
+        s.owner=vknr::make_device(info->device,info->shaderRoot,info->validation,*caps,nullptr,&admitted->second);
         std::string why;
         if(!s.ctx.adopt(vknr::instance(s.owner.get()),vknr::physical(s.owner.get()),vknr::device(s.owner.get()),
             vknr::queue(s.owner.get()),vknr::family(s.owner.get()),&why))throw std::runtime_error(why);

@@ -6,7 +6,8 @@
 namespace vknr {
 struct DeviceContext { std::unique_ptr<nrtest::Context> context; };
 void DeviceDelete::operator()(DeviceContext* p) const { delete p; }
-DeviceOwner make_device(ID3D12Device* d3d, const std::filesystem::path& root, bool validation, Capability& caps, Diagnostics diagnostics) {
+DeviceOwner make_device(ID3D12Device* d3d, const std::filesystem::path& root, bool validation, Capability& caps, Diagnostics diagnostics,
+    const Capability* admitted) {
     if (!d3d) throw std::runtime_error("Vulkan NR needs the host D3D12 device");
     DeviceOwner result(new DeviceContext);
     const auto luid=d3d->GetAdapterLuid();
@@ -37,6 +38,10 @@ DeviceOwner make_device(ID3D12Device* d3d, const std::filesystem::path& root, bo
     if (!(sp.externalSemaphoreFeatures&VK_EXTERNAL_SEMAPHORE_FEATURE_IMPORTABLE_BIT))
         throw std::runtime_error("Vulkan driver refuses a D3D12 timeline fence");
     c.create_device();
+    // Query owns the once-per-session arithmetic admission. Feature creation
+    // still validates imports/creates its device, but never dispatches those
+    // probes again on first use, Apply, recovery or pipeline reconstruction.
+    if (admitted) { caps=*admitted; return result; }
     caps.available=true; caps.path=Path::Portable;
     strcpy_s(caps.pathReason,"Portable KHR cooperative matrices; Radeon/Intel unvalidated");
     if(c.properties.vendorID==0x1002) {
