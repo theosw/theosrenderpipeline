@@ -54,7 +54,7 @@ std::filesystem::path VulkanNRHost::Weights(){
 #endif
     return PluginPaths::Directory()/L"TheosRenderPipeline"/L"NVIDIA"/L"nvngx_dlssnr_310.9.16.dll";
 }
-vknr::Capability VulkanNRHost::Probe(ID3D12Device* device, bool wait) {
+vknr::Capability VulkanNRHost::Probe(ID3D12Device* device, bool wait, bool request) {
     if (const auto* reason = runtimeSession.Refusal(Backend::Vulkan)) { vknr::Capability result; strcpy_s(result.reason,reason); return result; }
     struct Job { std::atomic_bool done{}; vknr::Capability result; };
     static std::map<std::uint64_t, std::shared_ptr<Job>> cache;
@@ -62,43 +62,58 @@ vknr::Capability VulkanNRHost::Probe(ID3D12Device* device, bool wait) {
     {
         std::scoped_lock lock(probeMutex);
         vknr::Capability result;
-        if (!device) { strcpy_s(result.reason, "Vulkan NR needs the rendering device"); return result; }
-        std::error_code ec;
-        if (!std::filesystem::is_regular_file(Weights(), ec)) {
-            strcpy_s(result.reason, "Vulkan NR needs Standard's NVIDIA/nvngx_dlssnr_310.9.16.dll. Install Standard below Universal, or supply that matching runtime."); return result;
-        }
-        if (!std::filesystem::is_regular_file(Path(), ec)) { strcpy_s(result.reason, "Vulkan NR engine is missing. Reinstall Universal."); return result; }
+        if (!device) { strcpy_s(result.reason, request ? "Vulkan NR needs the rendering device" : kVulkanNotChecked); return result; }
         const auto luid = device->GetAdapterLuid();
         const auto key = (std::uint64_t(std::uint32_t(luid.HighPart)) << 32) | luid.LowPart;
+        auto found = cache.find(key);
+        if (found == cache.end() && !request) { strcpy_s(result.reason,kVulkanNotChecked); return result; }
         auto& entry = cache[key];
         if (!entry) {
             entry = std::make_shared<Job>();
             Microsoft::WRL::ComPtr<ID3D12Device> held = device;
+            logger::info("[Vulkan NR] probe requested by explicit Vulkan selection; adapter LUID={:08X}:{:08X}",
+                std::uint32_t(luid.HighPart),luid.LowPart);
             try { std::thread([pending = entry, held] {
-                struct ProbeLease {
-                    bool held{runtimeSession.BeginVulkanProbe()};
-                    ~ProbeLease(){if(held)runtimeSession.EndVulkanProbe();}
-                } lease;
                 try {
-                    if (!lease.held) strcpy_s(pending->result.reason,kRuntimeRestart);
-                    else if (!api.Load()) strcpy_s(pending->result.reason, "Vulkan NR engine ABI is incomplete. Reinstall Universal.");
-
-                    else if (!NeuralRenderingRuntimeIdentity::VerifyExpected(Weights(),266424944,"2BC19BC09A7B89DD44F73E2AC0108FCC586E2154BDD0830F242F4F040E28789F").matched) strcpy_s(pending->result.reason,"Vulkan NR needs the original NVIDIA 310.9.16 model from Standard; the installed file does not match.");
-                    else api.query(held.Get(), Directory().c_str(), &pending->result);
-                } catch (...) { strcpy_s(pending->result.reason, "Vulkan NR capability query failed"); }
-                pending->done.store(true, std::memory_order_release);
+                    std::error_code ec;
+                    if (const auto* reason=runtimeSession.Refusal(Backend::Vulkan)) strcpy_s(pending->result.reason,reason);
+                    else if (!std::filesystem::is_regular_file(Weights(),ec))
+                        strcpy_s(pending->result.reason,"Vulkan NR needs Standard's NVIDIA/nvngx_dlssnr_310.9.16.dll. Install Standard below Universal, or supply that matching runtime.");
+                    else if (!std::filesystem::is_regular_file(Path(),ec))
+                        strcpy_s(pending->result.reason,"Vulkan NR engine is missing. Reinstall Universal.");
+                    else if (!NeuralRenderingRuntimeIdentity::VerifyExpected(Weights(),266424944,"2BC19BC09A7B89DD44F73E2AC0108FCC586E2154BDD0830F242F4F040E28789F").matched)
+                        strcpy_s(pending->result.reason,"Vulkan NR needs the original NVIDIA 310.9.16 model from Standard; the installed file does not match.");
+                    // Claim immediately before loading: HIP may have won while prerequisites were checked.
+                    // This claim persists because the engine DLL and driver modules stay loaded.
+                    else if (!runtimeSession.BeginVulkanProbe()) strcpy_s(pending->result.reason,kRuntimeRestart);
+                    else if (!api.Load()) strcpy_s(pending->result.reason,"Vulkan NR engine ABI is incomplete. Reinstall Universal.");
+                    else {
+                        const auto queried=api.query(held.Get(), Directory().c_str(), &pending->result, [](const char* json) {
+                            logger::info("[Vulkan NR] probe device capabilities: {}",json);
+                        });
+                        if (queried!=vknr::Result::Ok) pending->result.available=false;
+                        if (!pending->result.available && !pending->result.reason[0])
+                            strcpy_s(pending->result.reason,"Vulkan NR engine ABI/query refused this host. Reinstall the matching Universal package.");
+                    }
+                } catch (...) { strcpy_s(pending->result.reason,"Vulkan NR capability query failed"); }
+                const auto& c=pending->result;
+                logger::info("[Vulkan NR] probe complete available={} path={} reason={} pathReason={} device={} revision={}; cached for this session",
+                    c.available,c.available ? (c.path==vknr::Path::RDNA3 ? "rdna3" : "portable") : "refused",
+                    c.reason,c.pathReason,c.device,c.revision);
+                pending->done.store(true,std::memory_order_release);
             }).detach(); } catch (...) {
                 strcpy_s(entry->result.reason,"Vulkan NR capability worker could not start");
+                logger::warn("[Vulkan NR] probe refused: {}; cached for this session",entry->result.reason);
                 entry->done.store(true,std::memory_order_release);
             }
         }
         job = entry;
     }
-    // Only the background preparation worker and manual smoke request a wait.
+    // Only the selected backend's background preparation worker/manual smoke waits.
     if (wait) while (!job->done.load(std::memory_order_acquire)) std::this_thread::sleep_for(std::chrono::milliseconds(5));
     if (job->done.load(std::memory_order_acquire)) return job->result;
     vknr::Capability pending;
-    strcpy_s(pending.reason, "Checking Vulkan NR support...");
+    strcpy_s(pending.reason,kVulkanChecking);
     return pending;
 }
 bool VulkanNRHost::Shaders(ID3D12Device* device) {
@@ -119,7 +134,7 @@ bool VulkanNRHost::Shaders(ID3D12Device* device) {
     return true;
 }
 bool VulkanNRHost::Initialize(const FeatureSession::CreateInfo& info) {
-    capability_=Probe(info.device, true);
+    capability_=Probe(info.device, true, true);
     if(!capability_.available){status_=capability_.reason;return false;}
     if (const auto* reason = runtimeSession.Claim(Backend::Vulkan)) { status_=reason; return false; }
     device_=info.device;width_=info.displayWidth;height_=info.displayHeight;guideWidth_=info.renderWidth;guideHeight_=info.renderHeight;

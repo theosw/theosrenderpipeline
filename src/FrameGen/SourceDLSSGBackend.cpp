@@ -396,6 +396,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			const auto before = neuralOptions_.runtimePath;
 			if (const auto* note = SelectNeuralRuntime(neuralOptions_)) { neuralSnapshot_.fallback = *note; }
 			if (neuralOptions_.runtimePath != before) { neuralAvailability_.Reset(); }
+            LogNeuralDecision("startup device ready");
 		}
 #endif
 		if (FAILED(queue_->GetTimestampFrequency(&hdrTimestampFrequency_))) { hdrTimestampFrequency_ = 0; }

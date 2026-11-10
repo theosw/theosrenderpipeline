@@ -6,13 +6,14 @@
 namespace vknr {
 struct DeviceContext { std::unique_ptr<nrtest::Context> context; };
 void DeviceDelete::operator()(DeviceContext* p) const { delete p; }
-DeviceOwner make_device(ID3D12Device* d3d, const std::filesystem::path& root, bool validation, Capability& caps) {
+DeviceOwner make_device(ID3D12Device* d3d, const std::filesystem::path& root, bool validation, Capability& caps, Diagnostics diagnostics) {
     if (!d3d) throw std::runtime_error("Vulkan NR needs the host D3D12 device");
     DeviceOwner result(new DeviceContext);
     const auto luid=d3d->GetAdapterLuid();
     result->context=std::make_unique<nrtest::Context>(validation,-1,nrtest::hex_bytes(&luid,sizeof(luid)));
     auto& c=*result->context;
-    strcpy_s(caps.revision,"coord-r005 / TRP ABI 2"); strcpy_s(caps.device,c.properties.deviceName);
+    strcpy_s(caps.revision,"coord-r005 / TRP ABI 3"); strcpy_s(caps.device,c.properties.deviceName);
+    if (diagnostics) diagnostics(c.capabilities_json().c_str());
     if (!c.has_extension(VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME) ||
         !c.has_extension(VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME))
         throw std::runtime_error("Vulkan driver lacks Win32 shared texture/fence import");

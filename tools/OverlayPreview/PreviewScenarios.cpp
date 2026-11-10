@@ -1,6 +1,7 @@
 #include "OverlayPreview.h"
 #include "FrameGen/NeuralRuntimeFiles.h"
 #include "FrameGen/NeuralAdmission.h"
+#include "FrameGen/NeuralRuntimeSession.h"
 
 #include <cmath>
 
@@ -585,6 +586,7 @@ PreviewScenario VulkanNvidia()
     s.view.neuralApplied.backend=NeuralRendering::Backend::Vulkan;
     s.view.neuralApplied.enabled=true;s.view.neuralApplied.beforeUpscaling=true;s.view.neuralApplied.passes=1;
     s.view.neuralVulkanPath="Portable KHR cooperative matrices; coord-r005";
+    s.view.neuralVulkanReason.clear();
     s.view.neuralRuntimePath="Data\\SKSE\\Plugins\\TheosRenderPipeline\\VulkanNR\\TRPVulkanNR.dll";
     s.view.neuralState.effectivePasses=1;s.view.neuralState.telemetry={};
     s.view.timings.d3d12Available.fill(false);
@@ -622,6 +624,7 @@ PreviewScenario VulkanAmdRefused()
     s.summary="AMD Vulkan refusal: RDNA 3 fragment layout fails, portable cooperative-matrix tuple unavailable";
     s.view.neuralVulkanPath="RDNA 3 fragment probe refused";
     s.view.neuralVulkanReason="RDNA 3 probe refused; portable FP16/FP32 subgroup-32 support missing";
+    s.view.neuralHIPReason=NeuralRendering::kRuntimeRestart;
     s.view.neuralAdmissionReason=s.view.neuralVulkanReason;
     s.view.neuralApplied.backend=NeuralRendering::Backend::Vulkan;
     s.view.neuralApplied.beforeUpscaling=true;s.view.neuralApplied.passes=1;
@@ -640,6 +643,8 @@ PreviewScenario VulkanAmdPortable()
     s.view.neuralState.status="Vulkan: portable, one small-model pass before upscaling";
     s.view.neuralRuntimePath="Data\\SKSE\\Plugins\\TheosRenderPipeline\\VulkanNR\\TRPVulkanNR.dll";
     s.view.neuralVulkanPath="RDNA 3 path refused by fragment probe; using portable KHR path";
+    s.view.neuralVulkanReason.clear();
+    s.view.neuralHIPReason=NeuralRendering::kRuntimeRestart;
     s.applied.sourceDLSSG.neuralBackend=NeuralRendering::Backend::Vulkan;
     s.applied.sourceDLSSG.neuralEnabled=true;s.draft=s.applied;
     return s;

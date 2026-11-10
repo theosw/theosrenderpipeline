@@ -103,6 +103,7 @@ Context::Context(bool enable_validation,int device_index,const std::string& luid
     }
     if(!physical) throw std::runtime_error("Requested Vulkan device/LUID was not found");
     VkPhysicalDeviceProperties2 props{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2}; props.pNext=&identity; identity.pNext=&subgroup;
+    subgroup.pNext=&subgroupDefault; subgroupDefault.pNext=&driver;
     vkGetPhysicalDeviceProperties2(physical,&props);properties=props.properties;
     vkGetPhysicalDeviceMemoryProperties(physical,&memory);
     count=0;vkcheck(vkEnumerateDeviceExtensionProperties(physical,nullptr,&count,nullptr),"Enumerate device extensions");
@@ -185,6 +186,8 @@ std::string Context::capabilities_json() const {
       << ",\n\"device_index\":" << selected_index << ",\n\"device_name\":" << json_quote(properties.deviceName)
       << ",\n\"vendor_id\":" << properties.vendorID << ",\"device_id\":" << properties.deviceID
       << ",\"api_version\":" << properties.apiVersion << ",\"driver_version\":" << properties.driverVersion
+      << ",\"driver_id\":" << driver.driverID << ",\"driver_name\":" << json_quote(driver.driverName)
+      << ",\"driver_info\":" << json_quote(driver.driverInfo) << ",\"subgroup_default\":" << subgroupDefault.subgroupSize
       << ",\n\"device_luid_valid\":" << bool(identity.deviceLUIDValid) << ",\"device_luid_bytes\":" << json_quote(hex_bytes(identity.deviceLUID,VK_LUID_SIZE))
       << ",\"node_mask\":" << identity.deviceNodeMask << ",\n\"device_uuid\":" << json_quote(hex_bytes(identity.deviceUUID,VK_UUID_SIZE))
       << ",\"driver_uuid\":" << json_quote(hex_bytes(identity.driverUUID,VK_UUID_SIZE))

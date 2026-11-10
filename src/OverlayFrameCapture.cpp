@@ -155,9 +155,11 @@ OverlayUI::FrameView OverlayUI::CaptureFrameView()
         }
         const auto* hip = TheosRenderPipeline::SourceDLSSG::AmdNeuralPass::Availability(backend.AmdAdapter());
         hipReason = hip ? hip : "";
-        const auto vk = TheosRenderPipeline::NeuralRendering::VulkanNRHost::Probe(backend.Device12());
+        const auto vk = TheosRenderPipeline::NeuralRendering::VulkanNRHost::Probe(backend.Device12(), false,
+            draft.neuralBackend == TheosRenderPipeline::NeuralRendering::Backend::Vulkan);
         vulkanReason = vk.available ? "" : vk.reason;
         vulkanPath = vk.pathReason;
+        checksPending |= vulkanReason == TheosRenderPipeline::NeuralRendering::kVulkanChecking;
         admittedRuntimes = view.neuralRuntimes;
         admittedPreferences = draft; admittedAt = Clock::now();
     }

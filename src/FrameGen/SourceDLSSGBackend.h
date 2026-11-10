@@ -122,7 +122,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		bool Prepare(const sl::Constants& a_constants, ID3D11Texture2D* a_motion,
 			ID3D11Texture2D* a_depth, ID3D11Texture2D* a_ui, ID3D11Texture2D* a_hudless,
 			FrameExtent a_renderExtent, UINT a_displayWidth, UINT a_displayHeight, bool a_neuralEligible = true);
-		void ConfigureNeuralRendering(NeuralOptions a_options);
+		void ConfigureNeuralRendering(NeuralOptions a_options, const char* origin = "Apply");
 		void RequestNeuralRetry(); // Apply only; consumed at the next render boundary.
 		// Freeze NR settings before DLSS, optionally replace its D3D11 input, and
 		// return a shared history reset. A null camera skips the early NR stage.
@@ -442,6 +442,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// device exists, and replaces a refused runtime with Automatic's choice.
 		// Returns the refusal note while it applies, or nullptr.
 		const std::string* SelectNeuralRuntime(NeuralOptions& options);
+        void LogNeuralDecision(const char* origin); // caller holds neuralMutex_
 		// Requires neuralMutex_. Refuses a runtime for the session and switches.
 		void RefuseNeuralRuntime(const std::filesystem::path& runtime, const std::string& reason, std::string_view advice);
 		// After a failed NR Record: true when NGX refused to create the feature,

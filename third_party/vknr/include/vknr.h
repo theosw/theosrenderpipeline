@@ -5,7 +5,7 @@
 #include <cstdint>
 
 namespace vknr {
-inline constexpr std::uint32_t Version = 2;
+inline constexpr std::uint32_t Version = 3;
 inline constexpr std::uint32_t Slots = 3;
 enum class Result : std::uint32_t { Ok, Busy, Refused, Failed };
 enum class Path : std::uint32_t { Portable, RDNA3 };
@@ -35,7 +35,10 @@ struct Frame {
     bool autoSkin{}, reset{}, depthInverted{};
 };
 using Handle = void*;
-using Query = Result(__cdecl*)(ID3D12Device*, const wchar_t*, Capability*);
+// The callback receives complete JSON diagnostics while the query owns them.
+// No fixed-size tuple buffer: every advertised cooperative tuple is reported.
+using Diagnostics = void(__cdecl*)(const char*);
+using Query = Result(__cdecl*)(ID3D12Device*, const wchar_t*, Capability*, Diagnostics);
 // Failed creation can return a nonnull retained handle when GPU retirement is
 // uncertain. The host must retain its shared resources with that handle.
 using CreateFn = Result(__cdecl*)(const Create*, Handle*, Capability*);

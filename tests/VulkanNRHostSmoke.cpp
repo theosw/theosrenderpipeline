@@ -1,4 +1,5 @@
 #include "FrameGen/VulkanNRHost.h"
+#include "FrameGen/NeuralRuntimeSession.h"
 #include <dxgi1_6.h>
 #include <iostream>
 #include <vector>
@@ -17,6 +18,32 @@ void barrier(ID3D12GraphicsCommandList* l,ID3D12Resource* r,D3D12_RESOURCE_STATE
 }
 #include "FSRNRHandoff.h"
 int wmain(int argc,wchar_t** argv){try{
+ if(argc==2){
+  using namespace NeuralRendering;
+  const auto mode=std::wstring_view(argv[1]);
+  if(mode!=L"--unchecked" && mode!=L"--hip-owned" && mode!=L"--probe-cache")throw std::runtime_error("unknown probe test");
+  if(GetModuleHandleW(L"TRPVulkanNR.dll")||GetModuleHandleW(L"vulkan-1.dll"))throw std::runtime_error("test needs a clean process");
+  if(mode==L"--hip-owned"){
+   if(runtimeSession.Claim(NeuralRendering::Backend::HIP))throw std::runtime_error("HIP claim failed");
+   for(unsigned i=0;i<8;++i)if(std::string_view(VulkanNRHost::Probe(nullptr,true,true).reason)!=kRuntimeRestart)throw std::runtime_error("HIP must refuse explicit probes");
+  }else if(mode==L"--unchecked"){
+   for(unsigned i=0;i<8;++i)if(std::string_view(VulkanNRHost::Probe(nullptr).reason)!=kVulkanNotChecked)throw std::runtime_error("passive observation must stay unchecked");
+   if(runtimeSession.Claim(NeuralRendering::Backend::HIP))throw std::runtime_error("passive observations must not claim Vulkan");
+  }else{
+   ComPtr<IDXGIFactory4> factory;ComPtr<IDXGIAdapter> warp;ComPtr<ID3D12Device> device;
+   check(CreateDXGIFactory1(IID_PPV_ARGS(&factory)),"factory");check(factory->EnumWarpAdapter(IID_PPV_ARGS(&warp)),"WARP");
+   check(D3D12CreateDevice(warp.Get(),D3D_FEATURE_LEVEL_12_0,IID_PPV_ARGS(&device)),"WARP device");
+   if(std::string_view(VulkanNRHost::Probe(device.Get()).reason)!=kVulkanNotChecked)throw std::runtime_error("device observation initiated probe");
+   SetEnvironmentVariableW(L"TRP_VKNR_TEST_WEIGHTS",L"Z:/TRP-intentionally-missing-probe-fixture/model.dll");
+   const auto first=VulkanNRHost::Probe(device.Get(),true,true);
+   SetEnvironmentVariableW(L"TRP_VKNR_TEST_WEIGHTS",nullptr);
+   const auto again=VulkanNRHost::Probe(device.Get(),true,true);
+   if(first.available||!first.reason[0]||std::string_view(first.reason)!=again.reason)throw std::runtime_error("probe failure must be cached once per session");
+   std::cout<<"Cached refusal: "<<first.reason<<'\n';
+  }
+  if(GetModuleHandleW(L"TRPVulkanNR.dll")||GetModuleHandleW(L"vulkan-1.dll"))throw std::runtime_error("observation/HIP/refused prerequisites loaded Vulkan code");
+  std::wcout<<L"PASS: "<<mode<<L"; no Vulkan engine or loader loaded\n";return 0;
+ }
  if(argc<3||argc>4)throw std::runtime_error("usage: TRPVulkanNRHostSmoke <engine-folder> <user-310.9.16-DLL> [--validation]");
  SetEnvironmentVariableW(L"TRP_VKNR_TEST_ROOT",argv[1]);SetEnvironmentVariableW(L"TRP_VKNR_TEST_WEIGHTS",argv[2]);
  const bool validation=argc==4&&std::wstring_view(argv[3])==L"--validation";
@@ -31,6 +58,14 @@ int wmain(int argc,wchar_t** argv){try{
  if(std::wstring_view(adapterDesc.Description).find(L"RTX 4080 SUPER")==std::wstring_view::npos)throw std::runtime_error("smoke needs RTX 4080 SUPER");
  std::wcout<<L"GPU "<<adapterDesc.Description<<L"\n";
  ComPtr<ID3D12Device> d12;check(D3D12CreateDevice(adapter.Get(),D3D_FEATURE_LEVEL_12_0,IID_PPV_ARGS(&d12)),"D3D12");
+ if(std::string_view(NeuralRendering::VulkanNRHost::Probe(d12.Get()).reason)!=NeuralRendering::kVulkanNotChecked || GetModuleHandleW(L"TRPVulkanNR.dll"))
+  throw std::runtime_error("Vulkan ran before selection");
+ const auto selected=NeuralRendering::VulkanNRHost::Probe(d12.Get(),true,true);
+ if(!selected.available)throw std::runtime_error(selected.reason);
+ const auto cached=NeuralRendering::VulkanNRHost::Probe(d12.Get());
+ if(!cached.available||std::string_view(cached.pathReason)!=selected.pathReason)throw std::runtime_error("selected probe not cached");
+ if(!NeuralRendering::runtimeSession.Refusal(NeuralRendering::Backend::HIP))throw std::runtime_error("selected probe must retain ownership");
+ std::cout<<"PASS: no engine before selection; explicit probe cached; HIP requires restart\n";
  ComPtr<ID3D12CommandQueue> queue;D3D12_COMMAND_QUEUE_DESC q{};check(d12->CreateCommandQueue(&q,IID_PPV_ARGS(&queue)),"queue");
  Interop interop;check(interop.Initialize(d11.Get(),d12.Get(),queue.Get()),"interop");
  constexpr UINT w=256,h=128,gw=320,gh=180;

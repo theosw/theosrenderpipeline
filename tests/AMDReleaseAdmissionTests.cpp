@@ -29,6 +29,10 @@ int main(int argc, char**) {
             return 0;
         }
         using namespace NeuralRendering;
+        Require(VulkanChoiceRefusal(kVulkanNotChecked,true).empty(),"unchecked Vulkan stays selectable with XeSS or FSR");
+        Require(VulkanChoiceRefusal(kVulkanNotChecked,false)==kVendorUpscalerReason,"unchecked Vulkan still needs the upscaler");
+        for (const auto* reason : {kVendorEditionReason,kRuntimeRestart,kVulkanChecking,"driver refused"})
+            Require(VulkanChoiceRefusal(reason,true)==reason,"edition, ownership, pending and probe refusals disable Vulkan");
         for (const auto first : {Backend::HIP,Backend::Vulkan}) {
             RuntimeSession state;
             const auto other=first==Backend::HIP?Backend::Vulkan:Backend::HIP;
@@ -39,10 +43,11 @@ int main(int argc, char**) {
         }
         RuntimeSession probing;
         Require(probing.BeginVulkanProbe(),"probe begins before either backend");
-        Require(probing.Claim(Backend::HIP)==kProbeFinishing,"HIP cannot overlap capability query");
-        probing.EndVulkanProbe();
-        Require(!probing.Claim(Backend::HIP),"HIP enters after probe retirement");
-        Require(!probing.BeginVulkanProbe(),"no new Vulkan query after HIP");
+        Require(probing.Claim(Backend::HIP)==kRuntimeRestart,"HIP cannot overlap capability query or its retained DLL");
+        Require(probing.Claim(Backend::HIP)==kRuntimeRestart,"probe retains session ownership after completing");
+        Require(probing.BeginVulkanProbe(),"same Vulkan session can reuse its cached probe");
+        RuntimeSession hip;
+        Require(!hip.Claim(Backend::HIP) && !hip.BeginVulkanProbe(),"no Vulkan query after HIP");
         for (int i=0;i<100;++i) {
             RuntimeSession state; std::atomic_int admitted{};
             std::thread a([&]{if(!state.Claim(Backend::HIP))++admitted;});
@@ -57,7 +62,7 @@ int main(int argc, char**) {
         custom.neuralBackend=Backend::Vulkan;custom.neuralReconstruction.inputScale=.75f;custom.amdNRWaitForNetwork=false;
         SourceDLSSG::ApplyNeuralHardwareDefaults(custom,true,false,false);
         Require(custom.neuralBackend==Backend::Vulkan && custom.neuralReconstruction.inputScale==.75f && !custom.amdNRWaitForNetwork,"explicit choices retained");
-        std::cout << "PASS: hardware defaults, explicit preferences, exclusive claims and capability-query retirement\n";
+        std::cout << "PASS: hardware defaults, explicit preferences, exclusive claims and permanent capability-query ownership\n";
         return 0;
     } catch(const std::exception& e) { std::cerr<<e.what()<<'\n';return 1; }
 }

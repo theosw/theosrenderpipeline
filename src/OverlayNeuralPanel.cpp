@@ -1346,10 +1346,12 @@ bool DrawNeuralRuntimeCombo(const OverlayUI::FrameView& view, TheosRenderPipelin
             draft.neuralBackend = TheosRenderPipeline::NeuralRendering::Backend::HIP;
             changed = true;
         }
-        const auto vkRefusal = !view.neuralVulkanReason.empty() ? view.neuralVulkanReason :
-            ((!view.xessActive && !view.fsrActive) || view.communityShaders) ? std::string(NR::kVendorUpscalerReason) : std::string{};
+        const bool vkUnchecked = view.neuralVulkanReason == NR::kVulkanNotChecked;
+        const std::string vkRefusal{NR::VulkanChoiceRefusal(view.neuralVulkanReason,
+            (view.xessActive || view.fsrActive) && !view.communityShaders)};
         const float vkMs=view.neuralVulkanMilliseconds;
-        const auto vkDetail=vkRefusal.empty() ? (view.neuralVulkanPath.empty() ? std::string(TR("Portable KHR / probed RDNA 3, small 310.9.16 model")) : std::string(TR(view.neuralVulkanPath.c_str()))) : std::string(TR(vkRefusal.c_str()));
+        const auto vkDetail = !vkRefusal.empty() ? std::string(TR(vkRefusal.c_str())) : vkUnchecked ? std::string(TR(NR::kVulkanNotChecked)) :
+            view.neuralVulkanPath.empty() ? std::string(TR("Portable KHR / probed RDNA 3, small 310.9.16 model")) : std::string(TR(view.neuralVulkanPath.c_str()));
         if(entryRow("vulkan",TR("Vulkan (experimental)"),vkDetail,!vkRefusal.empty(),timeText(vkMs),vkMs>0,draft.neuralBackend==NR::Backend::Vulkan)) {
             draft.neuralBackend=NR::Backend::Vulkan;
             if(draft.neuralTuning.style<0||draft.neuralTuning.style>2)draft.neuralTuning.style=0;

@@ -4,11 +4,10 @@
 
 namespace TheosRenderPipeline::NeuralRendering {
 inline constexpr const char* kRuntimeRestart = "HIP/ZLUDA and Vulkan cannot run in the same session; restart Skyrim to switch.";
-inline constexpr const char* kProbeFinishing = "Vulkan NR capability check is finishing. Try Apply again shortly.";
 
 // Ownership is permanent after admission: both runtimes retain process-wide
-// modules and callbacks even after a feature has retired. A temporary Vulkan
-// capability probe must also finish before HIP may enter the process.
+// modules and callbacks even after a feature has retired. Explicit Vulkan
+// probing claims the session too: its engine module remains loaded afterwards.
 class RuntimeSession final {
 public:
     const char* Refusal(Backend requested) const {
@@ -22,25 +21,16 @@ public:
         return nullptr;
     }
     bool BeginVulkanProbe() {
-        std::scoped_lock lock(mutex_);
-        if (owner_ == Backend::HIP) return false;
-        ++probes_;
-        return true;
-    }
-    void EndVulkanProbe() {
-        std::scoped_lock lock(mutex_);
-        --probes_;
+        return Claim(Backend::Vulkan) == nullptr;
     }
 private:
     const char* RefusalLocked(Backend requested) const {
         if (requested == Backend::Native) return nullptr;
         if (owner_ != Backend::Native && owner_ != requested) return kRuntimeRestart;
-        if (requested == Backend::HIP && probes_) return kProbeFinishing;
         return nullptr;
     }
     mutable std::mutex mutex_;
     Backend owner_{};
-    unsigned probes_{};
 };
 inline RuntimeSession runtimeSession;
 }

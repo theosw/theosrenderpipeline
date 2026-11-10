@@ -60,7 +60,7 @@ struct OverlayUI::FrameView
     // Private test backends in the same list: the HIP port's NR per frame
     // (0 if not tried) and why it cannot run (empty if it can).
     float neuralHIPMilliseconds{}, neuralVulkanMilliseconds{};
-    std::string neuralVulkanReason, neuralVulkanPath;
+    std::string neuralVulkanReason{TheosRenderPipeline::NeuralRendering::kVulkanNotChecked}, neuralVulkanPath;
     std::string neuralHIPReason{TheosRenderPipeline::NeuralRendering::kHIPGPUReason};
     int neuralComputeCapability{-1};
     bool neuralRuntimeKernels{};

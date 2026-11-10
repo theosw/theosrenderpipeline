@@ -9,7 +9,8 @@ public:
     static std::filesystem::path Directory();
     static std::filesystem::path Path();
     static std::filesystem::path Weights();
-    static vknr::Capability Probe(ID3D12Device*, bool wait = false);
+    // Passive by default: only explicit selection/initialization may request a probe.
+    static vknr::Capability Probe(ID3D12Device*, bool wait = false, bool request = false);
     bool Initialize(const FeatureSession::CreateInfo&);
     bool Evaluate(const FeatureSession::EvaluationInput&, SourceDLSSG::Interop&, ID3D12CommandQueue*,
         std::size_t slot, ID3D12GraphicsCommandList*&, bool background=false, bool frameOpened=false);

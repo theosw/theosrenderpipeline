@@ -90,6 +90,9 @@ HRESULT NvidiaHost::CreateSwapChain(IDXGIFactory* a_factory, ID3D11Device* a_dev
     DXGI_ADAPTER_DESC nrDesc{};
     if (SUCCEEDED(a_device->QueryInterface(IID_PPV_ARGS(&nrDevice))) && SUCCEEDED(nrDevice->GetAdapter(&nrAdapter)) &&
         SUCCEEDED(nrAdapter->GetDesc(&nrDesc))) {
+        logger::info("[NR backend] startup preference: vendor=0x{:04X} backendSource={} inputSource={}", nrDesc.VendorId,
+            settings.neuralBackendAutomatic ? (nrDesc.VendorId == 0x1002 ? "AMD hardware default: HIP/ZLUDA" : "hardware default: native NVIDIA") : "explicit INI NeuralBackend",
+            settings.neuralInputAutomatic ? "hardware default" : "explicit INI input scale");
         TheosRenderPipeline::SourceDLSSG::ApplyNeuralHardwareDefaults(settings.sourceDLSSG, nrDesc.VendorId == 0x1002,
             settings.neuralBackendAutomatic, settings.neuralInputAutomatic);
         settings.neuralBackendAutomatic = settings.neuralInputAutomatic = false;
@@ -127,7 +130,7 @@ HRESULT NvidiaHost::CreateSwapChain(IDXGIFactory* a_factory, ID3D11Device* a_dev
     options.amdShowTracking = settings.sourceDLSSG.amdNRShowTracking;
     options.passes = settings.sourceDLSSG.neuralPasses;
     options.combat = settings.sourceDLSSG.neuralCombat;
-    backend.ConfigureNeuralRendering(std::move(options));
+    backend.ConfigureNeuralRendering(std::move(options), "startup configuration");
 
     const auto result = TheosRenderPipeline::SourceDLSSG::Backend::Get().CreateSwapChain(
         a_factory, a_device, *a_desc, SourceFrameGeneration::GetSingleton()->settings.sourceDLSSGStreamlineDirectory, a_swapChain);

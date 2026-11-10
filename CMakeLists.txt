@@ -699,6 +699,11 @@ if(TRP_BUILD_COMPATIBILITY_TESTS)
     target_include_directories(TRPNeuralWorldContractTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
         "${CMAKE_CURRENT_SOURCE_DIR}/include" "${TRP_STREAMLINE_INCLUDE_DIR}")
     add_test(NAME NeuralWorldContract COMMAND TRPNeuralWorldContractTests)
+    add_executable(TRPNeuralWorldStageTests tests/NeuralWorldStageTests.cpp)
+    target_compile_features(TRPNeuralWorldStageTests PRIVATE cxx_std_23)
+    target_compile_definitions(TRPNeuralWorldStageTests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    target_include_directories(TRPNeuralWorldStageTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    add_test(NAME NeuralWorldStage COMMAND TRPNeuralWorldStageTests)
     add_executable(TRPSaveThumbnailTAATests tests/SaveThumbnailTAATests.cpp)
     target_compile_features(TRPSaveThumbnailTAATests PRIVATE cxx_std_23)
     target_include_directories(TRPSaveThumbnailTAATests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
@@ -817,6 +822,9 @@ if(TRP_ENABLE_NEURAL_RENDERING AND TRP_ENABLE_OPTIONAL_FEATURES)
         target_link_libraries(TRPVulkanNRHostSmoke PRIVATE d3d11 d3d12 dxgi d3dcompiler bcrypt version "${TRP_NGX_SDK_DIR}/lib/Windows_x86_64/nvsdk_ngx_d.lib")
         trp_target_neural_shaders(TRPVulkanNRHostSmoke)
         add_dependencies(TRPVulkanNRHostSmoke TRPVulkanNR)
+        add_test(NAME VulkanNRUnchecked COMMAND TRPVulkanNRHostSmoke --unchecked)
+        add_test(NAME VulkanNRHIPOwned COMMAND TRPVulkanNRHostSmoke --hip-owned)
+        add_test(NAME VulkanNRProbeCache COMMAND TRPVulkanNRHostSmoke --probe-cache)
         add_executable(TRPVulkanNRBackgroundSmoke tests/VulkanNRBackgroundSmoke.cpp src/FrameGen/AmdNeuralPass.cpp
             src/FrameGen/SourceDLSSGNeuralRendering.cpp src/FrameGen/SourceDLSSGNeuralResolve.cpp
             src/FrameGen/NeuralObjectBlend.cpp src/FrameGen/NeuralObjectControl.cpp

@@ -113,11 +113,11 @@ vknr::Result fail(Session* s,const char* message) {
 }
 }
 #define API extern "C" __declspec(dllexport)
-API vknr::Result __cdecl vknrQuery(ID3D12Device* d3d,const wchar_t* root,vknr::Capability* caps) {
+API vknr::Result __cdecl vknrQuery(ID3D12Device* d3d,const wchar_t* root,vknr::Capability* caps,vknr::Diagnostics diagnostics) {
     std::lock_guard<std::mutex> lock(apiMutex);
     if(!caps||caps->size!=sizeof(*caps)||caps->version!=vknr::Version||!root)return vknr::Result::Refused;
     *caps={};
-    try { auto probe=vknr::make_device(d3d,root,false,*caps); return vknr::Result::Ok; }
+    try { auto probe=vknr::make_device(d3d,root,false,*caps,diagnostics); return vknr::Result::Ok; }
     catch(const std::exception& e){caps->available=false;strncpy_s(caps->reason,e.what(),_TRUNCATE);lastError=e.what();return vknr::Result::Refused;}
 }
 API vknr::Result __cdecl vknrCreate(const vknr::Create* info,vknr::Handle* handle,vknr::Capability* caps) {
