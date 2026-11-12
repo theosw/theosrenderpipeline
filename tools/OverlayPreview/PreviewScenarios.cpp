@@ -560,9 +560,11 @@ PreviewScenario TestBackendsAmd()
     scenario.name = "test-backends-amd";
     scenario.summary = "Experimental: HIP selected on an RX 7900 GRE, Vulkan beside it";
     auto& view = scenario.view;
-    view.neuralRuntimes = {std::string(SourceDLSSG::kAutomaticNeuralRuntime)};
-    view.neuralRuntimeReasons = {""};
-    view.neuralRuntimeMilliseconds = {0.0f};
+    // The game lists the installed native runtimes on every GPU; off NVIDIA they are greyed.
+    view.neuralRuntimes = {std::string(SourceDLSSG::kAutomaticNeuralRuntime), std::string(SourceDLSSG::kDefaultNeuralRuntime),
+        std::string(SourceDLSSG::kLatestNeuralRuntime), std::string(SourceDLSSG::kFastNeuralRuntime)};
+    view.neuralRuntimeReasons.assign(view.neuralRuntimes.size(), "");
+    view.neuralRuntimeMilliseconds.assign(view.neuralRuntimes.size(), 0.0f);
     view.amdAdapter = true; view.neuralHIPReason.clear();
     view.neuralApplied.backend = TheosRenderPipeline::NeuralRendering::Backend::HIP;
     view.neuralApplied.beforeUpscaling = true;
