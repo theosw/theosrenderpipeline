@@ -891,6 +891,9 @@ inventory is historical; unrelated injectors and modified loaders are not shippe
 Shader compilation uses pinned Khronos glslang and SPIR-V Tools build tools;
 the Windows system Vulkan loader is used at runtime. No model weights are part
 of this source or engine payload. The original NVIDIA runtime retains its terms.
+TRP's changes inside `third_party/vknr` are released under the same MIT terms,
+so the engine DLL carries one licence. TRP's host integration outside that
+directory (`src/`) is GPL-3.0 with the modding exceptions in [LICENSE](LICENSE).
 
 ## AMD HIP/ZLUDA Neural Rendering (Universal)
 
@@ -900,17 +903,19 @@ revision `620d54fb2c112ae657f18a4b3bfef37d448e473e` (NR 1.2.0), MIT. Its license
 `third_party/amd-nr/LICENSE`. Bundled runtime files retain its LICENSE and
 THIRD_PARTY.md (including RenoDX and OkLab attribution). ZLUDA retains its own
 MIT/Apache-2.0 terms. NVIDIA's original signed model remains proprietary and
-retains the accompanying NVIDIA notices. The AMD host adapter is a local TRP
-experimental integration; it does not establish AMD or Skyrim acceptance.
+retains the accompanying NVIDIA notices. The AMD host adapter is TRP's own
+integration; it is not endorsed by AMD.
 
 The runtime adds a size-checked TRP adapter-selection extension and
 uses TRP's `AmdAdapterSelection.h` to match HIP and ZLUDA devices independently
-to Skyrim's adapter. These local additions retain TRP's project license; the
-upstream runtime and notices remain attributed separately above.
+to Skyrim's adapter. These local additions are GPL-3.0 with TRP's modding
+exceptions (see [LICENSE](LICENSE)); the upstream runtime and notices remain
+attributed separately above.
 
 The NVAPI adapter forwards the unchanged upstream shim and corrects
 its logical adapter LUID to the independently validated CUDA device. The adapter
-and its CPU fake-driver regression are TRP additions under the project license.
+and its CPU fake-driver regression are TRP additions under GPL-3.0 with the
+modding exceptions.
 
 The complete modified runtime source and source manifest are retained under
 `third_party/amd-nr/runtime/` and `runtime-source.json`; build instructions are

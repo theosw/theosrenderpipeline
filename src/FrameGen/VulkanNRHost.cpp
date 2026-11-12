@@ -172,6 +172,8 @@ bool VulkanNRHost::Initialize(const FeatureSession::CreateInfo& info) {
     if(FAILED(device_->CreateFence(0,D3D12_FENCE_FLAG_SHARED,IID_PPV_ARGS(&fence_)))||
         FAILED(device_->CreateSharedHandle(fence_.Get(),nullptr,GENERIC_ALL,nullptr,&handles.values[4]))){status_="Vulkan NR shared fence creation refused";return false;}
     create.fence=handles.values[4];const auto started=std::chrono::steady_clock::now();
+    // A GPU device loss or hang inside Vulkan would otherwise hold the game's queue on frame.done forever.
+    watchdog_.Start(fence_.Get(),std::chrono::milliseconds(3000));
 #ifdef TRP_NR_VENDOR_BENCHMARK
     create.validation=GetEnvironmentVariableW(L"TRP_VKNR_TEST_VALIDATION",nullptr,0)>0;
 #endif
@@ -211,8 +213,15 @@ void VulkanNRHost::Dispatch(ID3D12GraphicsCommandList* list,std::size_t slot,con
         queryPending_[slot][pack?0:1]=true;
     }
 }
+bool VulkanNRHost::WatchdogFired() {
+    if(!watchdog_.Fired())return false;
+    if(!unsafe_)logger::error("[Vulkan NR] backend=Vulkan stalled: value {} not signalled within {} ms; "
+        "D3D12 queue released, Vulkan NR off for this session",watchdog_.FiredValue(),watchdog_.Timeout().count());
+    runtimeSession.Fail(Backend::Vulkan,kVulkanStalled);
+    unsafe_=true;status_=kVulkanStalled;return true;
+}
 bool VulkanNRHost::BeginFrame(std::size_t slot,ID3D12CommandQueue* queue,bool& ready) {
-    ready=false;if(!handle_||!queue||slot>=vknr::Slots)return false;
+    ready=false;if(!handle_||!queue||slot>=vknr::Slots||WatchdogFired())return false;
     ++measurements_.frames;
     if(!queryFrequency_)queue->GetTimestampFrequency(&queryFrequency_);
     for(unsigned kind=0;kind<2;++kind)if(queryPending_[slot][kind]){
@@ -228,7 +237,7 @@ bool VulkanNRHost::BeginFrame(std::size_t slot,ID3D12CommandQueue* queue,bool& r
     return true;
 }
 bool VulkanNRHost::Consume(const FeatureSession::EvaluationInput& input,ID3D12CommandQueue* queue,std::size_t slot,ID3D12GraphicsCommandList* list) {
-    if(!backgroundReady_||!queue||!list)return false;
+    if(!backgroundReady_||!queue||!list||WatchdogFired())return false;
     // Completion has already been proved by VkFence. This wait establishes API
     // ownership/visibility, but cannot hold the host queue behind unfinished NR.
     if(FAILED(queue->Wait(fence_.Get(),value_))){unsafe_=true;status_="Vulkan completed-result wait failed";return false;}
@@ -243,6 +252,7 @@ bool VulkanNRHost::DropCompleted(ID3D12CommandQueue* queue) {
 bool VulkanNRHost::Evaluate(const FeatureSession::EvaluationInput& input,SourceDLSSG::Interop& interop,ID3D12CommandQueue* queue,
     std::size_t slot,ID3D12GraphicsCommandList*& list,bool background,bool frameOpened) {
     if(!handle_||!queue||slot>=vknr::Slots){status_="Vulkan NR submission context missing";return false;}
+    if(WatchdogFired())return false;
     if(backgroundPending_){status_="Vulkan job is still reserved";return false;}
     if(!background&&!frameOpened){bool ready{};if(!BeginFrame(slot,queue,ready))return false;}
     const auto color=input.color->GetDesc(),out=input.output->GetDesc(),mv=input.motionVectors->GetDesc(),depth=input.depth->GetDesc();
@@ -265,7 +275,9 @@ bool VulkanNRHost::Evaluate(const FeatureSession::EvaluationInput& input,SourceD
     if(background){backgroundPending_=true;++frames_;return true;}
     // Never queue a wait for an unsubmitted value. Track the wait independently
     // of the consumer list so recovery can discard that list and still retire NR.
-    if(FAILED(queue->Wait(fence_.Get(),frame.done))||FAILED(interop.TrackExternal(SourceDLSSG::Work::Upscaling))){
+    if(FAILED(queue->Wait(fence_.Get(),frame.done))){unsafe_=true;status_="Vulkan NR consumer wait could not be queued";return false;}
+    watchdog_.Arm(frame.done); // from here the queue is held until Vulkan, or the watchdog, signals frame.done
+    if(FAILED(interop.TrackExternal(SourceDLSSG::Work::Upscaling))){
         unsafe_=true;status_="Vulkan NR consumer wait retirement unconfirmed";return false;}
     Dispatch(list,slot,input,false);
     if((++frames_%120)==0)logger::info("[Vulkan NR] path={} completed network={:.3f} ms; host handoff/copies included in NR per frame; frames={}",
@@ -273,10 +285,10 @@ bool VulkanNRHost::Evaluate(const FeatureSession::EvaluationInput& input,SourceD
     return true;
 }
 bool VulkanNRHost::ReleaseAfterRetirement() {
-    if(unsafe_)return false;
+    if(unsafe_||WatchdogFired())return false;
     if(handle_&&api.drain(handle_)!=vknr::Result::Ok){unsafe_=true;status_="Vulkan shutdown drain unconfirmed; complete owner retained";return false;}
     if(handle_&&api.release(handle_)!=vknr::Result::Ok){status_="Vulkan NR retirement unconfirmed; complete owner retained";return false;}
-    handle_=nullptr;return true;
+    handle_=nullptr;watchdog_.Stop();return true;
 }
 VulkanNRHost::~VulkanNRHost(){
     // The FeatureSession deleter retains this entire owner on a refusal.

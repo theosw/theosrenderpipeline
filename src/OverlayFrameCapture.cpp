@@ -241,7 +241,8 @@ OverlayUI::FrameView OverlayUI::CaptureFrameView()
         view.neuralRuntimeMilliseconds.clear();
         for (const auto& runtime : view.neuralRuntimes) {
             const bool automatic = TheosRenderPipeline::SourceDLSSG::IsAutomaticNeuralRuntime(runtime);
-            const auto key = automatic ? (view.neuralApplied.automaticRuntime ?
+            const bool nativeApplied = view.neuralApplied.backend == TheosRenderPipeline::NeuralRendering::Backend::Native;
+            const auto key = automatic ? (view.neuralApplied.automaticRuntime && nativeApplied ?
                 TheosRenderPipeline::SourceDLSSG::NeuralRuntimeKey(view.neuralApplied.runtimePath.string()) : std::string()) :
                 TheosRenderPipeline::SourceDLSSG::NeuralRuntimeKey(runtime);
             const auto found = key.empty() ? measured.end() : measured.find(key);

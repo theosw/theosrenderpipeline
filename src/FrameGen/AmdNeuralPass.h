@@ -2,6 +2,7 @@
 #include <Windows.h>
 #include <d3d12.h>
 #include <wrl/client.h>
+#include <chrono>
 #include <filesystem>
 #include <functional>
 #include <string>
@@ -56,6 +57,9 @@ namespace TheosRenderPipeline::SourceDLSSG {
         std::uint64_t ComposedResults() const { return status_.results; }
         bool Running() const { return AMDOutputActive(status_.state == DLSS5NR_STATE_RUNNING, status_.results, failed_); }
         std::function<void(int, const char*)> log;
+        // dlss5nr_destroy joins the runtime's worker. A worker stuck in a HIP call
+        // must not hold Apply, NR off or shutdown, so the wait is bounded.
+        inline static std::chrono::milliseconds destroyTimeout{5000};
     private:
         bool Initialize(ID3D12Device* device);
         bool VerifyHipAdapter(ID3D12Device* device);

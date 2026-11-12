@@ -10,6 +10,10 @@
 #include <d3dkmthk.h>
 #include <algorithm>
 #include <array>
+#include <condition_variable>
+#include <memory>
+#include <mutex>
+#include <thread>
 #include <cmath>
 #include <fstream>
 #include <format>
@@ -293,7 +297,25 @@ namespace TheosRenderPipeline::SourceDLSSG {
         return true;
     }
     AmdNeuralPass::~AmdNeuralPass() {
-        if (context_) api_.destroy(context_); // Host retirement is a required precondition.
+        // Host retirement is a required precondition. The destroy call runs on its own
+        // thread; if it does not return in time the context is leaked, never freed
+        // under a live worker, and HIP stays off for the session.
+        if (context_) {
+            struct Done { std::mutex mutex; std::condition_variable wake; bool value{}; };
+            const auto done = std::make_shared<Done>();
+            std::thread([destroy = api_.destroy, context = context_, done] {
+                destroy(context);
+                { std::lock_guard lock(done->mutex); done->value = true; }
+                done->wake.notify_all();
+            }).detach();
+            std::unique_lock lock(done->mutex);
+            if (!done->wake.wait_for(lock, destroyTimeout, [&] { return done->value; })) {
+                NeuralRendering::runtimeSession.Fail(NeuralRendering::Backend::HIP, NeuralRendering::kHIPStalled);
+                if (log) log(0, std::format("HIP/ZLUDA shutdown did not finish within {} ms; runtime left running, "
+                    "HIP/ZLUDA off until Skyrim restarts", destroyTimeout.count()).c_str());
+            }
+            context_ = nullptr;
+        }
         // Driver/model libraries keep process-wide callbacks, state and threads.
         // Retain the runtime and HIP modules as the upstream chain does. A later
         // owner reuses only exact owned paths; process exit releases the modules.

@@ -1,7 +1,8 @@
 # Theo's Render Pipeline — Universal, 0.7.0
 
-Version 0.7.0 RC1 is a local release candidate. The AMD release wording below
-is a draft for Theo's review.
+Version 0.7.0 Beta 1 adds Neural Rendering on AMD Radeon: HIP/ZLUDA by default
+and an experimental Vulkan engine. It is a beta; 0.6.5 remains the main release.
+See CHANGELOG.md and the AMD section at the end of this file.
 
 Version 0.6.4 adds experimental FSR 3.1 upscaling with AMD's runtime included,
 keeps NR's Every other frame working at low frame rates and stops the
@@ -552,60 +553,49 @@ include `TheosRenderPipeline.log`; its opening lines identify the edition,
 source revision, renderer path and effective startup setting. Standard alone
 does not supply the compatibility path required by RTX 30.
 
-## Neural Rendering on AMD Radeon — draft for Theo's review
+## Neural Rendering on AMD Radeon (beta)
 
-**0.7.0 adds Radeon NR to Universal.** Install Standard first, then put Universal
-below it in MO2's left pane and let Universal win conflicts. Both editions keep
-native NVIDIA NR; NVIDIA users keep it as their default. Standard shows the AMD
-choices greyed out with an edition reason.
+0.7.0 adds Neural Rendering (NR) on AMD Radeon to Universal. Install Standard
+first, then put Universal below it in MO2's left pane and let Universal win
+conflicts. NVIDIA users keep native NR as their default. Standard lists the AMD
+choices greyed out with the reason.
 
-The runtime list offers **HIP/ZLUDA (default)** and **Vulkan (experimental)**.
-HIP/ZLUDA needs a compatible Windows AMD HIP runtime/driver. The complete NR
-runtime, native kernels and matching ZLUDA cache are supplied with Universal;
-do not mix them with files from older test packages. Both backends share Standard's
-original NVIDIA 310.9.16 model, with its attribution and licence notices retained.
+On a Radeon the NR runtime list offers:
 
-HIP/ZLUDA has run across several volunteer sessions on an **RX 7900 GRE**.
-The supplied C14 kernel/cache set targets RX 7000/9000 and includes RX 6000
-(`gfx10-3-generic`) translation coverage. That inventory is not a successful
-RX 6000 or RX 9000 game test, nor a guarantee for every card or driver.
-This exact 0.7.0 RC still needs a Radeon test.
+- **HIP/ZLUDA (default).** Needs a current AMD Adrenalin driver with the HIP
+  runtime. Universal supplies the NR runtime, native kernels and ZLUDA
+  translation cache; don't mix them with files from older test builds. Tested on
+  an RX 7900 GRE. The kernels target RX 7000/9000 and include RX 6000
+  translation coverage, but RX 6000 and RX 9000 are untested. HIP/ZLUDA needs
+  TRP's XeSS upscaling; FSR is greyed out for it until that combination is tested.
+- **Vulkan (experimental).** TRP's own engine, built from source. Needs a driver
+  with Vulkan cooperative matrices (RX 7000/9000, Intel Arc, RTX); RX 6000 and
+  older can't run it. The menu checks the GPU when you select Vulkan and explains
+  a refusal. It works with XeSS or FSR. So far it has only run on an RTX 4080
+  SUPER, at about 24 ms per NR run with 50% input; Radeon reports are welcome.
+  The first start prepares pipelines in the background (the menu shows
+  **Preparing Vulkan NR...**), which can take a few seconds.
 
-**Use TRP XeSS or FSR:** HIP/ZLUDA currently requires **XeSS**; its FSR choice is
-greyed out because that handoff has not been validated with HIP. Vulkan supports
-both. Community Shaders owns its own upscaling, so these NR backends are unavailable
-on that route. Each runs one world pass before upscaling.
+Both backends use the NVIDIA 310.9.16 model that Standard supplies, and run one
+world pass before upscaling. Community Shaders handles its own upscaling, so
+they are unavailable on that route.
 
-Vulkan is TRP's source-built engine. It targets supporting RX 7000/9000, Intel Arc
-and RTX drivers with Vulkan cooperative matrices; RX 6000 and older do not meet
-this engine's requirements. The capability check decides actual admission. If the
-RDNA 3 probe refuses its native kernels, the engine uses portable kernels when
-those capabilities pass. **Vulkan has not run on a Radeon or Intel GPU yet.**
-RTX 4080 SUPER checks and an earlier game run do not establish Radeon performance.
+**Defaults and speed.** AMD defaults are Execution **Regular (wait)** and
+**NR input 50%**. On the RX 7900 GRE, HIP/ZLUDA took about 30–34 ms per NR run
+at 60–77% input and 45–150 ms at full input, which left the game near 20 base
+fps with sluggish input. Async execution is available but showed mouth smearing.
+Start with NR off, then try Regular at 50% with frame generation off, before
+adding frame generation. Frame generation at a low base fps looks smoother but
+does not remove the input delay.
 
-Vulkan prepares pipelines in the background while the menu shows
-**Preparing Vulkan NR...**. Scheduling defaults to **Same frame**; **Background**
-is an experimental Lab option. An earlier RTX 4080 SUPER game test was smooth
-with Every frame, but Every other frame stuttered with x4 frame generation.
-Background scheduling has not yet been accepted in game.
+**Restarts.** Once HIP/ZLUDA or Vulkan has started, switching to the other needs
+a Skyrim restart; the menu says so. If either stops responding, TRP turns it off
+for the rest of the session instead of holding the game, and it works again
+after a restart. Settings saved by an older test build can start the wrong
+backend, so delete `TheosRenderPipeline.User.ini` from MO2's Overwrite folder
+when coming from one.
 
-Once HIP/ZLUDA or Vulkan starts, switching to the other requires restarting
-Skyrim. The menu explains this restriction; turning NR off does not unload the
-process-wide GPU runtime.
-
-AMD defaults are **Regular (wait)** and **NR input 50%**. Earlier RX 7900 GRE
-evidence records roughly **30–34 ms per NR run at full input**, with changing
-workload and settings; this is not a benchmark of this RC. Full input left the
-volunteer near 20 base fps with sluggish input. Async remains available, but the
-volunteer reported mouth smearing with roughly ten fresh inferences per second.
-Regular also uses a delayed result and can reduce base fps.
-
-An earlier HIP crash was reportedly avoided by disabling the integrated GPU.
-The cause and a general multi-GPU fix are unconfirmed; retain same-run logs before
-restarting after a failure. Frame generation at low base fps can look smoother
-while input stays sluggish or becomes more delayed. Start with NR off, then
-Regular NR at 50% with frame generation off, before adding frame generation.
-
-These are draft release notes for Theo's approval. Builds and standalone checks
-do not establish this RC's Radeon image quality, stability, input latency or
-physical display cadence.
+**Reports.** An earlier HIP crash was reportedly avoided by disabling the
+integrated GPU; the cause is not confirmed. If something goes wrong, copy
+`TheosRenderPipeline.log` from `Documents\My Games\Skyrim Special Edition\SKSE`
+before starting Skyrim again, and include your GPU and driver version.

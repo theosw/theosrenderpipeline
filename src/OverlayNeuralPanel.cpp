@@ -677,7 +677,7 @@ void DrawNeuralSettings(const OverlayUI::FrameView& view, TheosRenderPipeline::S
     if (alternate) {
         ImGui::TextWrapped("%s", draft.neuralBackend == NR::Backend::Vulkan ?
             TR("Experimental Vulkan: one small-model pass before upscaling. Greyed rows are fixed or unsupported. First use compiles shaders.") :
-            TR("HIP test: one small-model pass before upscaling. Greyed rows do not apply to HIP."));
+            TR("HIP/ZLUDA: one small-model pass before upscaling. Greyed rows do not apply to HIP/ZLUDA."));
         if(draft.neuralBackend == NR::Backend::Vulkan && !view.neuralVulkanPath.empty()) {
             ImGui::TextDisabled("%s", TR(view.neuralVulkanPath.c_str()));
         }
@@ -752,7 +752,7 @@ void DrawNeuralSettings(const OverlayUI::FrameView& view, TheosRenderPipeline::S
                 if (reconstruction.modelRate == ModelRate::EveryOtherFrame && view.frameGenerationRequested && generated > 1)
                 {
                     ImGui::TextDisabled("%s", TR("Best with 2x frame generation"));
-                    if (draft.neuralBackend == NR::Backend::HIP || draft.neuralBackend == NR::Backend::Vulkan)
+                    if (draft.neuralBackend == NR::Backend::Vulkan)
                         ImGui::TextDisabled("%s", TR("Vulkan: alternate model frames can stutter at 3x or higher"));
                     DrawSettingsHelp(TR("At 3x and above, the generated frames between real ones can look unevenly paced: "
                                      "frames with and without the model finish at different times."));
@@ -768,7 +768,7 @@ void DrawNeuralSettings(const OverlayUI::FrameView& view, TheosRenderPipeline::S
                     {TR("Same frame"), true, TR("Wait on the GPU for this frame's network result.")},
                     {TR("Background"), true, TR("One job at a time. Apply completed results one or two frames late using motion and depth.")}});
                 if (changed) draft.vulkanScheduling = NR::SanitizeVulkanScheduling(schedule);
-                DrawSettingsHelp(TR("Experimental. Background overlaps the network with following frames. Same frame remains the default until in-game pacing is verified."));
+                DrawSettingsHelp(TR("Experimental. Background overlaps the network with the following frames. Same frame is the default."));
                 return changed;
             });
         }
@@ -1306,8 +1306,8 @@ bool DrawNeuralRuntimeCombo(const OverlayUI::FrameView& view, TheosRenderPipelin
     ImGui::SetNextWindowSizeConstraints(ImVec2((std::max)(width, line * 30), 0), ImVec2(FLT_MAX, FLT_MAX));
     if (ImGui::BeginCombo("##runtime", nullptr, static_cast<ImGuiComboFlags>(ImGuiComboFlags_CustomPreview) | ImGuiComboFlags_HeightLarge))
     {
-        // Native NVIDIA runtimes are available on NVIDIA adapters.
-        if (view.nvidiaAdapter) {
+        // Native NVIDIA runtimes stay listed on every GPU; off NVIDIA they are greyed with the reason.
+        {
             for (const auto group : { NeuralRuntimeGroup::Automatic, NeuralRuntimeGroup::CurrentModel,
                                       NeuralRuntimeGroup::OlderModel, NeuralRuntimeGroup::YourFiles })
             {
@@ -1318,7 +1318,8 @@ bool DrawNeuralRuntimeCombo(const OverlayUI::FrameView& view, TheosRenderPipelin
                     const auto entry = describe(runtime);
                     if (entry.group != group) { continue; }
                     if (!header) { ImGui::SeparatorText(NeuralRuntimeGroupText(group)); header = true; }
-                    const auto reason = i < view.neuralRuntimeReasons.size() ? view.neuralRuntimeReasons[i] : std::string{};
+                    const auto reason = !view.nvidiaAdapter ? std::string(NR::kNativeRowReason)
+                                      : i < view.neuralRuntimeReasons.size() ? view.neuralRuntimeReasons[i] : std::string{};
                     const float ms = i < view.neuralRuntimeMilliseconds.size() ? view.neuralRuntimeMilliseconds[i] : 0.0f;
                     const auto detail = !reason.empty() ? std::string(TR(reason.c_str()))
                                       : entry.detail == NeuralRuntimeDetail::Automatic && !chosen.empty()
@@ -1339,9 +1340,12 @@ bool DrawNeuralRuntimeCombo(const OverlayUI::FrameView& view, TheosRenderPipelin
         const auto refusal = !view.neuralHIPReason.empty() ? view.neuralHIPReason :
             (!view.xessActive || view.communityShaders) ? std::string(NR::kHIPUpscalerReason) : std::string{};
         const float ms = view.neuralHIPMilliseconds;
+        const bool hipRunning = applied.backend == TheosRenderPipeline::NeuralRendering::Backend::HIP && view.neuralState.active;
+        const auto hipName = view.amdAdapter ? std::string(TR("HIP/ZLUDA (default)")) : std::string(TR("HIP/ZLUDA"));
+        const auto hipTime = ms > 0 ? timeText(ms) : hipRunning ? std::string(TR("time in log")) : timeText(ms);
         const auto detail = refusal.empty() ? std::string(TR("AMD Radeon, HIP runtime and bundled ZLUDA"))
                                             : std::string(TR(refusal.c_str()));
-        if (entryRow("hip", TR("HIP/ZLUDA (default)"), detail, !refusal.empty(), timeText(ms), ms > 0, (draft.neuralBackend == TheosRenderPipeline::NeuralRendering::Backend::HIP)))
+        if (entryRow("hip", hipName, detail, !refusal.empty(), hipTime, ms > 0, (draft.neuralBackend == TheosRenderPipeline::NeuralRendering::Backend::HIP)))
         {
             draft.neuralBackend = TheosRenderPipeline::NeuralRendering::Backend::HIP;
             changed = true;
@@ -1366,7 +1370,7 @@ bool DrawNeuralRuntimeCombo(const OverlayUI::FrameView& view, TheosRenderPipelin
         // One line, clipped with an ellipsis before the arrow.
         const auto entry = describe(draft.neuralRuntime);
         const auto label = draft.neuralBackend == NR::Backend::Vulkan ? std::string(TR("Vulkan (experimental)"))
-                         : (draft.neuralBackend == TheosRenderPipeline::NeuralRendering::Backend::HIP) ? std::string(TR("HIP/ZLUDA (default)"))
+                         : (draft.neuralBackend == TheosRenderPipeline::NeuralRendering::Backend::HIP) ? std::string(view.amdAdapter ? TR("HIP/ZLUDA (default)") : TR("HIP/ZLUDA"))
                          : automatic ? std::string(TR("Automatic")) : entry.name;
         const auto detail = chosen.empty() || NR::TestBackend(draft.neuralBackend) ? std::string() : "  \xC2\xB7  " + chosen;
         const auto start = ImGui::GetCursorScreenPos();

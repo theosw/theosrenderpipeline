@@ -1,6 +1,7 @@
 #pragma once
 #include "NeuralRenderingFeatureSession.h"
 #include "SourceDLSSGInterop.h"
+#include "FenceWatchdog.h"
 #include "../../third_party/vknr/include/vknr.h"
 #include <array>
 namespace TheosRenderPipeline::NeuralRendering {
@@ -24,6 +25,7 @@ public:
     ~VulkanNRHost();
 private:
     bool Shaders(ID3D12Device*);
+    bool WatchdogFired();
     void Dispatch(ID3D12GraphicsCommandList*, std::size_t, const FeatureSession::EvaluationInput&, bool);
     vknr::Handle handle_{};
     vknr::Capability capability_{};
@@ -44,5 +46,6 @@ private:
     std::uint64_t queryFrequency_{};
     std::array<std::array<bool,2>,vknr::Slots> queryPending_{};
     std::string status_;
+    FenceWatchdog watchdog_; // last member: stops before the fence and images go
 };
 }

@@ -4,7 +4,8 @@ The small-network engine derives from mauri870/DLSSNR-RDNA3
 revision a2b4edebcd236c8c6d189b340542ce0bf0c3d673, licensed under MIT.
 It retains the inherited mochizuki/Overclockers attribution in LICENSE
 and vendor/mauri/THIRD_PARTY.md. Windows portability, opaque cooperative
-matrix kernels and the TRP submission adapter are local modifications.
+matrix kernels and the TRP submission adapter are TRP modifications, released
+under the same MIT terms.
 THIRD_PARTY.md is the retained upstream inventory, not this DLL's payload:
 OptiScaler, ReShade, MinHook, RenoDX, DXVK and the modified Vulkan loader
 listed there are neither compiled into nor shipped with this engine.
@@ -14,10 +15,10 @@ The user-supplied NVIDIA nvngx_dlssnr.dll 310.9.16 is decoded only in RAM,
 never executed by this engine and never extracted to files.
 
 Uses the installed Windows Vulkan loader. No loader or validation layer is
-bundled or registered. Radeon and Intel execution remain unvalidated.
+bundled or registered. Radeon and Intel execution are not yet tested.
 The RDNA 3 path must pass its fragment-layout probe; otherwise the portable
 KHR path is selected if its capabilities pass. Startup driver compilation
-can take seconds. Standalone results do not establish Skyrim acceptance.
+can take seconds.
 
 Build tools: glslang 16.4.0, SPIR-V Tools and Vulkan headers/loader 1.4.357.0,
 pinned by TRP's public vcpkg manifest. Generated assets stay in the build tree.

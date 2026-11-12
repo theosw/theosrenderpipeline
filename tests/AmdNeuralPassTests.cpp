@@ -1,6 +1,10 @@
 #include "FrameGen/AmdNeuralPass.h"
+#include "FrameGen/NeuralRuntimeSession.h"
+#include <chrono>
+#include <thread>
 #include <dxgi1_4.h>
 #include <array>
+#include <atomic>
 #include <cstdio>
 #include <cstring>
 #include <limits>
@@ -29,6 +33,10 @@ namespace {
         *out = reinterpret_cast<dlss5nr_context*>(&mock); return 0;
     }
     void Destroy(dlss5nr_context*) { ++mock.destroys; }
+    HANDLE releaseStuck{};
+    std::atomic_uint stuckDestroys{};
+    // A runtime whose worker never returns from a HIP call.
+    void StuckDestroy(dlss5nr_context*) { WaitForSingleObject(releaseStuck, INFINITE); ++stuckDestroys; }
     void Defaults(dlss5nr_settings* s) { *s = {}; s->struct_size = sizeof(*s); }
     void Settings(dlss5nr_context*, const dlss5nr_settings* s) {
         Require(s->wait_for_network == mock.expectedWait && s->follow_motion == 1 && s->network_history == 0 && s->show_tracking == mock.expectedTracking,
@@ -190,7 +198,31 @@ int main() {
             auto read=gpu.Read(list,owner.Output());gpu.Submit(list);gpu.Wait();gpu.Pixels(read.Get(),33);
             Require(owner.Failed()&&mock.processes==0&&mock.submissions==0,"no GPU evaluator use after failed initialization");
         }
-        puts("PASS: CPU controls, C API mapping, three GPU-gated host submissions, pixels/alpha, reset continuity, scene/network resize, model/create failure fallback, retirement. No HIP inference.");
+        {   // Stuck runtime shutdown: bounded, leaked rather than freed, HIP refused for the session.
+            mock={};releaseStuck=CreateEventW(nullptr,TRUE,FALSE,nullptr);Require(releaseStuck!=nullptr,"stuck-worker event");
+            AmdNeuralPass::destroyTimeout=std::chrono::milliseconds(200);
+            std::string logged;
+            const auto started=std::chrono::steady_clock::now();
+            {
+                auto api=API();api.destroy=StuckDestroy;
+                AmdNeuralPass owner(api);owner.log=[&](int level,const char* text){if(level==0)logged=text;};
+                auto* list=gpu.Begin();
+                Require(owner.Record(gpu.device.Get(),list,options,true,true,-16,8,motion.Get(),depth.Get(),colors.back().Get()),"stuck-shutdown owner records");
+                gpu.Submit(list);Require(owner.Submitted(gpu.queue.Get()),"stuck-shutdown submission");gpu.Wait();
+            }
+            const auto elapsed=std::chrono::steady_clock::now()-started;
+            Require(elapsed<std::chrono::seconds(3),"teardown returns although the runtime worker is stuck");
+            Require(stuckDestroys==0,"stuck destroy is still running, its context not freed underneath it");
+            Require(logged.find("HIP/ZLUDA shutdown did not finish")!=std::string::npos,"stuck shutdown is logged as an error");
+            using namespace TheosRenderPipeline::NeuralRendering;
+            Require(runtimeSession.Refusal(Backend::HIP)==kHIPStalled,"HIP refused until restart");
+            Require(runtimeSession.Refusal(Backend::Native)==nullptr,"native NR is unaffected");
+            SetEvent(releaseStuck);
+            for(int i=0;i<200&&stuckDestroys==0;++i)std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            Require(stuckDestroys==1,"late destroy completes once on its own thread");
+            CloseHandle(releaseStuck);
+        }
+        puts("PASS: CPU controls, C API mapping, three GPU-gated host submissions, pixels/alpha, reset continuity, scene/network resize, model/create failure fallback, retirement, bounded stuck shutdown. No HIP inference.");
         return 0;
     } catch(const std::exception& e) { fprintf(stderr,"FAIL: %s\n",e.what());return 1; }
 }

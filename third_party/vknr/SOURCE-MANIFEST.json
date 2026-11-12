@@ -9,7 +9,7 @@
     "COORD-R005-MANIFEST.json": "006c02119ba37a683c02829b34f51ecbc129beb420f1b54050174ccc29cc1e95",
     "include/vknr.h": "01f7fbdeb183dae538e864095e6f5d0d521b01a12335e530e954378fd4d86d32",
     "LICENSE": "729c77c3b5ca38587835df4c18803dcfa1dff7ab5c207e22d88aa333a5703592",
-    "NOTICE.txt": "4f51e15b350342921970a72f27cef99e9438ebdc1cb9567e713769017475eb73",
+    "NOTICE.txt": "a10643cf33738ee44232851a4e02c9e0c494a7c5fc18fd639b831b505bde5c44",
     "README.md": "3e2d3d4f2925036c49dbc2023456b9eceb6a7acf82044688499336d4e6bfb0a8",
     "shaders/engine_fused.comp": "02659b08fb0de3abebb824f6a25c2c3403f6ff674fa588fff5d5f701fe951ef9",
     "shaders/engine_quantization.glsl": "ecfc1d18bef49bbef768b536c1602ad5295a494722059cdde39036bbb72622e3",

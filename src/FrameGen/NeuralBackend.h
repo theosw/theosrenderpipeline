@@ -11,6 +11,7 @@ inline constexpr const char* kVendorEditionReason = "HIP/ZLUDA and Vulkan NR nee
 inline constexpr const char* kVendorUpscalerReason = "HIP/ZLUDA and Vulkan NR require TRP XeSS or FSR. Select one in Image and Apply. These backends are unavailable while Community Shaders owns the upscaler.";
 inline constexpr const char* kHIPUpscalerReason = "HIP/ZLUDA NR requires TRP XeSS. FSR has not been validated for this backend; select XeSS and Apply.";
 inline constexpr const char* kHIPGPUReason = "HIP/ZLUDA NR requires an AMD Radeon GPU.";
+inline constexpr const char* kNativeRowReason = "Needs an NVIDIA GPU";
 inline constexpr const char* kNativeGPUReason = "Native NR requires NVIDIA hardware. Choose HIP or Vulkan in Universal for this GPU.";
 inline std::string_view VulkanChoiceRefusal(std::string_view probeReason, bool upscalerReady) {
     if (!probeReason.empty() && probeReason != kVulkanNotChecked) return probeReason;

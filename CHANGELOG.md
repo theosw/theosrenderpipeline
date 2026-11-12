@@ -1,21 +1,20 @@
-# 0.7.0 RC1 — draft for Theo's review
+# 0.7.0 Beta 1
 
-- Neural Rendering on AMD Radeon in Universal: HIP/ZLUDA is the default AMD
-  backend, with Regular (wait) execution and 50% NR input. Earlier volunteer
-  sessions ran on an RX 7900 GRE; this exact RC is not Radeon-tested.
-- Experimental Vulkan NR uses TRP's source-built engine, with asynchronous
-  pipeline preparation, Same frame scheduling and optional Background scheduling
-  in Lab. It has not run on a Radeon. Capability checks explain unavailable paths.
-- TRP XeSS or FSR is required. HIP currently admits XeSS only; FSR remains greyed
-  out for HIP pending validation. Vulkan admits both. Standard shows the AMD
-  backends with an edition reason; NVIDIA keeps native NR by default.
-- Switching between HIP/ZLUDA and Vulkan requires restarting Skyrim. Universal
-  carries the identified AMD runtime, kernels, ZLUDA cache and notices; both
-  backends reuse Standard's original NVIDIA model.
-- Known limits: about 30–34 ms per full-input NR run in earlier RX 7900 GRE
-  evidence, mouth smearing in Async, an unconfirmed integrated-GPU workaround
-  for an earlier HIP crash, and higher input latency at low base fps with frame
-  generation. See the README for hardware coverage and test limits.
+- Neural Rendering on AMD Radeon (Universal). HIP/ZLUDA is the default AMD
+  backend, with Execution Regular (wait) and NR input 50%. Tested on an
+  RX 7900 GRE; other Radeon cards are untested. HIP/ZLUDA needs TRP's XeSS
+  upscaling for now.
+- Experimental Vulkan NR: TRP's own engine, for GPUs with Vulkan cooperative
+  matrices (RX 7000/9000, Intel Arc, RTX). It works with XeSS or FSR and has not
+  run on a Radeon yet.
+- Switching between HIP/ZLUDA and Vulkan needs a Skyrim restart. If either stops
+  responding, TRP turns it off for the session instead of holding the game.
+- The NR runtime list shows every runtime on every GPU, greying the ones that
+  can't run with the reason. The Automatic row shows only native NR's time.
+- NVIDIA defaults are unchanged. Standard lists the AMD choices greyed out.
+- Known limits: HIP/ZLUDA is slow at full input (45–150 ms per run on the
+  RX 7900 GRE), Async execution can smear mouths, and frame generation at a low
+  base fps still feels delayed. See the README.
 
 # 0.6.5
 
