@@ -57,5 +57,7 @@ namespace TheosRenderPipeline
         // Last completed scene was CS HDR Display's extended-range FP16 target.
         bool extendedScene_{};
         const char* status_{"Waiting for a CS world frame"};
+        std::string guideRefusalLogged_;
+        unsigned guideRefusalsLogged_{};
     };
 }

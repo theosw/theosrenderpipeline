@@ -546,9 +546,24 @@ namespace TheosRenderPipeline::SourceDLSSG
 	}
 	bool Backend::CopyDepth(ID3D11Texture2D* a_depth)
 	{
-		return Check(interop_.BeforeSharedWrites(), "deferred input wait before depth copy") &&
-			Check(depthCopy_.Copy(context11_.Get(), a_depth, depth_.texture11.Get(),
-			{depth_.desc.Width, depth_.desc.Height}), "depth copy");
+		if (!Check(interop_.BeforeSharedWrites(), "deferred input wait before depth copy")) { return false; }
+		const FrameExtent extent{depth_.desc.Width, depth_.desc.Height};
+		const auto result = depthCopy_.Copy(context11_.Get(), a_depth, depth_.texture11.Get(), extent);
+		if (Check(result, "depth copy")) { return true; }
+		// The HRESULT alone does not say which check refused (a Nexus log, 0.6.4).
+		logger::error("[SourceDLSSG] depth copy refused at {}: {}", D3D11FrameCopy::Depth::Name(depthCopy_.Refused()),
+			D3D11FrameCopy::Describe(context11_.Get(), a_depth, depth_.texture11.Get(), extent));
+		return false;
+	}
+	bool Backend::CopyGuide(ID3D11Texture2D* a_source, const SharedTexture& a_destination, FrameExtent a_extent, const char* a_operation)
+	{
+		const auto result = interop_.CopyInputRegion(a_source, a_destination, a_extent);
+		if (Check(result, a_operation)) { return true; }
+		if (result == E_INVALIDARG) {
+			logger::error("[SourceDLSSG] {} refused: {}", a_operation,
+				D3D11FrameCopy::Describe(context11_.Get(), a_source, a_destination.texture11.Get(), a_extent));
+		}
+		return false;
 	}
 	bool Backend::Prepare(const sl::Constants& a_constants, ID3D11Texture2D* a_motion, ID3D11Texture2D* a_depth,
 		ID3D11Texture2D* a_ui, ID3D11Texture2D* a_hudless, FrameExtent a_renderExtent,
@@ -564,7 +579,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 				depth_.desc.Width != a_renderExtent.width || depth_.desc.Height != a_renderExtent.height) { return false; }
 		} else if (!EnsureGuide(a_motion, motion_, DXGI_FORMAT_UNKNOWN, a_renderExtent) ||
 			!EnsureGuide(a_depth, depth_, DXGI_FORMAT_R32_FLOAT, a_renderExtent) ||
-			!CopyDepth(a_depth) || !Check(interop_.CopyInputRegion(a_motion, motion_, a_renderExtent), "motion copy")) { return false; }
+			!CopyDepth(a_depth) || !CopyGuide(a_motion, motion_, a_renderExtent, "motion copy")) { return false; }
 		if (a_hudless && (!EnsureGuide(a_hudless, hudless_) || !Check(interop_.CopyInput(a_hudless, hudless_), "HUD-less copy"))) { return false; }
 		if (a_ui && !EnsureGuide(a_ui, ui_)) { return false; }
 		uiSource_ = a_ui;

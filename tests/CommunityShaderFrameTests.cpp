@@ -80,6 +80,18 @@ int main()
             Require(restored == dsv, "producer reverse-Z DSV binding restored");
             frame.Consume();
         }
+        Require(frame.GuideRefusal().empty(), "accepted guides record no refusal");
+        // A producer depth layout the capture has no view for must be named in
+        // the log, as the first reverse-Z build's was not (0.3.0).
+        desc.Format = DXGI_FORMAT_R16_TYPELESS;
+        ComPtr<ID3D11Texture2D> shallow;
+        Check(device->CreateTexture2D(&desc, nullptr, &shallow), "16-bit depth texture");
+        Require(frame.CaptureGuides(context.Get(), 3, motion.Get(), shallow.Get(), {5, 3}, {8, 4}) == E_INVALIDARG &&
+            !frame.Depth(), "unsupported producer depth refused");
+        const auto& refusal = frame.GuideRefusal();
+        Require(refusal.starts_with("depth copy hr=0x80070057 at source depth format") &&
+            refusal.find("source=[8x4 format=53") != std::string::npos &&
+            refusal.find("sourceDevice=same") != std::string::npos, "the refusal names the stage, the check and the producer's layout");
         context->ClearState();
     }
     std::vector<float> values(32);
@@ -179,6 +191,7 @@ int main()
     frame.Consume(); Require(!frame.Ready() && !frame.Hudless(presentation), "completed frame consumed once");
     Require(frame.CaptureDisplayTransform(context.Get(), 2, 2, 1, Dispatch) == S_FALSE, "consumed frame not replayed");
     Require(FAILED(frame.CaptureGuides(context.Get(), 2, motion.Get(), depth.Get(), {9, 2}, {8, 4})) && !frame.Motion(), "invalid new frame cannot expose old guides");
+    Require(frame.GuideRefusal().starts_with("inputs: render=9x2 output=8x4"), "an impossible extent is named");
     context->ClearState();
     Check(frame.CaptureGuides(context.Get(), 3, motion.Get(), depth.Get(), {3, 2}, {6, 4}), "resize guides");
     Check(frame.CaptureScene(context.Get(), world.Get()), "resize scene");

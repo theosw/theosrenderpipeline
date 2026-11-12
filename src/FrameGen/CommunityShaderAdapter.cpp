@@ -19,7 +19,16 @@ namespace TheosRenderPipeline
         status_ = "Capturing CS world guides";
         const auto captured = resources_.CaptureGuides(input.context, input.frame, input.motion,
             input.depth, input.render, input.output);
-        if (captured != S_OK) { status_ = "CS world guides unavailable"; return false; }
+        if (captured != S_OK) {
+            status_ = "CS world guides unavailable";
+            // Each distinct refusal once, and a few at most: this runs every frame.
+            if (FAILED(captured) && guideRefusalsLogged_ < 8 && resources_.GuideRefusal() != guideRefusalLogged_) {
+                guideRefusalLogged_ = resources_.GuideRefusal();
+                ++guideRefusalsLogged_;
+                logger::error("[CS Adapter] world guides refused: {}", guideRefusalLogged_);
+            }
+            return false;
+        }
         candidate_ = history_;
         cameraValid_ = SourceDLSSG::CaptureCameraCandidate(input.graphics, input.render.width,
             input.render.height, input.jitterX, input.jitterY, reset_, input.jittered, camera_, candidate_);

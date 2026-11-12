@@ -291,6 +291,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 		bool EnsureGuide(ID3D11Texture2D* a_source, SharedTexture& a_pair,
 			DXGI_FORMAT a_format = DXGI_FORMAT_UNKNOWN, FrameExtent a_extent = {}, bool a_optional = false);
 		bool CopyDepth(ID3D11Texture2D* a_depth);
+		// Copies one colour guide into its shared texture and logs what a refusal was given.
+		bool CopyGuide(ID3D11Texture2D* a_source, const SharedTexture& a_destination, FrameExtent a_extent, const char* a_operation);
 		void ReleaseGuides();
 		bool RecreateNeuralIfNeeded(const NeuralOptions& options, FrameExtent guideExtent = {});
 		bool FailNeuralRecording(std::string failure = {});

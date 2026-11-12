@@ -58,8 +58,8 @@
         }
         if (!RecreateNeuralIfNeeded(frameNeuralOptions_)) { return false; }
         if (neuralRecovery_.Disabled()) { reset = true; return true; }
-        if (!CopyObjectMask(renderExtent) || !CopyDepth(depth) || !Check(interop_.CopyInputRegion(motion, motion_, renderExtent), "early NR motion copy") ||
-            !Check(interop_.CopyInputRegion(color, earlyNeuralColor_, colorExtent), "early NR world copy") ||
+        if (!CopyObjectMask(renderExtent) || !CopyDepth(depth) || !CopyGuide(motion, motion_, renderExtent, "early NR motion copy") ||
+            !CopyGuide(color, earlyNeuralColor_, colorExtent, "early NR world copy") ||
             !Check(interop_.SignalD3D11(Work::Upscaling), "early NR inputs ready")) { return false; }
         ID3D12GraphicsCommandList* list = nullptr;
         const auto begun=interop_.Begin(Work::Upscaling,&list,measure?&allocatorWait:nullptr,

@@ -4,6 +4,8 @@
 #include <d3dcompiler.h>
 #include <wrl/client.h>
 #include <array>
+#include <format>
+#include <string>
 #include <utility>
 
 namespace TheosRenderPipeline
@@ -41,6 +43,31 @@ namespace TheosRenderPipeline
             return SameObject(device.Get(), sourceDevice.Get()) && SameObject(device.Get(), destinationDevice.Get());
         }
 
+        // What a refused copy was given, for the log. The copies below return the
+        // same E_INVALIDARG for a wrapped or foreign device, a format, a missing
+        // binding and a size, and a player's log has to tell those apart.
+        inline std::string Describe(ID3D11DeviceContext* context, ID3D11Texture2D* source,
+            ID3D11Texture2D* destination, FrameExtent extent)
+        {
+            ComPtr<ID3D11Device> device;
+            if (context) { context->GetDevice(&device); }
+            const auto owner = [&](ID3D11Texture2D* texture) {
+                if (!texture) { return "none"; }
+                ComPtr<ID3D11Device> other; texture->GetDevice(&other);
+                return SameObject(device.Get(), other.Get()) ? "same" : "differs";
+            };
+            const auto layout = [](ID3D11Texture2D* texture) -> std::string {
+                if (!texture) { return "none"; }
+                D3D11_TEXTURE2D_DESC desc{}; texture->GetDesc(&desc);
+                return std::format("{}x{} format={} bind=0x{:X} mips={} array={} samples={}", desc.Width, desc.Height,
+                    static_cast<unsigned>(desc.Format), desc.BindFlags, desc.MipLevels, desc.ArraySize, desc.SampleDesc.Count);
+            };
+            return std::format("context={} sourceDevice={} destinationDevice={} sameTexture={} extent={}x{} source=[{}] destination=[{}]",
+                !context ? "none" : context->GetType() == D3D11_DEVICE_CONTEXT_IMMEDIATE ? "immediate" : "deferred",
+                owner(source), owner(destination), SameObject(source, destination), extent.width, extent.height,
+                layout(source), layout(destination));
+        }
+
         // Both rectangles start at (0, 0). Allocation size is independent of the
         // active render area. Copying back into a larger producer texture leaves
         // its unused border intact. Callers order GPU readers before these writes.
@@ -69,22 +96,42 @@ namespace TheosRenderPipeline
         class Depth final
         {
         public:
+            // The check or D3D call that refused the last Copy. Each of them
+            // returns before the context or either texture is touched.
+            enum class Step { None, Resources, Layout, SourceFormat, ShaderDevice, ShaderCompile, ShaderCreate, SourceView, DestinationView };
+            static constexpr const char* Name(Step step)
+            {
+                switch (step) {
+                case Step::Resources: return "context, textures or their devices";
+                case Step::Layout: return "sizes, destination format or bindings";
+                case Step::SourceFormat: return "source depth format";
+                case Step::ShaderDevice: return "device of the cached copy shader";
+                case Step::ShaderCompile: return "copy shader compilation";
+                case Step::ShaderCreate: return "copy shader creation";
+                case Step::SourceView: return "source view creation";
+                case Step::DestinationView: return "destination view creation";
+                default: return "none";
+                }
+            }
+            Step Refused() const { return refused_; }
+
             void ResetViews() { source_.Reset(); destination_.Reset(); srv_.Reset(); uav_.Reset(); }
 
             HRESULT Copy(ID3D11DeviceContext* context, ID3D11Texture2D* source,
                 ID3D11Texture2D* destination, FrameExtent extent)
             {
-                if (!ValidResources(context, source, destination)) { return E_INVALIDARG; }
+                const auto refuse = [&](Step step, HRESULT result) { refused_ = step; return result; };
+                if (!ValidResources(context, source, destination)) { return refuse(Step::Resources, E_INVALIDARG); }
                 D3D11_TEXTURE2D_DESC from{}, to{}; source->GetDesc(&from); destination->GetDesc(&to);
                 if (!extent.Fits(from) || !extent.Fits(to) || to.Width != extent.width || to.Height != extent.height ||
                     to.Format != DXGI_FORMAT_R32_FLOAT || !(from.BindFlags & D3D11_BIND_SHADER_RESOURCE) ||
-                    !(to.BindFlags & D3D11_BIND_UNORDERED_ACCESS)) { return E_INVALIDARG; }
+                    !(to.BindFlags & D3D11_BIND_UNORDERED_ACCESS)) { return refuse(Step::Layout, E_INVALIDARG); }
                 D3D11_SHADER_RESOURCE_VIEW_DESC view{};
                 switch (from.Format) {
                 case DXGI_FORMAT_R24G8_TYPELESS: view.Format = DXGI_FORMAT_R24_UNORM_X8_TYPELESS; break;
                 case DXGI_FORMAT_R32G8X24_TYPELESS: view.Format = DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS; break;
                 case DXGI_FORMAT_R32_TYPELESS: case DXGI_FORMAT_R32_FLOAT: view.Format = DXGI_FORMAT_R32_FLOAT; break;
-                default: return E_INVALIDARG;
+                default: return refuse(Step::SourceFormat, E_INVALIDARG);
                 }
                 view.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D; view.Texture2D.MipLevels = 1;
                 ComPtr<ID3D11Device> device; context->GetDevice(&device);
@@ -93,29 +140,30 @@ namespace TheosRenderPipeline
                     // GetDevice while contexts/resources expose the proxy.
                     // Retain the device that actually created our shader;
                     // never infer ownership from an incoming resource.
-                    if (!SameObject(device.Get(), shaderDevice_.Get())) { return E_INVALIDARG; }
+                    if (!SameObject(device.Get(), shaderDevice_.Get())) { return refuse(Step::ShaderDevice, E_INVALIDARG); }
                 } else {
                     constexpr char program[] = "Texture2D<float> s:register(t0); RWTexture2D<float> d:register(u0); [numthreads(8,8,1)] void main(uint3 p:SV_DispatchThreadID){uint w,h; d.GetDimensions(w,h); if(p.x<w && p.y<h) d[p.xy]=s.Load(int3(p.xy,0));}";
                     ComPtr<ID3DBlob> code;
                     auto hr = D3DCompile(program, sizeof(program) - 1, "FrameDepthCopy", nullptr, nullptr,
                         "main", "cs_5_0", 0, 0, &code, nullptr);
-                    if (FAILED(hr)) { return hr; }
+                    if (FAILED(hr)) { return refuse(Step::ShaderCompile, hr); }
                     hr = device->CreateComputeShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, &shader_);
-                    if (FAILED(hr)) { return hr; }
+                    if (FAILED(hr)) { return refuse(Step::ShaderCreate, hr); }
                     shaderDevice_ = device;
                 }
                 if (source_.Get() != source) {
                     ComPtr<ID3D11ShaderResourceView> srv;
                     const auto hr = device->CreateShaderResourceView(source, &view, &srv);
-                    if (FAILED(hr)) { return hr; }
+                    if (FAILED(hr)) { return refuse(Step::SourceView, hr); }
                     srv_ = std::move(srv); source_ = source;
                 }
                 if (destination_.Get() != destination) {
                     ComPtr<ID3D11UnorderedAccessView> uav;
                     const auto hr = device->CreateUnorderedAccessView(destination, nullptr, &uav);
-                    if (FAILED(hr)) { return hr; }
+                    if (FAILED(hr)) { return refuse(Step::DestinationView, hr); }
                     uav_ = std::move(uav); destination_ = destination;
                 }
+                refused_ = Step::None;
                 ComPtr<ID3D11ComputeShader> shader;
                 ComPtr<ID3D11ShaderResourceView> srv;
                 ComPtr<ID3D11UnorderedAccessView> uav;
@@ -141,6 +189,7 @@ namespace TheosRenderPipeline
             ComPtr<ID3D11UnorderedAccessView> uav_;
             ComPtr<ID3D11ComputeShader> shader_;
             ComPtr<ID3D11Device> shaderDevice_;
+            Step refused_{};
         };
     }
 }

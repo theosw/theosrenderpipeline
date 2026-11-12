@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <vector>
+#include <string>
 #include <string_view>
 #include <bit>
 #include <cstdint>
@@ -106,6 +107,21 @@ int main(int argc, char** argv)
     Require(FAILED(Copy::Color(otherContext.Get(), world.Get(), captured.Get(), active)), "foreign device rejected");
     ComPtr<ID3D11DeviceContext> deferred; Check(device->CreateDeferredContext(0, &deferred), "deferred context");
     Require(FAILED(Copy::Color(deferred.Get(), world.Get(), captured.Get(), active)), "deferred ordering rejected");
+    // A refusal's log line has to separate the causes that share E_INVALIDARG.
+    const auto has = [](const std::string& text, std::string_view part) { return text.find(part) != std::string::npos; };
+    const auto accepted = Copy::Describe(context.Get(), world.Get(), captured.Get(), active);
+    Require(has(accepted, "context=immediate") && has(accepted, "sourceDevice=same") && has(accepted, "destinationDevice=same") &&
+        has(accepted, "sameTexture=false") && has(accepted, "extent=13x9") && has(accepted, "source=[22x17 format=41") &&
+        has(accepted, "destination=[13x9 format=41"), "an accepted copy describes one device and both layouts");
+    const auto foreign = Copy::Describe(otherContext.Get(), world.Get(), captured.Get(), active);
+    Require(has(foreign, "sourceDevice=differs") && has(foreign, "destinationDevice=differs"), "a foreign device is named");
+    auto foreignWorld = Texture(otherDevice.Get(), width, height, DXGI_FORMAT_R32_FLOAT, D3D11_BIND_SHADER_RESOURCE, scene.data());
+    const auto mixed = Copy::Describe(context.Get(), foreignWorld.Get(), captured.Get(), active);
+    Require(has(mixed, "sourceDevice=differs") && has(mixed, "destinationDevice=same"), "only the foreign texture is named");
+    Require(has(Copy::Describe(deferred.Get(), world.Get(), world.Get(), active), "context=deferred") &&
+        has(Copy::Describe(deferred.Get(), world.Get(), world.Get(), active), "sameTexture=true") &&
+        has(Copy::Describe(nullptr, nullptr, captured.Get(), active), "context=none sourceDevice=none"),
+        "deferred, aliased and missing inputs are named");
 
     // Use unrelated bound resources to verify that the producer's compute state
     // survives capture. These are real views/shaders, not scripted callbacks.
@@ -125,6 +141,16 @@ int main(int argc, char** argv)
     context->CSSetUnorderedAccessViews(0, 1, savedUAV.GetAddressOf(), nullptr);
 
     Copy::Depth depthCopy;
+    using Step = Copy::Depth::Step;
+    {
+        // A depth layout the copy has no view for (16-bit) is named as such.
+        auto shallow = Texture(device.Get(), width, height, DXGI_FORMAT_R16_TYPELESS,
+            D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_DEPTH_STENCIL);
+        auto target = Texture(device.Get(), active.width, active.height, DXGI_FORMAT_R32_FLOAT,
+            D3D11_BIND_UNORDERED_ACCESS | D3D11_BIND_SHADER_RESOURCE);
+        Require(depthCopy.Copy(context.Get(), shallow.Get(), target.Get(), active) == E_INVALIDARG &&
+            depthCopy.Refused() == Step::SourceFormat, "an unsupported depth format is a source-format refusal");
+    }
     for (const auto format : {DXGI_FORMAT_R32_FLOAT, DXGI_FORMAT_R32_TYPELESS, DXGI_FORMAT_R24G8_TYPELESS, DXGI_FORMAT_R32G8X24_TYPELESS}) {
         std::vector<UINT> packed(scene.size());
         auto depthValues = scene;
@@ -147,21 +173,29 @@ int main(int argc, char** argv)
             auto target = Texture(device.Get(), extent.width, extent.height, DXGI_FORMAT_R32_FLOAT,
                 D3D11_BIND_UNORDERED_ACCESS | D3D11_BIND_SHADER_RESOURCE);
             Check(depthCopy.Copy(context.Get(), depth.Get(), target.Get(), extent), "capture typed/typeless depth");
+            Require(depthCopy.Refused() == Step::None, "an accepted depth copy reports no refusal");
             ExpectRegion(Pixels(context.Get(), target.Get()), depthValues, extent, width, 0.0000002f);
             ComPtr<ID3D11ComputeShader> shader; ComPtr<ID3D11ShaderResourceView> srv, untouched;
             ComPtr<ID3D11UnorderedAccessView> uav;
             context->CSGetShader(&shader, nullptr, nullptr); context->CSGetShaderResources(0, 1, &srv);
             context->CSGetShaderResources(3, 1, &untouched); context->CSGetUnorderedAccessViews(0, 1, &uav);
             Require(shader == savedShader && srv == savedSRV && untouched == savedSRV && uav == savedUAV, "compute bindings restored");
-            Require(FAILED(depthCopy.Copy(context.Get(), depth.Get(), target.Get(), {extent.width + 1, extent.height})), "depth extent mismatch rejected");
-            Require(FAILED(depthCopy.Copy(otherContext.Get(), depth.Get(), target.Get(), extent)), "foreign depth context rejected");
+            Require(FAILED(depthCopy.Copy(context.Get(), depth.Get(), target.Get(), {extent.width + 1, extent.height})) &&
+                depthCopy.Refused() == Step::Layout, "depth extent mismatch rejected as a layout refusal");
+            auto unwritable = Texture(device.Get(), extent.width, extent.height, DXGI_FORMAT_R32_FLOAT, D3D11_BIND_SHADER_RESOURCE);
+            Require(FAILED(depthCopy.Copy(context.Get(), depth.Get(), unwritable.Get(), extent)) &&
+                depthCopy.Refused() == Step::Layout, "a destination without compute write access is a layout refusal");
+            Require(FAILED(depthCopy.Copy(otherContext.Get(), depth.Get(), target.Get(), extent)) &&
+                depthCopy.Refused() == Step::Resources, "foreign depth context rejected as a resource refusal");
             auto foreignSource = Texture(otherDevice.Get(), width, height, DXGI_FORMAT_R32_FLOAT,
                 D3D11_BIND_SHADER_RESOURCE, scene.data());
             auto foreignTarget = Texture(otherDevice.Get(), extent.width, extent.height, DXGI_FORMAT_R32_FLOAT,
                 D3D11_BIND_UNORDERED_ACCESS | D3D11_BIND_SHADER_RESOURCE);
-            Require(FAILED(depthCopy.Copy(otherContext.Get(), foreignSource.Get(), foreignTarget.Get(), extent)),
+            Require(FAILED(depthCopy.Copy(otherContext.Get(), foreignSource.Get(), foreignTarget.Get(), extent)) &&
+                depthCopy.Refused() == Step::ShaderDevice,
                 "cached shader cannot be reused on another otherwise valid device");
             Check(depthCopy.Copy(context.Get(), depth.Get(), target.Get(), extent), "legitimate reuse after foreign rejection");
+            Require(depthCopy.Refused() == Step::None, "a later accepted copy clears the refusal");
             ExpectRegion(Pixels(context.Get(), target.Get()), depthValues, extent, width, 0.0000002f);
             if (depthStencil && extent.width == width) {
                 ComPtr<ID3D11DepthStencilView> dsv;
