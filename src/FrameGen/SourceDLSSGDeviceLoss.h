@@ -16,6 +16,19 @@ namespace TheosRenderPipeline::SourceDLSSG
 	CheckRouting RouteCheck(HRESULT a_result, HRESULT a_latched, const InteropFailureDiagnostics& a_interop,
 		const RetirementWaitDiagnostics* a_extendedWait) noexcept;
 
+	// What a failed guide copy (depth, motion or HUD-less colour into a texture
+	// shared with D3D12) means for the presenter. A copy refused by its own
+	// checks has written nothing and the frame is still whole. Latching that as
+	// a fault refused every later Present: a frozen picture with the game
+	// running behind it (a player's log, 0.6.4). Refused turns frame generation
+	// and NR off instead and presentation continues. Device loss still latches.
+	enum class GuideCopyRouting { Copied, Refused, Fault };
+	// a_removedReason is the D3D11 device's GetDeviceRemovedReason. a_untouched:
+	// every failure of this copy returns before it writes anything (the depth
+	// copy). A copy that first waits on the GPU promises that only for
+	// E_INVALIDARG; its other failures stay faults.
+	GuideCopyRouting RouteGuideCopy(HRESULT a_result, HRESULT a_removedReason, bool a_untouched) noexcept;
+
 	// Observation only. Never retries work, waits for completion, or releases
 	// device/resource owners. The backend retains its original first error and
 	// calls Report only for that first fault.

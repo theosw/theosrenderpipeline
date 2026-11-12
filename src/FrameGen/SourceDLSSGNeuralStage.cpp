@@ -109,6 +109,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 	{
 		if (neuralRecovery_.Disabled()) { return "NR disabled for this session"; }
 		if (startupTransport_) { return "NR unavailable after frame-generation startup failure; restart to retry"; }
+		if (GuidesRefused()) { return guideRefusal_.c_str(); }
 		std::scoped_lock lock(neuralMutex_);
         if (NeuralRendering::TestBackend(options.backend) && options.enabled) {
             if ((!xess_.Ready() && !fsr_.Ready()) || options.worldOnly) { return NeuralRendering::kVendorUpscalerReason; }

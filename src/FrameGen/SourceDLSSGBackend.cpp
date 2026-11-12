@@ -494,6 +494,11 @@ namespace TheosRenderPipeline::SourceDLSSG
 	{
 		motion_ = {}; depth_ = {}; ui_ = {}; hudless_ = {}; earlyNeuralColor_ = {}; objectMask_ = {}; objectMaskCurrent_ = false;
 		uiSource_.Reset(); depthCopy_.ResetViews();
+		// New guide textures follow (a resize, a new presenter): try the copies once more.
+		if (GuidesRefused()) {
+			logger::info("[SourceDLSSG] guide textures released; frame generation and NR may resume with the new ones");
+			guideRefusal_.clear();
+		}
 	}
     bool Backend::CopyObjectMask(FrameExtent extent)
     {
@@ -548,20 +553,43 @@ namespace TheosRenderPipeline::SourceDLSSG
 	{
 		if (!Check(interop_.BeforeSharedWrites(), "deferred input wait before depth copy")) { return false; }
 		const FrameExtent extent{depth_.desc.Width, depth_.desc.Height};
-		const auto result = depthCopy_.Copy(context11_.Get(), a_depth, depth_.texture11.Get(), extent);
-		if (Check(result, "depth copy")) { return true; }
-		// The HRESULT alone does not say which check refused (a Nexus log, 0.6.4).
-		logger::error("[SourceDLSSG] depth copy refused at {}: {}", D3D11FrameCopy::Depth::Name(depthCopy_.Refused()),
-			D3D11FrameCopy::Describe(context11_.Get(), a_depth, depth_.texture11.Get(), extent));
-		return false;
+		auto result = depthCopy_.Copy(context11_.Get(), a_depth, depth_.texture11.Get(), extent);
+		const char* step = FAILED(result) ? D3D11FrameCopy::Depth::Name(depthCopy_.Refused()) : nullptr;
+#if defined(TRP_GUIDE_REFUSAL_TEST)
+		// Private test builds only: refuse the 600th depth copy, so a game run
+		// shows frame generation working and then the refusal path. A shipped
+		// plugin has no switch for this.
+		static unsigned copies{};
+		if (SUCCEEDED(result) && ++copies == 600) { result = E_INVALIDARG; step = "the test build's injected refusal"; }
+#endif
+		return GuideCopied(result, "depth copy", true, a_depth, depth_.texture11.Get(), extent, step);
 	}
 	bool Backend::CopyGuide(ID3D11Texture2D* a_source, const SharedTexture& a_destination, FrameExtent a_extent, const char* a_operation)
 	{
-		const auto result = interop_.CopyInputRegion(a_source, a_destination, a_extent);
-		if (Check(result, a_operation)) { return true; }
-		if (result == E_INVALIDARG) {
-			logger::error("[SourceDLSSG] {} refused: {}", a_operation,
-				D3D11FrameCopy::Describe(context11_.Get(), a_source, a_destination.texture11.Get(), a_extent));
+		return GuideCopied(interop_.CopyInputRegion(a_source, a_destination, a_extent), a_operation, false,
+			a_source, a_destination.texture11.Get(), a_extent, nullptr);
+	}
+	bool Backend::GuideCopied(HRESULT a_result, const char* a_operation, bool a_untouched, ID3D11Texture2D* a_source,
+		ID3D11Texture2D* a_destination, FrameExtent a_extent, const char* a_step)
+	{
+		if (SUCCEEDED(a_result)) { return true; } // Ask the device only about a failure.
+		if (RouteGuideCopy(a_result, device11_->GetDeviceRemovedReason(), a_untouched) == GuideCopyRouting::Fault) {
+			Check(a_result, a_operation);
+		} else {
+			// Nothing was written and the frame is whole: keep presenting it, without
+			// the features that need this guide. See RouteGuideCopy.
+			guideRefusal_ = std::format("Frame generation and NR are off: the {} was refused (0x{:08X}). Restart to retry.",
+				a_operation, static_cast<std::uint32_t>(a_result));
+			status_ = guideRefusal_;
+			neuralHistory_.Invalidate();
+			neuralEligible_ = false;
+			logger::error("[SourceDLSSG] {} refused HRESULT=0x{:08X} before anything was written; presenting without frame generation and NR until restart",
+				a_operation, static_cast<std::uint32_t>(a_result));
+		}
+		// The HRESULT alone does not say which check refused (a player's log, 0.6.4).
+		if (a_untouched || a_result == E_INVALIDARG) {
+			logger::error("[SourceDLSSG] {} refused{}{}: {}", a_operation, a_step ? " at " : "", a_step ? a_step : "",
+				D3D11FrameCopy::Describe(context11_.Get(), a_source, a_destination, a_extent));
 		}
 		return false;
 	}
@@ -570,6 +598,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 		UINT a_width, UINT a_height, bool a_neuralEligible)
 	{
 		if (startupTransport_) { return Ready(); } // Plain output only; no vendor frame inputs are consumed.
+		// A refused guide copy leaves frames unprepared: they present as menus
+		// and warm-up frames do, without frame generation or late NR.
+		if (GuidesRefused()) { return false; }
 		if (!Ready() || presenterReplacement_.Pending() || !Session::ValidConstants(a_constants) || !a_motion || !a_depth ||
 			!a_renderExtent.width || !a_renderExtent.height) { return false; }
 		if (neuralEvaluatedEarly_) {
@@ -580,7 +611,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 		} else if (!EnsureGuide(a_motion, motion_, DXGI_FORMAT_UNKNOWN, a_renderExtent) ||
 			!EnsureGuide(a_depth, depth_, DXGI_FORMAT_R32_FLOAT, a_renderExtent) ||
 			!CopyDepth(a_depth) || !CopyGuide(a_motion, motion_, a_renderExtent, "motion copy")) { return false; }
-		if (a_hudless && (!EnsureGuide(a_hudless, hudless_) || !Check(interop_.CopyInput(a_hudless, hudless_), "HUD-less copy"))) { return false; }
+		if (a_hudless && (!EnsureGuide(a_hudless, hudless_) || !GuideCopied(interop_.CopyInput(a_hudless, hudless_), "HUD-less copy", false,
+			a_hudless, hudless_.texture11.Get(), {hudless_.desc.Width, hudless_.desc.Height}, nullptr))) { return false; }
 		if (a_ui && !EnsureGuide(a_ui, ui_)) { return false; }
 		uiSource_ = a_ui;
 		frameConstants_ = a_constants;

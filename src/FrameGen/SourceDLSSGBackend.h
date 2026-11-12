@@ -92,7 +92,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 			const auto value = xefgOptions_.load();
 			return {(value & 0x100u) != 0, value & 0xffu};
 		}
-		const std::string& ProviderStatus() const { return providerStatus_; }
+		// The line under the Frame generation provider; a guide refusal replaces it.
+		const std::string& ProviderStatus() const { return guideRefusal_.empty() ? providerStatus_ : guideRefusal_; }
 		bool GenerationActive() const { return Ready() && !startupTransport_ && !nativePresenterFallback_ && !presenterReplacement_.Pending() && (provider_ == FrameGenerationProvider::XeFG ? xefg_.Snapshot().enabled : session_.Snapshot().GenerationActive()); }
 		unsigned EffectiveMultiplier() const { return startupTransport_ || nativePresenterFallback_ ? 1 : provider_ == FrameGenerationProvider::XeFG ? xefg_.Snapshot().generatedFrames+1 : session_.Snapshot().options.numFramesToGenerate + 1; }
 		std::uint32_t FrameIndex() const { return startupTransport_ ? transportFrame_ : nativePresenterFallback_ || presenterReplacement_.Pending() ? replacementFrame_ : provider_ == FrameGenerationProvider::XeFG ? xefg_.Snapshot().frameId : nvidiaNeedsPresent_ ? xefg_.Snapshot().frameId + 1 : session_.Snapshot().frameIndex; }
@@ -293,6 +294,11 @@ namespace TheosRenderPipeline::SourceDLSSG
 		bool CopyDepth(ID3D11Texture2D* a_depth);
 		// Copies one colour guide into its shared texture and logs what a refusal was given.
 		bool CopyGuide(ID3D11Texture2D* a_source, const SharedTexture& a_destination, FrameExtent a_extent, const char* a_operation);
+		// Applies RouteGuideCopy to one guide copy's result: true when copied. A
+		// refusal sets guideRefusal_ and leaves the backend ready; a fault latches.
+		bool GuideCopied(HRESULT a_result, const char* a_operation, bool a_untouched, ID3D11Texture2D* a_source,
+			ID3D11Texture2D* a_destination, FrameExtent a_extent, const char* a_step);
+		bool GuidesRefused() const { return !guideRefusal_.empty(); }
 		void ReleaseGuides();
 		bool RecreateNeuralIfNeeded(const NeuralOptions& options, FrameExtent guideExtent = {});
 		bool FailNeuralRecording(std::string failure = {});
@@ -338,6 +344,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 		Microsoft::WRL::ComPtr<IDXGIFactory> nativeFactory_, streamlineFactory_;
 		DXGI_SWAP_CHAIN_DESC presenterDesc_{};
 		std::string providerStatus_{"NVIDIA presenter"};
+		// Why frame generation and NR are off after a refused guide copy; empty
+		// otherwise. Cleared when the guide textures are released.
+		std::string guideRefusal_;
 		bool providerSwitchPending_{}, cameraAvailable_{}, recreateXeFG_{}, nvidiaNeedsPresent_{};
 		bool providerCapabilitiesKnown_{}, nativePresenterFallback_{}, fallbackPrepared_{};
 		PresenterReplacement presenterReplacement_;

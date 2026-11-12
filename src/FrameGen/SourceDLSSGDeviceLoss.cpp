@@ -92,6 +92,13 @@ namespace TheosRenderPipeline::SourceDLSSG
 		return routing;
 	}
 
+	GuideCopyRouting RouteGuideCopy(HRESULT a_result, HRESULT a_removedReason, bool a_untouched) noexcept
+	{
+		if (SUCCEEDED(a_result)) { return GuideCopyRouting::Copied; }
+		if (IsDeviceLoss(a_result) || FAILED(a_removedReason)) { return GuideCopyRouting::Fault; }
+		return a_untouched || a_result == E_INVALIDARG ? GuideCopyRouting::Refused : GuideCopyRouting::Fault;
+	}
+
 	bool DeviceLossDiagnostics::ReadDREDSetting(const wchar_t* a_path) noexcept
 	{
 		LastErrorScope preserve;

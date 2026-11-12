@@ -166,6 +166,23 @@ static void Routing(std::ostringstream& log)
     r = RouteCheck(S_OK, stalledResult, stalled, nullptr);
     Require(!r.latch, "success after a fault does not clear or relatch it");
 
+    // A guide copy refused before it wrote anything must not stop presentation;
+    // device loss, and a failure that may follow a GPU wait, still must.
+    using enum GuideCopyRouting;
+    const auto hung = DXGI_ERROR_DEVICE_HUNG;
+    Require(RouteGuideCopy(S_OK, S_OK, true) == Copied && RouteGuideCopy(S_FALSE, S_OK, false) == Copied, "a successful copy is copied");
+    Require(RouteGuideCopy(E_INVALIDARG, S_OK, true) == Refused && RouteGuideCopy(E_INVALIDARG, S_OK, false) == Refused,
+        "a validation refusal turns generation off without a fault");
+    Require(RouteGuideCopy(E_OUTOFMEMORY, S_OK, true) == Refused && RouteGuideCopy(E_FAIL, S_OK, true) == Refused,
+        "the depth copy's view or shader creation failing is a refusal: nothing was written");
+    Require(RouteGuideCopy(stalledResult, S_OK, false) == Fault && RouteGuideCopy(E_UNEXPECTED, S_OK, false) == Fault,
+        "a wait or readiness failure of a copy that waits on the GPU stays a fault");
+    Require(RouteGuideCopy(removed, S_OK, true) == Fault && RouteGuideCopy(hung, S_OK, false) == Fault,
+        "a device-loss result stays a fault");
+    Require(RouteGuideCopy(E_INVALIDARG, removed, true) == Fault && RouteGuideCopy(E_INVALIDARG, hung, false) == Fault,
+        "a refusal on a removed device stays a fault");
+    Require(RouteGuideCopy(S_OK, removed, true) == Copied, "a copy that succeeded is not re-judged here");
+
     // The backend applies only routing.latch to its fault and the reporter, so
     // a sequence of checks writes one report for the first failure.
     DeviceLossDiagnostics reporter;
