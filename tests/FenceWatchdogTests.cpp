@@ -96,6 +96,23 @@ int main()
         Require(!watchdog.Fired() && shared->GetCompletedValue() == 0, "stopped watchdog leaves the fence untouched");
         std::puts("idle and stop");
     }
+    {   // A reported producer failure releases the held queue at once, long before the timeout.
+        ComPtr<ID3D12Fence> shared, after;
+        Check(device->CreateFence(0, D3D12_FENCE_FLAG_SHARED, IID_PPV_ARGS(&shared)), "shared fence");
+        Check(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&after)), "after fence");
+        FenceWatchdog watchdog;
+        watchdog.Start(shared.Get(), 60s);
+        Require(!watchdog.ReleaseNow(), "nothing to release while idle");
+        Check(queue->Wait(shared.Get(), 4), "queue waits for the producer");
+        Check(queue->Signal(after.Get(), 1), "work behind the wait");
+        watchdog.Arm(4);
+        const auto started = std::chrono::steady_clock::now();
+        Require(watchdog.ReleaseNow(), "failure releases the held wait");
+        Require(WaitFor(after.Get(), 1, 3000ms), "queue runs again after the release");
+        Require(std::chrono::steady_clock::now() - started < 3s, "release does not wait for the timeout");
+        Require(watchdog.Fired() && watchdog.FiredValue() == 4 && !watchdog.ReleaseNow(), "released once");
+        std::puts("released on reported failure");
+    }
     std::puts("PASS");
     return 0;
 }

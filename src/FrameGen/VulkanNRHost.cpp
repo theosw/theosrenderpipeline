@@ -173,7 +173,9 @@ bool VulkanNRHost::Initialize(const FeatureSession::CreateInfo& info) {
         FAILED(device_->CreateSharedHandle(fence_.Get(),nullptr,GENERIC_ALL,nullptr,&handles.values[4]))){status_="Vulkan NR shared fence creation refused";return false;}
     create.fence=handles.values[4];const auto started=std::chrono::steady_clock::now();
     // A GPU device loss or hang inside Vulkan would otherwise hold the game's queue on frame.done forever.
-    watchdog_.Start(fence_.Get(),std::chrono::milliseconds(3000));
+    // 10 s without any progress on submitted NR work: far beyond Windows' 2 s GPU
+    // timeout, so ordinary hitches, loading and slow frames never reach it.
+    watchdog_.Start(fence_.Get(),std::chrono::milliseconds(10000));
 #ifdef TRP_NR_VENDOR_BENCHMARK
     create.validation=GetEnvironmentVariableW(L"TRP_VKNR_TEST_VALIDATION",nullptr,0)>0;
 #endif
@@ -231,7 +233,13 @@ bool VulkanNRHost::BeginFrame(std::size_t slot,ID3D12CommandQueue* queue,bool& r
         queryPending_[slot][kind]=false;
     }
     vknr::Completion completion;
-    if(api.poll(handle_,&completion)!=vknr::Result::Ok){unsafe_=true;status_=api.error(handle_);return false;}
+    if(api.poll(handle_,&completion)!=vknr::Result::Ok){
+        // A failed poll (for example Vulkan device lost) will never signal: release now.
+        const bool released=watchdog_.ReleaseNow();
+        unsafe_=true;status_=api.error(handle_);
+        if(released){runtimeSession.Fail(Backend::Vulkan,kVulkanStalled);
+            logger::error("[Vulkan NR] backend=Vulkan engine failure: {}; held D3D12 queue released, Vulkan NR off for this session",status_);}
+        return false;}
     measurements_.completed=completion.samples;measurements_.networkTotalMs=completion.totalMilliseconds;
     ready=backgroundReady_=backgroundPending_&&completion.done>=value_;
     return true;
