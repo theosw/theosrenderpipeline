@@ -68,14 +68,16 @@ int main()
         ComPtr<ID3D12Fence> shared;
         Check(device->CreateFence(0, D3D12_FENCE_FLAG_SHARED, IID_PPV_ARGS(&shared)), "shared fence");
         FenceWatchdog watchdog;
-        watchdog.Start(shared.Get(), 150ms);
+        // 100 ms frames against a 500 ms timeout: 5x margin for a loaded test machine,
+        // and 1.2 s in total, so a timer that ignored progress would fire.
+        watchdog.Start(shared.Get(), 500ms);
         for (std::uint64_t value = 1; value <= 12; ++value) {
             watchdog.Arm(value + 1);  // the next frame is queued before this one completes
-            std::this_thread::sleep_for(60ms);
+            std::this_thread::sleep_for(100ms);
             Check(shared->Signal(value), "producer completes a frame");
         }
         Check(shared->Signal(13), "producer completes the last frame");
-        std::this_thread::sleep_for(300ms);
+        std::this_thread::sleep_for(600ms);
         Require(!watchdog.Fired(), "progressing producer is left alone");
         std::puts("left progressing producer alone");
     }
