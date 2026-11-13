@@ -64,6 +64,10 @@ OverlayUI::FrameView OverlayUI::CaptureFrameView()
     // Runtime installation requires a restart. Do not scan the filesystem every frame.
     static const bool fsrRuntimePresent = TheosRenderPipeline::FSRUpscaler::RuntimePresent();
     view.fsrRuntimePresent = fsrRuntimePresent;
+    {
+        const auto& fsr = TheosRenderPipeline::SourceDLSSG::Backend::Get().FSR();
+        view.fsrVersion = fsr.Ready() ? fsr.Version() : std::string();
+    }
     const auto& upscalerSettings = nvidiaHost->SourceUpscalerSettings();
     view.upscaler = upscalerSettings.Effective();
     view.upscalerNeedsRestart = upscalerSettings.NeedsRestart();

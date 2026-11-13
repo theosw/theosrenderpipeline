@@ -170,10 +170,18 @@ int wmain(int argc, wchar_t** argv)
         // Alternating order over three rounds avoids systematically warming one method first.
         for (unsigned round=0;round<3;++round) for (unsigned method=0;method<2;++method) {
             const bool useFSR=(method+(round%2))%2; const char* name=useFSR?"FSR":"XeSS";
+            if (useFSR) { fsr.PreferClassic(round == 1); } // round 1 exercises the FSR 3.1 override
             auto hr=useFSR?fsr.Initialize(interop,d11.Get(),output,1,DXGI_FORMAT_R8G8B8A8_UNORM,false,input):
                 xess.Initialize(interop,d11.Get(),output,xessQuality,DXGI_FORMAT_R8G8B8A8_UNORM,false,nullptr,input);
             if (FAILED(hr)) { std::printf("status=%s\n",useFSR?fsr.Status().c_str():xess.Status().c_str()); } Check(hr,"initialize fixed extent");
-            if (useFSR) { std::printf("FSR provider=%s\n",fsr.Version().c_str());Require(fsr.Version()=="3.1.4","pinned official FSR provider"); }
+            if (useFSR) {
+                std::printf("FSR provider=%s offered=",fsr.Version().c_str());
+                for (const auto& v : fsr.AvailableVersions()) { std::printf("[%s] ",v.c_str()); }
+                std::printf("\n");
+                // FSR 4 is AMD-only; every other GPU must get the SDK's FSR 3.1 provider.
+                Require(fsr.Version().starts_with("3.1.") || (!fsr.PrefersClassic() && fsr.Version().starts_with("4.")),"official FSR provider");
+                std::printf("FSR requested=%s\n",fsr.PrefersClassic()?"3.1":"automatic");
+            }
             std::vector<double> full, sdk;
             const unsigned warmup=debug?12:240, measured=debug?16:240;
             for (unsigned frame=0;frame<warmup+measured;++frame) {

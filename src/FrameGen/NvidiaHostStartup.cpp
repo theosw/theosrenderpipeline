@@ -32,7 +32,7 @@ HRESULT NvidiaHost::CreateSwapChain(IDXGIFactory* a_factory, ID3D11Device* a_dev
             const auto selected = TheosRenderPipeline::Upscaler::ForFSRRuntime(creation,
                 TheosRenderPipeline::FSRUpscaler::RuntimePresent());
             if (selected.mode != creation.mode) {
-                logger::warn("[FSR] AMD/amd_fidelityfx_dx12.dll missing; using XeSS for this session");
+                logger::warn("[FSR] AMD/amd_fidelityfx_loader_dx12.dll or amd_fidelityfx_upscaler_dx12.dll missing; using XeSS for this session");
                 upscalerSettings->mUpscaleType = selected.mode;
                 creation = selected;
             }
@@ -105,6 +105,7 @@ HRESULT NvidiaHost::CreateSwapChain(IDXGIFactory* a_factory, ID3D11Device* a_dev
     backend.ConfigureVSync(settings.sourceDLSSG.vsync);
     backend.ConfigureXeFGTensor(settings.sourceDLSSG.xefgTensorCores);
     backend.ConfigureXeFGVSyncCadence(settings.sourceDLSSG.xefgEvenPacing);
+    backend.FSR().PreferClassic(settings.sourceDLSSG.fsrClassic);
     backend.ConfigureXeFGSceneChangeThreshold(settings.sourceDLSSG.xefgSceneChangeThreshold);
     backend.ConfigureOutputFPSLimit(settings.sourceDLSSG.outputFPSLimit);
     backend.ConfigureFrameLimit(settings.sourceDLSSG.frameLimit);
@@ -451,7 +452,10 @@ bool NvidiaHost::InitializeSourceUpscaler(const D3D11_TEXTURE2D_DESC& a_outputDe
         AdoptEffectiveSourceUpscalerSettings();
         if (!CreateNativeUIExtractionResources(a_outputDesc)) { logger::warn("[FSR] native UI extraction unavailable; retaining HUD-less fallback"); }
         status_ = "FSR upscaling ready; native UI and shared frame-generation bridge retained";
-        logger::info("[FSR] initialized provider={} render={}x{} output={}x{} quality={}", backend.FSR().Version(), renderWidth_, renderHeight_, outputWidth_, outputHeight_, creation.quality);
+        std::string offered;
+        for (const auto& name : backend.FSR().AvailableVersions()) { offered += (offered.empty() ? "" : ", ") + name; }
+        logger::info("[FSR] initialized provider={} requested={} offered=[{}] render={}x{} output={}x{} quality={}", backend.FSR().Version(),
+            backend.FSR().PrefersClassic() ? "FSR 3.1" : "automatic", offered, renderWidth_, renderHeight_, outputWidth_, outputHeight_, creation.quality);
         return true;
     }
 

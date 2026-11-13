@@ -78,6 +78,7 @@ struct OverlayUI::FrameView
     bool nrFriendlyRenderSizeActive{};
     bool fsrActive{};
     bool fsrRuntimePresent{};
+    std::string fsrVersion; // running provider, empty when FSR is not active
     bool generationActive{};
     unsigned effectiveMultiplier{1};
     TheosRenderPipeline::FrameGenerationProvider provider{}, requestedProvider{};

@@ -239,8 +239,8 @@ void OverlayUI::DrawImagePanel(float tabCardHeight, const FrameView& view)
                         {"DLSS", view.nvidiaFeatures, TR("Requires NVIDIA RTX hardware.")},
                         {"DLAA", view.nvidiaFeatures, TR("Requires NVIDIA RTX hardware.")},
                         {TR("XeSS"), true, TR("Intel XeSS (experimental). After restart it uses Intel's quality resolutions.")},
-                        {"FSR 3.1", view.fsrRuntimePresent, view.fsrRuntimePresent // not translated: product name and version
-                            ? TR("AMD FSR 3.1 temporal upscaling (experimental).")
+                        {"FSR", view.fsrRuntimePresent, view.fsrRuntimePresent // not translated: product name
+                            ? TR("AMD FSR temporal upscaling (experimental): FSR 4 on supported Radeon GPUs, FSR 3.1 elsewhere.")
                             : TR("AMD's FSR runtime is missing from TheosRenderPipeline\\AMD. Reinstall TRP Standard, then restart.")}});
                     if (changed) { settingsDraft.upscaleType = mode == 3 ? FSR : mode == 2 ? XeSS : mode == 1 ? DLAA : DLSS; }
                     return changed;
@@ -293,6 +293,21 @@ void OverlayUI::DrawImagePanel(float tabCardHeight, const FrameView& view)
                                   TR(TheosRenderPipeline::DLSSPreset::Description(settingsDraft.dlssPreset))).c_str());
                 return changed;
             });
+            {
+                const RestartHelpScope restart(TR("Changing the FSR version needs Save as default and a restart."));
+                SettingRow(TR("FSR version"), nullptr, true, !fsr, [&] {
+                    int version = settingsDraft.sourceDLSSG.fsrClassic ? 1 : 0;
+                    const bool changed = Segmented("fsrVersion", version, {
+                        {TR("Automatic"), fsr, TR("FSR 4 (ML) on Radeon RX 6000 or newer and supported Ryzen graphics; FSR 3.1 elsewhere.")},
+                        {"FSR 3.1", fsr, TR("AMD's compute upscaler on every GPU.")}}); // not translated: product name and version
+                    if (changed) { settingsDraft.sourceDLSSG.fsrClassic = version == 1; }
+                    const auto help = !fsr ? std::string(TR("FSR only."))
+                        : !view.fsrVersion.empty() ? TRF("Running: FSR {}.", view.fsrVersion)
+                        : std::string(TR("Automatic uses FSR 4 where AMD supports it."));
+                    DrawSettingsHelp(help.c_str());
+                    return changed;
+                });
+            }
             SettingRow(TR("Auto exposure"), nullptr, false, vendorNeutral, [&] {
                 const bool changed = ImGui::Checkbox("##autoExposure", &settingsDraft.autoExposure);
                 DrawSettingsHelp(vendorNeutral ? TR("XeSS and FSR preserve the SDR exposure supplied by the game and ENB.")

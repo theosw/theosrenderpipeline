@@ -1,3 +1,10 @@
+# 0.7.0 Beta 2
+
+- FSR 4: Image > Mode > FSR now uses AMD's FSR SDK 2.4. On Radeon RX 6000 or
+  newer (and supported Ryzen graphics) AMD runs FSR 4, its ML upscaler; other
+  GPUs get FSR 3.1.6. Image > FSR version chooses Automatic or FSR 3.1 (restart),
+  and the row shows the version running. FSR 4 has not yet been tested on a Radeon.
+
 # 0.7.0 Beta 1
 
 - Neural Rendering on AMD Radeon (Universal). HIP/ZLUDA is the default AMD

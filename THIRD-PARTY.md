@@ -49,14 +49,15 @@ runtimes retain the license files accompanying their downloads.
 - **OkLab** — Björn Ottosson; colour-space definition and conversion formulas.
   The author's [reference conversion code](https://bottosson.github.io/posts/oklab/)
   is offered in the public domain, with MIT as an alternative.
-- **AMD FidelityFX Super Resolution 3.1.4** — Advanced Micro Devices, Inc., MIT.
-  Unmodified public API headers from FidelityFX SDK 1.1.4, commit
-  `c6efa6bf7f2027b3ec94f28578bb5965eabb9e55`, are in `extern/fidelityfx-api`.
+- **AMD FSR Upscaling 4.1.2 / FSR 3.1.6 (FSR SDK 2.4.0)** — Advanced Micro Devices, Inc., MIT.
+  Unmodified public API headers from FSR SDK 2.4.0, commit
+  `7539ae8b6568ad29ed78a753404351daf3b5cca7`, are in `extern/fidelityfx-api`.
   Standard includes the official, unmodified and AMD-signed
-  `amd_fidelityfx_dx12.dll` (temporal upscaling only). Both packages carry AMD's
-  MIT notice as `AMD/FSR-LICENSE.txt`, since both renderers compile the headers.
+  `amd_fidelityfx_loader_dx12.dll` and `amd_fidelityfx_upscaler_dx12.dll`
+  (upscaling only). Both packages carry AMD's MIT notice as `AMD/FSR-LICENSE.txt`,
+  since both renderers compile the headers.
   See [version, hashes and acquisition](extern/fidelityfx-api/README.md).
-  https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK/tree/v1.1.4
+  https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK/tree/v2.4.0
 - **FidelityFX RCAS / RCAS for ReShade** — AMD and RdenBlaauwen, MIT; sharpening
   shader adapted through the ReShade implementation.
   https://github.com/RdenBlaauwen/RCAS-for-ReShade

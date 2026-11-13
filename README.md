@@ -3,7 +3,7 @@
 Rendering integration for Skyrim: NVIDIA DLSS/DLAA and frame generation,
 experimental Intel XeSS upscaling and XeFG frame generation, optional Neural
 Rendering (NR), and native-resolution menus and HUD. Current version:
-**0.7.0 Beta 1**, the AMD Radeon NR beta; 0.6.5 remains the main release.
+**0.7.0 Beta 2**, the AMD Radeon NR and FSR 4 beta; 0.6.5 remains the main release.
 See [CHANGELOG.md](CHANGELOG.md) for release changes.
 
 Universal adds experimental Neural Rendering on GTX 10 (Pascal, sm_61), using
@@ -140,13 +140,16 @@ Simplified Chinese. See [LOCALIZATION.md](LOCALIZATION.md) for the file format.
 ## FSR 3.1 (experimental)
 
 **Image > Mode > FSR 3.1** selects AMD's temporal upscaler (`UpscaleType=5`).
-It uses the official FidelityFX SDK 1.1.4 / FSR 3.1.4 DX12 backend through TRP's
-existing fenced D3D11/D3D12 bridge. FSR needs no tensor cores and is separate
-from frame generation. DLSS remains the RTX default.
+It uses AMD's official FSR SDK 2.4 DX12 runtime through TRP's existing fenced
+D3D11/D3D12 bridge. On Radeon RX 6000 or newer (and supported Ryzen graphics)
+AMD runs FSR 4, its ML upscaler; other GPUs get FSR 3.1, which needs no tensor
+cores. **Image > FSR version > FSR 3.1** asks for FSR 3.1 on every GPU (restart).
+FSR is separate from frame generation. DLSS remains the RTX default.
 
-Standard includes AMD's official, signed `amd_fidelityfx_dx12.dll` in
-`Data/SKSE/Plugins/TheosRenderPipeline/AMD/`, like the other stock vendor runtimes;
-both packages carry AMD's MIT notice `FSR-LICENSE.txt` beside it.
+Standard includes AMD's official, signed `amd_fidelityfx_loader_dx12.dll` and
+`amd_fidelityfx_upscaler_dx12.dll` in `Data/SKSE/Plugins/TheosRenderPipeline/AMD/`,
+like the other stock vendor runtimes; both packages carry AMD's MIT notice
+`FSR-LICENSE.txt` beside them.
 The [pinned download, hashes and MIT notice](extern/fidelityfx-api/README.md)
 identify it; binaries stay outside the source repository. Both editions compile
 the same FSR integration. The option is unavailable if the runtime is missing. A saved FSR selection with a

@@ -1,7 +1,7 @@
 # Theo's Render Pipeline — Universal, 0.7.0
 
-Version 0.7.0 Beta 1 adds Neural Rendering on AMD Radeon: HIP/ZLUDA by default
-and an experimental Vulkan engine. It is a beta; 0.6.5 remains the main release.
+Version 0.7.0 Beta 2 adds Neural Rendering on AMD Radeon (HIP/ZLUDA by default
+and an experimental Vulkan engine) and FSR 4 on Radeon RX 6000 or newer. It is a beta; 0.6.5 remains the main release.
 See CHANGELOG.md and the AMD section at the end of this file.
 
 Version 0.6.4 adds experimental FSR 3.1 upscaling with AMD's runtime included,
@@ -73,9 +73,11 @@ and Frame generation > Frame limit with a Steady mode that evens out frame times
 It also fixes the vanilla main menu disappearing, NR stopping while the interface
 is hidden, and a possible XeFG freeze when gameplay starts. See CHANGELOG.md.
 
-Experimental **Image > Mode > FSR 3.1** (`UpscaleType=5`) uses AMD's official
-FidelityFX SDK 1.1.4 runtime, which Standard installs as `SKSE/Plugins/TheosRenderPipeline/AMD/amd_fidelityfx_dx12.dll`
-beside AMD's MIT notice `FSR-LICENSE.txt`, like the NVIDIA and Intel runtimes. It needs no tensor cores. XeSS/FSR can
+Experimental **Image > Mode > FSR** (`UpscaleType=5`) uses AMD's official FSR SDK 2.4
+runtime: FSR 4 (ML) on Radeon RX 6000 or newer, FSR 3.1 on other GPUs; **FSR version > FSR 3.1**
+forces FSR 3.1 after a restart. The runtime is installed by Standard as
+`SKSE/Plugins/TheosRenderPipeline/AMD/amd_fidelityfx_loader_dx12.dll` and `amd_fidelityfx_upscaler_dx12.dll`
+beside AMD's MIT notice `FSR-LICENSE.txt`, like the NVIDIA and Intel runtimes. FSR 3.1 needs no tensor cores. XeSS/FSR can
 switch with Apply at the current render size; render-scale changes require save
 and restart. NR and native UI composition remain available. Defaults are
 unchanged: DLSS on RTX, XeSS elsewhere. FSR has no reactive mask yet, so fire,

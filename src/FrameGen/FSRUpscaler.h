@@ -2,11 +2,12 @@
 
 #include "SourceDLSSGInterop.h"
 #include "UpscalerInputResolution.h"
-#include "../../extern/fidelityfx-api/include/ffx_api/ffx_upscale.h"
-#include "../../extern/fidelityfx-api/include/ffx_api/dx12/ffx_api_dx12.h"
+#include "../../extern/fidelityfx-api/Kits/FidelityFX/upscalers/include/ffx_upscale.h"
+#include "../../extern/fidelityfx-api/Kits/FidelityFX/api/include/dx12/ffx_api_dx12.h"
 #include <filesystem>
 #include <chrono>
 #include <string>
+#include <vector>
 
 namespace TheosRenderPipeline
 {
@@ -17,7 +18,9 @@ namespace TheosRenderPipeline
         bool invertedDepth{};
     };
 
-    // AMD's official FSR 3.1 DX12 backend, on the same fenced transport as XeSS.
+    // AMD's official FSR SDK 2.4 DX12 loader, on the same fenced transport as XeSS.
+    // AMD picks FSR 4 (ML) on supported Radeon GPUs and FSR 3.1 elsewhere;
+    // PreferClassic(true) asks for FSR 3.1 everywhere.
     // The host must prove retirement before releasing even a partial context.
     class FSRUpscaler final
     {
@@ -27,6 +30,11 @@ namespace TheosRenderPipeline
         FSRUpscaler& operator=(const FSRUpscaler&) = delete;
         HRESULT Open(ID3D12Device* device, const std::filesystem::path& directory);
         static bool RuntimePresent();
+        // Takes effect at the next context creation.
+        void PreferClassic(bool classic) { preferClassic_ = classic; }
+        bool PrefersClassic() const { return preferClassic_; }
+        // Provider names the runtime offered for this device, newest first; empty before Open.
+        const std::vector<std::string>& AvailableVersions() const { return versionNames_; }
         static HRESULT QuerySize(UINT width, UINT height, int quality, FrameExtent& input);
         static HRESULT QueryInputRange(UINT width, UINT height, int quality, UpscalerInputResolution& range);
         static bool Accepts(FrameExtent input, FrameExtent output);
@@ -45,6 +53,7 @@ namespace TheosRenderPipeline
     private:
         HRESULT Result(ffxReturnCode_t result, const char* operation);
         HRESULT CreateContext(bool invertedDepth);
+        void QueryVersions();
         HMODULE module_{}; // Retained for process lifetime, including on failure.
         PfnFfxCreateContext create_{};
         PfnFfxDestroyContext destroy_{};
@@ -54,6 +63,11 @@ namespace TheosRenderPipeline
         // API descriptor pointers remain live until destruction, as AMD requires.
         ffxCreateContextDescUpscale description_{};
         ffxCreateBackendDX12Desc backend_{};
+        ffxCreateContextDescUpscaleVersion apiVersion_{};
+        ffxOverrideVersion override_{};
+        std::vector<std::uint64_t> versionIds_;
+        std::vector<std::string> versionNames_;
+        bool preferClassic_{};
         SourceDLSSG::Interop* transport_{};
         Microsoft::WRL::ComPtr<ID3D12Device> device12_;
         SourceDLSSG::SharedTexture color_, motion_, depth_, output_;

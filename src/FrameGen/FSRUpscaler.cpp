@@ -23,25 +23,44 @@ namespace TheosRenderPipeline
             device12_ = device; return S_OK;
         }
         directory_ = PluginPaths::Normalize(directory);
-        if (GetModuleHandleW(L"amd_fidelityfx_dx12.dll")) {
-            status_ = "another owner loaded amd_fidelityfx_dx12.dll"; return E_UNEXPECTED;
+        for (const auto* name : {L"amd_fidelityfx_loader_dx12.dll", L"amd_fidelityfx_upscaler_dx12.dll", L"amd_fidelityfx_dx12.dll"}) {
+            if (GetModuleHandleW(name)) { status_ = "another owner loaded " + std::filesystem::path(name).string(); return E_UNEXPECTED; }
         }
-        module_ = LoadLibraryExW((directory_ / L"amd_fidelityfx_dx12.dll").c_str(), nullptr,
+        // The SDK 2.4 loader finds amd_fidelityfx_upscaler_dx12.dll beside itself.
+        module_ = LoadLibraryExW((directory_ / L"amd_fidelityfx_loader_dx12.dll").c_str(), nullptr,
             LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
-        if (!module_) { status_ = "AMD/amd_fidelityfx_dx12.dll missing or not loadable; reinstall TRP Standard"; return HRESULT_FROM_WIN32(GetLastError()); }
+        if (!module_) { status_ = "AMD/amd_fidelityfx_loader_dx12.dll missing or not loadable; reinstall TRP Standard"; return HRESULT_FROM_WIN32(GetLastError()); }
         device12_ = device;
         create_ = reinterpret_cast<PfnFfxCreateContext>(GetProcAddress(module_, "ffxCreateContext"));
         destroy_ = reinterpret_cast<PfnFfxDestroyContext>(GetProcAddress(module_, "ffxDestroyContext"));
         dispatch_ = reinterpret_cast<PfnFfxDispatch>(GetProcAddress(module_, "ffxDispatch"));
         query_ = reinterpret_cast<PfnFfxQuery>(GetProcAddress(module_, "ffxQuery"));
         if (!create_ || !destroy_ || !dispatch_ || !query_) { status_ = "missing FidelityFX API exports"; return E_NOINTERFACE; }
+        QueryVersions();
         status_ = "FSR runtime loaded"; return S_OK;
+    }
+
+    void FSRUpscaler::QueryVersions()
+    {
+        versionIds_.clear(); versionNames_.clear();
+        ffxQueryDescGetVersions query{}; query.header.type = FFX_API_QUERY_DESC_TYPE_GET_VERSIONS;
+        query.createDescType = FFX_API_CREATE_CONTEXT_DESC_TYPE_UPSCALE; query.device = device12_.Get();
+        std::uint64_t count = 0; query.outputCount = &count;
+        if (query_(nullptr, &query.header) != FFX_API_RETURN_OK || !count || count > 64) { return; }
+        std::vector<std::uint64_t> ids(count); std::vector<const char*> names(count);
+        query.versionIds = ids.data(); query.versionNames = names.data();
+        if (query_(nullptr, &query.header) != FFX_API_RETURN_OK) { return; }
+        // AMD may overwrite name storage on later queries; keep copies.
+        for (std::uint64_t i = 0; i < count; ++i) {
+            versionIds_.push_back(ids[i]); versionNames_.emplace_back(names[i] ? names[i] : "");
+        }
     }
 
     bool FSRUpscaler::RuntimePresent()
     {
         std::error_code error;
-        return std::filesystem::is_regular_file(PluginPaths::AMDDirectory() / L"amd_fidelityfx_dx12.dll", error);
+        return std::filesystem::is_regular_file(PluginPaths::AMDDirectory() / L"amd_fidelityfx_loader_dx12.dll", error) &&
+            std::filesystem::is_regular_file(PluginPaths::AMDDirectory() / L"amd_fidelityfx_upscaler_dx12.dll", error);
     }
 
     HRESULT FSRUpscaler::QueryInputRange(UINT width, UINT height, int quality, UpscalerInputResolution& range)
@@ -76,7 +95,20 @@ namespace TheosRenderPipeline
     {
         backend_ = {}; backend_.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_DX12;
         backend_.device = device12_.Get();
-        description_ = {}; description_.header = {FFX_API_CREATE_CONTEXT_DESC_TYPE_UPSCALE, &backend_.header};
+        // SDK 2.1+ requires the API version the caller was built against.
+        apiVersion_ = {}; apiVersion_.header = {FFX_API_CREATE_CONTEXT_DESC_TYPE_UPSCALE_VERSION, &backend_.header};
+        apiVersion_.version = FFX_UPSCALER_VERSION;
+        ffxApiHeader* chain = &apiVersion_.header;
+        override_ = {}; override_.header.type = FFX_API_DESC_TYPE_OVERRIDE_VERSION;
+        if (preferClassic_) {
+            // Newest 3.x provider; AMD lists versions newest first. Never hard-code ids.
+            for (std::size_t i = 0; i < versionNames_.size(); ++i) {
+                if (versionNames_[i].starts_with("3.")) { override_.versionId = versionIds_[i]; break; }
+            }
+            if (!override_.versionId) { status_ = "FSR 3.1 is not offered by this AMD runtime"; return E_NOINTERFACE; }
+            override_.header.pNext = chain; chain = &override_.header;
+        }
+        description_ = {}; description_.header = {FFX_API_CREATE_CONTEXT_DESC_TYPE_UPSCALE, chain};
         // TRP's SDR world is already tone mapped by Skyrim/ENB. Exposure is 1;
         // native UI and TRP HDR output are composed after temporal reconstruction.
         description_.flags = invertedDepth ? FFX_UPSCALE_ENABLE_DEPTH_INVERTED : 0;
@@ -151,12 +183,28 @@ namespace TheosRenderPipeline
         if (FAILED(hr = transport_->Begin(SourceDLSSG::Work::Upscaling, &list))) { return hr; }
         ffxDispatchDescUpscale execute{}; execute.header.type = FFX_API_DISPATCH_DESC_TYPE_UPSCALE;
         execute.commandList = list;
-        // The official backend transitions imports and restores their declared
-        // state when unregistering. Both APIs own these resources in COMMON.
-        execute.color = ffxApiGetResourceDX12(color_.texture12.Get(), FFX_API_RESOURCE_STATE_COMMON);
-        execute.depth = ffxApiGetResourceDX12(depth_.texture12.Get(), FFX_API_RESOURCE_STATE_COMMON);
-        execute.motionVectors = ffxApiGetResourceDX12(motion_.texture12.Get(), FFX_API_RESOURCE_STATE_COMMON);
-        execute.output = ffxApiGetResourceDX12(output_.texture12.Get(), FFX_API_RESOURCE_STATE_COMMON);
+        // Both APIs own these resources in COMMON between frames. AMD asks for
+        // inputs in NON_PIXEL_SHADER_RESOURCE (required by FSR 4) and a UAV output,
+        // so transition explicitly and declare those exact states.
+        ID3D12Resource* inputs[]{color_.texture12.Get(), depth_.texture12.Get(), motion_.texture12.Get()};
+        auto transition = [&](D3D12_RESOURCE_STATES inputState, D3D12_RESOURCE_STATES outputState,
+                              D3D12_RESOURCE_STATES inputAfter, D3D12_RESOURCE_STATES outputAfter) {
+            std::array<D3D12_RESOURCE_BARRIER, 4> barriers{};
+            for (std::size_t i = 0; i < 4; ++i) {
+                auto& b = barriers[i]; b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+                b.Transition.pResource = i < 3 ? inputs[i] : output_.texture12.Get();
+                b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+                b.Transition.StateBefore = i < 3 ? inputState : outputState;
+                b.Transition.StateAfter = i < 3 ? inputAfter : outputAfter;
+            }
+            list->ResourceBarrier(static_cast<UINT>(barriers.size()), barriers.data());
+        };
+        transition(D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COMMON,
+                   D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        execute.color = ffxApiGetResourceDX12(color_.texture12.Get(), FFX_API_RESOURCE_STATE_COMPUTE_READ);
+        execute.depth = ffxApiGetResourceDX12(depth_.texture12.Get(), FFX_API_RESOURCE_STATE_COMPUTE_READ);
+        execute.motionVectors = ffxApiGetResourceDX12(motion_.texture12.Get(), FFX_API_RESOURCE_STATE_COMPUTE_READ);
+        execute.output = ffxApiGetResourceDX12(output_.texture12.Get(), FFX_API_RESOURCE_STATE_UNORDERED_ACCESS);
         execute.jitterOffset = {jitterX, jitterY};
         execute.motionVectorScale = {static_cast<float>(input_.width), static_cast<float>(input_.height)};
         execute.renderSize = {input_.width, input_.height}; execute.upscaleSize = {outputSize_.width, outputSize_.height};
@@ -172,6 +220,8 @@ namespace TheosRenderPipeline
         execute.cameraFovAngleVertical = camera.verticalFov; execute.viewSpaceToMetersFactor = 0.0142875f;
         if (format_ == DXGI_FORMAT_R8G8B8A8_UNORM) { execute.flags = FFX_UPSCALE_FLAG_NON_LINEAR_COLOR_SRGB; }
         const auto execution = Result(dispatch_(&context_, &execute.header), "dispatch");
+        transition(D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                   D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COMMON);
         // Fence even failed dispatches: partially recorded SDK work still owns memory.
         if (FAILED(hr = transport_->Submit(SourceDLSSG::Work::Upscaling)) ||
             FAILED(hr = transport_->WaitD3D11(SourceDLSSG::Work::Upscaling))) { return hr; }

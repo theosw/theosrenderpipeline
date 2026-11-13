@@ -328,7 +328,7 @@ const char* ModeName(int a_mode)
     case XeSS:
         return "XeSS";
     case FSR:
-        return "FSR 3.1"; // not translated: product name and version
+        return "FSR"; // not translated: product name
     default:
         return "DLSS";
     }
