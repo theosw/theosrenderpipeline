@@ -255,17 +255,19 @@ int main(int argc, char** argv)
     Require(Pixel(f.context.Get(), f.presentation.Get()) == sceneOnly, "late overlay missing from presentation");
     f.Present();
 
+    // Without the engine's world-completion hook the scene is never read again.
+    const auto noScene = [] { Require(false, "scene read without a world boundary"); };
     for (std::uint64_t number = 2; number <= 4; ++number) {
         if (number == 4) { f.Resize(12, 6); }
         f.Begin(number);
         const auto before = f.overlays;
         bool engineFinished = false;
-        f.boundary.DrawInterface([&] {
+        f.boundary.DrawInterface(true, [&] {
             // A nested engine interface call must not finish UI prematurely.
-            f.boundary.DrawInterface([] {}, [&] { Require(false, "nested completion"); return false; });
+            f.boundary.DrawInterface(true, [] {}, noScene, [&] { Require(false, "nested completion"); return false; });
             engineFinished = true;
-        }, [&] { Require(engineFinished, "engine UI precedes overlay"); return f.FinishUI(); });
-        f.boundary.DrawInterface([] {}, [&] { return f.FinishUI(); });
+        }, noScene, [&] { Require(engineFinished, "engine UI precedes overlay"); return f.FinishUI(); });
+        f.boundary.DrawInterface(true, [] {}, noScene, [&] { return f.FinishUI(); });
         f.Present(true);
         f.boundary.BeforePresent(true, true, [&] { return f.FinishUI(); });
         Require(f.overlays == before + 1, "one overlay despite duplicate interface and test Present");
@@ -290,7 +292,7 @@ int main(int argc, char** argv)
     Require(replayCount == 3, "one replay per HDR world frame");
     f.Begin(5, false);
     const auto beforeLoading = f.overlays;
-    f.boundary.DrawInterface([] {}, [&] { return f.FinishUI(); });
+    f.boundary.DrawInterface(true, [] {}, noScene, [&] { return f.FinishUI(); });
     f.Composite(false);
     Require(f.overlays == beforeLoading + 1 && !f.frame.Hudless(f.desc), "loading UI works without admitting stale FG scene");
     f.Present();
@@ -305,6 +307,85 @@ int main(int argc, char** argv)
     f.boundary.AfterPresent(false);
     f.boundary.BeforePresent(false, true, [&] { ++fallback; return true; });
     Require(fallback == 2, "fallback rearmed for next presentation");
+
+    // Skyrim's screen blood and a producer's lens effects reach the completed
+    // scene after its post-processing capture and before any menu. Reference:
+    // a scene that already held them when post-processing returned.
+    const float lens[]{.25f, 2, .5f, 1};
+    f.Begin(6, false);
+    f.context->ClearRenderTargetView(f.sceneRTV.Get(), lens);
+    Check(f.frame.CaptureGuides(f.context.Get(), 6, f.guides.Get(), f.guides.Get(), {f.width / 2, f.height / 2}, {f.width, f.height}), "reference guides");
+    Check(f.frame.CaptureScene(f.context.Get(), f.scene.Get()), "reference scene");
+    f.FinishUI(); f.Composite(true);
+    const auto lensOnly = Pixel(f.context.Get(), f.frame.Hudless(f.desc));
+    Require(lensOnly != sceneOnly, "lens colour converts to a different HUD-less pixel");
+    f.Present();
+    CommunityShaderUIBoundary late;
+    late.WorldHookInstalled();
+    late.WorldCompleted([] { Require(false, "world completion outside the interface is ignored"); });
+    for (std::uint64_t number = 7; number <= 8; ++number) {
+        // With its menus hidden the engine never reaches the world-completion call.
+        const bool hidden = number == 8;
+        f.Begin(number);
+        unsigned scenes{}; bool completed{};
+        const auto refresh = [&] {
+            Require(!completed, "scene read before the UI boundary");
+            ++scenes;
+            Require(f.frame.RefreshScene(f.context.Get()) == S_OK, "late scene refresh");
+        };
+        late.DrawInterface(hidden, [&] {
+            // An interface entry hook draws on the completed scene first.
+            f.context->ClearRenderTargetView(f.sceneRTV.Get(), lens);
+            if (!hidden) {
+                late.WorldCompleted(refresh);
+                late.WorldCompleted(refresh);
+                Require(scenes == 1, "world completion refreshes once");
+            }
+        }, refresh, [&] { completed = true; return f.FinishUI(); });
+        Require(scenes == 1 && completed, hidden ? "hidden menus refresh after the interface returns" : "no second refresh after the interface");
+        Require(f.frame.RefreshScene(f.context.Get()) == S_FALSE, "UI boundary closes the scene");
+        f.Composite(true);
+        Require(Pixel(f.context.Get(), f.frame.Hudless(f.desc)) == lensOnly, "HUD-less includes what was drawn after post-processing");
+        f.Present(); late.AfterPresent(false);
+    }
+    {
+        // Menus shown but the world-completion call never arrives (another
+        // plugin replaced it): menus may be on the scene, so it is not read.
+        f.Begin(9);
+        late.DrawInterface(false, [] {}, [] { Require(false, "scene read after menus may have been drawn"); },
+            [&] { return f.FinishUI(); });
+        f.Composite(true);
+        Require(Pixel(f.context.Get(), f.frame.Hudless(f.desc)) == sceneOnly, "bypassed hook keeps the post-processing snapshot");
+        f.Present(); late.AfterPresent(false);
+
+        // A second interface call in the same frame reaches the hook again; the
+        // scene now holds the first call's menus and must not be taken.
+        f.Begin(10);
+        unsigned scenes{};
+        const auto refresh = [&] { ++scenes; f.frame.RefreshScene(f.context.Get()); };
+        late.DrawInterface(false, [&] { late.WorldCompleted(refresh); }, refresh, [&] { return f.FinishUI(); });
+        f.context->ClearRenderTargetView(f.sceneRTV.Get(), lens);
+        late.DrawInterface(false, [&] { late.WorldCompleted(refresh); }, refresh, [&] { return f.FinishUI(); });
+        Require(scenes == 2, "each interface call reports its world completion");
+        f.Composite(true);
+        Require(Pixel(f.context.Get(), f.frame.Hudless(f.desc)) == sceneOnly, "a repeated interface call cannot replace the snapshot");
+        f.Present(); late.AfterPresent(false);
+
+        // Known limit: CS HDR Display restores the ordinary framebuffer as soon
+        // as post-processing returns, so Skyrim's screen blood is drawn there
+        // and not on the retained FP16 scene. The refresh cannot take it.
+        f.Begin(11);
+        ComPtr<ID3D11RenderTargetView> framebuffer;
+        Check(f.device->CreateRenderTargetView(f.presentation.Get(), nullptr, &framebuffer), "ordinary framebuffer RTV");
+        const float blood[]{1, 0, 0, 1};
+        f.context->ClearRenderTargetView(framebuffer.Get(), blood);
+        late.DrawInterface(false, [&] {
+            late.WorldCompleted([&] { Require(f.frame.RefreshScene(f.context.Get()) == S_OK, "refresh of the redirected scene"); });
+        }, noScene, [&] { return f.FinishUI(); });
+        f.Composite(true);
+        Require(Pixel(f.context.Get(), f.frame.Hudless(f.desc)) == sceneOnly, "blood on the ordinary framebuffer is outside the redirected scene");
+        f.Present(); late.AfterPresent(false);
+    }
 
     // The producer may hold the same immediate context through another
     // interface pointer. Accept it only when declared, never during isolation.

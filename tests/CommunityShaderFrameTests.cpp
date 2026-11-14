@@ -185,5 +185,63 @@ int main()
     presentation.Width = 6; presentation.Height = 4; presentation.Format = DXGI_FORMAT_R32_FLOAT;
     Require(Pixels(context.Get(), frame.Hudless(presentation)) == std::vector<float>(24, 666), "resized frame uses fresh scene without old conversion");
     frame.ResetAfterRetirement(); Require(!frame.Ready() && !frame.Motion() && !frame.Depth(), "retired resources no longer exposed");
-    std::puts("CS frame snapshots: guide/scene overwrite, graphics/compute restoration, isolated display conversion, presentation confirmation, single consumption and resize passed.");
+    {
+        // The engine's screen blood and a producer's lens effects are drawn on
+        // the completed scene after its capture. One refresh before the menus
+        // takes them; nothing later may, because menus share a direct framebuffer.
+        const auto fill = [&](float value) {
+            const std::vector<float> pixels(32, value);
+            context->UpdateSubresource(world.Get(), 0, nullptr, pixels.data(), 32, 0);
+        };
+        D3D11_TEXTURE2D_DESC full{}; world->GetDesc(&full);
+        CommunityShaderFrame late;
+        Require(late.RefreshScene(context.Get()) == S_FALSE, "no captured scene, nothing to refresh");
+        fill(1);
+        Check(late.CaptureGuides(context.Get(), 1, motion.Get(), depth.Get(), {4, 2}, {8, 4}), "late guides");
+        Check(late.CaptureScene(context.Get(), world.Get()), "late scene");
+        fill(9);
+        context->OMSetRenderTargets(1, worldRTV.GetAddressOf(), nullptr);
+        context->CSSetShader(shader.Get(), nullptr, 0);
+        Require(Pixels(context.Get(), late.Hudless(full)) == std::vector<float>(32, 1), "snapshot predates the lens");
+        Require(late.RefreshScene(context.Get()) == S_OK, "refresh from the scene bound as render target");
+        Require(late.RefreshScene(context.Get()) == S_FALSE, "one refresh per captured scene");
+        ComPtr<ID3D11RenderTargetView> boundRTV; ComPtr<ID3D11ComputeShader> boundShader;
+        context->OMGetRenderTargets(1, &boundRTV, nullptr); context->CSGetShader(&boundShader, nullptr, nullptr);
+        Require(boundRTV == worldRTV && boundShader == shader, "refresh leaves the pipeline untouched");
+        Require(Pixels(context.Get(), late.Hudless(full)) == std::vector<float>(32, 9), "snapshot holds what was drawn after the capture");
+        fill(666);
+        Require(late.RefreshScene(context.Get()) == S_FALSE &&
+            Pixels(context.Get(), late.Hudless(full)) == std::vector<float>(32, 9), "menus drawn later never reach the snapshot");
+        late.Consume();
+
+        // The interface completed without a refresh: the scene may hold menus.
+        fill(2);
+        Check(late.CaptureGuides(context.Get(), 2, motion.Get(), depth.Get(), {4, 2}, {8, 4}), "guides before a closed scene");
+        Check(late.CaptureScene(context.Get(), world.Get()), "scene before a closed scene");
+        late.SetUIBoundary(world.Get());
+        fill(666);
+        Require(late.RefreshScene(context.Get()) == S_FALSE &&
+            Pixels(context.Get(), late.Hudless(full)) == std::vector<float>(32, 2), "UI boundary closes the scene");
+        late.Consume();
+
+        // A foreign context fails once and keeps the earlier snapshot.
+        fill(3);
+        Check(late.CaptureGuides(context.Get(), 3, motion.Get(), depth.Get(), {3, 2}, {6, 4}), "guides for a cropped scene");
+        Check(late.CaptureScene(context.Get(), world.Get()), "cropped scene");
+        fill(4);
+        Require(late.RefreshScene(deferred.Get()) == E_NOINTERFACE && late.RefreshScene(context.Get()) == S_FALSE,
+            "deferred context rejected without another attempt");
+        full.Width = 6;
+        Require(Pixels(context.Get(), late.Hudless(full)) == std::vector<float>(24, 3), "failed refresh keeps the snapshot");
+        late.Consume();
+        Check(late.CaptureGuides(context.Get(), 4, motion.Get(), depth.Get(), {3, 2}, {6, 4}), "guides for a cropped refresh");
+        Check(late.CaptureScene(context.Get(), world.Get()), "cropped scene before the lens");
+        fill(5);
+        Require(late.RefreshScene(context.Get()) == S_OK, "cropped refresh");
+        Require(Pixels(context.Get(), late.Hudless(full)) == std::vector<float>(24, 5), "active rectangle refreshed");
+        late.Consume();
+        Require(late.RefreshScene(context.Get()) == S_FALSE, "consumed frame not refreshed");
+        context->ClearState();
+    }
+    std::puts("CS frame snapshots: guide/scene overwrite, graphics/compute restoration, isolated display conversion, presentation confirmation, single consumption, resize and late scene refresh passed.");
 }

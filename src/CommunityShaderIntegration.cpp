@@ -10,6 +10,7 @@
 #include "PerformanceTuning.h"
 #include "HookInstallation.h"
 #include "SkyrimRuntime.h"
+#include <Psapi.h>
 
 namespace TheosRenderPipeline::CommunityShaders
 {
@@ -22,6 +23,8 @@ namespace TheosRenderPipeline::CommunityShaders
         PostProcessing engineOriginal{}, producerOriginal{};
         using DrawInterface = void (*)(std::int64_t);
         DrawInterface interfaceOriginal{};
+        using WorldCompletion = void (*)(std::uint64_t, std::uint32_t);
+        WorldCompletion worldCompletionOriginal{};
         CommunityShaderUIBoundary uiBoundary;
         ID3D11DeviceContext* deviceContext{};
         ID3D11DeviceContext* producerContext{};
@@ -163,12 +166,25 @@ namespace TheosRenderPipeline::CommunityShaders
             OverlayUI::GetSingleton()->OnPresent(frame.Get());
             return true;
         }
+        void RefreshScene() { NvidiaHost::GetSingleton()->CommunityFrame().RefreshCompletedWorld(); }
+        // The engine's last renderer call before it draws the menus. It is
+        // inside the interface function, so every hook on that function's
+        // entry has already run, whichever plugin installed it first: CS
+        // draws its Camera FX there. Skyrim drew its screen blood on the
+        // framebuffer before the interface function was called.
+        void WorldCompleted(std::uint64_t state, std::uint32_t flags)
+        {
+            worldCompletionOriginal(state, flags);
+            uiBoundary.WorldCompleted(RefreshScene);
+        }
         void Interface(std::int64_t arg)
         {
             // Chain all producer UI redirection and game drawing first. CS HDR
             // retains its UI target until its later display composite, which can
             // run before our Present hook is reached.
-            uiBoundary.DrawInterface([&] { interfaceOriginal(arg); }, CompleteUI);
+            // The engine tests this flag first and draws nothing while it is clear.
+            auto* ui = RE::UI::GetSingleton();
+            uiBoundary.DrawInterface(ui && !ui->IsShowingMenus(), [&] { interfaceOriginal(arg); }, RefreshScene, CompleteUI);
         }
         void ReportDisplayWait()
         {
@@ -221,6 +237,30 @@ namespace TheosRenderPipeline::CommunityShaders
         active = GetModuleHandleW(L"CommunityShaders.dll") != nullptr;
         logger::info("[Renderer] world/upscaling owner={}", active ? "Community Shaders" : "Theo's Render Pipeline");
     }
+    // Optional: without it frame generation keeps the post-processing
+    // snapshot, which lacks what is drawn on the scene afterwards.
+    static void InstallWorldCompletion()
+    {
+        const auto* profile = SkyrimRuntime::Find(REL::Module::get().version());
+        if (!profile) { return; } // Callsite() has already refused an unverified runtime.
+        const auto base = REL::Module::get().base();
+        const auto site = REL::RelocationID(79947, 82084).address() + profile->hooks.worldCompletion;
+        MODULEINFO image{};
+        const bool identified = K32GetModuleInformation(GetCurrentProcess(), GetModuleHandleW(nullptr), &image, sizeof(image)) != FALSE;
+        if (identified && HookSafety::DirectCall(site, REL::RelocationID(75462, 77247).address(), base, image.SizeOfImage)) {
+            worldCompletionOriginal = reinterpret_cast<WorldCompletion>(SKSE::GetTrampoline().write_call<5>(site, &WorldCompleted));
+            uiBoundary.WorldHookInstalled();
+            logger::info("[CS Adapter] world completion boundary installed at runtime RVA 0x{:X}; the HUD-less scene is taken again before the menus",
+                site - base);
+            return;
+        }
+        std::array<std::uint8_t, 5> bytes{};
+        const bool readable = HookSafety::Read(site, bytes.data(), bytes.size());
+        logger::warn("[CS Adapter] world completion call at runtime RVA 0x{:X} is not the verified engine call (bytes={:02X} {:02X} {:02X} {:02X} {:02X}, readable={}, "
+            "target=0x{:X}, image identified={}); another plugin may have patched it. The HUD-less scene keeps the post-processing snapshot, "
+            "without what is drawn on the scene afterwards",
+            site - base, bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], readable, HookSafety::DirectCallTarget(site), identified);
+    }
     void InstallEngineHooks()
     {
         if (!active || installed) { return; }
@@ -234,6 +274,7 @@ namespace TheosRenderPipeline::CommunityShaders
         interfaceOriginal = reinterpret_cast<DrawInterface>(HookSafety::InstallEntryDetour(
             REL::RelocationID(79947, 82084).address(), reinterpret_cast<std::uintptr_t>(&Interface)));
         if (!interfaceOriginal) { util::report_and_fail("Could not preserve the Community Shaders interface draw chain."); }
+        InstallWorldCompletion();
         installed = true;
         logger::info("[CS Adapter] engine postprocessing chain installed; CS owns upscaling, jitter and render scale");
         logger::info("[CS Adapter] interface completion boundary installed; overlay and UI identity precede display composition");

@@ -26,7 +26,7 @@ namespace TheosRenderPipeline
         {
             if (frame == frame_) { return S_FALSE; }
             frame_ = frame;
-            guidesReady_ = sceneReady_ = encodedReady_ = consumed_ = false;
+            guidesReady_ = sceneReady_ = sceneFinal_ = encodedReady_ = consumed_ = false;
             sceneSource_.Reset(); encodedSource_.Reset(); uiSource_.Reset();
             render_ = renderExtent; output_ = outputExtent;
             if (!output_.width || !output_.height || render_.width > output_.width ||
@@ -61,7 +61,26 @@ namespace TheosRenderPipeline
             }
             sceneSource_ = scene;
             sceneReady_ = true;
+            sceneFinal_ = false;
             return S_OK;
+        }
+
+        // The scene keeps changing after CaptureScene: Skyrim draws its screen
+        // blood on the framebuffer once post-processing has returned, and a
+        // producer can add lens and screen effects at the interface entry.
+        // Copy the same resource again where the engine is about to draw its
+        // first menu, so the HUD-less image is the presented scene without
+        // its UI. Under CS HDR Display that resource is the redirected FP16
+        // scene, which the engine's screen blood never reaches. A plain copy
+        // needs no pipeline state, so nothing is swapped or restored here.
+        // One attempt per captured scene: a later copy could contain UI, and
+        // a failed one keeps the earlier snapshot. S_FALSE = nothing to do.
+        HRESULT RefreshScene(ID3D11DeviceContext* context)
+        {
+            if (!sceneReady_ || sceneFinal_ || consumed_ || encodedSource_ || !sceneSource_) { return S_FALSE; }
+            sceneFinal_ = true;
+            if (!isolation_.Accepts(context, producerContext_)) { return E_NOINTERFACE; }
+            return D3D11FrameCopy::Color(context, sceneSource_.Get(), scene_.Get(), output_);
         }
 
         // Called immediately before a producer Dispatch. Match its actual scene
@@ -131,6 +150,9 @@ namespace TheosRenderPipeline
 
         void SetUIBoundary(ID3D11Texture2D* texture)
         {
+            // The interface has been drawn: on a direct framebuffer the scene
+            // resource now holds UI, so it can no longer refresh the snapshot.
+            sceneFinal_ = true;
             if (sceneReady_ && !consumed_ && !D3D11FrameCopy::SameObject(texture, sceneSource_.Get())) { uiSource_ = texture; }
         }
 
@@ -169,7 +191,7 @@ namespace TheosRenderPipeline
             motion_.Reset(); depth_.Reset(); scene_.Reset(); sceneSource_.Reset(); uiSource_.Reset();
             encoded_.Reset(); encodedSource_.Reset(); encodedUAV_.Reset(); encodedUAVSource_.Reset();
             sceneSRV_.Reset(); sceneSRVSource_.Reset();
-            guidesReady_ = sceneReady_ = encodedReady_ = consumed_ = false;
+            guidesReady_ = sceneReady_ = sceneFinal_ = encodedReady_ = consumed_ = false;
             frame_ = (std::numeric_limits<std::uint64_t>::max)(); render_ = output_ = {};
         }
 
@@ -221,5 +243,7 @@ namespace TheosRenderPipeline
         std::uint64_t frame_{(std::numeric_limits<std::uint64_t>::max)()};
         ID3D11DeviceContext* producerContext_{};
         bool guidesReady_{}, sceneReady_{}, encodedReady_{}, consumed_{};
+        // The scene snapshot may no longer be refreshed from its source.
+        bool sceneFinal_{};
     };
 }
