@@ -1,8 +1,13 @@
 #include "FSRUpscaler.h"
 #include "../PluginPaths.h"
+#if defined(TRP_FSR4_FORCE_UNIVERSAL)
+#include "FSR4Compatibility.h"
+#endif
+#include <dxgi1_4.h>
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <format>
 
 namespace TheosRenderPipeline
 {
@@ -13,7 +18,39 @@ namespace TheosRenderPipeline
         return result == FFX_API_RETURN_ERROR_MEMORY ? E_OUTOFMEMORY : E_FAIL;
     }
 
-    HRESULT FSRUpscaler::Open(ID3D12Device* device, const std::filesystem::path& directory)
+    namespace
+    {
+        UINT AdapterVendor(ID3D12Device* device)
+        {
+            Microsoft::WRL::ComPtr<IDXGIFactory4> factory; Microsoft::WRL::ComPtr<IDXGIAdapter1> adapter;
+            DXGI_ADAPTER_DESC1 desc{};
+            if (!device || FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory))) ||
+                FAILED(factory->EnumAdapterByLuid(device->GetAdapterLuid(), IID_PPV_ARGS(&adapter))) ||
+                FAILED(adapter->GetDesc1(&desc))) { return 0; }
+            return desc.VendorId;
+        }
+    }
+
+    bool FSRUpscaler::FSR4NeedsForce(ID3D12Device* device) { return AdapterVendor(device) != 0x1002; }
+
+    const char* FSRUpscaler::FSR4Unavailable(ID3D12Device* device)
+    {
+        if (!device) { return "FSR 4 needs a D3D12 device"; }
+        if (!FSR4NeedsForce(device)) { return nullptr; } // Radeon: AMD's runtime decides.
+#if !defined(TRP_FSR4_FORCE_UNIVERSAL)
+        return "FSR 4 on this GPU is Universal only";
+#else
+        D3D12_FEATURE_DATA_SHADER_MODEL model{D3D_SHADER_MODEL_6_6};
+        if (FAILED(device->CheckFeatureSupport(D3D12_FEATURE_SHADER_MODEL, &model, sizeof(model))) ||
+            model.HighestShaderModel < D3D_SHADER_MODEL_6_6) { return "FSR 4 needs Shader Model 6.6"; }
+        D3D12_FEATURE_DATA_D3D12_OPTIONS4 options{};
+        if (FAILED(device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS4, &options, sizeof(options))) ||
+            !options.Native16BitShaderOpsSupported) { return "FSR 4 needs native 16-bit shader support"; }
+        return nullptr;
+#endif
+    }
+
+    HRESULT FSRUpscaler::Open(ID3D12Device* device, const std::filesystem::path& directory, bool forceFSR4)
     {
         if (!device || !directory.is_absolute()) { return E_INVALIDARG; }
         if (module_) {
@@ -26,9 +63,26 @@ namespace TheosRenderPipeline
         for (const auto* name : {L"amd_fidelityfx_loader_dx12.dll", L"amd_fidelityfx_upscaler_dx12.dll", L"amd_fidelityfx_dx12.dll"}) {
             if (GetModuleHandleW(name)) { status_ = "another owner loaded " + std::filesystem::path(name).string(); return E_UNEXPECTED; }
         }
+#if defined(TRP_FSR4_FORCE_UNIVERSAL)
+        if (forceFSR4) {
+            // Exact-hash runtime, patched in memory before AMD's first query.
+            force_ = new FSR4Compatibility::Session();
+            forced_ = force_->LoadVerified(directory_) && force_->ApplyBeforeFirstQuery(device, device->GetAdapterLuid(), true);
+            forceAudit_ = force_->Audit();
+            if (!forced_) { forceReason_ = force_->Reason(); }
+            if (force_->Status() == FSR4Compatibility::Session::State::Poisoned) {
+                status_ = "FSR 4 force left AMD's runtime in an uncertain state: " + forceReason_; return E_FAIL;
+            }
+            module_ = GetModuleHandleW(L"amd_fidelityfx_loader_dx12.dll"); // loaded by a verified session, if any
+        }
+#else
+        if (forceFSR4) { forceReason_ = "FSR 4 on this GPU is Universal only"; }
+#endif
         // The SDK 2.4 loader finds amd_fidelityfx_upscaler_dx12.dll beside itself.
-        module_ = LoadLibraryExW((directory_ / L"amd_fidelityfx_loader_dx12.dll").c_str(), nullptr,
-            LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
+        if (!module_) {
+            module_ = LoadLibraryExW((directory_ / L"amd_fidelityfx_loader_dx12.dll").c_str(), nullptr,
+                LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
+        }
         if (!module_) { status_ = "AMD/amd_fidelityfx_loader_dx12.dll missing or not loadable; reinstall TRP Standard"; return HRESULT_FROM_WIN32(GetLastError()); }
         device12_ = device;
         create_ = reinterpret_cast<PfnFfxCreateContext>(GetProcAddress(module_, "ffxCreateContext"));
@@ -54,6 +108,63 @@ namespace TheosRenderPipeline
         for (std::uint64_t i = 0; i < count; ++i) {
             versionIds_.push_back(ids[i]); versionNames_.emplace_back(names[i] ? names[i] : "");
         }
+    }
+
+    std::uint64_t FSRUpscaler::VersionId(const char* prefix) const
+    {
+        // AMD lists newest first. Prefer the SDK's own entry; driver entries end in " *".
+        for (const bool driver : {false, true}) {
+            for (std::size_t i = 0; i < versionNames_.size(); ++i) {
+                if (versionNames_[i].starts_with(prefix) && versionNames_[i].ends_with("*") == driver) { return versionIds_[i]; }
+            }
+        }
+        return 0;
+    }
+
+    bool FSRUpscaler::VerifyForcedModel() const { return ForcedModelCheck().empty(); }
+
+    std::string FSRUpscaler::ForcedModelCheck() const
+    {
+#if defined(TRP_FSR4_FORCE_UNIVERSAL)
+        // Exact-build identity (pinned hash only): AMD's internal context holds the
+        // ffxProvider_FSR4_Int8 provider first, the provider holds its
+        // Fsr4Int8UpscalerModel at +0x28, and the context's byte at +0x214 is set
+        // once a dispatch has built the model. Read-only; never touches weights.
+        // The public ffxContext handle may point at that context or at a pointer to it.
+        const auto base = reinterpret_cast<std::uintptr_t>(GetModuleHandleW(L"amd_fidelityfx_upscaler_dx12.dll"));
+        if (!base || !context_) { return "no runtime or context"; }
+        auto read = [](std::uintptr_t address, auto& value) {
+            return address && FSR4Compatibility::ReadMemory(reinterpret_cast<const void*>(address), &value, sizeof(value));
+        };
+        // The loader wraps AMD's context: scan the wrapper's first fields for the
+        // pointer to the upscaler's internal context, then check that context.
+        const auto handle = reinterpret_cast<std::uintptr_t>(context_);
+        std::string trace;
+        for (std::uintptr_t offset = 0; offset < 0x40; offset += sizeof(std::uintptr_t)) {
+            std::uintptr_t candidate{}, provider{}, providerVtable{}, model{}, modelVtable{};
+            unsigned char built{};
+            if (!read(handle + offset, candidate) || !read(candidate, provider) || !read(provider, providerVtable) ||
+                providerVtable != base + 0x3635260) { continue; }
+            if (!read(provider + 0x28, model) || !read(model, modelVtable) || modelVtable != base + 0x36352a8) {
+                return std::format("wrapper+{:#x}: INT8 provider without the INT8 model", offset);
+            }
+            if (!read(candidate + 0x214, built) || !built) { return std::format("wrapper+{:#x}: INT8 model not built yet", offset); }
+            return {};
+        }
+        trace = "no ffxProvider_FSR4_Int8 context behind the handle";
+        return trace;
+#else
+        return "Universal only";
+#endif
+    }
+
+    std::string FSRUpscaler::RunningLabel() const
+    {
+        if (!initialized_) { return {}; }
+        if (active_ == FSRVersion::FSR4 && forced_) {
+            return verified_ ? "FSR " + version_ + " INT8 (forced)" : "FSR " + version_ + " forced; not verified running";
+        }
+        return "FSR " + version_;
     }
 
     bool FSRUpscaler::RuntimePresent()
@@ -99,15 +210,18 @@ namespace TheosRenderPipeline
         apiVersion_ = {}; apiVersion_.header = {FFX_API_CREATE_CONTEXT_DESC_TYPE_UPSCALE_VERSION, &backend_.header};
         apiVersion_.version = FFX_UPSCALER_VERSION;
         ffxApiHeader* chain = &apiVersion_.header;
+        // Every context pins its version (ids come from AMD's query, never hard-coded).
         override_ = {}; override_.header.type = FFX_API_DESC_TYPE_OVERRIDE_VERSION;
-        if (preferClassic_) {
-            // Newest 3.x provider; AMD lists versions newest first. Never hard-code ids.
-            for (std::size_t i = 0; i < versionNames_.size(); ++i) {
-                if (versionNames_[i].starts_with("3.")) { override_.versionId = versionIds_[i]; break; }
-            }
-            if (!override_.versionId) { status_ = "FSR 3.1 is not offered by this AMD runtime"; return E_NOINTERFACE; }
-            override_.header.pNext = chain; chain = &override_.header;
+        active_ = requested_; fallback_.clear(); verified_ = false;
+        override_.versionId = VersionId(active_ == FSRVersion::FSR4 ? "4." : "3.");
+        if (!override_.versionId && active_ == FSRVersion::FSR4) {
+            fallback_ = !forceReason_.empty() ? "FSR 4 refused: " + forceReason_
+                : forced_ ? std::string("FSR 4 not offered after the force")
+                : std::string("AMD doesn't run FSR 4 on this GPU");
+            active_ = FSRVersion::FSR31; override_.versionId = VersionId("3.");
         }
+        if (!override_.versionId) { status_ = "FSR 3.1 is not offered by this AMD runtime"; return E_NOINTERFACE; }
+        override_.header.pNext = chain; chain = &override_.header;
         description_ = {}; description_.header = {FFX_API_CREATE_CONTEXT_DESC_TYPE_UPSCALE, chain};
         // TRP's SDR world is already tone mapped by Skyrim/ENB. Exposure is 1;
         // native UI and TRP HDR output are composed after temporal reconstruction.
@@ -227,7 +341,10 @@ namespace TheosRenderPipeline
             FAILED(hr = transport_->WaitD3D11(SourceDLSSG::Work::Upscaling))) { return hr; }
         if (FAILED(execution)) { return execution; }
         context->CopyResource(destination, output_.texture11.Get());
-        ++frames_; return S_OK;
+        ++frames_;
+        // The INT8 model is built lazily on the first dispatch; check it once it exists.
+        if (forced_ && active_ == FSRVersion::FSR4 && !verified_ && frames_ >= 2) { verified_ = VerifyForcedModel(); }
+        return S_OK;
     }
 
     HRESULT FSRUpscaler::ReleaseAfterRetirement()

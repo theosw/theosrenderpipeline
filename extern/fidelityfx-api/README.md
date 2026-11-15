@@ -8,10 +8,17 @@ and in each header. AMD's whole-SDK licence file is [SDK-LICENSE.md](SDK-LICENSE
 it lists the signed DLLs below under the MIT terms.
 
 TRP dynamically loads AMD's signed DX12 loader through its existing fenced
-D3D11/D3D12 interop. The loader picks the upscaler provider for the device:
-FSR 4 (ML) on supported Radeon GPUs (RX 6000 or newer, selected Ryzen graphics)
-and FSR 3.1 on other GPUs. Image > FSR version > FSR 3.1 overrides that with
-the newest 3.x provider AMD offers (`[Upscaling] FSRVersion=1`). No FSR frame
+D3D11/D3D12 interop. Each context pins the version the user chose from AMD's own
+version query: Image > Mode > FSR 3.1 (`UpscaleType=5`) or FSR 4 (`UpscaleType=6`).
+FSR 4 is offered by AMD on supported Radeon GPUs. In Universal only,
+`src/FrameGen/FSR4Compatibility.cpp` lets other GPUs with SM 6.6 and native
+16-bit support select it: before AMD's first query it verifies both DLLs' exact
+SHA-256, AMD Authenticode signature, PE layout, the full admission function and
+the INT8 provider/model RTTI, then writes five bytes in memory (RVA 0x99B5) so
+AMD's hardware-family check is skipped while its Shader Model 6.6 check stays.
+Files on disk are never modified; any mismatch refuses with a reason. The menu
+says "INT8 (forced)" only after AMD's context shows the INT8 model was built.
+AMD's licence (SDK-LICENSE.md) lists both DLLs under MIT. No FSR frame
 generation, replacement swapchain, denoiser or radiance cache is used.
 
 Acquire only the signed files from the official tag (`Kits/FidelityFX/signedbin`):

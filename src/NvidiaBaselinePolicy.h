@@ -18,7 +18,7 @@ namespace TheosRenderPipeline
     template <class Ini> const char* ValidateNvidiaBaseline(const Ini& ini)
     {
         const auto mode = ini.GetLongValue("Settings", "UpscaleType", DLSS);
-        if (!ini.GetBoolValue("Settings", "EnableUpscaler", true) || (mode != DLSS && mode != DLAA && mode != XeSS && mode != FSR)) {
+        if (!ini.GetBoolValue("Settings", "EnableUpscaler", true) || (mode != DLSS && mode != DLAA && mode != XeSS && !IsFSR(mode))) {
             return "This renderer requires DLSS, DLAA, XeSS or FSR. Use the Frame generation checkbox to turn interpolation off.";
         }
         if (ini.GetBoolValue("Experimental", "PureDarkFullDelegation", false) ||

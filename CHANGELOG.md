@@ -1,9 +1,14 @@
 # 0.7.0 Beta 2
 
-- FSR 4: Image > Mode > FSR now uses AMD's FSR SDK 2.4. On Radeon RX 6000 or
-  newer (and supported Ryzen graphics) AMD runs FSR 4, its ML upscaler; other
-  GPUs get FSR 3.1.6. Image > FSR version chooses Automatic or FSR 3.1 (restart),
-  and the row shows the version running. FSR 4 has not yet been tested on a Radeon.
+- FSR 4: Image > Mode now offers FSR 3.1 and FSR 4, using AMD's FSR SDK 2.4.
+  FSR 4 is AMD's ML upscaler, official on Radeon RX 6000 or newer and supported
+  Ryzen graphics (not yet tested on a Radeon). Under the Mode row the menu shows
+  what is really running.
+- Universal: FSR 4 also runs on other GPUs with native 16-bit shader support
+  (RTX, Intel Arc), experimental and about 4 to 5 times the cost of FSR 3.1 on an
+  RTX 4080. It needs a restart. GTX 10 cards can't run it and show the reason.
+  If FSR 4 can't start, TRP runs FSR 3.1 and says why.
+- Lab: "Show AMD FSR watermark" draws AMD's own label to confirm which FSR runs.
 
 # 0.7.0 Beta 1
 

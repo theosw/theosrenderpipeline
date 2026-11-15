@@ -137,14 +137,20 @@ to `auto` (the Windows display language), `en` or a file's code such as `zh-CN`.
 Files go in `SKSE/Plugins/TheosRenderPipeline/Lang`; the package includes
 Simplified Chinese. See [LOCALIZATION.md](LOCALIZATION.md) for the file format.
 
-## FSR 3.1 (experimental)
+## FSR 3.1 and FSR 4 (experimental)
 
-**Image > Mode > FSR 3.1** selects AMD's temporal upscaler (`UpscaleType=5`).
-It uses AMD's official FSR SDK 2.4 DX12 runtime through TRP's existing fenced
-D3D11/D3D12 bridge. On Radeon RX 6000 or newer (and supported Ryzen graphics)
-AMD runs FSR 4, its ML upscaler; other GPUs get FSR 3.1, which needs no tensor
-cores. **Image > FSR version > FSR 3.1** asks for FSR 3.1 on every GPU (restart).
-FSR is separate from frame generation. DLSS remains the RTX default.
+**Image > Mode > FSR 3.1** (`UpscaleType=5`) and **FSR 4** (`UpscaleType=6`)
+use AMD's official FSR SDK 2.4 DX12 runtime through TRP's existing fenced
+D3D11/D3D12 bridge. FSR 3.1 runs on every GPU and needs no tensor cores. FSR 4,
+AMD's ML upscaler, is official on Radeon RX 6000 or newer and supported Ryzen
+graphics. Universal can also run FSR 4 on other GPUs with Shader Model 6.6 and
+native 16-bit shader support (RTX, Intel Arc): it checks AMD's exact signed
+runtime, changes AMD's hardware check in memory only, and needs a restart. On an
+RTX 4080 it costs about 4 to 5 times FSR 3.1. GTX 10 cards lack native 16-bit
+support and cannot run it. The line under Mode names what is really running;
+if FSR 4 can't start, TRP runs FSR 3.1 and says why. Lab > "Show AMD FSR
+watermark" (`[Upscaling] FSRWatermark`) draws AMD's own label. FSR is separate
+from frame generation. DLSS remains the RTX default.
 
 Standard includes AMD's official, signed `amd_fidelityfx_loader_dx12.dll` and
 `amd_fidelityfx_upscaler_dx12.dll` in `Data/SKSE/Plugins/TheosRenderPipeline/AMD/`,

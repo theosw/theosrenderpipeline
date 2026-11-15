@@ -104,7 +104,7 @@ inline const char* NeuralSettingsUnavailable(int mode, RendererSettingsCapabilit
         if (mode != XeSS || !capabilities.xeSSReady || capabilities.externalWorld) return NeuralRendering::kHIPUpscalerReason;
     }
     if (NeuralRendering::TestBackend(capabilities.backend)) {
-        if (!((mode == XeSS && capabilities.xeSSReady) || (mode == FSR && capabilities.fsrReady)) || capabilities.externalWorld) { return NeuralRendering::kVendorUpscalerReason; }
+        if (!((mode == XeSS && capabilities.xeSSReady) || (IsFSR(mode) && capabilities.fsrReady)) || capabilities.externalWorld) { return NeuralRendering::kVendorUpscalerReason; }
     } else if (!capabilities.nvidiaAdapter) { return NeuralRendering::kNativeGPUReason; }
     if (capabilities.neuralAdmissionReason) { return capabilities.neuralAdmissionReason; }
     if (!capabilities.neuralRuntime) {
@@ -135,12 +135,12 @@ inline const char* ValidateRendererSettings(const RendererSettingsDraft& draft,
     {
         return "Choose a valid menu key.";
     }
-    if (draft.upscaleType != DLSS && draft.upscaleType != DLAA && draft.upscaleType != XeSS && draft.upscaleType != FSR)
+    if (draft.upscaleType != DLSS && draft.upscaleType != DLAA && draft.upscaleType != XeSS && !IsFSR(draft.upscaleType))
     {
         return "Choose DLSS, DLAA, XeSS or FSR.";
     }
     if ((!capabilities.nvidiaAdapter || !capabilities.nvidiaFeatures) && !capabilities.externalWorld &&
-        draft.upscaleType != XeSS && draft.upscaleType != FSR) {
+        draft.upscaleType != XeSS && !IsFSR(draft.upscaleType)) {
         return "DLSS/DLAA require NVIDIA RTX hardware. Select XeSS or FSR for this GPU.";
     }
     if (!Appearance::ValidHours(draft.appearance.hours)) {

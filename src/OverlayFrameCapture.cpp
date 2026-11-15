@@ -66,7 +66,17 @@ OverlayUI::FrameView OverlayUI::CaptureFrameView()
     view.fsrRuntimePresent = fsrRuntimePresent;
     {
         const auto& fsr = TheosRenderPipeline::SourceDLSSG::Backend::Get().FSR();
-        view.fsrVersion = fsr.Ready() ? fsr.Version() : std::string();
+        view.fsrRunning = fsr.RunningLabel();
+        view.fsrFallback = fsr.Ready() ? fsr.FallbackReason() : std::string();
+        auto* device = TheosRenderPipeline::SourceDLSSG::Backend::Get().Device12();
+        static ID3D12Device* checked{}; static const char* reason{}; static bool needsForce{};
+        if (device && device != checked) {  // the device's capabilities do not change
+            checked = device; reason = TheosRenderPipeline::FSRUpscaler::FSR4Unavailable(device);
+            needsForce = TheosRenderPipeline::FSRUpscaler::FSR4NeedsForce(device);
+        }
+        view.fsr4Reason = device ? reason : TheosRenderPipeline::FSRUpscaler::FSR4Unavailable(nullptr);
+        view.fsr4NeedsRestart = needsForce && !fsr.Forced();
+        view.fsrWatermarkActive = GetEnvironmentVariableW(L"MLSR-WATERMARK", nullptr, 0) > 0;
     }
     const auto& upscalerSettings = nvidiaHost->SourceUpscalerSettings();
     view.upscaler = upscalerSettings.Effective();

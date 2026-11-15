@@ -5,13 +5,15 @@ set(TRP_DEPENDENCIES "$ENV{TRP_DEPENDENCY_ROOT}")
 set(XESS_SDK "${TRP_DEPENDENCIES}/xess" CACHE PATH "Intel XeSS SDK root")
 add_library(TRPTemporalUpscalers STATIC
     "${TRP_ROOT}/src/FrameGen/FSRUpscaler.cpp"
+    "${TRP_ROOT}/src/FrameGen/FSR4Compatibility.cpp"
     "${TRP_ROOT}/src/FrameGen/XeSSUpscaler.cpp"
     "${TRP_ROOT}/src/FrameGen/SourceDLSSGInterop.cpp"
     "${TRP_ROOT}/src/FrameGen/D3D12StageTimer.cpp")
 target_compile_features(TRPTemporalUpscalers PUBLIC cxx_std_23)
-target_compile_definitions(TRPTemporalUpscalers PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
+# The benchmark exercises the Universal FSR 4 force path (--force-fsr4).
+target_compile_definitions(TRPTemporalUpscalers PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE TRP_FSR4_FORCE_UNIVERSAL)
 target_include_directories(TRPTemporalUpscalers PUBLIC "${TRP_ROOT}/src" "${TRP_ROOT}/include" "${XESS_SDK}/inc")
-target_link_libraries(TRPTemporalUpscalers PUBLIC d3d11 d3d12 dxgi d3dcompiler)
+target_link_libraries(TRPTemporalUpscalers PUBLIC d3d11 d3d12 dxgi d3dcompiler wintrust crypt32 bcrypt)
 add_executable(TRPFSRSettingsTests FSRSettingsTests.cpp)
 target_link_libraries(TRPFSRSettingsTests PRIVATE TRPTemporalUpscalers)
 add_executable(TRPUpscalerBenchmark UpscalerBenchmark.cpp)

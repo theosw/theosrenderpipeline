@@ -78,7 +78,11 @@ struct OverlayUI::FrameView
     bool nrFriendlyRenderSizeActive{};
     bool fsrActive{};
     bool fsrRuntimePresent{};
-    std::string fsrVersion; // running provider, empty when FSR is not active
+    std::string fsrRunning;      // what really runs, empty when FSR is not active
+    std::string fsrFallback;     // why FSR 4 was not used, if it was requested
+    const char* fsr4Reason{};    // nullptr when the FSR 4 button may be chosen
+    bool fsr4NeedsRestart{};     // off Radeon: the force starts with the game
+    bool fsrWatermarkActive{};
     bool generationActive{};
     unsigned effectiveMultiplier{1};
     TheosRenderPipeline::FrameGenerationProvider provider{}, requestedProvider{};

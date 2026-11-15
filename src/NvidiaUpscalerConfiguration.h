@@ -16,7 +16,7 @@ namespace TheosRenderPipeline::Upscaler
 
     inline Creation Sanitize(Creation value)
     {
-        value.mode = value.mode == 3 || value.mode == 4 || value.mode == 5 ? value.mode : 0;
+        value.mode = value.mode == 3 || value.mode == 4 || value.mode == 5 || value.mode == 6 ? value.mode : 0;
         value.quality = std::clamp(value.quality, 0, 4);
         value.preset = TheosRenderPipeline::DLSSPreset::Sanitize(value.preset);
         return value;
@@ -27,7 +27,7 @@ namespace TheosRenderPipeline::Upscaler
     inline Creation ForAdapter(Creation value, bool nvidiaAdapter)
     {
         value = Sanitize(value);
-        if (nvidiaAdapter || value.mode == 4 || value.mode == 5) { return value; }
+        if (nvidiaAdapter || value.mode == 4 || value.mode == 5 || value.mode == 6) { return value; }
         if (value.mode == 3) { value.quality = 4; }
         value.mode = 4;
         return value;
@@ -38,7 +38,7 @@ namespace TheosRenderPipeline::Upscaler
     inline Creation ForFSRRuntime(Creation value, bool runtimePresent)
     {
         value = Sanitize(value);
-        if (value.mode == 5 && !runtimePresent) { value.mode = 4; }
+        if ((value.mode == 5 || value.mode == 6) && !runtimePresent) { value.mode = 4; }
         return value;
     }
 

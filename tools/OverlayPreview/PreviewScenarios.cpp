@@ -604,6 +604,20 @@ PreviewScenario VendorFSR()
     s.view.xessActive=false;s.view.fsrActive=true;s.view.upscaler.mode=FSR;
     s.applied.upscaleType=FSR;s.draft=s.applied;return s;
 }
+// FSR 4 forced on an RTX GPU (Universal), confirmed running.
+PreviewScenario FSR4Forced()
+{
+    auto s=VendorFSR();s.name="fsr4-forced";s.summary="Universal: FSR 4 forced on RTX, INT8 model confirmed";
+    s.view.upscaler.mode=FSR4;s.view.fsrRuntimePresent=true;s.view.fsrRunning="FSR 4.1.2 INT8 (forced)";
+    s.applied.upscaleType=FSR4;s.draft=s.applied;return s;
+}
+// GTX 10: FSR 4 greyed with the reason; FSR 3.1 running.
+PreviewScenario FSR4Pascal()
+{
+    auto s=VendorFSR();s.name="fsr4-gtx10";s.summary="GTX 10: FSR 4 greyed (no native 16-bit), FSR 3.1 running";
+    s.view.nvidiaFeatures=false;s.view.fsrRuntimePresent=true;s.view.fsrRunning="FSR 3.1.6";
+    s.view.fsr4Reason="FSR 4 needs native 16-bit shader support";return s;
+}
 PreviewScenario VulkanBackground()
 {
     auto s=VulkanNvidia();s.name="vulkan-background";s.labMode=true;
@@ -711,5 +725,5 @@ std::vector<PreviewScenario> PreviewScenarios()
         Pascal("pascal-driver", NeuralRendering::kPascalDriverReason),
         Pascal("pascal-missing-pack", NeuralRendering::kPascalAssetReason),
         Pascal("pascal-checking", NeuralRendering::kPascalAssetsChecking),
-        Pascal("pascal-low-budget", NeuralRendering::kPascalBudgetReason), PascalOldNetwork(), Runtimes(), TestBackendsNvidia(), TestBackendsAmd(), VulkanNvidia(), VendorFSR(), VulkanBackground(), VulkanAmdRefused(), VulkanAmdPortable(), HIPMissing(), VendorStandard(), VulkanPreparing(), HIPLockedVulkan(), VulkanLockedHIP(), HIPFSRRefused(), Lab(), EvenPacing(), IntelSteady()};
+        Pascal("pascal-low-budget", NeuralRendering::kPascalBudgetReason), PascalOldNetwork(), Runtimes(), TestBackendsNvidia(), TestBackendsAmd(), VulkanNvidia(), VendorFSR(), FSR4Forced(), FSR4Pascal(), VulkanBackground(), VulkanAmdRefused(), VulkanAmdPortable(), HIPMissing(), VendorStandard(), VulkanPreparing(), HIPLockedVulkan(), VulkanLockedHIP(), HIPFSRRefused(), Lab(), EvenPacing(), IntelSteady()};
 }

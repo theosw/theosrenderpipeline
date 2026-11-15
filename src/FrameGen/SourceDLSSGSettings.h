@@ -40,9 +40,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// XeFG x3/x4 with VSync: space generated frames evenly in software when
 		// NVIDIA flip metering is unavailable. Costs base FPS; recreates XeFG.
 		bool xefgEvenPacing{ false };
-		// FSR: false lets AMD choose (FSR 4 on supported Radeon, FSR 3.1 elsewhere);
-		// true requests FSR 3.1 everywhere. Restart.
-		bool fsrClassic{ false };
+		// Lab: AMD's own FSR watermark (MLSR-WATERMARK), to confirm which FSR runs. Restart.
+		bool fsrWatermark{ false };
 		// Intel XeFG scene-change sensitivity, 0-1. Live.
 		float xefgSceneChangeThreshold{ XeFGDefaultSceneChangeThreshold };
 		GenerationRequest generation{};
@@ -106,7 +105,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		value.xefgFrameTime = ini.GetBoolValue("FrameGeneration", "XeFGFrameTime", true);
 		value.xefgTensorCores = ini.GetBoolValue("FrameGeneration", "XeFGTensorCores", false);
 		value.xefgEvenPacing = ini.GetBoolValue("FrameGeneration", "XeFGEvenPacing", false);
-		value.fsrClassic = ini.GetLongValue("Upscaling", "FSRVersion", 0) == 1;
+		value.fsrWatermark = ini.GetBoolValue("Upscaling", "FSRWatermark", false);
 		value.xefgSceneChangeThreshold = static_cast<float>(ini.GetDoubleValue("FrameGeneration", "XeFGSceneChangeThreshold",
 			XeFGDefaultSceneChangeThreshold));
 		value.xefg.generatedFrames = static_cast<std::uint32_t>(std::clamp(ini.GetLongValue("FrameGeneration", "XeFGMultiplier", 2), 2L, static_cast<long>(XeFGMaxGeneratedFrames+1))-1);
@@ -163,7 +162,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 		ini.SetBoolValue("FrameGeneration", "XeFGFrameTime", value.xefgFrameTime);
 		ini.SetBoolValue("FrameGeneration", "XeFGTensorCores", value.xefgTensorCores);
 		ini.SetBoolValue("FrameGeneration", "XeFGEvenPacing", value.xefgEvenPacing);
-		ini.SetLongValue("Upscaling", "FSRVersion", value.fsrClassic ? 1 : 0);
+		ini.SetBoolValue("Upscaling", "FSRWatermark", value.fsrWatermark);
+		ini.Delete("Upscaling", "FSRVersion");
 		ini.SetDoubleValue("FrameGeneration", "XeFGSceneChangeThreshold", value.xefgSceneChangeThreshold);
 		ini.Delete("FrameGeneration", "XeFGExperimentalMFG");
 		ini.SetLongValue("FrameGeneration", "XeFGMultiplier", value.xefg.generatedFrames+1);

@@ -73,9 +73,10 @@ and Frame generation > Frame limit with a Steady mode that evens out frame times
 It also fixes the vanilla main menu disappearing, NR stopping while the interface
 is hidden, and a possible XeFG freeze when gameplay starts. See CHANGELOG.md.
 
-Experimental **Image > Mode > FSR** (`UpscaleType=5`) uses AMD's official FSR SDK 2.4
-runtime: FSR 4 (ML) on Radeon RX 6000 or newer, FSR 3.1 on other GPUs; **FSR version > FSR 3.1**
-forces FSR 3.1 after a restart. The runtime is installed by Standard as
+Experimental **Image > Mode > FSR 3.1** (`UpscaleType=5`) and **FSR 4** (`UpscaleType=6`) use AMD's
+official FSR SDK 2.4 runtime. FSR 4 is official on Radeon RX 6000 or newer; Universal can also run it,
+experimentally, on RTX and Intel Arc (restart, about 4 to 5 times FSR 3.1's cost), but not on GTX 10.
+The runtime is installed by Standard as
 `SKSE/Plugins/TheosRenderPipeline/AMD/amd_fidelityfx_loader_dx12.dll` and `amd_fidelityfx_upscaler_dx12.dll`
 beside AMD's MIT notice `FSR-LICENSE.txt`, like the NVIDIA and Intel runtimes. FSR 3.1 needs no tensor cores. XeSS/FSR can
 switch with Apply at the current render size; render-scale changes require save

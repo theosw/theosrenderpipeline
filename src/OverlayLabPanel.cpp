@@ -67,6 +67,11 @@ void OverlayUI::DrawLabImageDetails(const FrameView& view)
                                static_cast<unsigned long long>(route.fallbackCount));
         }
     }
+    ImGui::Separator();
+    ImGui::Checkbox(TR("Show AMD FSR watermark (Lab)"), &settingsDraft.sourceDLSSG.fsrWatermark);
+    DrawSettingsHelp(view.fsrWatermarkActive
+        ? TR("On for this session. AMD draws its own label, such as \"FSR4-i8 Upscale 4.1.2\", to confirm which FSR runs. Changes need Save as default and a restart.")
+        : TR("AMD draws its own label, such as \"FSR4-i8 Upscale 4.1.2\", to confirm which FSR runs. Needs Save as default and a restart."));
 }
 
 void OverlayUI::DrawLabXeFGControls()
