@@ -161,7 +161,7 @@ struct NvidiaHost::SourceNvidiaEvaluationOperations
                     frame.output, frame.jitterX, frame.jitterY, frame.reset || (previewValid && preview.reset == sl::eTrue), frame.sharpness, parameters);
                 evaluated = SUCCEEDED(hr);
                 if (!evaluated) { logger::error("[FSR] evaluation failed {} hr=0x{:08X}", backend.FSR().Status(), static_cast<unsigned>(hr)); }
-                if (evaluated && backend.FSR().Frames() % 600 == 0) { logger::info("[FSR] evaluatedFrames={} historyReset={} render={}x{}", backend.FSR().Frames(), frame.reset, frame.renderWidth, frame.renderHeight); }
+                if (evaluated && backend.FSR().Frames() % 600 == 0) { logger::info("[FSR] evaluatedFrames={} historyReset={} render={}x{} running=\"{}\"", backend.FSR().Frames(), frame.reset, frame.renderWidth, frame.renderHeight, backend.FSR().RunningLabel()); }
             } else if (host.XeSSActive()) {
                 ScopedD3D11PerformanceStage timer{host.context_.Get(), PerformanceTuning::D3D11Stage::kDLSS};
                 auto& backend = TheosRenderPipeline::SourceDLSSG::Backend::Get();
