@@ -7,11 +7,13 @@ param(
     [int]$InputWidth = 1280,
     [int]$InputHeight = 720,
     [int]$Frames = 240,
-    [string]$AMDDirectory = 'D:/trp-build/fsr4/AMD',
+    [Parameter(Mandatory)][string]$AMDDirectory,
+    # Optional wrapper that serializes GPU work: it is called as <wrapper> -Tag <tag> -Command <cmd> ...
+    [string]$GpuLock = $env:TRP_GPU_LOCK,
     [int]$ExpectedExit = 0
 )
 $ErrorActionPreference = 'Stop'
-$official = 'D:/trp-build/fsr4/AMD'
+$official = $AMDDirectory
 $expected = @{
     'amd_fidelityfx_loader_dx12.dll' = 'E2191D3C0828BE45EB8AFFD4E3EC0378F2293ADC345B772A7170EDCF3B021ECB'
     'amd_fidelityfx_upscaler_dx12.dll' = 'AAD4FCCCCB29084A655F9A4F9F613BD22C8C03FB4A0F8840148CC6543B4CCACE'
@@ -35,7 +37,8 @@ New-Item -ItemType Directory -Path $caseDirectory | Out-Null
 $command = '"{0}" "{1}" "{2}" {3} {4} {5} {6} {7}' -f $Executable,$AMDDirectory,$caseDirectory,$Mode,$InputWidth,$InputHeight,$Kind,$Frames
 $exitCode = 1
 try {
-    & powershell -NoProfile -ExecutionPolicy Bypass -File 'C:/Users/Theo/Tools/trp-rtx/tools/gpu-lock-4080.ps1' -Tag fsr4force -Command $command -WorkingDirectory (Split-Path -Parent $Executable) -TimeoutSeconds 180 -WaitSeconds 60 2>&1 |
+    if (-not $GpuLock) { throw 'Set -GpuLock or TRP_GPU_LOCK to the GPU lock wrapper script' }
+    & powershell -NoProfile -ExecutionPolicy Bypass -File $GpuLock -Tag fsr4force -Command $command -WorkingDirectory (Split-Path -Parent $Executable) -TimeoutSeconds 180 -WaitSeconds 60 2>&1 |
         Tee-Object -FilePath (Join-Path $caseDirectory 'run.log')
     $exitCode = $LASTEXITCODE
 } finally {

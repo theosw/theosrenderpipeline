@@ -2,14 +2,15 @@
 
 This is a Universal-only experiment for the exact official SDK 2.4 loader and
 4.1.2.4555 upscaler. It does not change the renderer, menus, settings, packaging,
-adapter identity, feature queries, presets, or driver selection. The compatibility
-module is not yet wired into the production plugin. No AMD DLL is included.
+adapter identity, feature queries, presets, or driver selection. The same
+compatibility module (`src/FrameGen/FSR4Compatibility.cpp`) is used by Universal's
+FSR 4 mode on non-AMD GPUs; Standard does not compile it. No AMD DLL is included.
 
 Build separately (Windows x64, MSVC and Windows SDK):
 
 ```powershell
-cmake -S tests/fsr-force -B D:/trp-build/fsr4-force/universal -G 'Visual Studio 17 2022' -A x64 -DTRP_ENABLE_OPTIONAL_FEATURES=ON
-cmake --build D:/trp-build/fsr4-force/universal --config Release --parallel 4
+cmake -S tests/fsr-force -B out/build/fsr4-force -G 'Visual Studio 17 2022' -A x64 -DTRP_ENABLE_OPTIONAL_FEATURES=ON
+cmake --build out/build/fsr4-force --config Release --parallel 4
 ```
 
 Standard/OFF configuration is refused. A source-level compile guard also prevents
@@ -17,15 +18,15 @@ accidental compilation without the Universal experiment definition. The module
 is independently written against Windows APIs and inspection of AMD's MIT-listed
 runtime. No OptiScaler code or third-party modified provider is used.
 
-Run one fresh child per case through `RunCase.ps1`. This workstation runner always
-uses the required RTX 4080 GPU lock, checks the official files before and after,
+Run one fresh child per case through `RunCase.ps1`, passing `-AMDDirectory` and a GPU
+lock wrapper (`-GpuLock` or `TRP_GPU_LOCK`). The runner always uses that lock, checks the official files before and after,
 retains a command/binary identity receipt, and enforces a 180-second external
 process-tree timeout. The fixture has a 15-second fence wait. Do not execute the
 fixture directly on the workstation. Do not remove a GPU-failure stop marker to
 retry a crashed/hung provider.
 
 ```powershell
-$fixture = 'D:/trp-build/fsr4-force/universal/Release/TRPFSRForceFixture.exe'
+$fixture = 'out/build/fsr4-force/Release/TRPFSRForceFixture.exe'
 $evidence = '<absolute evidence directory>'
 & tests/fsr-force/RunCase.ps1 -Executable $fixture -EvidenceRoot $evidence -Name force-proof-1440 -Mode force -Kind proof -Frames 24
 ```

@@ -16,9 +16,8 @@ headers/loader are 1.4.357.0. Explicit overrides leave existing library versions
 at the root baseline. To build on another drive:
 
 ```powershell
-cmake --preset trp-universal -B D:/trp-build/vendor-neutral-nr-uni `
-  -DVCPKG_INSTALLED_DIR=D:/trp-build/vendor-neutral-nr-deps
-cmake --build D:/trp-build/vendor-neutral-nr-uni --config Release
+cmake --preset trp-universal -B out/build/universal
+cmake --build out/build/universal --config Release
 ```
 
 Standard does not build the engine or need these tools. Universal never installs

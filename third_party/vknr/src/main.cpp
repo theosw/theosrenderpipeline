@@ -26,7 +26,7 @@ int main(int argc,char** argv) try {
     }
     if(output.empty())throw std::runtime_error("--output is required");
     if(backend!="portable"&&backend!="rdna3")throw std::runtime_error("Unknown backend");
-    if(run.root.empty()){run.root=std::filesystem::path(argv[0]).parent_path()/"engines"/backend;if(!std::filesystem::is_directory(run.root))run.root=std::filesystem::path("D:/trp-build/vnnr-climb-coord/engine-package")/backend;}
+    if(run.root.empty()){run.root=std::filesystem::path(argv[0]).parent_path()/"engines"/backend;}
     if(mode=="weights"){
         if(dll.empty())throw std::runtime_error("--dll is required");
         auto weights=nrtest::load_small_weights(dll);nrtest::write_text(output,nrtest::weights_metadata_json(weights));
