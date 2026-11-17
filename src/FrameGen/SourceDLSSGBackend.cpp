@@ -367,7 +367,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		const bool communityShaders = CommunityShaders::Active();
 		// The host has already replaced DLSS/DLAA with XeSS on other GPUs.
 		const bool xeSSStartup = !communityShaders && RenderPipeline::GetSingleton()->mUpscaleType == ::XeSS;
-		const bool fsrStartup = !communityShaders && RenderPipeline::GetSingleton()->mUpscaleType == ::FSR;
+		const bool fsrStartup = !communityShaders && IsFSR(RenderPipeline::GetSingleton()->mUpscaleType);
 		const auto startup = SelectProviderStartup(xeSSStartup || fsrStartup, NvidiaFrameGenerationAvailable(), RequestedProvider());
 		RequestProvider(startup.requested);
 		provider_ = startup.presenter;

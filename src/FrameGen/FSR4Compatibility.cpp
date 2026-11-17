@@ -33,6 +33,15 @@ namespace TheosRenderPipeline::FSR4Compatibility
             Require(n && n < path.size(), "cannot resolve runtime file path"); path.resize(n); return path;
         }
         bool EqualPath(const std::wstring& a, const std::wstring& b) { return _wcsicmp(a.c_str(), b.c_str()) == 0; }
+        // UTF-8 for the audit log: path::string() throws outside the ANSI code page.
+        std::string Utf8(const std::filesystem::path& path)
+        {
+            const auto& wide = path.native();
+            const int size = WideCharToMultiByte(CP_UTF8, 0, wide.c_str(), static_cast<int>(wide.size()), nullptr, 0, nullptr, nullptr);
+            std::string text(size > 0 ? size : 0, '\0');
+            if (size > 0) { WideCharToMultiByte(CP_UTF8, 0, wide.c_str(), static_cast<int>(wide.size()), text.data(), size, nullptr, nullptr); }
+            return text;
+        }
         void Signature(HANDLE file, const std::filesystem::path& path)
         {
             WINTRUST_FILE_INFO info{sizeof(info)}; info.pcwszFilePath = path.c_str(); info.hFile = file;
@@ -169,7 +178,7 @@ namespace TheosRenderPipeline::FSR4Compatibility
                 std::vector<unsigned char> data(static_cast<size_t>(length.QuadPart)); DWORD read{};
                 Require(ReadFile(files_[i], data.data(), static_cast<DWORD>(data.size()), &read, nullptr) && read == data.size(), "runtime read failed");
                 const auto hash = Sha256(data.data(), data.size());
-                audit_ += path.string() + " sha256=" + hash + "\n";
+                audit_ += Utf8(path) + " sha256=" + hash + "\n";
                 Require(hash == hashes[i], "runtime SHA-256 mismatch; force supports exact SDK 2.4 files only");
                 Signature(files_[i], path); audit_ += "AMD Authenticode valid (cached trust; online revocation not requested)\n";
             }
@@ -189,7 +198,7 @@ namespace TheosRenderPipeline::FSR4Compatibility
                 HMODULE resident{};
                 Require(GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN,
                     reinterpret_cast<LPCWSTR>(module), &resident) && resident == module, "cannot retain verified module");
-                audit_ += std::filesystem::path(loaded).string() + " loaded and pinned\n";
+                audit_ += Utf8(std::filesystem::path(loaded)) + " loaded and pinned\n";
             }
             Modules(loader_, upscaler_); state_ = State::Loaded; reason_ = "verified runtime loaded; no query made"; return true;
         } catch (const std::exception& e) { return Refuse(e.what()); }

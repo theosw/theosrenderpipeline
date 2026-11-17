@@ -82,7 +82,7 @@ namespace TheosRenderPipeline::Upscaler
         Creation LiveCandidate() const
         {
             auto value = requested_;
-            const bool fixedAlgorithm = startup_.mode == 0 || startup_.mode == 4 || startup_.mode == 5;
+            const bool fixedAlgorithm = startup_.mode == 0 || startup_.mode == 4 || startup_.mode == 5 || startup_.mode == 6;
             // Vendor-neutral methods can switch without initializing NVIDIA.
             // Entry to DLSS from either still requires services + SDK preflight.
             if (!fixedAlgorithm || value.mode == 3 ||

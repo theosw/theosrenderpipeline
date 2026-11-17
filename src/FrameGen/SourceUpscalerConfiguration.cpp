@@ -61,7 +61,10 @@ void NvidiaHost::ApplySourceUpscalerSettingsAfterPresent()
             return;
         }
     }
-    if (candidate.mode == FSR4 && TheosRenderPipeline::FSRUpscaler::FSR4NeedsForce(backend.Device12()) && !backend.FSR().Forced()) {
+    // Only a switch INTO FSR 4 is refused: a session already in FSR 4 (running it,
+    // or FSR 3.1 after a fallback) applies its other live changes normally.
+    if (candidate.mode == FSR4 && sourceUpscalerSettings_.Effective().mode != FSR4 &&
+        TheosRenderPipeline::FSRUpscaler::FSR4NeedsForce(backend.Device12()) && !backend.FSR().Forced()) {
         // The force must precede AMD's first query in this process.
         sourceUpscalerSettings_.RejectLiveMode();
         status_ = "FSR 4 on this GPU needs Save as default and a restart; current method retained.";

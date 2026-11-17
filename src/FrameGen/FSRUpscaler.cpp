@@ -31,7 +31,13 @@ namespace TheosRenderPipeline
         }
     }
 
-    bool FSRUpscaler::FSR4NeedsForce(ID3D12Device* device) { return AdapterVendor(device) != 0x1002; }
+    bool FSRUpscaler::FSR4NeedsForce(ID3D12Device* device)
+    {
+        // Cached per device: the menu and live-settings paths ask every frame.
+        static ID3D12Device* checked{}; static bool needsForce{};
+        if (device != checked) { checked = device; needsForce = AdapterVendor(device) != 0x1002; }
+        return needsForce;
+    }
 
     const char* FSRUpscaler::FSR4Unavailable(ID3D12Device* device)
     {
@@ -230,7 +236,14 @@ namespace TheosRenderPipeline
         else { description_.flags |= FFX_UPSCALE_ENABLE_HIGH_DYNAMIC_RANGE; }
         description_.maxRenderSize = {input_.width, input_.height};
         description_.maxUpscaleSize = {outputSize_.width, outputSize_.height};
-        const auto hr = Result(create_(&context_, &description_.header, nullptr), "create context");
+        auto hr = Result(create_(&context_, &description_.header, nullptr), "create context");
+        if (FAILED(hr) && active_ == FSRVersion::FSR4) {
+            // FSR 4 offered but would not start: run FSR 3.1 and say why.
+            fallback_ = "FSR 4 failed to start (" + status_ + ")";
+            context_ = nullptr; active_ = FSRVersion::FSR31; override_.versionId = VersionId("3.");
+            if (!override_.versionId) { status_ = "FSR 3.1 is not offered by this AMD runtime"; return E_NOINTERFACE; }
+            hr = Result(create_(&context_, &description_.header, nullptr), "create FSR 3.1 context after FSR 4 failed");
+        }
         if (FAILED(hr)) { return hr; }
         invertedDepth_ = invertedDepth;
         ffxQueryGetProviderVersion version{}; version.header.type = FFX_API_QUERY_DESC_TYPE_GET_PROVIDER_VERSION;
