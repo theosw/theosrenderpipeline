@@ -3,7 +3,7 @@
 namespace TheosRenderPipeline::SourceDLSSG
 {
     // Shared settings remain saved for the add-on. The base never creates an NR session.
-    void Backend::ConfigureNeuralRendering(NeuralOptions) {}
+    void Backend::ConfigureNeuralRendering(NeuralOptions, const char*) {}
     void Backend::RequestNeuralRetry() {}
     NeuralOptions Backend::NeuralConfiguration() const { return {}; }
     void Backend::ConfigureNeuralCompare(NeuralRendering::CompareSettings) {}

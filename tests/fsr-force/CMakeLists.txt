@@ -1,0 +1,13 @@
+cmake_minimum_required(VERSION 3.24)
+project(TRPFSRForceExperiment LANGUAGES CXX)
+option(TRP_ENABLE_OPTIONAL_FEATURES "Build Universal-only FSR4 experiment" OFF)
+if(NOT TRP_ENABLE_OPTIONAL_FEATURES)
+    message(FATAL_ERROR "The FSR4 force experiment is Universal only; explicitly enable TRP_ENABLE_OPTIONAL_FEATURES")
+endif()
+add_executable(TRPFSRForceFixture Fixture.cpp DispatchTrace.cpp Slots.cpp
+    ../../src/FrameGen/FSR4Compatibility.cpp)
+target_compile_features(TRPFSRForceFixture PRIVATE cxx_std_20)
+target_compile_definitions(TRPFSRForceFixture PRIVATE TRP_FSR4_FORCE_UNIVERSAL NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
+target_compile_options(TRPFSRForceFixture PRIVATE /W4 /permissive- /EHsc /O2)
+target_include_directories(TRPFSRForceFixture PRIVATE ../..)
+target_link_libraries(TRPFSRForceFixture PRIVATE d3d12 dxgi d3dcompiler bcrypt wintrust crypt32 windowscodecs ole32)

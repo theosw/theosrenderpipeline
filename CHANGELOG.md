@@ -1,3 +1,44 @@
+# 0.7.1 Beta 1
+
+- Community Shaders: frame generation now gets the scene after Skyrim's screen
+  blood and Bottled Shaders' Camera FX lens effects, so they no longer wobble on
+  generated frames. Under CS HDR Display, vanilla screen blood is still not
+  covered. Not yet tested in game.
+- A refused depth, motion or HUD-less copy no longer freezes the picture for the
+  rest of the session. TRP keeps presenting without frame generation and NR, and
+  both tabs give the reason. Before, the screen kept its last image while the
+  game ran on behind it (a 0.6.4 report with Community Shaders). The log now
+  also says which check refused the copy and what each texture was.
+- Vulkan NR: the freeze check waits 10 seconds instead of 3, ignores time the PC
+  is asleep, and releases the game at once if the Vulkan GPU device is lost.
+- FSR 4: Image > Mode now offers FSR 3.1 and FSR 4, using AMD's FSR SDK 2.4.
+  FSR 4 is AMD's ML upscaler, official on Radeon RX 6000 or newer and supported
+  Ryzen graphics (not yet tested on a Radeon). Under the Mode row the menu shows
+  what is really running.
+- Universal: FSR 4 also runs on other GPUs with native 16-bit shader support
+  (RTX, Intel Arc), experimental and about 4 to 5 times the cost of FSR 3.1 on an
+  RTX 4080. It needs a restart. GTX 10 cards can't run it and show the reason.
+  If FSR 4 can't start, TRP runs FSR 3.1 and says why.
+- Lab: "Show AMD FSR watermark" draws AMD's own label to confirm which FSR runs.
+
+# 0.7.0 Beta 1
+
+- Neural Rendering on AMD Radeon (Universal). HIP/ZLUDA is the default AMD
+  backend, with Execution Regular (wait) and NR input 50%. Tested on an
+  RX 7900 GRE; other Radeon cards are untested. HIP/ZLUDA needs TRP's XeSS
+  upscaling for now.
+- Experimental Vulkan NR: TRP's own engine, for GPUs with Vulkan cooperative
+  matrices (RX 7000/9000, Intel Arc, RTX). It works with XeSS or FSR and has not
+  run on a Radeon yet.
+- Switching between HIP/ZLUDA and Vulkan needs a Skyrim restart. If either stops
+  responding, TRP turns it off for the session instead of holding the game.
+- The NR runtime list shows every runtime on every GPU, greying the ones that
+  can't run with the reason. The Automatic row shows only native NR's time.
+- NVIDIA defaults are unchanged. Standard lists the AMD choices greyed out.
+- Known limits: HIP/ZLUDA is slow at full input (45–150 ms per run on the
+  RX 7900 GRE), Async execution can smear mouths, and frame generation at a low
+  base fps still feels delayed. See the README.
+
 # 0.6.5
 
 - NR Object rules support Skyrim 1.5.97, with a version-specific draw-hook guard.

@@ -1,0 +1,266 @@
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -71,6 +71,12 @@
+     common/cuda_min.h common/ngx_cuda.h)
+ target_link_libraries(dlss5nr_runtime PRIVATE d3d12 ${D3DCOMPILER})
+ set_target_properties(dlss5nr_runtime PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${BIN})
++if(MSVC)
++    foreach(target gate dlss5nr_runtime)
++        target_compile_options(${target} PRIVATE /Zi)
++        target_link_options(${target} PRIVATE /DEBUG /OPT:REF /OPT:ICF)
++    endforeach()
++endif()
+ 
+ # ------------------------------------------------------------ test harness
+ add_executable(dlss5nr_harness tests/harness.cpp)
+--- a/core/network.cpp
++++ b/core/network.cpp
+@@ -1,6 +1,7 @@
+ #include "network.h"
+ #include "../include/trp_adapter_match.h"
+ #include "../include/trp_nvapi_adapter.h"
++#include "../include/trp_hip_diagnostics.h"
+ 
+ #define WIN32_LEAN_AND_MEAN
+ #include <windows.h>
+@@ -51,6 +52,8 @@
+     HMODULE ngx = nullptr;
+     CudaApi cu{};
+     CUcontext context = nullptr;
++    CUdevice selected_device = 0;
++    uint64_t expected_luid = 0, evaluations = 0;
+ 
+     const char *(*ngx_load)(const wchar_t *) = nullptr;
+     NVSDK_NGX_Result (*ngx_init)(unsigned long long, const wchar_t *, NVSDK_NGX_Version,
+@@ -67,6 +70,15 @@
+ };
+ 
+ State g;
++
++void observe_hip(const char* phase) {
++    const auto s = TRPAmdDiagnostics::CurrentHip();
++    const int match = g.expected_luid && s.luidResult == 0 && s.luid ? (g.expected_luid == s.luid ? 1 : 0) : -1;
++    log(match == 0 ? 1 : 2, "C5 HIP phase=%s CUDA-device=%d CUDA-context=%p HIP-device=%d HIP-context=%p "
++        "expectedLUID=%016llx HIP-LUID=%016llx match=%d PCI=%s queryResults=%d/%d/%d/%d",
++        phase, g.selected_device, g.context, s.device, s.context, (unsigned long long)g.expected_luid,
++        (unsigned long long)s.luid, match, s.pci, s.contextResult, s.deviceResult, s.luidResult, s.pciResult);
++}
+ 
+ // Copy mode: the queue the pixels are moved on, and the wait for it.
+ struct Copier {
+@@ -349,6 +361,7 @@
+     const std::wstring cache = paths.data_dir + L"\\ComputeCache";
+     g.data_dir = paths.data_dir;
+ 
++    g.expected_luid = paths.adapter_luid;
+     const bool may_translate = translation_allowed();
+     std::set<std::string> covered;
+     if (!may_translate && !read_coverage(cache, covered, error)) return false;
+@@ -464,8 +477,11 @@
+             return false;
+         }
+     }
++    g.selected_device = device; g.evaluations = 0;
+     if (!cu_ok(g.cu.cuCtxCreate(&g.context, CU_CTX_SCHED_AUTO, device), "cuCtxCreate", error)) return false;
+     if (!cu_ok(g.cu.cuCtxSetCurrent(g.context), "cuCtxSetCurrent", error)) return false;
++
++    observe_hip("worker-load-after-current");
+ 
+     // C4: the upstream NVAPI shim otherwise reports CUDA ordinal 0's LUID,
+     // even when the selected inference device is a different physical adapter.
+@@ -828,6 +844,9 @@
+         return false;
+     }
+     if (!cu_ok(g.cu.cuCtxSetCurrent(g.context), "cuCtxSetCurrent", error)) return false;
++    ++g.evaluations;
++    const bool sample = g.evaluations == 1 || g.evaluations % 300 == 0;
++    if (sample) observe_hip("worker-evaluate-before-NGX");
+     if (copy_mode_ && !copy_in(d, error)) return false;
+     NVSDK_NGX_Parameter *p = g.params;
+     const uint32_t w = feature_width_, h = feature_height_;
+@@ -876,6 +895,10 @@
+ 
+     if (!ngx_ok(g.ngx_evaluate(g.feature, p), "NVSDK_NGX_CUDA_EvaluateFeature", error)) return false;
+     if (!cu_ok(g.cu.cuCtxSynchronize(), "cuCtxSynchronize", error)) return false;
++    if (sample) {
++        observe_hip("worker-evaluate-after-sync");
++        log(2, "C5 NGX evaluations synchronized=%llu", (unsigned long long)g.evaluations);
++    }
+     return !copy_mode_ || copy_out(d, error);
+ }
+ 
+--- a/core/runtime.cpp
++++ b/core/runtime.cpp
+@@ -25,6 +25,7 @@
+ #include <windows.h>
+ #include <d3d12.h>
+ 
++#include "../include/trp_diagnostics.h"
+ #include <atomic>
+ #include <chrono>
+ #include <cmath>
+@@ -283,6 +284,7 @@
+     std::atomic<uint32_t> result_latency{0};
+     std::atomic<uint32_t> results{0};
+     std::atomic<uint32_t> worker_thread_id{0};
++    uint64_t completed_evaluations = 0; // Worker only.
+     // Set by the host's first call after dlss5nr_create. Nothing is loaded
+     // before it: a host that filters library loads by thread has by then had
+     // the chance to learn which thread to let through.
+@@ -306,6 +308,8 @@
+         std::lock_guard<std::mutex> guard(log_lock);
+         if (log_file) {
+             static const char *const kLevel[] = {"error", "warning", "info", "debug"};
++            char prefix[160]{}; TRPAmdDiagnostics::Prefix(prefix, sizeof(prefix));
++            fputs(prefix, log_file);
+             fprintf(log_file, "[%s] %s\n", kLevel[level < 0 ? 0 : level > 3 ? 3 : level], line);
+             fflush(log_file);
+         }
+@@ -470,6 +474,11 @@
+         history_frame = ok ? slot.frame : ~0ull;
+         if (ok) {
+             failures = 0;
++            ++completed_evaluations;
++            if (completed_evaluations == 1 || completed_evaluations % 300 == 0)
++                log(2, "C5 completed evaluations=%llu captureFrame=%llu reset=%d",
++                    (unsigned long long)completed_evaluations, (unsigned long long)slot.frame,
++                    slot.reset ? 1 : 0);
+             slot.state = Slot::Ready;
+             slot.sequence = ++sequence;
+             evaluation_ms = (float)std::chrono::duration<double, std::milli>(finished - began).count();
+--- a/gate/gate.cpp
++++ b/gate/gate.cpp
+@@ -31,6 +31,7 @@
+ #include <cstring>
+ 
+ #include "gate_forwards.h"
++#include "../include/trp_diagnostics.h"
+ 
+ namespace {
+ 
+@@ -53,6 +54,8 @@
+     if (g_log) {
+         va_list ap;
+         va_start(ap, fmt);
++        char prefix[160]{}; TRPAmdDiagnostics::Prefix(prefix, sizeof(prefix));
++        fputs(prefix, g_log);
+         vfprintf(g_log, fmt, ap);
+         va_end(ap);
+         fflush(g_log);
+--- a/gate/native_hook.h
++++ b/gate/native_hook.h
+@@ -22,6 +22,7 @@
+ #include <stdlib.h>
+ #include <string.h>
+ #include <windows.h>
++#include "../include/trp_hip_diagnostics.h"
+ 
+ // Include this AFTER the proxy's logf() is defined. It is a member of an
+ // anonymous namespace there, so declaring it here would not resolve the calls
+@@ -76,6 +77,8 @@
+     hipFunction_t fn = nullptr;
+     bool dead = false;      // tried and failed: never again this run
+     unsigned launches = 0;
++    void* bound_context = nullptr;
++    int bound_device = -1;
+ };
+ 
+ // Raised from 32 when the manifest outgrew it: lines past the limit used to be
+@@ -194,7 +197,12 @@
+         e.dead = true;
+         return false;
+     }
+-    logf("[native] %s hooked by %s\n", e.kernel, e.object);
++    const auto bound = TRPAmdDiagnostics::CurrentHip();
++    e.bound_context = bound.contextResult == 0 ? bound.context : nullptr;
++    e.bound_device = bound.deviceResult == 0 ? bound.device : -1;
++    logf("[native] %s hooked by %s; C5 bind HIP-device=%d HIP-context=%p HIP-LUID=%016llx PCI=%s queries=%d/%d/%d/%d function=%p\n",
++        e.kernel, e.object, bound.device, bound.context, (unsigned long long)bound.luid, bound.pci,
++        bound.contextResult, bound.deviceResult, bound.luidResult, bound.pciResult, e.fn);
+     return true;
+ }
+ 
+@@ -248,6 +256,14 @@
+             return false;
+         }
+         ++e.launches;
++        if (e.launches == 1 || e.launches % 1000 == 0) {
++            const auto current = TRPAmdDiagnostics::CurrentHip();
++            logf("[native] C5 queued kernel=%s launches=%u function=%p stream=%p boundHIP=%d/%p currentHIP=%d/%p "
++                 "HIP-LUID=%016llx queries=%d/%d/%d/%d launchResult=%d (queued, not completion)\n",
++                 name, e.launches, e.fn, stream, e.bound_device, e.bound_context, current.device, current.context,
++                 (unsigned long long)current.luid, current.contextResult, current.deviceResult,
++                 current.luidResult, current.pciResult, launched);
++        }
+         return true;
+     }
+     return false;
+--- a/include/trp_diagnostics.h
++++ b/include/trp_diagnostics.h
+@@ -0,0 +1,24 @@
++#pragma once
++#include <windows.h>
++#include <cstdio>
++
++namespace TRPAmdDiagnostics {
++// Process creation time distinguishes PID reuse. Identical in host/runtime/gate.
++inline const char* Session() {
++    static const auto id = [] {
++        struct Value { char text[64]{}; } result;
++        FILETIME creation{}, exit{}, kernel{}, user{};
++        const bool known = GetProcessTimes(GetCurrentProcess(), &creation, &exit, &kernel, &user) != 0;
++        const auto time = (static_cast<unsigned long long>(creation.dwHighDateTime) << 32) | creation.dwLowDateTime;
++        std::snprintf(result.text, sizeof(result.text), "%lu-%016llx%s", GetCurrentProcessId(), time, known ? "" : "-unknown");
++        return result;
++    }();
++    return id.text;
++}
++inline void Prefix(char* text, size_t size) {
++    SYSTEMTIME utc{}; GetSystemTime(&utc);
++    std::snprintf(text, size, "[%04u-%02u-%02uT%02u:%02u:%02u.%03uZ C5 session=%s tid=%lu] ",
++        utc.wYear, utc.wMonth, utc.wDay, utc.wHour, utc.wMinute, utc.wSecond, utc.wMilliseconds,
++        Session(), GetCurrentThreadId());
++}
++}
+--- a/include/trp_hip_diagnostics.h
++++ b/include/trp_hip_diagnostics.h
+@@ -0,0 +1,39 @@
++#pragma once
++#include <windows.h>
++#include <cstdint>
++#include <cstring>
++
++namespace TRPAmdDiagnostics {
++// Observe the already-loaded HIP runtime. Never load/set a device or context.
++struct HipSnapshot {
++    void* context{};
++    int device{-1}, contextResult{-1}, deviceResult{-1}, luidResult{-1}, pciResult{-1};
++    std::uint64_t luid{};
++    unsigned nodeMask{};
++    char pci[64]{};
++};
++inline HipSnapshot CurrentHip() {
++    HipSnapshot s;
++    auto hip = GetModuleHandleW(L"amdhip64_7.dll");
++    if (!hip) hip = GetModuleHandleW(L"amdhip64_6.dll");
++    if (!hip) hip = GetModuleHandleW(L"amdhip64.dll");
++    if (!hip) return s;
++    using Context = int (*)(void**);
++    using Device = int (*)(int*);
++    using Luid = int (*)(char*, unsigned*, int);
++    using PCI = int (*)(char*, int, int);
++    auto context = reinterpret_cast<Context>(GetProcAddress(hip, "hipCtxGetCurrent"));
++    auto device = reinterpret_cast<Device>(GetProcAddress(hip, "hipGetDevice"));
++    auto luid = reinterpret_cast<Luid>(GetProcAddress(hip, "hipDeviceGetLuid"));
++    auto pci = reinterpret_cast<PCI>(GetProcAddress(hip, "hipDeviceGetPCIBusId"));
++    if (context) s.contextResult = context(&s.context);
++    if (device) s.deviceResult = device(&s.device);
++    if (s.deviceResult == 0) {
++        char bytes[8]{};
++        if (luid) s.luidResult = luid(bytes, &s.nodeMask, s.device);
++        if (s.luidResult == 0) std::memcpy(&s.luid, bytes, sizeof(s.luid));
++        if (pci) s.pciResult = pci(s.pci, sizeof(s.pci), s.device);
++    }
++    return s;
++}
++}

@@ -1,4 +1,5 @@
 #pragma once
+#include "FrameGen/NeuralBackend.h"
 
 #include "OverlayUI.h"
 #include "OverlayUIStyle.h"
@@ -56,6 +57,11 @@ struct OverlayUI::FrameView
     // NR per frame last measured with each runtime this session, in ms; 0 if
     // not tried. Cleared when other NR settings change, so values compare.
     std::vector<float> neuralRuntimeMilliseconds;
+    // Private test backends in the same list: the HIP port's NR per frame
+    // (0 if not tried) and why it cannot run (empty if it can).
+    float neuralHIPMilliseconds{}, neuralVulkanMilliseconds{};
+    std::string neuralVulkanReason{TheosRenderPipeline::NeuralRendering::kVulkanNotChecked}, neuralVulkanPath;
+    std::string neuralHIPReason{TheosRenderPipeline::NeuralRendering::kHIPGPUReason};
     int neuralComputeCapability{-1};
     bool neuralRuntimeKernels{};
     bool sourceReady{};
@@ -63,6 +69,8 @@ struct OverlayUI::FrameView
     bool neuralPascal{};
     bool nvidiaServicesReady{};
     bool nvidiaAdapter{true};
+    bool amdAdapter{};
+    std::string amdNeuralPrerequisite;
     bool nvidiaFeatures{true};
     bool nvidiaFrameGeneration{true};
     bool videoMemoryFull{};
@@ -70,6 +78,11 @@ struct OverlayUI::FrameView
     bool nrFriendlyRenderSizeActive{};
     bool fsrActive{};
     bool fsrRuntimePresent{};
+    std::string fsrRunning;      // what really runs, empty when FSR is not active
+    std::string fsrFallback;     // why FSR 4 was not used, if it was requested
+    const char* fsr4Reason{};    // nullptr when the FSR 4 button may be chosen
+    bool fsr4NeedsRestart{};     // off Radeon: the force starts with the game
+    bool fsrWatermarkActive{};
     bool generationActive{};
     unsigned effectiveMultiplier{1};
     TheosRenderPipeline::FrameGenerationProvider provider{}, requestedProvider{};

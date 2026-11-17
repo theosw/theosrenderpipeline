@@ -1,4 +1,5 @@
 #pragma once
+#include "NeuralBackend.h"
 
 #include "NeuralRenderingRuntimeContract.h"
 
@@ -9,6 +10,7 @@
 #include <memory>
 #include <string>
 
+namespace TheosRenderPipeline::SourceDLSSG { class Interop; }
 namespace TheosRenderPipeline::NeuralRendering
 {
 	class FeatureSession
@@ -27,6 +29,7 @@ namespace TheosRenderPipeline::NeuralRendering
 			// -1 selects the verified runtime's default. Old callers remain legacy-only.
 			std::int32_t networkPreset{ -1 };
 			bool allowReconstructionRuntime{ false };
+			TheosRenderPipeline::NeuralRendering::Backend backend{};
 		};
 
 		struct EvaluationInput
@@ -58,8 +61,15 @@ namespace TheosRenderPipeline::NeuralRendering
 
 		bool EnsureInitialized(const CreateInfo& a_info);
 		bool RecordEvaluation(const EvaluationInput& a_input);
+        bool EvaluateVulkan(const EvaluationInput&, SourceDLSSG::Interop&, ID3D12CommandQueue*,
+            std::size_t slot, ID3D12GraphicsCommandList*&, bool background=false);
+        bool PollVulkan(std::size_t slot, ID3D12CommandQueue*, bool& ready);
+        bool ConsumeVulkan(const EvaluationInput&, ID3D12CommandQueue*, std::size_t slot, ID3D12GraphicsCommandList*);
+        bool DropVulkan(ID3D12CommandQueue*);
+        VulkanNRMeasurements VulkanMeasurements() const;
 
 		bool IsInitialized() const;
+        bool Preparing() const;
 		// A safe compatibility refusal or NGX creation refusal before any command
 		// reached the caller's list. Compatibility refusals return NotSupported.
 		std::uint32_t RefusedCreation() const;

@@ -190,7 +190,7 @@ void OverlayUI::DrawStageMeasurements(const FrameView& view, SettingsPage page)
 void OverlayUI::DrawOutputOptimizations()
 {
     ImGui::Separator();
-    const bool unavailable = settingsDraft.upscaleType == XeSS || settingsDraft.upscaleType == FSR;
+    const bool unavailable = settingsDraft.upscaleType == XeSS || IsFSR(settingsDraft.upscaleType);
     ImGui::BeginDisabled(unavailable);
     ImGui::Checkbox(TR("Direct RCAS output"), &settingsDraft.directRCASOutput);
     DrawSettingsHelp(TR("On by default. Writes sharpened output directly, avoiding its final copy. Apply required."));

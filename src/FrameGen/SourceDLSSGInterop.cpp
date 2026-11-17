@@ -123,6 +123,11 @@ namespace TheosRenderPipeline::SourceDLSSG
 				swprintf_s(name, L"TRP work %u slot %u command list", workIndex, static_cast<unsigned>(slot));
 				(void)work.lists[slot]->SetName(name);
 				if (FAILED(hr = work.lists[slot]->Close())) { return Check(hr); }
+                if (FAILED(hr = device12_->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
+                    IID_PPV_ARGS(&work.continuationAllocators[slot])))) { return Check(hr); }
+                if (FAILED(hr = device12_->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+                    work.continuationAllocators[slot].Get(), nullptr, IID_PPV_ARGS(&work.continuations[slot])))) { return Check(hr); }
+                if (FAILED(hr = work.continuations[slot]->Close())) { return Check(hr); }
 			}
 		}
 		// ReShade exposes a proxy device/queue but forwards fence creation to the
@@ -382,7 +387,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		return true;
 	}
 
-	HRESULT Interop::Begin(Work a_work, ID3D12GraphicsCommandList** a_list, AllocatorWaitTiming* a_wait)
+	HRESULT Interop::Begin(Work a_work, ID3D12GraphicsCommandList** a_list, AllocatorWaitTiming* a_wait, bool a_splitNonblocking)
 	{
 		if (a_wait) { *a_wait = {}; }
 		if (!a_list) { return E_POINTER; }
@@ -391,17 +396,29 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (!Ready() || !work || work->recording) { return E_UNEXPECTED; }
 		auto hr = WaitD3D12(a_work);
 		if (FAILED(hr)) { return hr; }
-		if (FAILED(hr = WaitCPU(*work, work->submitted[work->slot], a_wait))) { return hr; }
+		if (a_splitNonblocking) {
+            const auto completed=work->fence12->GetCompletedValue();
+            if (completed==UINT64_MAX) { return Check(DXGI_ERROR_DEVICE_REMOVED); }
+            if (completed<work->submitted[work->slot]) { return S_FALSE; }
+        } else if (FAILED(hr = WaitCPU(*work, work->submitted[work->slot], a_wait))) { return hr; }
 		observation_.stage = "command allocator Reset";
 		if (FAILED(hr = work->allocators[work->slot]->Reset())) { return Check(hr); }
 		observation_.stage = "command list Reset";
 		if (FAILED(hr = work->lists[work->slot]->Reset(work->allocators[work->slot].Get(), nullptr))) { return Check(hr); }
 		NeuralRendering::RejectedNeuralLists::Get().Discard(work->lists[work->slot].Get());
-		work->recording = true;
-		*a_list = work->lists[work->slot].Get();
+		work->splitEnabled = a_splitNonblocking;
+        work->continued = false;
+        if (a_splitNonblocking) {
+            if (FAILED(hr=work->continuationAllocators[work->slot]->Reset()) ||
+                FAILED(hr=work->continuations[work->slot]->Reset(work->continuationAllocators[work->slot].Get(),nullptr))) {
+                work->lists[work->slot]->Close(); return Check(hr);
+            }
+        }
+        work->recording = true;
+        *a_list = work->lists[work->slot].Get();
 		// This slot just retired; others may have too.
 		timer_.Harvest();
-		timerRecords_[static_cast<std::size_t>(a_work)] = timer_.Open(device12_.Get(), queue_.Get(), *a_list, ListStage(a_work));
+		timerRecords_[static_cast<std::size_t>(a_work)] = a_splitNonblocking ? D3D12StageTimer::kNoRecord : timer_.Open(device12_.Get(), queue_.Get(), *a_list, ListStage(a_work));
 		return S_OK;
 	}
 
@@ -412,6 +429,40 @@ namespace TheosRenderPipeline::SourceDLSSG
 		return work && work->recording ? D3D12StageMarks{ &timer_, timerRecords_[index] } : D3D12StageMarks{};
 	}
 
+    ID3D12GraphicsCommandList* Interop::CurrentList(Work workType)
+    {
+        auto* work=Get(workType);
+        return !work || !work->recording ? nullptr :
+            work->continued ? work->continuations[work->slot].Get() : work->lists[work->slot].Get();
+    }
+    HRESULT Interop::TrackExternal(Work workType)
+    {
+        auto* work=Get(workType);
+        if(!Ready() || !work || !work->recording || !work->continued) { return E_UNEXPECTED; }
+        Observe("external Vulkan wait retirement signal",workType);
+        const auto hr=queue_->Signal(work->fence12.Get(),++work->value);
+        if(FAILED(hr)) { return Check(hr); }
+        work->submitted[work->slot]=work->value;
+        return S_OK;
+    }
+    HRESULT Interop::Split(Work workType, ID3D12GraphicsCommandList** list)
+    {
+        auto* work=Get(workType);
+        if(!list || !Ready() || !work || !work->recording || !work->splitEnabled || work->continued) { return E_UNEXPECTED; }
+        Observe("Vulkan NR producer submission",workType);
+        auto* producer=work->lists[work->slot].Get();
+        auto hr=producer->Close();
+        if(FAILED(hr)) { return Check(hr); }
+        work->continued=true; // Discard now owns only the unsubmitted continuation.
+        ID3D12CommandList* lists[]{producer};
+        if(!NeuralRendering::ExecuteHealthyNeuralList(producer,[&]{queue_->ExecuteCommandLists(1,lists);})) { return Check(E_FAIL); }
+        hr=queue_->Signal(work->fence12.Get(),++work->value);
+        if(FAILED(hr)) { return Check(hr); }
+        work->submitted[work->slot]=work->value;
+        *list=work->continuations[work->slot].Get();
+        return S_OK;
+    }
+
 	HRESULT Interop::Submit(Work a_work)
 	{
 		Observe("command list Close", a_work);
@@ -419,10 +470,12 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (!Ready() || !work || !work->recording) { return E_UNEXPECTED; }
 		auto& record = timerRecords_[static_cast<std::size_t>(a_work)];
 		timer_.Close(record);
-		auto hr = work->lists[work->slot]->Close();
+		if (work->splitEnabled && !work->continued) { work->continuations[work->slot]->Close(); }
+        auto* current = CurrentList(a_work);
+        auto hr = current->Close();
 		work->recording = false;
 		if (FAILED(hr)) { timer_.Discard(std::exchange(record, D3D12StageTimer::kNoRecord)); return Check(hr); }
-		ID3D12CommandList* lists[]{ work->lists[work->slot].Get() };
+		ID3D12CommandList* lists[]{ current };
         if (!NeuralRendering::ExecuteHealthyNeuralList(lists[0], [&] { queue_->ExecuteCommandLists(1, lists); })) {
             timer_.Discard(std::exchange(record, D3D12StageTimer::kNoRecord));
             NeuralRendering::RejectedNeuralLists::Get().Discard(lists[0]);
@@ -443,11 +496,13 @@ namespace TheosRenderPipeline::SourceDLSSG
         auto* work = Get(a_work);
         if (!work) { return E_INVALIDARG; }
         if (!work->recording) { return S_OK; }
-        const auto hr = work->lists[work->slot]->Close();
+        if (work->splitEnabled && !work->continued) { work->continuations[work->slot]->Close(); }
+        auto* current = CurrentList(a_work);
+        auto hr = current->Close();
         work->recording = false;
         auto& record = timerRecords_[static_cast<std::size_t>(a_work)];
         timer_.Discard(std::exchange(record, D3D12StageTimer::kNoRecord));
-        NeuralRendering::RejectedNeuralLists::Get().Discard(work->lists[work->slot].Get());
+        NeuralRendering::RejectedNeuralLists::Get().Discard(current);
         return FAILED(hr) ? Check(hr) : S_OK;
     }
 
@@ -509,6 +564,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 	{
 		for (auto& work : work_) {
 			for (auto& list : work.lists) { (void)list.Detach(); }
+            for (auto& list : work.continuations) { (void)list.Detach(); }
+            for (auto& allocator : work.continuationAllocators) { (void)allocator.Detach(); }
 			for (auto& allocator : work.allocators) { (void)allocator.Detach(); }
 			(void)work.fence11.Detach();
 			(void)work.fence12.Detach();

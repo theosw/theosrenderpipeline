@@ -13,6 +13,7 @@
 #include <PCH.h>
 
 using namespace TheosRenderPipeline::Overlay;
+namespace NR = TheosRenderPipeline::NeuralRendering;
 
 #include "NeuralRenderingMode.h"
 #include "FrameGen/NeuralObjectMask.h"
@@ -29,6 +30,8 @@ bool g_labModelRate = false;
 
 void DrawNRAppliedPasses(const OverlayUI::FrameView& view, const TheosRenderPipeline::SourceDLSSG::NeuralOptions& applied)
 {
+    if (applied.backend == NR::Backend::Vulkan) { DrawSettingsValue(TR("NR backend"), TR("Vulkan (experimental)")); }
+    if ((applied.backend == TheosRenderPipeline::NeuralRendering::Backend::HIP)) { DrawSettingsValue(TR("NR backend"), TR("HIP/ZLUDA")); }
     const auto width = applied.beforeUpscaling ? view.renderWidth : view.outputWidth;
     const auto height = applied.beforeUpscaling ? view.renderHeight : view.outputHeight;
     DrawSettingsValue(TR("Placement"), applied.beforeUpscaling ? TR("Before upscaling") : TR("After upscaling"));
@@ -57,7 +60,7 @@ const char* NeuralUnavailableReason(const OverlayUI::FrameView& view, int upscal
 {
     if (!view.neuralAdmissionReason.empty()) { return TR(view.neuralAdmissionReason.c_str()); }
     if (view.neuralState.sessionDisabled && !view.neuralState.reason.empty()) { return view.neuralState.reason.c_str(); }
-    if (view.sourceReady && !view.nvidiaAdapter) { return TR("Neural Rendering requires NVIDIA RTX hardware. XeSS upscaling and XeFG remain available."); }
+    if (view.sourceReady && !view.nvidiaAdapter) { return TR(NR::kNativeGPUReason); }
     if (view.neuralRuntimePath.empty())
     {
         return TR("NR runtime path is empty. Configure NeuralRenderingRuntimePath in TheosRenderPipeline.ini "
@@ -594,17 +597,91 @@ void DrawNeuralSettings(const OverlayUI::FrameView& view, TheosRenderPipeline::S
                         bool& sharpening, float& sharpness, bool unavailable)
 {
     namespace NR = TheosRenderPipeline::NeuralRendering;
+    if (NR::TestBackend(draft.neuralBackend)) {
+        const auto& reason = draft.neuralBackend == NR::Backend::Vulkan ? view.neuralVulkanReason : view.neuralHIPReason;
+        unavailable = !view.sourceReady || (!view.xessActive && !view.fsrActive) || view.communityShaders || !reason.empty();
+    }
+    if (draft.neuralBackend == NR::Backend::HIP) {
+        unavailable = unavailable || !view.xessActive || view.communityShaders;
+        if (!ActivePresetDecor()) DrawNeuralRuntimeCombo(view,draft,ImGui::GetContentRegionAvail().x);
+        ImGui::TextWrapped(TR("AMD HIP/ZLUDA NR: one world pass before XeSS."));
+        ImGui::TextWrapped(TR("A compatible Windows AMD HIP runtime/driver is required. NR starts off; enable it after checking XeSS alone."));
+        const float label = LabelWidth({TR("NR input resolution"), TR("Local structure")});
+        if (BeginSettingRows("amdNR", label)) {
+            SettingRow(TR("Neural Rendering"), "NeuralRendering", false,
+                !TheosRenderPipeline::CanEditNeuralEnabled(draft.neuralEnabled, !unavailable), [&] {
+                    const bool changed = ImGui::Checkbox("##v", &draft.neuralEnabled);
+                    if (changed && draft.neuralEnabled) {
+                        draft.neuralBeforeUpscaling = true; draft.neuralPasses = 1;
+                        draft.neuralReconstruction.modelRate = NR::ModelRate::EveryFrame;
+                        draft.neuralReconstruction.method = NR::ResolveMethod::Ratio;
+                        draft.neuralReconstruction.peripheralCompression = false;
+                        draft.neuralReconstruction.fusedPreparation = false;
+                        draft.neuralTuning.style = std::clamp(draft.neuralTuning.style, 0, 2);
+                    }
+                    return changed;
+                });
+            // Scheduling is a Base/session preference, never a weather override.
+            if (!ActivePresetDecor()) SettingRow(TR("Execution"), "AMDNRWaitForNetwork", false, unavailable, [&] {
+                const char* modes[]{TR("Async"), TR("Regular (wait)")};
+                int mode = draft.amdNRWaitForNetwork ? 1 : 0;
+                const bool changed = ImGui::Combo("##v", &mode, modes, 2);
+                if (changed) { draft.amdNRWaitForNetwork = mode == 1; }
+                DrawSettingsHelp(TR("Apply to switch. Regular waits for inference with a two-second timeout. "
+                                 "It still uses a delayed result and may lower FPS. Compare with frame generation off."));
+                return changed;
+            });
+            if (!ActivePresetDecor() && g_labModelRate) SettingRow(TR("Tracking debug"), "AMDNRShowTracking", false, unavailable, [&] {
+                const bool changed = ImGui::Checkbox("##v", &draft.amdNRShowTracking);
+                DrawSettingsHelp(TR("Apply to show tracking fallbacks: cyan = borrowed from this result; "
+                    "blue = older result; green = filled lighting; orange = appearance mismatch; yellow = edge rejection; red = no match. "
+                    "Untinted pixels use direct tracking. Turn off and Apply for normal viewing."));
+                return changed;
+            });
+            SettingRow(TR("Network"), "Preset", false, unavailable, [&] {
+                const char* networks[]{TR("Default (smaller)"), TR("Previous (larger)")};
+                return ImGui::Combo("##v", &draft.neuralReconstruction.preset, networks, 2);
+            });
+            const char* styles[]{TR("Default"), TR("Natural"), TR("Cinematic")};
+            SettingRow(TR("Style"), "Style", false, unavailable, [&] { return ImGui::Combo("##v", &draft.neuralTuning.style, styles, 3); });
+            auto slider = [&](const char* name, const char* key, float& value, float lo, float hi) {
+                SettingRow(name, key, false, unavailable, [&] { return ImGui::SliderFloat("##v", &value, lo, hi); });
+            };
+            slider(TR("NR input resolution"), "InputScale", draft.neuralReconstruction.inputScale, .25f, 1.f);
+            slider(TR("Intensity"), "Intensity", draft.neuralTuning.intensity, 0.f, 1.f);
+            slider(TR("Local tone"), "LocalTone", draft.neuralTuning.localToneStrength, 0.f, 1.f);
+            slider(TR("Local structure"), "LocalStructure", draft.neuralTuning.localStructureStrength, 0.f, 1.f);
+            slider(TR("Skin structure"), "SkinStructure", draft.neuralTuning.skinStructureStrength, -1.f, 1.f);
+            slider(TR("Detail"), "TransferStrength", draft.neuralReconstruction.transferStrength, 0.f, 2.f);
+            slider(TR("Colour"), "ColourStrength", draft.neuralReconstruction.colourStrength, 0.f, 2.f);
+            slider(TR("Max ratio"), "MaxRatio", draft.neuralReconstruction.maxRatio, 1.f, 8.f);
+            ImGui::EndTable();
+        }
+        return;
+    }
     auto& reconstruction = draft.neuralReconstruction;
     // While NR is off, let a budget-limited request reduce its demand before
     // enabling again. Hardware/edition/driver/asset refusals keep these rows grey.
     const bool editDemand = !draft.neuralEnabled && view.neuralAdmissionReason == NR::kPascalBudgetReason;
     const bool cs = view.communityShaders;
+    // Vendor-neutral NR runs one small-model pass before upscaling; the rows
+    // it cannot use stay visible, greyed. The port ignores Intensity.
+    const bool alternate = NR::TestBackend(draft.neuralBackend);
     const bool producerColor = cs && draft.neuralBeforeUpscaling;
     const float label = LabelWidth({TR("Scene normalization")});
     const auto grid = NeuralRowsGrid();
     const GridScope gridScope(grid);
-    const auto width = draft.neuralBeforeUpscaling ? view.renderWidth : view.outputWidth;
-    const auto height = draft.neuralBeforeUpscaling ? view.renderHeight : view.outputHeight;
+    const bool sceneBefore = draft.neuralBeforeUpscaling || alternate;
+    const auto width = sceneBefore ? view.renderWidth : view.outputWidth;
+    const auto height = sceneBefore ? view.renderHeight : view.outputHeight;
+    if (alternate) {
+        ImGui::TextWrapped("%s", draft.neuralBackend == NR::Backend::Vulkan ?
+            TR("Experimental Vulkan: one small-model pass before upscaling. Greyed rows are fixed or unsupported. First use compiles shaders.") :
+            TR("HIP/ZLUDA: one small-model pass before upscaling. Greyed rows do not apply to HIP/ZLUDA."));
+        if(draft.neuralBackend == NR::Backend::Vulkan && !view.neuralVulkanPath.empty()) {
+            ImGui::TextDisabled("%s", TR(view.neuralVulkanPath.c_str()));
+        }
+    }
 
 
     if (BeginSettingRows("nrTop", label))
@@ -629,7 +706,7 @@ void DrawNeuralSettings(const OverlayUI::FrameView& view, TheosRenderPipeline::S
             }
             return changed;
         });
-        SettingRow(TR("Placement"), "BeforeUpscaling", true, unavailable && !editDemand, [&] {
+        SettingRow(TR("Placement"), "BeforeUpscaling", true, (unavailable && !editDemand) || alternate, [&] {
             int placement = draft.neuralBeforeUpscaling ? 0 : 1;
             const bool changed = Segmented("placement", placement, {
                 {TR("Before upscaling"), true, TR("NR runs on the render-resolution scene, before DLSS or XeSS.")},
@@ -675,9 +752,23 @@ void DrawNeuralSettings(const OverlayUI::FrameView& view, TheosRenderPipeline::S
                 if (reconstruction.modelRate == ModelRate::EveryOtherFrame && view.frameGenerationRequested && generated > 1)
                 {
                     ImGui::TextDisabled("%s", TR("Best with 2x frame generation"));
+                    if (draft.neuralBackend == NR::Backend::Vulkan)
+                        ImGui::TextDisabled("%s", TR("Vulkan: alternate model frames can stutter at 3x or higher"));
                     DrawSettingsHelp(TR("At 3x and above, the generated frames between real ones can look unevenly paced: "
                                      "frames with and without the model finish at different times."));
                 }
+                return changed;
+            });
+        }
+        if (base && g_labModelRate && draft.neuralBackend == NR::Backend::Vulkan)
+        {
+            SettingRow(TR("Vulkan scheduling (Lab)"), "VulkanScheduling", true, unavailable, [&] {
+                int schedule = static_cast<int>(draft.vulkanScheduling);
+                const bool changed = Segmented("vulkanScheduling", schedule, {
+                    {TR("Same frame"), true, TR("Wait on the GPU for this frame's network result.")},
+                    {TR("Background"), true, TR("One job at a time. Apply completed results one or two frames late using motion and depth.")}});
+                if (changed) draft.vulkanScheduling = NR::SanitizeVulkanScheduling(schedule);
+                DrawSettingsHelp(TR("Experimental. Background overlaps the network with the following frames. Same frame is the default."));
                 return changed;
             });
         }
@@ -769,7 +860,7 @@ void DrawNeuralSettings(const OverlayUI::FrameView& view, TheosRenderPipeline::S
     const auto reset = extraIndex < 0 ? PassReset::None
                        : !draft.neuralExtraPasses[extraIndex].linked && (decor || tabChanged[selected]) ? PassReset::Available
                                                                                                          : PassReset::Nothing;
-    const auto action = DrawPassTabs(view, selected, draft.neuralPasses, !unavailable || editDemand,
+    const auto action = DrawPassTabs(view, selected, draft.neuralPasses, (!unavailable || editDemand) && !alternate,
         decor && decor->EditingTime() ? TRF("editing {}", decor->EditingTime()) : std::string(), tabChanged,
         reset);
     // + adds the next pass and the remove mark takes off the last; a removed
@@ -814,7 +905,8 @@ void DrawNeuralSettings(const OverlayUI::FrameView& view, TheosRenderPipeline::S
             // Named styles as in OptiScaler forks. Custom keeps any other number for
             // users and for runtimes that may add styles: clicking it edits the
             // number in place, and it then reads "Custom 7".
-            const bool legacy = LegacyNeuralRuntime(view);
+            const bool vulkan = draft.neuralBackend == NR::Backend::Vulkan;
+            const bool legacy = LegacyNeuralRuntime(view) || vulkan;
             // One editor per override and pass, so a number being typed cannot land in another.
             ImGui::PushID(static_cast<int>(ActiveEditScope()));
             ImGui::PushID(selected + 1);
@@ -833,7 +925,7 @@ void DrawNeuralSettings(const OverlayUI::FrameView& view, TheosRenderPipeline::S
                 {TR("Default"), true, TR("Style 0.")},
                 {TR("Natural"), true, TR("Style 1.")},
                 {TR("Cinematic"), true, TR("Style 2.")},
-                {customLabel.c_str(), !legacy, legacy ? TR("310.8 runs styles 0 to 2 only.")
+                {customLabel.c_str(), !legacy, vulkan ? TR("Vulkan supports styles 0 to 2; custom values use Default.") : legacy ? TR("310.8 runs styles 0 to 2 only.")
                     : TR("Click to type a style number, 3 to 255.")}}, &layout);
             if (changed) { tuning.style = index == 3 ? (std::max)(tuning.style, 3) : index; }
             if (layout.clicked == 3 && !legacy) {
@@ -870,7 +962,7 @@ void DrawNeuralSettings(const OverlayUI::FrameView& view, TheosRenderPipeline::S
             ImGui::PopID();
             return changed;
         });
-        SettingRow(TR("Intensity"), key("Intensity").c_str(), false, unavailable,
+        SettingRow(TR("Intensity"), key("Intensity").c_str(), false, unavailable || alternate,
                    [&] { return ImGui::SliderFloat("##v", &tuning.intensity, 0, 2); });
         SettingRow(TR("Local tone"), key("LocalTone").c_str(), false, unavailable,
                    [&] { return ImGui::SliderFloat("##v", &tuning.localToneStrength, 0, 2); });
@@ -912,7 +1004,7 @@ void DrawNeuralSettings(const OverlayUI::FrameView& view, TheosRenderPipeline::S
                                 "distant subjects, and the cost grows with the area (125% is about 1.6 times). Apply to update."));
             return changed;
         });
-        SettingRow(TR("Network"), key("Network").c_str(), true, unavailable, [&] {
+        SettingRow(TR("Network"), key("Network").c_str(), true, unavailable || alternate, [&] {
             // 310.8 has only the old model, so it runs Old whichever is saved.
             const bool legacy = LegacyNeuralRuntime(view);
             int index = legacy || network != 0 ? 1 : 0;
@@ -931,7 +1023,7 @@ void DrawNeuralSettings(const OverlayUI::FrameView& view, TheosRenderPipeline::S
             }
             return changed;
         });
-        SettingRowFor(TR("Peripheral compression"), {"PeripheralCompression", "CombinedPreparation"}, true, unavailable, [&] {
+        SettingRowFor(TR("Peripheral compression"), {"PeripheralCompression", "CombinedPreparation"}, true, unavailable || alternate, [&] {
             bool changed = ImGui::Checkbox("##peripheral", &reconstruction.peripheralCompression);
             DrawSettingsHelp(TR("Peripheral compression preserves sampling density across the central 80% of each axis and "
                              "compresses the edges. Uses about 19% fewer model pixels at the same input resolution. Pass 1 "
@@ -945,7 +1037,7 @@ void DrawNeuralSettings(const OverlayUI::FrameView& view, TheosRenderPipeline::S
             return changed;
         });
         // UI correction applies only after upscaling without Community Shaders.
-        const bool noUICorrection = cs || draft.neuralBeforeUpscaling;
+        const bool noUICorrection = cs || sceneBefore;
         SettingRow(TR("UI correction"), key("UICorrection").c_str(), false, unavailable || noUICorrection, [&] {
             const bool changed = ImGui::Checkbox("##v", &tuning.uiCorrection);
             DrawSettingsHelp(cs ? TR("NVIDIA's UI correction flag. Asks NR to treat the area around the HUD separately. Only "
@@ -958,7 +1050,7 @@ void DrawNeuralSettings(const OverlayUI::FrameView& view, TheosRenderPipeline::S
     }
     ImGui::Spacing();
     ImGui::PushID(selected + 1);
-    DrawPassObjects(view, draft.neuralObjectMasks, static_cast<unsigned>(selected), unavailable, decor != nullptr);
+    DrawPassObjects(view, draft.neuralObjectMasks, static_cast<unsigned>(selected), unavailable || alternate, decor != nullptr);
     ImGui::PopID();
     if (extraPass)
     {
@@ -1175,61 +1267,99 @@ bool DrawNeuralRuntimeCombo(const OverlayUI::FrameView& view, TheosRenderPipelin
     };
     const auto& applied = view.neuralApplied;
     const bool automatic = IsAutomaticNeuralRuntime(draft.neuralRuntime);
-    const auto chosen = automatic && applied.automaticRuntime && applied.enabled
+    const auto chosen = automatic && applied.automaticRuntime && applied.enabled && (applied.backend == TheosRenderPipeline::NeuralRendering::Backend::Native) && view.nvidiaAdapter
                             ? describe(applied.runtimePath.string()).name
                             : std::string();
     bool changed = false;
     const auto& style = ImGui::GetStyle();
     const float line = ImGui::GetTextLineHeight();
+    // One two-line entry: name, then its description or (ochre) why it cannot
+    // run, with NR per frame on the right. True when newly selected.
+    const auto entryRow = [&](const char* id, const std::string& name, const std::string& detail, bool refused,
+                              const std::string& time, bool timed, bool selected) {
+        ImGui::PushID(id);
+        ImGui::BeginDisabled(refused);
+        const ImVec2 top = ImGui::GetCursorScreenPos();
+        const bool clicked = ImGui::Selectable("##entry", selected, 0, ImVec2(0, line * 2 + style.ItemInnerSpacing.y)) && !selected;
+        if (selected) { ImGui::SetItemDefaultFocus(); }
+        auto* list = ImGui::GetWindowDrawList();
+        const float right = ImGui::GetItemRectMax().x - style.FramePadding.x;
+        const float timeWidth = ImGui::CalcTextSize(time.c_str()).x;
+        const float textRight = right - timeWidth - style.ItemSpacing.x * 2;
+        ImGui::RenderTextEllipsis(list, top, ImVec2(textRight, top.y + line), textRight, textRight,
+                                  name.c_str(), nullptr, nullptr);
+        ImGui::PushStyleColor(ImGuiCol_Text, refused ? kOchre : ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+        const ImVec2 second(top.x, top.y + line + style.ItemInnerSpacing.y);
+        ImGui::RenderTextEllipsis(list, second, ImVec2(textRight, second.y + line), textRight, textRight,
+                                  detail.c_str(), nullptr, nullptr);
+        ImGui::PopStyleColor();
+        list->AddText(ImVec2(right - timeWidth, top.y + line * 0.5f + style.ItemInnerSpacing.y * 0.5f),
+                      ImGui::GetColorU32(timed ? ImGuiCol_Text : ImGuiCol_TextDisabled), time.c_str());
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) { ImGui::SetTooltip("%s", detail.c_str()); }
+        ImGui::PopID();
+        return clicked;
+    };
+    const auto timeText = [](float ms) { return ms > 0 ? TRF("{:.1f} ms", ms) : std::string(TR("not tried")); };
     ImGui::SetNextItemWidth(width);
     // Two-line entries with a time column need more room than the field.
     ImGui::SetNextWindowSizeConstraints(ImVec2((std::max)(width, line * 30), 0), ImVec2(FLT_MAX, FLT_MAX));
     if (ImGui::BeginCombo("##runtime", nullptr, static_cast<ImGuiComboFlags>(ImGuiComboFlags_CustomPreview) | ImGuiComboFlags_HeightLarge))
     {
-        for (const auto group : { NeuralRuntimeGroup::Automatic, NeuralRuntimeGroup::CurrentModel,
-                                  NeuralRuntimeGroup::OlderModel, NeuralRuntimeGroup::YourFiles })
+        // Native NVIDIA runtimes stay listed on every GPU; off NVIDIA they are greyed with the reason.
         {
-            bool header = group == NeuralRuntimeGroup::Automatic;
-            for (std::size_t i = 0; i < view.neuralRuntimes.size(); ++i)
+            for (const auto group : { NeuralRuntimeGroup::Automatic, NeuralRuntimeGroup::CurrentModel,
+                                      NeuralRuntimeGroup::OlderModel, NeuralRuntimeGroup::YourFiles })
             {
-                const auto& runtime = view.neuralRuntimes[i];
-                const auto entry = describe(runtime);
-                if (entry.group != group) { continue; }
-                if (!header) { ImGui::SeparatorText(NeuralRuntimeGroupText(group)); header = true; }
-                const auto reason = i < view.neuralRuntimeReasons.size() ? view.neuralRuntimeReasons[i] : std::string{};
-                const float ms = i < view.neuralRuntimeMilliseconds.size() ? view.neuralRuntimeMilliseconds[i] : 0.0f;
-                ImGui::PushID(runtime.c_str());
-                ImGui::BeginDisabled(!reason.empty());
-                const bool selected = runtime == draft.neuralRuntime;
-                const ImVec2 top = ImGui::GetCursorScreenPos();
-                if (ImGui::Selectable("##entry", selected, 0, ImVec2(0, line * 2 + style.ItemInnerSpacing.y)) && !selected)
+                bool header = group == NeuralRuntimeGroup::Automatic;
+                for (std::size_t i = 0; i < view.neuralRuntimes.size(); ++i)
                 {
-                    draft.neuralRuntime = runtime;
-                    changed = true;
+                    const auto& runtime = view.neuralRuntimes[i];
+                    const auto entry = describe(runtime);
+                    if (entry.group != group) { continue; }
+                    if (!header) { ImGui::SeparatorText(NeuralRuntimeGroupText(group)); header = true; }
+                    const auto reason = !view.nvidiaAdapter ? std::string(NR::kNativeRowReason)
+                                      : i < view.neuralRuntimeReasons.size() ? view.neuralRuntimeReasons[i] : std::string{};
+                    const float ms = i < view.neuralRuntimeMilliseconds.size() ? view.neuralRuntimeMilliseconds[i] : 0.0f;
+                    const auto detail = !reason.empty() ? std::string(TR(reason.c_str()))
+                                      : entry.detail == NeuralRuntimeDetail::Automatic && !chosen.empty()
+                                          ? TRF("Best for your GPU: {}", chosen)
+                                          : std::string(NeuralRuntimeDetailText(entry.detail));
+                    const auto name = entry.group == NeuralRuntimeGroup::Automatic ? std::string(TR("Automatic")) : entry.name;
+                    if (entryRow(runtime.c_str(), name, detail, !reason.empty(), timeText(ms), ms > 0,
+                                 (draft.neuralBackend == TheosRenderPipeline::NeuralRendering::Backend::Native) && runtime == draft.neuralRuntime))
+                    {
+                        draft.neuralRuntime = runtime;
+                        draft.neuralBackend = TheosRenderPipeline::NeuralRendering::Backend::Native;
+                        changed = true;
+                    }
                 }
-                if (selected) { ImGui::SetItemDefaultFocus(); }
-                auto* list = ImGui::GetWindowDrawList();
-                const float right = ImGui::GetItemRectMax().x - style.FramePadding.x;
-                const auto time = ms > 0 ? TRF("{:.1f} ms", ms) : std::string(TR("not tried"));
-                const float timeWidth = ImGui::CalcTextSize(time.c_str()).x;
-                const float textRight = right - timeWidth - style.ItemSpacing.x * 2;
-                const auto detail = !reason.empty() ? std::string(TR(reason.c_str()))
-                                  : entry.detail == NeuralRuntimeDetail::Automatic && !chosen.empty()
-                                      ? TRF("Best for your GPU: {}", chosen)
-                                      : std::string(NeuralRuntimeDetailText(entry.detail));
-                const auto name = entry.group == NeuralRuntimeGroup::Automatic ? std::string(TR("Automatic")) : entry.name;
-                ImGui::RenderTextEllipsis(list, top, ImVec2(textRight, top.y + line), textRight, textRight,
-                                          name.c_str(), nullptr, nullptr);
-                ImGui::PushStyleColor(ImGuiCol_Text, reason.empty() ? ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled) : kOchre);
-                const ImVec2 second(top.x, top.y + line + style.ItemInnerSpacing.y);
-                ImGui::RenderTextEllipsis(list, second, ImVec2(textRight, second.y + line), textRight, textRight,
-                                          detail.c_str(), nullptr, nullptr);
-                ImGui::PopStyleColor();
-                list->AddText(ImVec2(right - timeWidth, top.y + line * 0.5f + style.ItemInnerSpacing.y * 0.5f),
-                              ImGui::GetColorU32(ms > 0 ? ImGuiCol_Text : ImGuiCol_TextDisabled), time.c_str());
-                ImGui::EndDisabled();
-                ImGui::PopID();
             }
+        }
+        ImGui::SeparatorText(TR("Other GPUs (experimental)"));
+        const auto refusal = !view.neuralHIPReason.empty() ? view.neuralHIPReason :
+            (!view.xessActive || view.communityShaders) ? std::string(NR::kHIPUpscalerReason) : std::string{};
+        const float ms = view.neuralHIPMilliseconds;
+        const bool hipRunning = applied.backend == TheosRenderPipeline::NeuralRendering::Backend::HIP && view.neuralState.active;
+        const auto hipName = view.amdAdapter ? std::string(TR("HIP/ZLUDA (default)")) : std::string(TR("HIP/ZLUDA"));
+        const auto hipTime = ms > 0 ? timeText(ms) : hipRunning ? std::string(TR("time in log")) : timeText(ms);
+        const auto detail = refusal.empty() ? std::string(TR("AMD Radeon, HIP runtime and bundled ZLUDA"))
+                                            : std::string(TR(refusal.c_str()));
+        if (entryRow("hip", hipName, detail, !refusal.empty(), hipTime, ms > 0, (draft.neuralBackend == TheosRenderPipeline::NeuralRendering::Backend::HIP)))
+        {
+            draft.neuralBackend = TheosRenderPipeline::NeuralRendering::Backend::HIP;
+            changed = true;
+        }
+        const bool vkUnchecked = view.neuralVulkanReason == NR::kVulkanNotChecked;
+        const std::string vkRefusal{NR::VulkanChoiceRefusal(view.neuralVulkanReason,
+            (view.xessActive || view.fsrActive) && !view.communityShaders)};
+        const float vkMs=view.neuralVulkanMilliseconds;
+        const auto vkDetail = !vkRefusal.empty() ? std::string(TR(vkRefusal.c_str())) : vkUnchecked ? std::string(TR(NR::kVulkanNotChecked)) :
+            view.neuralVulkanPath.empty() ? std::string(TR("Portable KHR / probed RDNA 3, small 310.9.16 model")) : std::string(TR(view.neuralVulkanPath.c_str()));
+        if(entryRow("vulkan",TR("Vulkan (experimental)"),vkDetail,!vkRefusal.empty(),timeText(vkMs),vkMs>0,draft.neuralBackend==NR::Backend::Vulkan)) {
+            draft.neuralBackend=NR::Backend::Vulkan;
+            if(draft.neuralTuning.style<0||draft.neuralTuning.style>2)draft.neuralTuning.style=0;
+            changed=true;
         }
         ImGui::EndCombo();
     }
@@ -1239,8 +1369,10 @@ bool DrawNeuralRuntimeCombo(const OverlayUI::FrameView& view, TheosRenderPipelin
     {
         // One line, clipped with an ellipsis before the arrow.
         const auto entry = describe(draft.neuralRuntime);
-        const auto label = automatic ? std::string(TR("Automatic")) : entry.name;
-        const auto detail = chosen.empty() ? std::string() : "  \xC2\xB7  " + chosen;
+        const auto label = draft.neuralBackend == NR::Backend::Vulkan ? std::string(TR("Vulkan (experimental)"))
+                         : (draft.neuralBackend == TheosRenderPipeline::NeuralRendering::Backend::HIP) ? std::string(view.amdAdapter ? TR("HIP/ZLUDA (default)") : TR("HIP/ZLUDA"))
+                         : automatic ? std::string(TR("Automatic")) : entry.name;
+        const auto detail = chosen.empty() || NR::TestBackend(draft.neuralBackend) ? std::string() : "  \xC2\xB7  " + chosen;
         const auto start = ImGui::GetCursorScreenPos();
         const float right = ImGui::GetItemRectMax().x - ImGui::GetFrameHeight() - ImGui::GetStyle().FramePadding.x;
         const float labelWidth = ImGui::CalcTextSize(label.c_str()).x;
@@ -1264,6 +1396,10 @@ void DrawSourceNeuralControls(const OverlayUI::FrameView& view, TheosRenderPipel
     const auto& state = view.neuralState;
     if (view.neuralPascal) { ImGui::TextWrapped("%s", TR("GTX 10 compatibility kernels (experimental)")); }
     const char* unavailableReason = NeuralUnavailableReason(view, upscaleType, nrRuntimePresent);
+    if (NR::TestBackend(draft.neuralBackend)) {
+        const auto& reason = draft.neuralBackend == NR::Backend::Vulkan ? view.neuralVulkanReason : view.neuralHIPReason;
+        unavailableReason = !reason.empty() ? TR(reason.c_str()) : draft.neuralBackend == NR::Backend::HIP && (!view.xessActive || view.communityShaders) ? TR(NR::kHIPUpscalerReason) : (!view.xessActive && !view.fsrActive) || view.communityShaders ? TR(NR::kVendorUpscalerReason) : nullptr;
+    }
     const bool unavailable = unavailableReason != nullptr;
     const auto& applied = view.neuralApplied;
     if (unavailable)
@@ -1273,7 +1409,7 @@ void DrawSourceNeuralControls(const OverlayUI::FrameView& view, TheosRenderPipel
     }
     if (applied.enabled && !state.active && !unavailable)
     {
-        ImGui::TextWrapped("%s", state.status.c_str());
+        ImGui::TextWrapped("%s", TR(state.status.c_str()));
     }
     if (!state.fallback.empty())
     {
@@ -1305,12 +1441,12 @@ void OverlayUI::DrawNeuralRenderingPanel(float height, const FrameView& view)
         const auto interval = TheosRenderPipeline::NeuralRendering::ModelRateInterval(
             TheosRenderPipeline::NeuralRendering::EffectiveModelRate(applied.reconstruction.modelRate));
         const bool alternate = interval > 1;
-		DrawSettingsValue(TR("NR per frame"), state.active && timing.frameSamples
+		DrawSettingsValue(TR("NR per frame"), state.active && timing.HasFrame()
 			? TRF("{:.2f} ms", timing.AverageFrameGPUMicroseconds() / 1000.0).c_str() : TR("unavailable"));
 		DrawSettingsHelp(TR("Measured NR GPU work per rendered frame, averaged over the latest completed samples, including "
 			"model runs, skipped-frame reprojection, change storage, preparation, reconstruction, previews and NR UI composition. "
 			"Excludes object classification capture, Freeze frame capture, the D3D11/D3D12 handoff and frame generation."));
-        DrawSettingsValue(TR("Inference"), state.active && timing.gpuSamples
+        DrawSettingsValue(TR("Inference"), state.active && timing.HasInference()
                                            ? (alternate ? TRF("{:.2f} ms per run", timing.AverageGPUMicroseconds() / 1000.0)
                                                         : TRF("{:.2f} ms", timing.AverageGPUMicroseconds() / 1000.0)).c_str()
                                            : TR("unavailable"));
@@ -1320,6 +1456,15 @@ void OverlayUI::DrawNeuralRenderingPanel(float height, const FrameView& view)
                                         "D3D11/D3D12 handoff.")
                                    : TR("Combined model inference and inter-pass preparation. Excludes input preparation, the "
                                         "last pass's restoration, reconstruction, UI composition and the D3D11/D3D12 handoff."));
+        if (applied.backend == NR::Backend::Vulkan)
+        {
+            DrawSettingsValue(TR("Vulkan handoff"), state.active && timing.vulkanCopiesMs >= 0
+                ? TRF("{:.3f} ms per frame", timing.vulkanCopiesMs).c_str() : TR("unavailable"));
+            DrawSettingsHelp(TR("D3D12 input and output conversion/copy GPU time. Inference uses the Vulkan queue's own timestamps. No cross-queue clock subtraction."));
+            DrawSettingsValue(TR("Scheduling"), applied.vulkanScheduling == NR::VulkanScheduling::Background ? TR("Background (Lab)") : TR("Same frame"));
+            if (timing.vulkanBackground)
+                DrawSettingsHelp(TR("NR per frame adds amortized network work to host work. They overlap; this is GPU work, not frame latency or displayed pacing."));
+        }
         if (alternate)
         {
             const char* rateName = interval == 3 ? TR("Every third frame") : TR("Every other frame");
@@ -1346,12 +1491,12 @@ void OverlayUI::DrawNeuralRenderingPanel(float height, const FrameView& view)
             }
         }
         if (state.failed || (applied.enabled && !state.active))
-            ImGui::TextWrapped("%s", state.status.c_str());
+            ImGui::TextWrapped("%s", TR(state.status.c_str()));
         if (showDeveloperControls)
         {
             ImGui::Separator();
             if (!state.failed && (!applied.enabled || state.active))
-                ImGui::TextWrapped("%s", state.status.c_str());
+                ImGui::TextWrapped("%s", TR(state.status.c_str()));
             ImGui::TextWrapped(TR("Submitted frames %llu | history resets %llu"),
                                static_cast<unsigned long long>(state.evaluations),
                                static_cast<unsigned long long>(state.resets));

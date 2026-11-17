@@ -122,8 +122,13 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// texture the presenting queue or frame generation reads.
 		HRESULT BeforeSharedWrites();
 		const InputWaitDiagnostics& LastInputWait() const { return inputWait_; }
-		HRESULT Begin(Work a_work, ID3D12GraphicsCommandList** a_list, AllocatorWaitTiming* a_wait = nullptr);
-		HRESULT Submit(Work a_work);
+		HRESULT Begin(Work a_work, ID3D12GraphicsCommandList** a_list, AllocatorWaitTiming* a_wait = nullptr, bool a_splitNonblocking = false);
+		// A split transaction keeps the same retired slot and uses a second allocator/list.
+        // S_FALSE from nonblocking Begin means busy: no list has been opened.
+        HRESULT Split(Work a_work, ID3D12GraphicsCommandList** a_list);
+        HRESULT TrackExternal(Work a_work); // after an external GPU wait, even if consumer is discarded
+        ID3D12GraphicsCommandList* CurrentList(Work a_work);
+        HRESULT Submit(Work a_work);
 		HRESULT Discard(Work a_work); // Close an unsubmitted list; fence/slot values remain unchanged.
 		HRESULT Drain();
 		void SetRetirementWaitPolicy(RetirementWaitPolicy a_policy) { waitPolicy_ = a_policy; }
@@ -150,7 +155,10 @@ namespace TheosRenderPipeline::SourceDLSSG
 			Microsoft::WRL::ComPtr<ID3D11Fence> fence11;
 			std::array<Microsoft::WRL::ComPtr<ID3D12CommandAllocator>, kCommandSlots> allocators;
 			std::array<Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList>, kCommandSlots> lists;
-			std::array<std::uint64_t, kCommandSlots> submitted{};
+			std::array<Microsoft::WRL::ComPtr<ID3D12CommandAllocator>, kCommandSlots> continuationAllocators;
+            std::array<Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList>, kCommandSlots> continuations;
+            bool splitEnabled{}, continued{};
+            std::array<std::uint64_t, kCommandSlots> submitted{};
 			std::uint64_t value{ 0 };
 			std::size_t slot{ 0 };
 			HANDLE event{ nullptr };

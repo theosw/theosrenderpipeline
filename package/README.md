@@ -1,8 +1,8 @@
-# Theo's Render Pipeline — Universal, 0.6.5
+# Theo's Render Pipeline — Universal, 0.7.1
 
-Version 0.6.5 adds XeFG Even pacing for x3/x4 with VSync, turns the Steady
-frame limit off with XeFG to stop its microstutter, and supports NR Object
-rules on Skyrim 1.5.97. See CHANGELOG.md.
+Version 0.7.1 Beta 1 adds Neural Rendering on AMD Radeon (HIP/ZLUDA by default
+and an experimental Vulkan engine) and FSR 4 on Radeon RX 6000 or newer. It is a beta; 0.6.5 remains the main release.
+See CHANGELOG.md and the AMD section at the end of this file.
 
 Version 0.6.4 adds experimental FSR 3.1 upscaling with AMD's runtime included,
 keeps NR's Every other frame working at low frame rates and stops the
@@ -73,9 +73,12 @@ and Frame generation > Frame limit with a Steady mode that evens out frame times
 It also fixes the vanilla main menu disappearing, NR stopping while the interface
 is hidden, and a possible XeFG freeze when gameplay starts. See CHANGELOG.md.
 
-Experimental **Image > Mode > FSR 3.1** (`UpscaleType=5`) uses AMD's official
-FidelityFX SDK 1.1.4 runtime, which Standard installs as `SKSE/Plugins/TheosRenderPipeline/AMD/amd_fidelityfx_dx12.dll`
-beside AMD's MIT notice `FSR-LICENSE.txt`, like the NVIDIA and Intel runtimes. It needs no tensor cores. XeSS/FSR can
+Experimental **Image > Mode > FSR 3.1** (`UpscaleType=5`) and **FSR 4** (`UpscaleType=6`) use AMD's
+official FSR SDK 2.4 runtime. FSR 4 is official on Radeon RX 6000 or newer; Universal can also run it,
+experimentally, on RTX and Intel Arc (restart, about 4 to 5 times FSR 3.1's cost), but not on GTX 10.
+The runtime is installed by Standard as
+`SKSE/Plugins/TheosRenderPipeline/AMD/amd_fidelityfx_loader_dx12.dll` and `amd_fidelityfx_upscaler_dx12.dll`
+beside AMD's MIT notice `FSR-LICENSE.txt`, like the NVIDIA and Intel runtimes. FSR 3.1 needs no tensor cores. XeSS/FSR can
 switch with Apply at the current render size; render-scale changes require save
 and restart. NR and native UI composition remain available. Defaults are
 unchanged: DLSS on RTX, XeSS elsewhere. FSR has no reactive mask yet, so fire,
@@ -179,7 +182,7 @@ This package includes the full renderer, configuration and sharpening shader.
 It requires no other Theo's Render Pipeline package. NVIDIA DLLs are supplied
 separately: download the SR/FG files below, and the NR runtime if you want NR.
 Alternatively, install Standard first and Universal after it in MO2; Standard
-0.6.5 supplies the complete NVIDIA and Intel runtime bundles, including the
+0.7.1 supplies the complete NVIDIA and Intel runtime bundles, including the
 original NR 310.9.16 and the retained older NR runtime. Universal adds the
 compatibility pack and legacy INT8 alternative. In that setup,
 skip the runtime downloads below.
@@ -436,7 +439,7 @@ an RTX 4080 SUPER: ordinary 6.8.0.2158 and full add-on 6.8.0.2155, with
 early NR and x4. Sky Reflection Fix's ReShade registration was excluded;
 Rumble passed a separate initial test. Combined third-party add-ons,
 Standard gameplay and CS with ReShade remain unverified. These were earlier
-development builds; the exact 0.6.5 package has not been tested with ReShade.
+development builds; the exact 0.7.1 package has not been tested with ReShade.
 
 MartysMods ReGrade+ (ReShade 6.6 or newer) used to crash the game while TRP
 started ReShade: it prepares itself only in a device event that ReShade does not
@@ -552,3 +555,50 @@ and this setting enabled even when interpolation is off. If startup fails,
 include `TheosRenderPipeline.log`; its opening lines identify the edition,
 source revision, renderer path and effective startup setting. Standard alone
 does not supply the compatibility path required by RTX 30.
+
+## Neural Rendering on AMD Radeon (beta)
+
+0.7.0 adds Neural Rendering (NR) on AMD Radeon to Universal. Install Standard
+first, then put Universal below it in MO2's left pane and let Universal win
+conflicts. NVIDIA users keep native NR as their default. Standard lists the AMD
+choices greyed out with the reason.
+
+On a Radeon the NR runtime list offers:
+
+- **HIP/ZLUDA (default).** Needs a current AMD Adrenalin driver with the HIP
+  runtime. Universal supplies the NR runtime, native kernels and ZLUDA
+  translation cache; don't mix them with files from older test builds. Tested on
+  an RX 7900 GRE. The kernels target RX 7000/9000 and include RX 6000
+  translation coverage, but RX 6000 and RX 9000 are untested. HIP/ZLUDA needs
+  TRP's XeSS upscaling; FSR is greyed out for it until that combination is tested.
+- **Vulkan (experimental).** TRP's own engine, built from source. Needs a driver
+  with Vulkan cooperative matrices (RX 7000/9000, Intel Arc, RTX); RX 6000 and
+  older can't run it. The menu checks the GPU when you select Vulkan and explains
+  a refusal. It works with XeSS or FSR. So far it has only run on an RTX 4080
+  SUPER, at about 24 ms per NR run with 50% input; Radeon reports are welcome.
+  The first start prepares pipelines in the background (the menu shows
+  **Preparing Vulkan NR...**), which can take a few seconds.
+
+Both backends use the NVIDIA 310.9.16 model that Standard supplies, and run one
+world pass before upscaling. Community Shaders handles its own upscaling, so
+they are unavailable on that route.
+
+**Defaults and speed.** AMD defaults are Execution **Regular (wait)** and
+**NR input 50%**. On the RX 7900 GRE, HIP/ZLUDA took about 30–34 ms per NR run
+at 60–77% input and 45–150 ms at full input, which left the game near 20 base
+fps with sluggish input. Async execution is available but showed mouth smearing.
+Start with NR off, then try Regular at 50% with frame generation off, before
+adding frame generation. Frame generation at a low base fps looks smoother but
+does not remove the input delay.
+
+**Restarts.** Once HIP/ZLUDA or Vulkan has started, switching to the other needs
+a Skyrim restart; the menu says so. If either stops responding, TRP turns it off
+for the rest of the session instead of holding the game, and it works again
+after a restart. Settings saved by an older test build can start the wrong
+backend, so delete `TheosRenderPipeline.User.ini` from MO2's Overwrite folder
+when coming from one.
+
+**Reports.** An earlier HIP crash was reportedly avoided by disabling the
+integrated GPU; the cause is not confirmed. If something goes wrong, copy
+`TheosRenderPipeline.log` from `Documents\My Games\Skyrim Special Edition\SKSE`
+before starting Skyrim again, and include your GPU and driver version.

@@ -1,8 +1,8 @@
-# Theo's Render Pipeline — Standard, 0.6.5
+# Theo's Render Pipeline — Standard, 0.7.1
 
-Version 0.6.5 adds XeFG Even pacing for x3/x4 with VSync, turns the Steady
-frame limit off with XeFG to stop its microstutter, and supports NR Object
-rules on Skyrim 1.5.97. See CHANGELOG.md.
+Version 0.7.1 Beta 1 is the AMD Radeon NR and FSR 4 beta. The Radeon backends are in
+Universal; Standard lists them greyed out. It is a beta; 0.6.5 remains the main
+release. See CHANGELOG.md.
 
 Version 0.6.4 adds experimental FSR 3.1 upscaling with AMD's runtime included,
 keeps NR's Every other frame working at low frame rates and stops the
@@ -72,9 +72,12 @@ and Frame generation > Frame limit with a Steady mode that evens out frame times
 It also fixes the vanilla main menu disappearing, NR stopping while the interface
 is hidden, and a possible XeFG freeze when gameplay starts. See CHANGELOG.md.
 
-Experimental **Image > Mode > FSR 3.1** (`UpscaleType=5`) uses AMD's official
-FidelityFX SDK 1.1.4 runtime, included here as `SKSE/Plugins/TheosRenderPipeline/AMD/amd_fidelityfx_dx12.dll`
-beside AMD's MIT notice `FSR-LICENSE.txt`. It needs no tensor cores. XeSS/FSR can
+Experimental **Image > Mode > FSR 3.1** (`UpscaleType=5`) and **FSR 4** (`UpscaleType=6`) use AMD's
+official FSR SDK 2.4 runtime. FSR 4 is official on Radeon RX 6000 or newer; Universal can also run it,
+experimentally, on RTX and Intel Arc (restart, about 4 to 5 times FSR 3.1's cost), but not on GTX 10.
+The runtime is included here as
+`SKSE/Plugins/TheosRenderPipeline/AMD/amd_fidelityfx_loader_dx12.dll` and `amd_fidelityfx_upscaler_dx12.dll`
+beside AMD's MIT notice `FSR-LICENSE.txt`. FSR 3.1 needs no tensor cores. XeSS/FSR can
 switch with Apply at the current render size; render-scale changes require save
 and restart. NR and native UI composition remain available. Defaults are
 unchanged: DLSS on RTX, XeSS elsewhere. FSR has no reactive mask yet, so fire,
@@ -338,7 +341,7 @@ an RTX 4080 SUPER: ordinary 6.8.0.2158 and full add-on 6.8.0.2155, with
 early NR and x4. Sky Reflection Fix's ReShade registration was excluded;
 Rumble passed a separate initial test. Combined third-party add-ons,
 Standard gameplay and CS with ReShade remain unverified. These were earlier
-development builds; the exact 0.6.5 package has not been tested with ReShade.
+development builds; the exact 0.7.1 package has not been tested with ReShade.
 
 MartysMods ReGrade+ (ReShade 6.6 or newer) used to crash the game while TRP
 started ReShade: it prepares itself only in a device event that ReShade does not
@@ -400,7 +403,7 @@ rendering dimensions.
 ## With the Universal edition
 
 For the RTX 40 MFG unlock or experimental RTX 20/30 support, install the matching
-0.6.5 Universal ZIP after Standard in MO2's left pane. Let Universal win file conflicts. Universal uses
+0.7.1 Universal ZIP after Standard in MO2's left pane. Let Universal win file conflicts. Universal uses
 the NVIDIA runtimes included here, including NR.
 
 Both editions contain settings files; the later mod's files win. Switching
@@ -472,3 +475,10 @@ See LICENSE and THIRD-PARTY.md for renderer terms, source credits and NVIDIA
 RTX SDK/DLSS terms. NVIDIA-LICENSES.txt retains the accompanying runtime notices.
 NVIDIA components retain their own terms and are not relicensed under the
 renderer's GPL license. This software contains source code provided by NVIDIA Corporation.
+
+## Neural Rendering on AMD Radeon (beta)
+
+0.7.0 adds Neural Rendering on AMD Radeon (HIP/ZLUDA by default, and an
+experimental Vulkan engine) to Universal. Standard lists those choices greyed
+out with the reason. To use them, install Universal below Standard in MO2's left
+pane and let Universal win conflicts; Universal's README describes them.

@@ -1,0 +1,30 @@
+#version 460
+#extension GL_KHR_cooperative_matrix : require
+#extension GL_KHR_memory_scope_semantics : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+// Diagnostic only. Fragment indexing never enters the portable GEMM.
+layout(local_size_x=32) in;
+layout(set=0,binding=0,std430) writeonly buffer Output {float values[];};
+shared float coords[256];
+shared float16_t operands[256];
+void main() {
+    for(uint i=gl_LocalInvocationIndex;i<256u;i+=32u){coords[i]=float(i+1u);operands[i]=float16_t(i+1u);}
+    barrier();
+    coopmat<float,gl_ScopeSubgroup,16,16,gl_MatrixUseAccumulator> C;
+    coopMatLoad(C,coords,0,16,gl_CooperativeMatrixLayoutRowMajor);
+    uint count=C.length();values[1024u+gl_SubgroupInvocationID]=float(count);
+    for(uint i=0;i<count&&i<32u;++i)values[gl_SubgroupInvocationID*32u+i]=C[i];
+    coopmat<float16_t,gl_ScopeSubgroup,16,16,gl_MatrixUseA> A;
+    coopmat<float16_t,gl_ScopeSubgroup,16,16,gl_MatrixUseB> B;
+    coopMatLoad(A,operands,0,16,gl_CooperativeMatrixLayoutRowMajor);
+    coopMatLoad(B,operands,0,16,gl_CooperativeMatrixLayoutRowMajor);
+    values[1056u+1024u+gl_SubgroupInvocationID]=float(A.length());
+    values[2112u+1024u+gl_SubgroupInvocationID]=float(B.length());
+    for(uint i=0;i<A.length()&&i<32u;++i)values[1056u+gl_SubgroupInvocationID*32u+i]=float(A[i]);
+    for(uint i=0;i<B.length()&&i<32u;++i)values[2112u+gl_SubgroupInvocationID*32u+i]=float(B[i]);
+    coopmat<float16_t,gl_ScopeSubgroup,16,16,gl_MatrixUseAccumulator> H;
+    coopMatLoad(H,operands,0,16,gl_CooperativeMatrixLayoutRowMajor);
+    values[3168u+1024u+gl_SubgroupInvocationID]=float(H.length());
+    for(uint i=0;i<H.length()&&i<32u;++i)values[3168u+gl_SubgroupInvocationID*32u+i]=float(H[i]);
+}

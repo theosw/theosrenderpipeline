@@ -14,6 +14,7 @@
 #include "SourceDLSSGSession.h"
 #include "DlssgPreset.h"
 #include "SourceDLSSGNeuralState.h"
+#include "RuntimeStateDiagnostics.h"
 #if !defined(TRP_NO_NEURAL_RENDERING)
 #include "SourceDLSSGNeuralRendering.h"
 #include "SourceDLSSGNeuralAvailability.h"
@@ -91,7 +92,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 			const auto value = xefgOptions_.load();
 			return {(value & 0x100u) != 0, value & 0xffu};
 		}
-		const std::string& ProviderStatus() const { return providerStatus_; }
+		// The line under the Frame generation provider; a guide refusal replaces it.
+		const std::string& ProviderStatus() const { return guideRefusal_.empty() ? providerStatus_ : guideRefusal_; }
 		bool GenerationActive() const { return Ready() && !startupTransport_ && !nativePresenterFallback_ && !presenterReplacement_.Pending() && (provider_ == FrameGenerationProvider::XeFG ? xefg_.Snapshot().enabled : session_.Snapshot().GenerationActive()); }
 		unsigned EffectiveMultiplier() const { return startupTransport_ || nativePresenterFallback_ ? 1 : provider_ == FrameGenerationProvider::XeFG ? xefg_.Snapshot().generatedFrames+1 : session_.Snapshot().options.numFramesToGenerate + 1; }
 		std::uint32_t FrameIndex() const { return startupTransport_ ? transportFrame_ : nativePresenterFallback_ || presenterReplacement_.Pending() ? replacementFrame_ : provider_ == FrameGenerationProvider::XeFG ? xefg_.Snapshot().frameId : nvidiaNeedsPresent_ ? xefg_.Snapshot().frameId + 1 : session_.Snapshot().frameIndex; }
@@ -121,7 +123,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		bool Prepare(const sl::Constants& a_constants, ID3D11Texture2D* a_motion,
 			ID3D11Texture2D* a_depth, ID3D11Texture2D* a_ui, ID3D11Texture2D* a_hudless,
 			FrameExtent a_renderExtent, UINT a_displayWidth, UINT a_displayHeight, bool a_neuralEligible = true);
-		void ConfigureNeuralRendering(NeuralOptions a_options);
+		void ConfigureNeuralRendering(NeuralOptions a_options, const char* origin = "Apply");
 		void RequestNeuralRetry(); // Apply only; consumed at the next render boundary.
 		// Freeze NR settings before DLSS, optionally replace its D3D11 input, and
 		// return a shared history reset. A null camera skips the early NR stage.
@@ -258,6 +260,7 @@ namespace TheosRenderPipeline::SourceDLSSG
         }
 		bool NvidiaFrameGenerationAvailable() const { return NvidiaFeaturesAvailable() && !FrameGenerationUnsupportedReported(); }
 		bool PascalResearchActive() const { return pascalResearch_; }
+		bool AmdAdapter() const { return adapterVendor_ == 0x1002; }
 		HRESULT BeforePresent(ID3D12Resource* a_source, ID3D12Resource* a_destination, DXGI_COLOR_SPACE_TYPE a_colorSpace);
 		HRESULT AfterPresent(HRESULT a_result);
 #if defined(ARP_DEVELOPER_DIAGNOSTICS)
@@ -289,6 +292,13 @@ namespace TheosRenderPipeline::SourceDLSSG
 		bool EnsureGuide(ID3D11Texture2D* a_source, SharedTexture& a_pair,
 			DXGI_FORMAT a_format = DXGI_FORMAT_UNKNOWN, FrameExtent a_extent = {}, bool a_optional = false);
 		bool CopyDepth(ID3D11Texture2D* a_depth);
+		// Copies one colour guide into its shared texture and logs what a refusal was given.
+		bool CopyGuide(ID3D11Texture2D* a_source, const SharedTexture& a_destination, FrameExtent a_extent, const char* a_operation);
+		// Applies RouteGuideCopy to one guide copy's result: true when copied. A
+		// refusal sets guideRefusal_ and leaves the backend ready; a fault latches.
+		bool GuideCopied(HRESULT a_result, const char* a_operation, bool a_untouched, ID3D11Texture2D* a_source,
+			ID3D11Texture2D* a_destination, FrameExtent a_extent, const char* a_step);
+		bool GuidesRefused() const { return !guideRefusal_.empty(); }
 		void ReleaseGuides();
 		bool RecreateNeuralIfNeeded(const NeuralOptions& options, FrameExtent guideExtent = {});
 		bool FailNeuralRecording(std::string failure = {});
@@ -334,6 +344,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 		Microsoft::WRL::ComPtr<IDXGIFactory> nativeFactory_, streamlineFactory_;
 		DXGI_SWAP_CHAIN_DESC presenterDesc_{};
 		std::string providerStatus_{"NVIDIA presenter"};
+		// Why frame generation and NR are off after a refused guide copy; empty
+		// otherwise. Cleared when the guide textures are released.
+		std::string guideRefusal_;
 		bool providerSwitchPending_{}, cameraAvailable_{}, recreateXeFG_{}, nvidiaNeedsPresent_{};
 		bool providerCapabilitiesKnown_{}, nativePresenterFallback_{}, fallbackPrepared_{};
 		PresenterReplacement presenterReplacement_;
@@ -440,6 +453,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// device exists, and replaces a refused runtime with Automatic's choice.
 		// Returns the refusal note while it applies, or nullptr.
 		const std::string* SelectNeuralRuntime(NeuralOptions& options);
+        void LogNeuralDecision(const char* origin); // caller holds neuralMutex_
 		// Requires neuralMutex_. Refuses a runtime for the session and switches.
 		void RefuseNeuralRuntime(const std::filesystem::path& runtime, const std::string& reason, std::string_view advice);
 		// After a failed NR Record: true when NGX refused to create the feature,
@@ -476,6 +490,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		NeuralSnapshot neuralSnapshot_;
 		NeuralRendering::Recovery neuralRecovery_;
 		std::atomic<bool> neuralRetryRequested_{};
+        StateLogLimiter<NRDiagnosticState> nrDiagnosticLog_;
 		sl::Constants frameConstants_{};
 		bool neuralEligible_{};
 		bool frameNeuralReset_{};

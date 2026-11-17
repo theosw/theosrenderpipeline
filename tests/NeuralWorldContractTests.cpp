@@ -247,5 +247,49 @@ int main()
     Require(!availability.UnavailableReason(request, classify) && probes == 7, "unsupported replacement can still recover on enable");
     availability.Reset();
     Require(!availability.UnavailableReason(request, classify) && probes == 8, "retired feature cannot supply a cached module identity");
+    {
+        using NRBackend=NeuralRendering::Backend;
+        Require(NeuralRendering::SanitizeBackend(-1)==NRBackend::Native &&
+            NeuralRendering::SanitizeBackend(999)==NRBackend::Native &&
+            NeuralRendering::SanitizeBackend(2)==NRBackend::Vulkan, "invalid backend setting falls back to Native");
+        NeuralOptions vk;vk.backend=NRBackend::Vulkan;vk.enabled=true;vk.passes=5;
+        vk.reconstruction.modelRate=NeuralRendering::ModelRate::EveryOtherFrame;
+        vk.reconstruction.inputScale=.5f;vk.compare.split=true;vk.compare.splitPosition=.3f;
+        vk.reconstruction.preset=1;vk.reconstruction.peripheralCompression=true;vk.reconstruction.fusedPreparation=true;
+        vk.tuning.style=7;vk.tuning.localToneStrength=.4f;vk.tuning.skinStructureStrength=.6f;
+        const auto effective=SanitizeNeuralOptions(VendorNeutralOptions(vk));
+        Require(effective.enabled&&effective.beforeUpscaling&&effective.passes==1&&effective.reconstruction.preset==0,
+            "Vulkan selects one small-model pass and is independent of native runtime path");
+        Require(!effective.reconstruction.peripheralCompression&&!effective.reconstruction.fusedPreparation&&
+            !effective.tuning.uiCorrection&&effective.tuning.intensity==1,"unsupported private options clamp");
+        Require(effective.reconstruction.modelRate==vk.reconstruction.modelRate&&effective.compare==vk.compare&&
+            effective.reconstruction.inputScale==.5f,"model rate, Compare and reconstruction survive private normalization");
+        Require(effective.tuning.style==0&&effective.tuning.localToneStrength==.4f&&effective.tuning.skinStructureStrength==.6f,
+            "unsupported custom Vulkan style falls back to Default while supported look controls survive");
+        for(int style=0;style<=2;++style){vk.tuning.style=style;Require(VendorNeutralOptions(vk).tuning.style==style,"named Vulkan style preserved");}
+        auto native=effective;native.backend=NRBackend::Native;
+        Require(!SameHistoryOptions(native,effective),"switching backend invalidates history even with identical image options");
+        RendererSettingsCapabilities caps;caps.backend=NRBackend::Vulkan;caps.neuralRuntime=true;caps.xeSSReady=true;
+        caps.dedicatedUI=true;caps.nvidiaAdapter=false;
+        Require(!NeuralSettingsUnavailable(XeSS,caps),"Vulkan admits capable Intel/other devices without NVIDIA identity");
+        for (auto backend : {NRBackend::Vulkan}) {
+            caps.backend = backend;
+            Require(NeuralSettingsUnavailable(FSR,caps),"FSR must be initialized before enabling vendor-neutral NR");
+            caps.fsrReady=true;caps.xeSSReady=false;
+            Require(!NeuralSettingsUnavailable(FSR,caps),"vendor-neutral NR admits the ready FSR host without XeSS");
+            Require(NeuralSettingsUnavailable(XeSS,caps),"a ready FSR host cannot satisfy a requested XeSS route");
+            Require(NeuralSettingsUnavailable(DLSS,caps),"vendor-neutral NR still refuses the native DLSS route");
+            caps.fsrReady=false;caps.xeSSReady=true;
+        }
+        caps.backend=NRBackend::HIP;caps.amdAdapter=true;caps.fsrReady=true;caps.xeSSReady=false;
+        Require(NeuralSettingsUnavailable(FSR,caps),"HIP FSR remains refused until validated");
+        caps.xeSSReady=true;
+        Require(!NeuralSettingsUnavailable(XeSS,caps),"HIP XeSS remains supported");
+        caps.backend=NRBackend::Vulkan;
+        caps.neuralAdmissionReason="Vulkan capability probe refused";
+        Require(std::string_view(NeuralSettingsUnavailable(XeSS,caps))==caps.neuralAdmissionReason,"probe refusal survives settings admission");
+        caps.neuralAdmissionReason=nullptr;caps.externalWorld=true;
+        Require(NeuralSettingsUnavailable(XeSS,caps)!=nullptr,"private Vulkan refuses unsupported external-world host route");
+    }
     std::puts("NR world contract: native/external placement, temporal changes, UI ownership and missing runtime/host checks passed.");
 }

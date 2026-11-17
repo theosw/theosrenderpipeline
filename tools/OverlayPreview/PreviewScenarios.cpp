@@ -1,6 +1,7 @@
 #include "OverlayPreview.h"
 #include "FrameGen/NeuralRuntimeFiles.h"
 #include "FrameGen/NeuralAdmission.h"
+#include "FrameGen/NeuralRuntimeSession.h"
 
 #include <cmath>
 
@@ -538,6 +539,166 @@ PreviewScenario EvenPacing()
     return scenario;
 }
 
+// Experimental backend choices on NVIDIA, with HIP
+// tried, and on AMD, where HIP and Vulkan replace NVIDIA's runtimes.
+PreviewScenario TestBackendsNvidia()
+{
+    auto scenario = Runtimes();
+    scenario.name = "test-backends-nvidia";
+    scenario.summary = "Experimental: HIP in the runtime list on an RTX 3080 under XeSS";
+    scenario.view.xessActive = true;
+    scenario.view.upscaler.mode = XeSS;
+    scenario.view.neuralHIPReason = "HIP/ZLUDA NR requires an AMD Radeon GPU.";
+    scenario.applied.upscaleType = XeSS;
+    scenario.draft = scenario.applied;
+    return scenario;
+}
+
+PreviewScenario TestBackendsAmd()
+{
+    auto scenario = Intel();
+    scenario.name = "test-backends-amd";
+    scenario.summary = "Experimental: HIP selected on an RX 7900 GRE, Vulkan beside it";
+    auto& view = scenario.view;
+    // The game lists the installed native runtimes on every GPU; off NVIDIA they are greyed.
+    view.neuralRuntimes = {std::string(SourceDLSSG::kAutomaticNeuralRuntime), std::string(SourceDLSSG::kDefaultNeuralRuntime),
+        std::string(SourceDLSSG::kLatestNeuralRuntime), std::string(SourceDLSSG::kFastNeuralRuntime)};
+    view.neuralRuntimeReasons.assign(view.neuralRuntimes.size(), "");
+    view.neuralRuntimeMilliseconds.assign(view.neuralRuntimes.size(), 0.0f);
+    view.amdAdapter = true; view.neuralHIPReason.clear();
+    view.neuralApplied.backend = TheosRenderPipeline::NeuralRendering::Backend::HIP;
+    view.neuralApplied.beforeUpscaling = true;
+    view.neuralApplied.passes = 1;
+    view.neuralState.effectivePasses = 1;
+    view.neuralRuntimePath = "Data/SKSE/Plugins/TheosRenderPipeline/AMDNR/dlss5nr_runtime.dll";
+    scenario.applied.sourceDLSSG.neuralBeforeUpscaling = true;
+    scenario.applied.sourceDLSSG.neuralPasses = 1;
+    scenario.applied.sourceDLSSG.neuralBackend = TheosRenderPipeline::NeuralRendering::Backend::HIP;
+    scenario.applied.sourceDLSSG.amdNRWaitForNetwork = true;
+    scenario.applied.sourceDLSSG.neuralReconstruction.inputScale = .5f;
+    scenario.draft = scenario.applied;
+    return scenario;
+}
+
+PreviewScenario VulkanNvidia()
+{
+    auto s=TestBackendsNvidia();s.name="vulkan-nvidia";
+    s.summary="Vulkan portable backend selected on RTX 4080 SUPER; illustrative status, no measured time";
+    s.view.neuralComputeCapability=89;
+    s.view.neuralApplied.backend=NeuralRendering::Backend::Vulkan;
+    s.view.neuralApplied.enabled=true;s.view.neuralApplied.beforeUpscaling=true;s.view.neuralApplied.passes=1;
+    s.view.neuralVulkanPath="Portable KHR cooperative matrices; coord-r005";
+    s.view.neuralVulkanReason.clear();
+    s.view.neuralRuntimePath="Data\\SKSE\\Plugins\\TheosRenderPipeline\\VulkanNR\\TRPVulkanNR.dll";
+    s.view.neuralState.effectivePasses=1;s.view.neuralState.telemetry={};
+    s.view.timings.d3d12Available.fill(false);
+    s.view.neuralState.status="Vulkan: portable, one small-model pass before upscaling";
+    s.applied.sourceDLSSG.neuralBackend=NeuralRendering::Backend::Vulkan;
+    s.applied.sourceDLSSG.neuralEnabled=true;s.applied.sourceDLSSG.neuralBeforeUpscaling=true;
+    s.applied.sourceDLSSG.neuralPasses=1;s.draft=s.applied;return s;
+}
+PreviewScenario VendorFSR()
+{
+    auto s=VulkanNvidia();s.name="vendor-neutral-fsr";
+    s.summary="Experimental Vulkan NR before TRP FSR";
+    s.view.xessActive=false;s.view.fsrActive=true;s.view.upscaler.mode=FSR;
+    s.applied.upscaleType=FSR;s.draft=s.applied;return s;
+}
+// FSR 4 forced on an RTX GPU (Universal), confirmed running.
+PreviewScenario FSR4Forced()
+{
+    auto s=VendorFSR();s.name="fsr4-forced";s.summary="Universal: FSR 4 forced on RTX, INT8 model confirmed";
+    s.view.upscaler.mode=FSR4;s.view.fsrRuntimePresent=true;s.view.fsrRunning="FSR 4.1.2 INT8 (forced)";
+    s.applied.upscaleType=FSR4;s.draft=s.applied;return s;
+}
+// GTX 10: FSR 4 greyed with the reason; FSR 3.1 running.
+PreviewScenario FSR4Pascal()
+{
+    auto s=VendorFSR();s.name="fsr4-gtx10";s.summary="GTX 10: FSR 4 greyed (no native 16-bit), FSR 3.1 running";
+    s.view.nvidiaFeatures=false;s.view.fsrRuntimePresent=true;s.view.fsrRunning="FSR 3.1.6";
+    s.view.fsr4Reason="FSR 4 needs native 16-bit shader support";return s;
+}
+PreviewScenario VulkanBackground()
+{
+    auto s=VulkanNvidia();s.name="vulkan-background";s.labMode=true;
+    s.summary="Illustrative Vulkan timing readout and experimental background scheduling; not benchmark data";
+    s.view.frameGenerationRequested=true;s.view.neuralState.active=true;
+    s.applied.sourceDLSSG.generation.generatedFrames=3;
+    s.applied.sourceDLSSG.vulkanScheduling=NeuralRendering::VulkanScheduling::Background;
+    s.applied.sourceDLSSG.neuralReconstruction.modelRate=NeuralRendering::ModelRate::EveryOtherFrame;
+    s.view.neuralApplied.vulkanScheduling=NeuralRendering::VulkanScheduling::Background;
+    s.view.neuralApplied.reconstruction.modelRate=NeuralRendering::ModelRate::EveryOtherFrame;
+    auto& timing=s.view.neuralState.telemetry;
+    timing.vulkanInferenceMs=20.7;timing.vulkanCopiesMs=.3;timing.vulkanFrameMs=10.9;timing.vulkanBackground=true;timing.modelRunShare=.5;
+    s.view.neuralVulkanMilliseconds=10.9f;
+    s.view.neuralState.status="Illustrative background telemetry; pacing requires in-game acceptance";
+    s.draft=s.applied;return s;
+}
+PreviewScenario VulkanAmdRefused()
+{
+    auto s=TestBackendsAmd();s.name="vulkan-amd-rdna3-refused";
+    s.summary="AMD Vulkan refusal: RDNA 3 fragment layout fails, portable cooperative-matrix tuple unavailable";
+    s.view.neuralVulkanPath="RDNA 3 fragment probe refused";
+    s.view.neuralVulkanReason="RDNA 3 probe refused; portable FP16/FP32 subgroup-32 support missing";
+    s.view.neuralHIPReason=NeuralRendering::kRuntimeRestart;
+    s.view.neuralAdmissionReason=s.view.neuralVulkanReason;
+    s.view.neuralApplied.backend=NeuralRendering::Backend::Vulkan;
+    s.view.neuralApplied.beforeUpscaling=true;s.view.neuralApplied.passes=1;
+    s.view.neuralRuntimePath="Data\\SKSE\\Plugins\\TheosRenderPipeline\\VulkanNR\\TRPVulkanNR.dll";
+    s.view.neuralState.status=s.view.neuralVulkanReason;
+    s.applied.sourceDLSSG.neuralBackend=NeuralRendering::Backend::Vulkan;
+    s.applied.sourceDLSSG.neuralEnabled=false;s.applied.sourceDLSSG.neuralBeforeUpscaling=true;
+    s.applied.sourceDLSSG.neuralPasses=1;s.draft=s.applied;return s;
+}
+PreviewScenario VulkanAmdPortable()
+{
+    auto s=TestBackendsAmd();s.name="vulkan-amd-portable";
+    s.summary="AMD native path refused, portable fallback available; illustrative, Radeon unvalidated";
+    s.view.neuralApplied.backend=NeuralRendering::Backend::Vulkan;
+    s.view.neuralApplied.enabled=true;s.view.neuralState.active=true;
+    s.view.neuralState.status="Vulkan: portable, one small-model pass before upscaling";
+    s.view.neuralRuntimePath="Data\\SKSE\\Plugins\\TheosRenderPipeline\\VulkanNR\\TRPVulkanNR.dll";
+    s.view.neuralVulkanPath="RDNA 3 path refused by fragment probe; using portable KHR path";
+    s.view.neuralVulkanReason.clear();
+    s.view.neuralHIPReason=NeuralRendering::kRuntimeRestart;
+    s.applied.sourceDLSSG.neuralBackend=NeuralRendering::Backend::Vulkan;
+    s.applied.sourceDLSSG.neuralEnabled=true;s.draft=s.applied;
+    return s;
+}
+
+PreviewScenario HIPMissing()
+{
+    auto s=TestBackendsAmd();s.name="hip-amd-missing";
+    s.view.neuralHIPReason="HIP/ZLUDA needs a compatible Windows AMD HIP runtime/driver on PATH. Install it and restart Skyrim.";
+    s.applied.sourceDLSSG.neuralEnabled=false;s.draft=s.applied;return s;
+}
+PreviewScenario VendorStandard()
+{
+    auto s=TestBackendsAmd();s.name="vendor-neutral-standard";
+    s.view.neuralHIPReason=s.view.neuralVulkanReason=NeuralRendering::kVendorEditionReason;
+    s.applied.sourceDLSSG.neuralEnabled=false;s.draft=s.applied;return s;
+}
+PreviewScenario HIPLockedVulkan() {
+    auto s=TestBackendsAmd();s.name="hip-locks-vulkan";
+    s.view.neuralVulkanReason="HIP/ZLUDA and Vulkan cannot run in the same session; restart Skyrim to switch.";
+    return s;
+}
+PreviewScenario VulkanLockedHIP() {
+    auto s=VulkanAmdPortable();s.name="vulkan-locks-hip";
+    s.view.neuralHIPReason="HIP/ZLUDA and Vulkan cannot run in the same session; restart Skyrim to switch.";
+    return s;
+}
+PreviewScenario HIPFSRRefused() {
+    auto s=TestBackendsAmd();s.name="hip-fsr-refused";
+    s.view.xessActive=false;s.view.fsrActive=true;s.view.upscaler.mode=FSR;s.applied.upscaleType=FSR;s.draft=s.applied;
+    return s;
+}
+PreviewScenario VulkanPreparing()
+{
+    auto s=VulkanNvidia();s.name="vulkan-preparing";
+    s.view.neuralState.active=false;s.view.neuralState.status=NeuralRendering::kPreparingVulkan;
+    return s;
+}
 PreviewScenario Lab()
 {
     auto scenario = Healthy();
@@ -564,5 +725,5 @@ std::vector<PreviewScenario> PreviewScenarios()
         Pascal("pascal-driver", NeuralRendering::kPascalDriverReason),
         Pascal("pascal-missing-pack", NeuralRendering::kPascalAssetReason),
         Pascal("pascal-checking", NeuralRendering::kPascalAssetsChecking),
-        Pascal("pascal-low-budget", NeuralRendering::kPascalBudgetReason), PascalOldNetwork(), Runtimes(), Lab(), EvenPacing(), IntelSteady()};
+        Pascal("pascal-low-budget", NeuralRendering::kPascalBudgetReason), PascalOldNetwork(), Runtimes(), TestBackendsNvidia(), TestBackendsAmd(), VulkanNvidia(), VendorFSR(), FSR4Forced(), FSR4Pascal(), VulkanBackground(), VulkanAmdRefused(), VulkanAmdPortable(), HIPMissing(), VendorStandard(), VulkanPreparing(), HIPLockedVulkan(), VulkanLockedHIP(), HIPFSRRefused(), Lab(), EvenPacing(), IntelSteady()};
 }

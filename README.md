@@ -3,7 +3,8 @@
 Rendering integration for Skyrim: NVIDIA DLSS/DLAA and frame generation,
 experimental Intel XeSS upscaling and XeFG frame generation, optional Neural
 Rendering (NR), and native-resolution menus and HUD. Current version:
-**0.6.5**. See [CHANGELOG.md](CHANGELOG.md) for release changes.
+**0.7.1 Beta 1**, the AMD Radeon NR and FSR 4 beta; 0.6.5 remains the main release.
+See [CHANGELOG.md](CHANGELOG.md) for release changes.
 
 Universal adds experimental Neural Rendering on GTX 10 (Pascal, sm_61), using
 NVIDIA NR 310.9.16 and Universal's compatibility pack. Tested on a GTX 1070 Ti;
@@ -80,6 +81,53 @@ The session-only mask preview, drawn over the finished NR result, tints the grou
 
 Masks default off. Capture supports opaque lighting draws on Skyrim 1.5.97 and 1.6.1170, accepts the version's verified original hook entry or another plugin's entry jump (such as SSE Engine Fixes') and chains behind it, and checks capture-frame identity and final depth. Missing, conflicting, transparent, alpha-tested or unclassified capture keeps normal NR behavior. A Nolvus 1.5.97 game test verified all four object groups and chaining behind SSE Engine Fixes, with positive visual feedback on the mask preview and strength controls; loading recovery remains unverified. The feature adds geometry replay, classification storage and a composition pass; broader mod compatibility, VRAM use and overhead still need acceptance.
 
+## Neural Rendering on AMD Radeon (beta)
+
+0.7.0 adds Neural Rendering (NR) on AMD Radeon to Universal. Install Standard
+first, then put Universal below it in MO2's left pane and let Universal win
+conflicts. NVIDIA users keep native NR as their default. Standard lists the AMD
+choices greyed out with the reason.
+
+On a Radeon the NR runtime list offers:
+
+- **HIP/ZLUDA (default).** Needs a current AMD Adrenalin driver with the HIP
+  runtime. Universal supplies the NR runtime, native kernels and ZLUDA
+  translation cache; don't mix them with files from older test builds. Tested on
+  an RX 7900 GRE. The kernels target RX 7000/9000 and include RX 6000
+  translation coverage, but RX 6000 and RX 9000 are untested. HIP/ZLUDA needs
+  TRP's XeSS upscaling; FSR is greyed out for it until that combination is tested.
+- **Vulkan (experimental).** TRP's own engine, built from source. Needs a driver
+  with Vulkan cooperative matrices (RX 7000/9000, Intel Arc, RTX); RX 6000 and
+  older can't run it. The menu checks the GPU when you select Vulkan and explains
+  a refusal. It works with XeSS or FSR. So far it has only run on an RTX 4080
+  SUPER, at about 24 ms per NR run with 50% input; Radeon reports are welcome.
+  The first start prepares pipelines in the background (the menu shows
+  **Preparing Vulkan NR...**), which can take a few seconds.
+
+Both backends use the NVIDIA 310.9.16 model that Standard supplies, and run one
+world pass before upscaling. Community Shaders handles its own upscaling, so
+they are unavailable on that route.
+
+**Defaults and speed.** AMD defaults are Execution **Regular (wait)** and
+**NR input 50%**. On the RX 7900 GRE, HIP/ZLUDA took about 30–34 ms per NR run
+at 60–77% input and 45–150 ms at full input, which left the game near 20 base
+fps with sluggish input. Async execution is available but showed mouth smearing.
+Start with NR off, then try Regular at 50% with frame generation off, before
+adding frame generation. Frame generation at a low base fps looks smoother but
+does not remove the input delay.
+
+**Restarts.** Once HIP/ZLUDA or Vulkan has started, switching to the other needs
+a Skyrim restart; the menu says so. If either stops responding, TRP turns it off
+for the rest of the session instead of holding the game, and it works again
+after a restart. Settings saved by an older test build can start the wrong
+backend, so delete `TheosRenderPipeline.User.ini` from MO2's Overwrite folder
+when coming from one.
+
+**Reports.** An earlier HIP crash was reportedly avoided by disabling the
+integrated GPU; the cause is not confirmed. If something goes wrong, copy
+`TheosRenderPipeline.log` from `Documents\My Games\Skyrim Special Edition\SKSE`
+before starting Skyrim again, and include your GPU and driver version.
+
 ## Localization
 
 The menu's text comes from a language file, so a language is added or corrected
@@ -89,16 +137,25 @@ to `auto` (the Windows display language), `en` or a file's code such as `zh-CN`.
 Files go in `SKSE/Plugins/TheosRenderPipeline/Lang`; the package includes
 Simplified Chinese. See [LOCALIZATION.md](LOCALIZATION.md) for the file format.
 
-## FSR 3.1 (experimental)
+## FSR 3.1 and FSR 4 (experimental)
 
-**Image > Mode > FSR 3.1** selects AMD's temporal upscaler (`UpscaleType=5`).
-It uses the official FidelityFX SDK 1.1.4 / FSR 3.1.4 DX12 backend through TRP's
-existing fenced D3D11/D3D12 bridge. FSR needs no tensor cores and is separate
+**Image > Mode > FSR 3.1** (`UpscaleType=5`) and **FSR 4** (`UpscaleType=6`)
+use AMD's official FSR SDK 2.4 DX12 runtime through TRP's existing fenced
+D3D11/D3D12 bridge. FSR 3.1 runs on every GPU and needs no tensor cores. FSR 4,
+AMD's ML upscaler, is official on Radeon RX 6000 or newer and supported Ryzen
+graphics. Universal can also run FSR 4 on other GPUs with Shader Model 6.6 and
+native 16-bit shader support (RTX, Intel Arc): it checks AMD's exact signed
+runtime, changes AMD's hardware check in memory only, and needs a restart. On an
+RTX 4080 it costs about 4 to 5 times FSR 3.1. GTX 10 cards lack native 16-bit
+support and cannot run it. The line under Mode names what is really running;
+if FSR 4 can't start, TRP runs FSR 3.1 and says why. Lab > "Show AMD FSR
+watermark" (`[Upscaling] FSRWatermark`) draws AMD's own label. FSR is separate
 from frame generation. DLSS remains the RTX default.
 
-Standard includes AMD's official, signed `amd_fidelityfx_dx12.dll` in
-`Data/SKSE/Plugins/TheosRenderPipeline/AMD/`, like the other stock vendor runtimes;
-both packages carry AMD's MIT notice `FSR-LICENSE.txt` beside it.
+Standard includes AMD's official, signed `amd_fidelityfx_loader_dx12.dll` and
+`amd_fidelityfx_upscaler_dx12.dll` in `Data/SKSE/Plugins/TheosRenderPipeline/AMD/`,
+like the other stock vendor runtimes; both packages carry AMD's MIT notice
+`FSR-LICENSE.txt` beside them.
 The [pinned download, hashes and MIT notice](extern/fidelityfx-api/README.md)
 identify it; binaries stay outside the source repository. Both editions compile
 the same FSR integration. The option is unavailable if the runtime is missing. A saved FSR selection with a

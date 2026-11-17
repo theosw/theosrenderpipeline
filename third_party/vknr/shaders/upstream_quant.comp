@@ -1,0 +1,11 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "rounding.glsl"
+#define nr_e4m3_decode upstream_e4m3_decode
+#define nr_e4m3_round upstream_e4m3_round
+#include "../vendor/mauri/linux/shaders/rdna3/include/e4m3_emul.glsl"
+layout(local_size_x=32) in;
+layout(set=0,binding=0,std430) readonly buffer Inputs {uint input_bits[];};
+layout(set=0,binding=1,std430) writeonly buffer Outputs {uvec2 output_bits[];};
+layout(push_constant) uniform Params {uint count;} pc;
+void main(){uint i=gl_GlobalInvocationID.x;if(i>=pc.count)return;float x=uintBitsToFloat(input_bits[i]);output_bits[i]=uvec2(floatBitsToUint(float(nr_quant_e4m3(x))),floatBitsToUint(float(nr_quant_e4m3(float16_t(nr_half_round(x))))));}

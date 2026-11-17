@@ -61,7 +61,17 @@ void NvidiaHost::ApplySourceUpscalerSettingsAfterPresent()
             return;
         }
     }
-    if (candidate.mode == FSR && !fsrActive_) {
+    // Only a switch INTO FSR 4 is refused: a session already in FSR 4 (running it,
+    // or FSR 3.1 after a fallback) applies its other live changes normally.
+    if (candidate.mode == FSR4 && sourceUpscalerSettings_.Effective().mode != FSR4 &&
+        TheosRenderPipeline::FSRUpscaler::FSR4NeedsForce(backend.Device12()) && !backend.FSR().Forced()) {
+        // The force must precede AMD's first query in this process.
+        sourceUpscalerSettings_.RejectLiveMode();
+        status_ = "FSR 4 on this GPU needs Save as default and a restart; current method retained.";
+        logger::warn("[SourceUpscaler] {}", status_);
+        AdoptEffectiveSourceUpscalerSettings(); return;
+    }
+    if (IsFSR(candidate.mode) && !fsrActive_) {
         auto& sr = backend.FSR();
         const auto hr = measure("fsr-preflight-open", [&] { return sr.Open(backend.Device12(), TheosRenderPipeline::PluginPaths::AMDDirectory()); });
         if (FAILED(hr) || !sr.Accepts({renderWidth_, renderHeight_}, {outputWidth_, outputHeight_})) {
@@ -99,13 +109,20 @@ void NvidiaHost::ApplySourceUpscalerSettingsAfterPresent()
                 return SUCCEEDED(measure("dlss-release", [&] { return dlss->ReleaseFeature(); })) &&
                     (!fsrActive_ || SUCCEEDED(backend.FSR().ReleaseAfterRetirement()));
             }
-            if (request.mode == FSR) {
-                if (fsrActive_) { return true; } // SDK sharpening is a per-dispatch option.
+            if (IsFSR(request.mode)) {
+                const auto version = request.mode == FSR4 ? TheosRenderPipeline::FSRVersion::FSR4 : TheosRenderPipeline::FSRVersion::FSR31;
+                // SDK sharpening is a per-dispatch option; only a version change recreates the context.
+                if (fsrActive_ && backend.FSR().RequestedVersion() == version) { return true; }
+                if (fsrActive_ && FAILED(backend.FSR().ReleaseAfterRetirement())) { return false; }
+                backend.FSR().SetVersion(version);
                 const auto hr = measure("fsr-create", [&] { return backend.FSR().Initialize(backend.Transport(), device_.Get(),
                     {outputWidth_, outputHeight_}, request.AllocationQuality(), inputDesc.Format, false, {renderWidth_, renderHeight_}); });
                 if (FAILED(hr)) {
                     logger::error("[SourceUpscaler] FSR replacement failed {} hr=0x{:08X}", backend.FSR().Status(), static_cast<unsigned>(hr)); return false;
                 }
+                logger::info("[FSR] running=\"{}\"{}{}", backend.FSR().RunningLabel(),
+                    backend.FSR().FallbackReason().empty() ? "" : "; ", backend.FSR().FallbackReason());
+                if (fsrActive_) { return true; } // only the FSR version changed
                 return SUCCEEDED(dlss->ReleaseFeature()) && (!xeSSActive_ || SUCCEEDED(backend.XeSS().ReleaseAfterRetirement()));
             }
             dlss->SetupDevice(device_.Get(), context_.Get());
@@ -126,7 +143,7 @@ void NvidiaHost::ApplySourceUpscalerSettingsAfterPresent()
     frameGenerationStateKnown_ = false;
     resetNextEvaluation_ = true;
     xeSSActive_ = sourceUpscalerSettings_.Effective().mode == XeSS;
-    fsrActive_ = sourceUpscalerSettings_.Effective().mode == FSR;
+    fsrActive_ = IsFSR(sourceUpscalerSettings_.Effective().mode);
     splitSourceDLSSActive_ = !xeSSActive_ && !fsrActive_;
     AdoptEffectiveSourceUpscalerSettings();
     const auto& effective = sourceUpscalerSettings_.Effective();

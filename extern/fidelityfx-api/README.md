@@ -1,45 +1,46 @@
-# AMD FidelityFX API / FSR 3.1.4
+# AMD FSR API / FSR SDK 2.4.0
 
-The four headers in `include/ffx_api` are unmodified files from AMD's
-[FidelityFX SDK 1.1.4](https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK/releases/tag/v1.1.4),
-tag commit `c6efa6bf7f2027b3ec94f28578bb5965eabb9e55`. MIT text is in
-[LICENSE.txt](LICENSE.txt); each header also retains its notice.
+The four headers under `Kits/FidelityFX` are unmodified files from AMD's
+[FSR SDK 2.4.0](https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK/releases/tag/v2.4.0),
+tag commit `7539ae8b6568ad29ed78a753404351daf3b5cca7`, kept in AMD's folder layout so
+their relative includes work unchanged. Their MIT text is in [LICENSE.txt](LICENSE.txt)
+and in each header. AMD's whole-SDK licence file is [SDK-LICENSE.md](SDK-LICENSE.md);
+it lists the signed DLLs below under the MIT terms.
 
-TRP dynamically loads the official DX12 backend through its existing fenced
-D3D11/D3D12 interop. No third-party DX11 port, FSR frame generation, replacement
-swapchain or ML upscaler is used. FSR 3.1.4 is a compute temporal upscaler usable
-on Pascal without tensor cores. AMD's signed SDK runtime avoids a local shader
-compiler toolchain dependency and keeps both editions on identical shaders.
+TRP dynamically loads AMD's signed DX12 loader through its existing fenced
+D3D11/D3D12 interop. Each context pins the version the user chose from AMD's own
+version query: Image > Mode > FSR 3.1 (`UpscaleType=5`) or FSR 4 (`UpscaleType=6`).
+FSR 4 is offered by AMD on supported Radeon GPUs. In Universal only,
+`src/FrameGen/FSR4Compatibility.cpp` lets other GPUs with SM 6.6 and native
+16-bit support select it: before AMD's first query it verifies both DLLs' exact
+SHA-256, AMD Authenticode signature, PE layout, the full admission function and
+the INT8 provider/model RTTI, then writes five bytes in memory (RVA 0x99B5) so
+AMD's hardware-family check is skipped while its Shader Model 6.6 check stays.
+Files on disk are never modified; any mismatch refuses with a reason. The menu
+says "INT8 (forced)" only after AMD's context shows the INT8 model was built.
+AMD's licence (SDK-LICENSE.md) lists both DLLs under MIT. No FSR frame
+generation, replacement swapchain, denoiser or radiance cache is used.
 
-Acquire only the official release asset:
+Acquire only the signed files from the official tag (`Kits/FidelityFX/signedbin`):
 
-`https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK/releases/download/v1.1.4/FidelityFX-SDK-v1.1.4.zip`
+- `amd_fidelityfx_loader_dx12.dll` SHA-256: `e2191d3c0828be45eb8affd4e3ec0378f2293adc345b772a7170edcf3b021ecb`
+  (file version 2.3.0.4555)
+- `amd_fidelityfx_upscaler_dx12.dll` SHA-256: `aad4fccccb29084a655f9a4f9f613bd22c8c03fb4a0f8840148cc6543b4ccace`
+  (file version 4.1.2.4555)
+- Authenticode signer: Advanced Micro Devices; both signatures verified at acquisition.
 
-- ZIP SHA-256: `0216556bfb0e243cec30004a2a98d38f4e3f7406cb7938e3c1b85c758e95d952`
-- `bin/amd_fidelityfx_dx12.dll` SHA-256: `12a5081257ec95b0b53ad51b4a87fb3c03f97fe0bbb59f9496968f8d50ef93a6`
-- DLL file version: `1.0.1.41314`; API provider: FSR 3.1.4.
-- Authenticode signer: Advanced Micro Devices; signature verified at acquisition.
+Keep the download in its own ignored directory. Verify both hashes before assembling
+a package. Place both DLLs in `SKSE/Plugins/TheosRenderPipeline/AMD/`, beside the
+supplied `FSR-LICENSE.txt`. The Standard package includes them; Universal uses them
+from Standard. Runtime binaries stay out of source Git. The SDK 1.1.4
+`amd_fidelityfx_dx12.dll` used by TRP 0.6.4 to 0.7.0 Beta 1 is no longer loaded.
 
-Keep the download and extraction in their own ignored directory. Verify both
-hashes before assembling a package. Place the runtime at
-`SKSE/Plugins/TheosRenderPipeline/AMD/amd_fidelityfx_dx12.dll`, beside the supplied
-`FSR-LICENSE.txt`. The Standard package includes it; Universal uses it from Standard. Runtime binaries
-and original archives stay out of source Git.
-No additional AMD sample, Agility SDK, frame-generation or compiler DLL is needed.
+`UpscaleType=5` selects FSR. QualityLevel retains the order Performance, Balanced,
+Quality, Ultra Performance, Ultra Quality (custom 1.3x). Inputs are transitioned to
+NON_PIXEL_SHADER_RESOURCE and the output to UNORDERED_ACCESS for the dispatch, as
+AMD requires for FSR 4, and returned to COMMON afterwards. SDR uses non-linear sRGB
+input, exposure 1, render-resolution motion scaled to pixels, TRP's pixel jitter and
+camera reset; reverse depth swaps the plane arguments. NR can run before upscaling.
 
-`UpscaleType=5` selects FSR; existing values and RTX defaults remain unchanged.
-QualityLevel retains the order Performance, Balanced, Quality, Ultra Performance,
-Ultra Quality (custom 1.3x). Mode switches can reuse the existing render extent;
-quality changes require a restart. SDR uses non-linear sRGB input, exposure 1,
-render-resolution normalized motion scaled to pixels, TRP's pixel jitter and
-camera reset. The active camera supplies finite near/far and vertical FOV;
-reverse depth swaps plane arguments as AMD requires. TRP's NR can run before
-reconstruction. Native UI composition and TRP HDR output remain downstream.
-Reactive and transparency masks are currently absent; particles and disocclusions
-need game quality review. Nonlinear SDR is the primary qualified input path.
-
-Build/run the standalone comparison with `cmake -S tests/fsr -B out/build/fsr`.
-`TRPUpscalerBenchmark <Intel runtime dir> <AMD runtime dir> <capture dir>` uses
-production backends and fixed 753x424 -> 1280x720 / 1129x635 -> 1920x1080 inputs.
-Its synthetic captures and timing scopes do not establish Skyrim quality or
-whole-frame performance. No test downloads a runtime or deploys into a game.
+FSR 4 runs only on AMD hardware, so NVIDIA and Intel test machines exercise the
+FSR 3.1 provider of the same DLL. FSR 4 image quality and cost need Radeon reports.

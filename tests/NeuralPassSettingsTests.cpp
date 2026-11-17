@@ -70,6 +70,18 @@ int main()
     }
 
 	auto empty = LoadPreferences(ini);
+	Require(empty.amdNRWaitForNetwork, "fresh installs default to Regular (wait)");
+	Require(!empty.amdNRShowTracking, "missing tracking setting keeps normal pixels");
+	empty.amdNRShowTracking = true;
+	empty.amdNRWaitForNetwork = true;
+	StorePreferences(ini, empty);
+	Require(LoadPreferences(ini) == empty, "Regular choice round trips");
+	empty.amdNRWaitForNetwork = false;
+	StorePreferences(ini, empty);
+	Require(LoadPreferences(ini) == empty, "Async choice round trips");
+	empty.amdNRShowTracking = false;
+	StorePreferences(ini, empty);
+	Require(LoadPreferences(ini) == empty, "tracking diagnostic can be disabled and saved");
 	Require(!empty.xefg.experimentalMFG && empty.xefg.generatedFrames == 1, "old INIs retain official XeFG x2");
 	Require(empty.neuralRuntime == kAutomaticNeuralRuntime, "NR defaults to Automatic");
 	{

@@ -9,6 +9,7 @@
 #include <cmath>
 #include <cstdio>
 #include <fstream>
+#include <string_view>
 #include <vector>
 
 using namespace TheosRenderPipeline;
@@ -117,9 +118,10 @@ RWTexture2D<float> depth : register(u2);
 
 int wmain(int argc, wchar_t** argv)
 {
-    std::setvbuf(stdout,nullptr,_IONBF,0); Require(argc>=4,"Intel directory, AMD directory, capture directory [--debug]");
+    std::setvbuf(stdout,nullptr,_IONBF,0); Require(argc>=4,"Intel directory, AMD directory, capture directory [--debug] [--force-fsr4]");
     Check(CoInitializeEx(nullptr,COINIT_MULTITHREADED),"COM");
-    const bool debug=argc>4;
+    bool debug=false, force=false;
+    for (int i=4;i<argc;++i) { debug|=std::wstring_view(argv[i])==L"--debug"; force|=std::wstring_view(argv[i])==L"--force-fsr4"; }
     if (debug) { ComPtr<ID3D12Debug> d; Check(D3D12GetDebugInterface(IID_PPV_ARGS(&d)),"debug layer installed");d->EnableDebugLayer(); }
     std::filesystem::create_directories(argv[3]);
     ComPtr<IDXGIFactory6> factory; Check(CreateDXGIFactory1(IID_PPV_ARGS(&factory)),"factory");
@@ -145,7 +147,9 @@ int wmain(int argc, wchar_t** argv)
     },&vendorTimes); interop.Timer().SetEnabled(true);
     XeSSUpscaler xess; FSRUpscaler fsr;
     Check(xess.Open(d12.Get(),std::filesystem::absolute(argv[1])),xess.Status().c_str());
-    Check(fsr.Open(d12.Get(),std::filesystem::absolute(argv[2])),fsr.Status().c_str());
+    Check(fsr.Open(d12.Get(),std::filesystem::absolute(argv[2]),force),fsr.Status().c_str());
+    std::printf("FSR4 force=%d installed=%d reason=\"%s\"\n",force,fsr.Forced(),fsr.ForceReason().c_str());
+    Require(!force || fsr.Forced(),"FSR 4 force installed on the exact AMD runtime");
     std::ofstream csv(std::filesystem::path(argv[3])/"timings.csv");
     csv<<"output_width,output_height,input_width,input_height,round,backend,quality,frame,stage_ms,sdk_list_ms\n";
     for (FrameExtent output : {FrameExtent{1280,720},FrameExtent{1920,1080}}) {
@@ -170,10 +174,20 @@ int wmain(int argc, wchar_t** argv)
         // Alternating order over three rounds avoids systematically warming one method first.
         for (unsigned round=0;round<3;++round) for (unsigned method=0;method<2;++method) {
             const bool useFSR=(method+(round%2))%2; const char* name=useFSR?"FSR":"XeSS";
+            // Round 1 pins FSR 3.1; other rounds request FSR 4 (forced, or the NVIDIA fallback).
+            if (useFSR) { fsr.SetVersion(round == 1 ? FSRVersion::FSR31 : FSRVersion::FSR4); }
             auto hr=useFSR?fsr.Initialize(interop,d11.Get(),output,1,DXGI_FORMAT_R8G8B8A8_UNORM,false,input):
                 xess.Initialize(interop,d11.Get(),output,xessQuality,DXGI_FORMAT_R8G8B8A8_UNORM,false,nullptr,input);
             if (FAILED(hr)) { std::printf("status=%s\n",useFSR?fsr.Status().c_str():xess.Status().c_str()); } Check(hr,"initialize fixed extent");
-            if (useFSR) { std::printf("FSR provider=%s\n",fsr.Version().c_str());Require(fsr.Version()=="3.1.4","pinned official FSR provider"); }
+            if (useFSR) {
+                std::printf("FSR provider=%s offered=",fsr.Version().c_str());
+                for (const auto& v : fsr.AvailableVersions()) { std::printf("[%s] ",v.c_str()); }
+                std::printf("\n");
+                // FSR 4 is AMD-only; every other GPU must get the SDK's FSR 3.1 provider.
+                const bool want4=fsr.RequestedVersion()==FSRVersion::FSR4;
+                std::printf("FSR requested=%s fallback=\"%s\"\n",want4?"4":"3.1",fsr.FallbackReason().c_str());
+                Require(force && want4 ? fsr.Version()=="4.1.2" : fsr.Version().starts_with("3.1."),"expected FSR provider");
+            }
             std::vector<double> full, sdk;
             const unsigned warmup=debug?12:240, measured=debug?16:240;
             for (unsigned frame=0;frame<warmup+measured;++frame) {
@@ -204,6 +218,10 @@ int wmain(int argc, wchar_t** argv)
             }
             Check(interop.SignalD3D11(Work::Upscaling),"retire consumer");Check(interop.Drain(),"retire SDK work");
             PNG(d11.Get(),c11.Get(),destination.Get(),std::filesystem::path(argv[3])/(std::string(name)+"-"+std::to_string(output.width)+"-r"+std::to_string(round)+".png"));
+            if (useFSR) {
+                std::printf("FSR running=\"%s\" check=\"%s\"\n",fsr.RunningLabel().c_str(),fsr.ForcedModelCheck().c_str());
+                Require(!(force && fsr.RequestedVersion()==FSRVersion::FSR4) || fsr.RunningLabel().ends_with("INT8 (forced)"),"forced INT8 model verified");
+            }
             std::printf("RESULT backend=%s input=%ux%u output=%ux%u round=%u n=%zu stage_p50=%.4f stage_p95=%.4f sdk_p50=%.4f sdk_p95=%.4f ms\n",
                 name,input.width,input.height,output.width,output.height,round,full.size(),Quantile(full,.5),Quantile(full,.95),Quantile(sdk,.5),Quantile(sdk,.95));
             Check(useFSR?fsr.ReleaseAfterRetirement():xess.ReleaseAfterRetirement(),"release retired context");

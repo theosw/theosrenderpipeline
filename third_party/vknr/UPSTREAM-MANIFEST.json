@@ -1,0 +1,614 @@
+{
+  "schema_version": 2,
+  "repository": "mauri870/DLSSNR-RDNA3",
+  "revision": "a2b4edebcd236c8c6d189b340542ce0bf0c3d673",
+  "license": "MIT",
+  "copied_files": [
+    {
+      "upstream_path": "LICENSE",
+      "local_path": "vendor/mauri/LICENSE",
+      "upstream_sha256": "729c77c3b5ca38587835df4c18803dcfa1dff7ab5c207e22d88aa333a5703592",
+      "copied_sha256": "729c77c3b5ca38587835df4c18803dcfa1dff7ab5c207e22d88aa333a5703592",
+      "review": "Read decoder implementation; declarations-only structure/checksum tables; MIT licence and notices retained",
+      "modifications": []
+    },
+    {
+      "upstream_path": "THIRD_PARTY.md",
+      "local_path": "vendor/mauri/THIRD_PARTY.md",
+      "upstream_sha256": "39e821b11e85af28e421517fd88384e56168b06675a91e8b73a75797c380a9bf",
+      "copied_sha256": "39e821b11e85af28e421517fd88384e56168b06675a91e8b73a75797c380a9bf",
+      "review": "Read decoder implementation; declarations-only structure/checksum tables; MIT licence and notices retained",
+      "modifications": []
+    },
+    {
+      "upstream_path": "windows/package/model-tools/dlssnr_extract_model.cpp",
+      "local_path": "vendor/mauri/windows/package/model-tools/dlssnr_extract_model.cpp",
+      "upstream_sha256": "475ba19f03346dd48208880d9cffc8780c037a57a3f3aa6fa10ea15f07ca2af7",
+      "copied_sha256": "c2203012000510e4d95590ff09a2c961ab943f002ea94c10badbd926741e405b",
+      "review": "Read decoder implementation; declarations-only structure/checksum tables; MIT licence and notices retained",
+      "modifications": [
+        "Guard upstream command-line main and disk weight writer behind NR_DECODER_LIBRARY; embedded as data-only decoder."
+      ]
+    },
+    {
+      "upstream_path": "windows/package/model-tools/dlssnr_extract_tables.hpp",
+      "local_path": "vendor/mauri/windows/package/model-tools/dlssnr_extract_tables.hpp",
+      "upstream_sha256": "c40b1540c3d8bb100ccb7cb3e7bb6a113981724c6098f7ae30133626952f999e",
+      "copied_sha256": "c40b1540c3d8bb100ccb7cb3e7bb6a113981724c6098f7ae30133626952f999e",
+      "review": "Read decoder implementation; declarations-only structure/checksum tables; MIT licence and notices retained",
+      "modifications": []
+    },
+    {
+      "upstream_path": "windows/package/model-tools/dlssnr_extract_small_tables.hpp",
+      "local_path": "vendor/mauri/windows/package/model-tools/dlssnr_extract_small_tables.hpp",
+      "upstream_sha256": "14ef95a60538e218e275a050aa795444593d737ecdc150137ef630766ef49f15",
+      "copied_sha256": "14ef95a60538e218e275a050aa795444593d737ecdc150137ef630766ef49f15",
+      "review": "Read decoder implementation; declarations-only structure/checksum tables; MIT licence and notices retained",
+      "modifications": []
+    }
+  ],
+  "bridge_status": "Downloaded for review; not yet copied",
+  "shader_status": "Downloaded for review; not yet copied",
+  "upstream_scripts_executed": false,
+  "engine_allowlist_review": {
+    "scope": "MIT core graph/shape planner, shader math, runtime image passes; reviewed control/data flow, file I/O, includes, device calls and feature guards. No host/plugin, hooks, external build scripts or binaries copied.",
+    "disabled_features": [
+      "NR_INT4",
+      "experimental weights",
+      "pipeline binary patching",
+      "upstream command-line main"
+    ],
+    "portable_plan": "Explicit software-owned fragment arrays; real cooperative matrices used only with standard memory loads/stores and multiply-add.",
+    "provenance": "Pinned mauri fork; LICENSE is mochizuki0323 MIT. No GPL host or closed backend implementation copied."
+  },
+  "engine_files": [
+    {
+      "upstream_path": "linux/src/core/nr_activation_lut.hpp",
+      "local_path": "vendor/mauri/linux/src/core/nr_activation_lut.hpp",
+      "sha256": "cf289d3fed9bba211fa5b7b49e0699aa2eaf168c4c180f654acb8f4806def193",
+      "license": "MIT",
+      "revision": "a2b4edebcd236c8c6d189b340542ce0bf0c3d673"
+    },
+    {
+      "upstream_path": "linux/src/core/nr_build_cfg.hpp",
+      "local_path": "vendor/mauri/linux/src/core/nr_build_cfg.hpp",
+      "sha256": "d86a3ab80634b7a51fde853e9acd6c0364ca8c00c9427de912b8b2618ab90902",
+      "license": "MIT",
+      "revision": "a2b4edebcd236c8c6d189b340542ce0bf0c3d673"
+    },
+    {
+      "upstream_path": "linux/src/core/nr_control_shared.hpp",
+      "local_path": "vendor/mauri/linux/src/core/nr_control_shared.hpp",
+      "sha256": "0018b5c89ca5bebb0a7431ad52abd98f8c873e0c9f6bb7f0dfb2dadaf43828a5",
+      "license": "MIT",
+      "revision": "a2b4edebcd236c8c6d189b340542ce0bf0c3d673"
+    },
+    {
+      "upstream_path": "linux/src/core/nr_device_features.hpp",
+      "local_path": "vendor/mauri/linux/src/core/nr_device_features.hpp",
+      "sha256": "13651d48116a1da3152694ccdb2cfd359d09a85968ae24629f53d96b520d41f7",
+      "license": "MIT",
+      "revision": "a2b4edebcd236c8c6d189b340542ce0bf0c3d673"
+    },
+    {
+      "upstream_path": "linux/src/core/nr_gpu_completion.hpp",
+      "local_path": "vendor/mauri/linux/src/core/nr_gpu_completion.hpp",
+      "sha256": "2ab1231a0aa992dd4acb3f4f5391551da0a8129756e7105946c754942098820d",
+      "license": "MIT",
+      "revision": "a2b4edebcd236c8c6d189b340542ce0bf0c3d673"
+    },
+    {
+      "upstream_path": "linux/src/core/nr_graph.cpp",
+      "local_path": "vendor/mauri/linux/src/core/nr_graph.cpp",
+      "sha256": "562a5c2398bdddd5ca7ecaf334b1c9e972068c993142b9828bab14f05d637758",
+      "license": "MIT",
+      "revision": "a2b4edebcd236c8c6d189b340542ce0bf0c3d673"
+    },
+    {
+      "upstream_path": "linux/src/core/nr_input_check.hpp",
+      "local_path": "vendor/mauri/linux/src/core/nr_input_check.hpp",
+      "sha256": "344840dd9c2169a2facbd120932574bdc9775db3321f9eca77c16aeece8c358c",
+      "license": "MIT",
+      "revision": "a2b4edebcd236c8c6d189b340542ce0bf0c3d673"
+    },
+    {
+      "upstream_path": "linux/src/core/nr_log.hpp",
+      "local_path": "vendor/mauri/linux/src/core/nr_log.hpp",
+      "sha256": "67bfbbb4d55ec64937210ab43401fbf2ed9d6caf277d6a37cb71306e8c42b73f",
+      "license": "MIT",
+      "revision": "a2b4edebcd236c8c6d189b340542ce0bf0c3d673"
+    },
+    {
+      "upstream_path": "linux/src/core/nr_ini_network.hpp",
+      "local_path": "vendor/mauri/linux/src/core/nr_ini_network.hpp",
+      "sha256": "980a7c4fd1956f35c1b18a02d505aad01b6ab0ec0531b480f04e6992cd94fb7d",
+      "license": "MIT",
+      "revision": "a2b4edebcd236c8c6d189b340542ce0bf0c3d673"
+    },
+    {
+      "upstream_path": "linux/src/core/nr_native_plan.cpp",
+      "local_path": "vendor/mauri/linux/src/core/nr_native_plan.cpp",
+      "sha256": "533ed89baef86344e317ab505646e414633ec0d63357b45a6bce619c5ca9341f",
+      "license": "MIT",
+      "revision": "a2b4edebcd236c8c6d189b340542ce0bf0c3d673"
+    },
+    {
+      "upstream_path": "linux/src/core/nr_native_plan.hpp",
+      "local_path": "vendor/mauri/linux/src/core/nr_native_plan.hpp",
+      "sha256": "5137de2a2a227de7de16bef1c657b904a09b85c4464e4026df13b8abeaa58c0b",
+      "license": "MIT",
+      "revision": "a2b4edebcd236c8c6d189b340542ce0bf0c3d673"
+    },
+    {
+      "upstream_path": "linux/src/core/nr_native_plan_data.hpp",
+      "local_path": "vendor/mauri/linux/src/core/nr_native_plan_data.hpp",
+      "sha256": "e7327c0615a46ef94762e41ea4919c60c3f029f0b90e58b603e879ca8ce1f4ad",
+      "license": "MIT",
+      "revision": "a2b4edebcd236c8c6d189b340542ce0bf0c3d673"
+    },
+    {
+      "upstream_path": "linux/src/core/nr_native_plan_data_small.hpp",
+      "local_path": "vendor/mauri/linux/src/core/nr_native_plan_data_small.hpp",
+      "sha256": "b3ca6c1774fe46cf7ce2d852ccfe3d819dd1a3f43d1989b3c20f655782577e5f",
+      "license": "MIT",
+      "revision": "a2b4edebcd236c8c6d189b340542ce0bf0c3d673"
+    },
+    {
+      "upstream_path": "linux/src/core/nr_number.hpp",
+      "local_path": "vendor/mauri/linux/src/core/nr_number.hpp",
+      "sha256": "8c720c559c3170fd676f5a421d2443208470f16c0c19a033109ff5f7cfb715c3",
+      "license": "MIT",
+      "revision": "a2b4edebcd236c8c6d189b340542ce0bf0c3d673"
+    },
+    {
+      "upstream_path": "linux/src/core/nr_runtime.cpp",
+      "local_path": "vendor/mauri/linux/src/core/nr_runtime.cpp",
+      "sha256": "cecb114ba0656a3c622a35f676a2845f8d6432b6bc4dd65a383904f9d9de40f8",
+      "license": "MIT",
+      "revision": "a2b4edebcd236c8c6d189b340542ce0bf0c3d673"
+    },
+    {
+      "upstream_path": "linux/src/core/nr_runtime.hpp",
+      "local_path": "vendor/mauri/linux/src/core/nr_runtime.hpp",
+      "sha256": "66f8b860bc2a670739b2db3eb684a4551db60f1a60876f0d634c66d16d67d541",
+      "license": "MIT",
+      "revision": "a2b4edebcd236c8c6d189b340542ce0bf0c3d673"
+    },
+    {
+      "upstream_path": "linux/src/core/nr_runtime_dispatch.hpp",
+      "local_path": "vendor/mauri/linux/src/core/nr_runtime_dispatch.hpp",
+      "sha256": "13f40b179dfc53811ba98c1136df16a63f2fdee127651d578514fde803d3612c",
+      "license": "MIT",
+      "revision": "a2b4edebcd236c8c6d189b340542ce0bf0c3d673"
+    },
+    {
+      "upstream_path": "linux/src/core/nr_shader_manifest.hpp",
+      "local_path": "vendor/mauri/linux/src/core/nr_shader_manifest.hpp",
+      "sha256": "9901cd424cfd8e9ff3186452da76e94450c9da093de35fed752eecada9dc4d11",
+      "license": "MIT",
+      "revision": "a2b4edebcd236c8c6d189b340542ce0bf0c3d673"
+    },
+    {
+      "upstream_path": "linux/src/core/nr_vram_tag.hpp",
+      "local_path": "vendor/mauri/linux/src/core/nr_vram_tag.hpp",
+      "sha256": "7f08e3a249af25e89afaca65eee85819b1f688452ef4df748cac1ce9c66d7b9e",
+      "license": "MIT",
+      "revision": "a2b4edebcd236c8c6d189b340542ce0bf0c3d673"
+    },
+    {
+      "upstream_path": "linux/src/core/nrvk.hpp",
+      "local_path": "vendor/mauri/linux/src/core/nrvk.hpp",
+      "sha256": "a266162e4a0b1e64c9ac462494a602c7417bde355d8bf45cabc33e387f346abe",
+      "license": "MIT",
+      "revision": "a2b4edebcd236c8c6d189b340542ce0bf0c3d673"
+    },
+    {
+      "upstream_path": "linux/src/core/telemetry.hpp",
+      "local_path": "vendor/mauri/linux/src/core/telemetry.hpp",
+      "sha256": "9c0f9d9f791aaed5fc52280a81aa55ac976ce76d5f3b5a0db5df8fb9a897fb2d",
+      "license": "MIT",
+      "revision": "a2b4edebcd236c8c6d189b340542ce0bf0c3d673"
+    },
+    {
+      "upstream_path": "linux/src/core/tinlayout.hpp",
+      "local_path": "vendor/mauri/linux/src/core/tinlayout.hpp",
+      "sha256": "f3e30cdca8b31ac13c982178dd0fdfa399c4cd3432df0a3a6be484ba68f6b8cc",
+      "license": "MIT",
+      "revision": "a2b4edebcd236c8c6d189b340542ce0bf0c3d673"
+    },
+    {
+      "upstream_path": "linux/shaders/rdna3/attn.comp",
+      "local_path": "vendor/mauri/linux/shaders/rdna3/attn.comp",
+      "sha256": "a92f94b714141c3e609df0630ad7bf6142724645ce2e06e753c2c0574511311d",
+      "license": "MIT",
+      "revision": "a2b4edebcd236c8c6d189b340542ce0bf0c3d673"
+    },
+    {
+      "upstream_path": "linux/shaders/rdna3/decoder_upsample.comp",
+      "local_path": "vendor/mauri/linux/shaders/rdna3/decoder_upsample.comp",
+      "sha256": "bb9add0d0148d274ae54cf4eca2548d76a73ac461f155aeeb4e181e03163c48f",
+      "license": "MIT",
+      "revision": "a2b4edebcd236c8c6d189b340542ce0bf0c3d673"
+    },
+    {
+      "upstream_path": "linux/shaders/rdna3/ffwd3_t.comp",
+      "local_path": "vendor/mauri/linux/shaders/rdna3/ffwd3_t.comp",
+      "sha256": "6def55c555ded617e3ae99ad7bee03aa6cb0a2a77761747bb857916b4aa124a8",
+      "license": "MIT",
+      "revision": "a2b4edebcd236c8c6d189b340542ce0bf0c3d673"
+    },
+    {
+      "upstream_path": "linux/shaders/rdna3/fswin_t.comp",
+      "local_path": "vendor/mauri/linux/shaders/rdna3/fswin_t.comp",
+      "sha256": "8a3bae335890184df613f1b6466ee4fcb795a209fca7f4d451a4d9e22c57ddf0",
+      "license": "MIT",
+      "revision": "a2b4edebcd236c8c6d189b340542ce0bf0c3d673"
+    },
+    {
+      "upstream_path": "linux/shaders/rdna3/gemm1x1.comp",
+      "local_path": "vendor/mauri/linux/shaders/rdna3/gemm1x1.comp",
+      "sha256": "c9f828fe255841e4bd9e13d59dad4de093d5ff12a334fda6bd52b031df2ac598",
+      "license": "MIT",
+      "revision": "a2b4edebcd236c8c6d189b340542ce0bf0c3d673"
+    },
+    {
+      "upstream_path": "linux/shaders/rdna3/noise_field.comp",
+      "local_path": "vendor/mauri/linux/shaders/rdna3/noise_field.comp",
+      "sha256": "46a199e1385beac03573a40dc2527e7512763fd33e644290883223299fcb1f1f",
+      "license": "MIT",
+      "revision": "a2b4edebcd236c8c6d189b340542ce0bf0c3d673"
+    },
+    {
+      "upstream_path": "linux/shaders/rdna3/repack_tokens.comp",
+      "local_path": "vendor/mauri/linux/shaders/rdna3/repack_tokens.comp",
+      "sha256": "f6c14656636abea31d299887f70a384b65040afc7843ce495f3e2192d38af04f",
+      "license": "MIT",
+      "revision": "a2b4edebcd236c8c6d189b340542ce0bf0c3d673"
+    },
+    {
+      "upstream_path": "linux/shaders/rdna3/upsample_view.comp",
+      "local_path": "vendor/mauri/linux/shaders/rdna3/upsample_view.comp",
+      "sha256": "27a843cd5d40d7b25b82b0dc8b5f48b7c4f9b6e92e845d5b63b3d272fd6e06af",
+      "license": "MIT",
+      "revision": "a2b4edebcd236c8c6d189b340542ce0bf0c3d673"
+    },
+    {
+      "upstream_path": "linux/shaders/rdna3/vit_attn.comp",
+      "local_path": "vendor/mauri/linux/shaders/rdna3/vit_attn.comp",
+      "sha256": "297d1851adf8b72895d75d255d0fd71f0e02e5f03dd7374bc8a6609c55af0a7a",
+      "license": "MIT",
+      "revision": "a2b4edebcd236c8c6d189b340542ce0bf0c3d673"
+    },
+    {
+      "upstream_path": "linux/shaders/rdna3/pipelines.json",
+      "local_path": "vendor/mauri/linux/shaders/rdna3/pipelines.json",
+      "sha256": "e7712e64f1956e5c62a0fadc6d38fa332329cf809b7dd7482c83d1149ef15f62",
+      "license": "MIT",
+      "revision": "a2b4edebcd236c8c6d189b340542ce0bf0c3d673"
+    },
+    {
+      "upstream_path": "linux/shaders/rdna3/include/attn_qkv_epi.glsl",
+      "local_path": "vendor/mauri/linux/shaders/rdna3/include/attn_qkv_epi.glsl",
+      "sha256": "4d6dc44beb2102eb7c516f93b5ef24241430171d8d62108e39a8dd057601e542",
+      "license": "MIT",
+      "revision": "a2b4edebcd236c8c6d189b340542ce0bf0c3d673"
+    },
+    {
+      "upstream_path": "linux/shaders/rdna3/include/coherent_act.glsl",
+      "local_path": "vendor/mauri/linux/shaders/rdna3/include/coherent_act.glsl",
+      "sha256": "2c20818d305450341004cb9e24c191bf290aaba8fa462137df4f880f785c6bdb",
+      "license": "MIT",
+      "revision": "a2b4edebcd236c8c6d189b340542ce0bf0c3d673"
+    },
+    {
+      "upstream_path": "linux/shaders/rdna3/include/coopmm.glsl",
+      "local_path": "vendor/mauri/linux/shaders/rdna3/include/coopmm.glsl",
+      "sha256": "70859de4a7966e60147afa108e514830bf6a211c293647f9300e43d467488314",
+      "license": "MIT",
+      "revision": "a2b4edebcd236c8c6d189b340542ce0bf0c3d673"
+    },
+    {
+      "upstream_path": "linux/shaders/rdna3/include/e4m3_emul.glsl",
+      "local_path": "vendor/mauri/linux/shaders/rdna3/include/e4m3_emul.glsl",
+      "sha256": "5c467dac8dfe5f08171791d4ad84a07c24595fc648b656aac0e711003f544888",
+      "license": "MIT",
+      "revision": "a2b4edebcd236c8c6d189b340542ce0bf0c3d673"
+    },
+    {
+      "upstream_path": "linux/shaders/rdna3/include/fswin_body.glsl",
+      "local_path": "vendor/mauri/linux/shaders/rdna3/include/fswin_body.glsl",
+      "sha256": "7290d93b0112f5a6003aa0f44701c03b9331dd91b853bf9330b1042debb9cba0",
+      "license": "MIT",
+      "revision": "a2b4edebcd236c8c6d189b340542ce0bf0c3d673"
+    },
+    {
+      "upstream_path": "linux/shaders/rdna3/include/fswin_hw_attn.glsl",
+      "local_path": "vendor/mauri/linux/shaders/rdna3/include/fswin_hw_attn.glsl",
+      "sha256": "2303fc6e601ef18c0ff412fc726701c87dc208097c5f606fdd57ea290f9afc9c",
+      "license": "MIT",
+      "revision": "a2b4edebcd236c8c6d189b340542ce0bf0c3d673"
+    },
+    {
+      "upstream_path": "linux/shaders/rdna3/include/image_input.glsl",
+      "local_path": "vendor/mauri/linux/shaders/rdna3/include/image_input.glsl",
+      "sha256": "57d4244393c6182f23347e24866094b161f51a97f239c2b8700f14823ce999ed",
+      "license": "MIT",
+      "revision": "a2b4edebcd236c8c6d189b340542ce0bf0c3d673"
+    },
+    {
+      "upstream_path": "linux/shaders/rdna3/include/image_noise.glsl",
+      "local_path": "vendor/mauri/linux/shaders/rdna3/include/image_noise.glsl",
+      "sha256": "29e308e0f9ae7a6fe228b933814fada1167f2706af065e6e403da8add33b05c1",
+      "license": "MIT",
+      "revision": "a2b4edebcd236c8c6d189b340542ce0bf0c3d673"
+    },
+    {
+      "upstream_path": "linux/shaders/rdna3/include/nr_chain.glsl",
+      "local_path": "vendor/mauri/linux/shaders/rdna3/include/nr_chain.glsl",
+      "sha256": "dd2aea4d0b1976ec7200e5a4a84a0f29b1a7f2495cd3c8bdd87118bc26b8fd33",
+      "license": "MIT",
+      "revision": "a2b4edebcd236c8c6d189b340542ce0bf0c3d673"
+    },
+    {
+      "upstream_path": "linux/shaders/rdna3/include/nr_prof.glsl",
+      "local_path": "vendor/mauri/linux/shaders/rdna3/include/nr_prof.glsl",
+      "sha256": "f8f3275deb205773d60ab1ea5996f824f8b0b9dd40cc243331b4019ce74aef5d",
+      "license": "MIT",
+      "revision": "a2b4edebcd236c8c6d189b340542ce0bf0c3d673"
+    },
+    {
+      "upstream_path": "linux/shaders/rdna3/include/occ_pad.glsl",
+      "local_path": "vendor/mauri/linux/shaders/rdna3/include/occ_pad.glsl",
+      "sha256": "81878d2f80bd6459cc6b0268836a5cc5889646e0a15bc5d407c39be9905fccb5",
+      "license": "MIT",
+      "revision": "a2b4edebcd236c8c6d189b340542ce0bf0c3d673"
+    },
+    {
+      "upstream_path": "linux/shaders/rdna3/include/swin_math.glsl",
+      "local_path": "vendor/mauri/linux/shaders/rdna3/include/swin_math.glsl",
+      "sha256": "3b6f86a4d6e8836c6bce8c6e62b8359210c1ae7ebb91fe8053fea88957958495",
+      "license": "MIT",
+      "revision": "a2b4edebcd236c8c6d189b340542ce0bf0c3d673"
+    },
+    {
+      "upstream_path": "linux/shaders/rdna3/include/temporal_history.glsl",
+      "local_path": "vendor/mauri/linux/shaders/rdna3/include/temporal_history.glsl",
+      "sha256": "c467ff5fe489bfc0b6fa9b1bca742a8216f57606a048a370f9edbc7251eff3fe",
+      "license": "MIT",
+      "revision": "a2b4edebcd236c8c6d189b340542ce0bf0c3d673"
+    },
+    {
+      "upstream_path": "linux/shaders/rdna3/include/vit_attn_vt_chunk.glsl",
+      "local_path": "vendor/mauri/linux/shaders/rdna3/include/vit_attn_vt_chunk.glsl",
+      "sha256": "7bee01e750aaa51fd637ee5d928fc91ca885ef448753849b1d49375dab6a0fea",
+      "license": "MIT",
+      "revision": "a2b4edebcd236c8c6d189b340542ce0bf0c3d673"
+    },
+    {
+      "upstream_path": "linux/shaders/passes/runtime_alpha.comp",
+      "local_path": "vendor/mauri/linux/shaders/passes/runtime_alpha.comp",
+      "sha256": "42139693083ce4caf7bfc5f95a589d9b6d7282e80551804664696097251a9865",
+      "license": "MIT",
+      "revision": "a2b4edebcd236c8c6d189b340542ce0bf0c3d673"
+    },
+    {
+      "upstream_path": "linux/shaders/passes/runtime_depth.comp",
+      "local_path": "vendor/mauri/linux/shaders/passes/runtime_depth.comp",
+      "sha256": "23383bc5099524883a620c7e820dd4b538d5813074d90f04840af2f26945c01a",
+      "license": "MIT",
+      "revision": "a2b4edebcd236c8c6d189b340542ce0bf0c3d673"
+    },
+    {
+      "upstream_path": "linux/shaders/passes/runtime_reuse_store.comp",
+      "local_path": "vendor/mauri/linux/shaders/passes/runtime_reuse_store.comp",
+      "sha256": "32bcbbca343be2dd3614efa95b2c27da09d82efddbc6fef68aef68a51a3d1d40",
+      "license": "MIT",
+      "revision": "a2b4edebcd236c8c6d189b340542ce0bf0c3d673"
+    },
+    {
+      "upstream_path": "linux/shaders/passes/runtime_reuse_motion.comp",
+      "local_path": "vendor/mauri/linux/shaders/passes/runtime_reuse_motion.comp",
+      "sha256": "7a23efe134334ae7a9722e703ae71b76ef0e0c771baecab9a6ee1412a81a24df",
+      "license": "MIT",
+      "revision": "a2b4edebcd236c8c6d189b340542ce0bf0c3d673"
+    },
+    {
+      "upstream_path": "linux/shaders/passes/runtime_reuse_warp.comp",
+      "local_path": "vendor/mauri/linux/shaders/passes/runtime_reuse_warp.comp",
+      "sha256": "0ecb0c2e2ae471b091b91eade4a9351591552e84e0d7e15693df51057fe944a9",
+      "license": "MIT",
+      "revision": "a2b4edebcd236c8c6d189b340542ce0bf0c3d673"
+    },
+    {
+      "upstream_path": "linux/shaders/passes/runtime_reuse_stat.comp",
+      "local_path": "vendor/mauri/linux/shaders/passes/runtime_reuse_stat.comp",
+      "sha256": "b70400e610c216d05e833c31b0ae24a85c44ad3d2a044de2cb9abc602ed9dc18",
+      "license": "MIT",
+      "revision": "a2b4edebcd236c8c6d189b340542ce0bf0c3d673"
+    },
+    {
+      "upstream_path": "linux/shaders/passes/motion_luma.comp",
+      "local_path": "vendor/mauri/linux/shaders/passes/motion_luma.comp",
+      "sha256": "deddfa736c810e93195ea0b8d3579c46edc136168291dfa70fede6ee4b72a846",
+      "license": "MIT",
+      "revision": "a2b4edebcd236c8c6d189b340542ce0bf0c3d673"
+    },
+    {
+      "upstream_path": "linux/shaders/passes/motion_estimate.comp",
+      "local_path": "vendor/mauri/linux/shaders/passes/motion_estimate.comp",
+      "sha256": "fd47363b60229cf6cff8f779ff5dbb463e5da6e6e058dd84b324f37475c00fdb",
+      "license": "MIT",
+      "revision": "a2b4edebcd236c8c6d189b340542ce0bf0c3d673"
+    },
+    {
+      "upstream_path": "windows/src/pe/nr_pe_bridge.cpp",
+      "local_path": "vendor/mauri/windows/src/pe/nr_pe_bridge.cpp",
+      "sha256": "ff2c5b20a97c650198044d36cb327ccffbf64e24e72780f59481949407d4ab13",
+      "license": "MIT",
+      "revision": "a2b4edebcd236c8c6d189b340542ce0bf0c3d673",
+      "review": "Read image/fence import, external ownership and run_between submission. Reference only, not compiled: original bridge also contains D3D11/hook integration. Standalone interop.cpp implements only the D3D12 contract."
+    },
+    {
+      "upstream_path": "windows/src/pe/nr_pe_bridge.hpp",
+      "local_path": "vendor/mauri/windows/src/pe/nr_pe_bridge.hpp",
+      "sha256": "846fe864bb272507e98ee4936ffba3847c3f4c8845335c37a9150a7b3ff07700",
+      "license": "MIT",
+      "revision": "a2b4edebcd236c8c6d189b340542ce0bf0c3d673",
+      "review": "Read image/fence import, external ownership and run_between submission. Reference only, not compiled: original bridge also contains D3D11/hook integration. Standalone interop.cpp implements only the D3D12 contract."
+    }
+  ],
+  "own_files": [
+    {
+      "path": "src/engine.cpp",
+      "sha256": "5b888d6b4a56aa8ba6856a09b25ce8d28824c3cd204e52786072f4d66cb14158"
+    },
+    {
+      "path": "src/engine.hpp",
+      "sha256": "23a4720d586770025748e5619c5f353c2ad705a97a668794b356c6a1c29165ed"
+    },
+    {
+      "path": "src/interop.cpp",
+      "sha256": "25b3e70d24f369557dbf0cf5cd9304b7a138e4a642e6afda9ea29496a7f5d645"
+    },
+    {
+      "path": "src/interop.hpp",
+      "sha256": "dfd5fe098ad66c41f3373d791bf5834590d8b20001e5117274e76bbb44a4e766"
+    },
+    {
+      "path": "src/main.cpp",
+      "sha256": "6c511a543be7ba42e977ba72ff1e519aa8bf2bcf44abf3e6a7fa8c2fc3efbc62"
+    },
+    {
+      "path": "src/memory_model.hpp",
+      "sha256": "f8c2dc170e0ae7d1c6a0f2d2080128f834cf8903418ba4bc8e1f78af0eb85376"
+    },
+    {
+      "path": "src/probes.cpp",
+      "sha256": "e7eca048ef734929ce12b3b31a2fcc49dd7121f7713d17ba2753fa1f19f569ae"
+    },
+    {
+      "path": "src/probes.hpp",
+      "sha256": "edc7e1c1827958fc489419c6c7a4d9fbca097c5a2cae46654cfc3e1bd8eb6d9d"
+    },
+    {
+      "path": "src/vk_context.cpp",
+      "sha256": "149f44c0aa7f06ed9b509aa9a6c929c16145ad6eb2c29971bbcb479b8d4b6ab2"
+    },
+    {
+      "path": "src/vk_context.hpp",
+      "sha256": "43dbada4e326acf8fac9339bd8826e7b63ba2ba993835b56046e5e3e0825de5e"
+    },
+    {
+      "path": "src/weights.cpp",
+      "sha256": "7770c72293878272b0ed0945bb64e4c75d67345e954088fbfc8fcded0e21e123"
+    },
+    {
+      "path": "src/weights.hpp",
+      "sha256": "3ad4856c4dd4a3d2540bba3d87a897b2ff032a8de99f031c349f20558b05b5b0"
+    },
+    {
+      "path": "shaders/engine_fused.comp",
+      "sha256": "02659b08fb0de3abebb824f6a25c2c3403f6ff674fa588fff5d5f701fe951ef9"
+    },
+    {
+      "path": "shaders/engine_quantization.glsl",
+      "sha256": "ecfc1d18bef49bbef768b536c1602ad5295a494722059cdde39036bbb72622e3"
+    },
+    {
+      "path": "shaders/fragment_probe.comp",
+      "sha256": "3197001d419b8c70175f89eb6d5b37a3776b43c96cf858de8fbd1d4490b1e57d"
+    },
+    {
+      "path": "shaders/portable_fragments.glsl",
+      "sha256": "afa1fe0fb026f9bda7372f45b2ddcf01c0ea1fc019cb358ef0713bdb151b689f"
+    },
+    {
+      "path": "shaders/portable_gemm.comp",
+      "sha256": "b47bb7934897cdf11f1872a2d472619e070db5b87aa00b836a6f878cc25a90d8"
+    },
+    {
+      "path": "shaders/rounding.glsl",
+      "sha256": "f05b973014844f028b9ec8e935ee134532c5c5519c0d1f3f17b991b1c92f626c"
+    },
+    {
+      "path": "shaders/rounding_probe.comp",
+      "sha256": "c405af86916a681aa8e366f433db6aff2cad729197a8672a4195859797a944c7"
+    },
+    {
+      "path": "shaders/upstream_quant.comp",
+      "sha256": "fccf12947f92658a730183c8174b8a29740cfbcb23fe86107395622bd7dcbf11"
+    },
+    {
+      "path": "tools/audit-shaders.py",
+      "sha256": "8d606fc0639b88c2850580adf7b1690f6055caf9c13ba37fa46897e3920cc210"
+    },
+    {
+      "path": "tools/build-engine.ps1",
+      "sha256": "b8b90445de037ac8a6912af30d7446f9829c8ab97b433907507af7abeee4e02d"
+    },
+    {
+      "path": "tools/build-toolchain.ps1",
+      "sha256": "e7b504c648688d80783cfdf83898bf8c32487cd3f92ac732e69d4bdc78d0b5dd"
+    },
+    {
+      "path": "tools/compile-engine-shaders.py",
+      "sha256": "5e351b94b075b1284649d0a68b7ba417e76658dd333f2829c7b357e28cad2852"
+    },
+    {
+      "path": "tools/complete-source-manifest.py",
+      "sha256": "3aa208f8b0b14fa8341b02346a65d9d71e92b492118856f96e0d8b2828b384c9"
+    },
+    {
+      "path": "tools/copy-evidence.py",
+      "sha256": "7fef94aadb4a54a6b68c60a5d400f566d016bcc7d0b7b1b392e7780a262659bb"
+    },
+    {
+      "path": "tools/copy-reviewed-engine.py",
+      "sha256": "081f9a6b46356f79761efa5ffc8f034666e75858705b246f06e8e6bc5bfc00a4"
+    },
+    {
+      "path": "tools/fetch-reviewed-candidates.py",
+      "sha256": "aca8982f199e26445206ba16f8d33ec2229900849fd0c124925965b42dfc7f85"
+    },
+    {
+      "path": "tools/final-report.py",
+      "sha256": "bb9c50e5d0ae3093ab495cf9ce9c60ee520bdc44dffee8c23b60f3bc0bb0fb1e"
+    },
+    {
+      "path": "tools/layer-diff.py",
+      "sha256": "b7d3853742a69568d5a0f39abb1e99e0bc3b5d254bc9b38b4233dec9cfc94490"
+    },
+    {
+      "path": "tools/package-volunteer.py",
+      "sha256": "1dcf310416b8ee511159dfe0e5a6ed1c306016f532ce4e26c6ff4b2c5e9e3add"
+    },
+    {
+      "path": "tools/prepare-engine.py",
+      "sha256": "f2d58c5e8dd318662c96c58665ed1e0c60e1d87b95262498ac5e7e88332f311c"
+    },
+    {
+      "path": "tools/run-suite.py",
+      "sha256": "12436ca754a8958fc2c75c6223c8a9d4ca73d1b8fe9736d89982203f52ecc298"
+    },
+    {
+      "path": "tools/score.py",
+      "sha256": "5ed21ddb14c189277bfaa86fbbaa9a3a7267b15dd302fecf1c484730ddea8e7c"
+    },
+    {
+      "path": "tools/toolchain-inventory.py",
+      "sha256": "009f1429e92cf1ae41018484c34a18fc12e656bf853bb375e5378804dada1309"
+    },
+    {
+      "path": "CMakeLists.txt",
+      "sha256": "6678744b62320e88004a9097227448a3c1548ae081e98021ae70dac74d7915fe"
+    },
+    {
+      "path": "vcpkg.json",
+      "sha256": "44069de9ff6c84661320202d15d49104de66ffd857e0438c0007a688ebc338e3"
+    },
+    {
+      "path": "volunteer-package/Run-Volunteer.ps1",
+      "sha256": "9b1bfd2fd2aa4e5cc7edbfdf3b71d91f016f18630c64cdc9c7ed727668294b88"
+    }
+  ]
+}

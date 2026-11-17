@@ -1,3 +1,4 @@
+#include "FrameGen/VulkanNRHost.h"
 #include <PCH.h>
 #include "FrameGen/NeuralRuntimeKernels.h"
 #include "RendererSettingsController.h"
@@ -81,6 +82,28 @@ int RendererSettingsController::CountChanges(const RendererSettingsDraft& draft,
     return CountRendererSettingsChanges(draft, current);
 }
 
+RendererSettingsCapabilities RendererSettingsController::Capabilities() const
+{
+    auto& backend = SourceDLSSG::Backend::Get();
+    RendererSettingsCapabilities capabilities{host_.StartupConfigured(), false,
+        host_.DedicatedUITextureMode(), CommunityShaders::Active()};
+    capabilities.nvidiaAdapter = backend.NvidiaAdapter();
+    capabilities.nvidiaFeatures = backend.NvidiaFeaturesAvailable();
+    capabilities.amdAdapter = backend.AmdAdapter();
+    capabilities.xeSSReady = backend.XeSS().Ready();
+    capabilities.fsrReady = backend.FSR().Ready();
+    capabilities.backend = frameGen_.settings.sourceDLSSG.neuralBackend;
+#if !defined(TRP_NO_NEURAL_RENDERING)
+    capabilities.neuralRuntime = SourceDLSSG::NeuralRuntimePresent(capabilities.backend == NeuralRendering::Backend::HIP ? SourceDLSSG::AmdNeuralPass::RuntimePath() :
+        capabilities.backend == NeuralRendering::Backend::Vulkan ? NeuralRendering::VulkanNRHost::Path() : std::filesystem::path(frameGen_.settings.neuralRenderingRuntimePath));
+    capabilities.neuralOperational = backend.Ready() && (!backend.NeuralState().failed || backend.NeuralState().retryable);
+    if (capabilities.backend == NeuralRendering::Backend::HIP) {
+        capabilities.amdNeuralPrerequisite = SourceDLSSG::AmdNeuralPass::Availability(capabilities.amdAdapter);
+    }
+#endif
+    return capabilities;
+}
+
 RendererSettingsResult RendererSettingsController::Apply(const RendererSettingsDraft& settingsDraft,
                                                          bool a_saveAsDefault, const Overlay::Layout* layout)
 {
@@ -92,17 +115,24 @@ RendererSettingsResult RendererSettingsController::Apply(const RendererSettingsD
     std::string actionMessage;
     bool actionMessageIsError = false;
     const bool sourceUpscaler = host_.StartupConfigured();
-    RendererSettingsCapabilities capabilities{sourceUpscaler, false, host_.DedicatedUITextureMode(), CommunityShaders::Active()};
+    auto capabilities = Capabilities();
     capabilities.nvidiaAdapter = SourceDLSSG::Backend::Get().NvidiaAdapter();
     capabilities.nvidiaFeatures = SourceDLSSG::Backend::Get().NvidiaFeaturesAvailable();
+    capabilities.backend = settingsDraft.sourceDLSSG.neuralBackend;
+    capabilities.amdNeuralPrerequisite = nullptr;
+    capabilities.xeSSReady = SourceDLSSG::Backend::Get().XeSS().Ready();
+    capabilities.fsrReady = SourceDLSSG::Backend::Get().FSR().Ready();
 #if !defined(TRP_NO_NEURAL_RENDERING)
     // The draft may select a different runtime file; check the one it selects.
-    const auto draftRuntime = TheosRenderPipeline::SourceDLSSG::ResolveNeuralRuntimeSetting(
+    const auto draftRuntime = capabilities.backend == NeuralRendering::Backend::Vulkan ? NeuralRendering::VulkanNRHost::Path().string() :
+        capabilities.backend == NeuralRendering::Backend::HIP ? SourceDLSSG::AmdNeuralPass::RuntimePath().string() :
+        TheosRenderPipeline::SourceDLSSG::ResolveNeuralRuntimeSetting(
         settingsDraft.sourceDLSSG.neuralRuntime, PluginPaths::Directory(),
         SourceDLSSG::Backend::Get().NeuralComputeCapability(), NeuralRendering::RuntimeKernelsSupported()).string();
     capabilities.neuralRuntime = TheosRenderPipeline::SourceDLSSG::NeuralRuntimePresent(draftRuntime);
     auto admissionOptions = SourceDLSSG::Backend::Get().NeuralConfiguration();
     admissionOptions.runtimePath = draftRuntime;
+    admissionOptions.backend = capabilities.backend;
     admissionOptions.passes = settingsDraft.sourceDLSSG.neuralPasses;
     admissionOptions.beforeUpscaling = settingsDraft.sourceDLSSG.neuralBeforeUpscaling;
     admissionOptions.reconstruction = settingsDraft.sourceDLSSG.neuralReconstruction;
@@ -197,6 +227,10 @@ RendererSettingsResult RendererSettingsController::Apply(const RendererSettingsD
         options.reconstruction = frameGen_.settings.sourceDLSSG.neuralReconstruction;
         options.extraPasses = frameGen_.settings.sourceDLSSG.neuralExtraPasses;
         options.beforeUpscaling = frameGen_.settings.sourceDLSSG.neuralBeforeUpscaling;
+        options.backend = frameGen_.settings.sourceDLSSG.neuralBackend;
+        options.vulkanScheduling = frameGen_.settings.sourceDLSSG.vulkanScheduling;
+        options.amdWaitForNetwork = frameGen_.settings.sourceDLSSG.amdNRWaitForNetwork;
+        options.amdShowTracking = frameGen_.settings.sourceDLSSG.amdNRShowTracking;
         options.passes = frameGen_.settings.sourceDLSSG.neuralPasses;
         options.combat = frameGen_.settings.sourceDLSSG.neuralCombat;
         source.ConfigureNeuralRendering(std::move(options));
@@ -217,9 +251,13 @@ RendererSettingsResult RendererSettingsController::Apply(const RendererSettingsD
         actionMessage = "Session settings applied.";
         actionMessageIsError = false;
     }
-    logger::info("[Overlay] source settings applied save={} mode={} quality={} preset={} requestedMode={} requestedQuality={} requestedPreset={}", a_saveAsDefault,
+    logger::info("[Overlay] source settings applied save={} mode={} quality={} preset={} requestedMode={} requestedQuality={} requestedPreset={} nrRequested={} nrUnavailable={} amdExecution={} amdTracking={}", a_saveAsDefault,
                  upscaler_.mUpscaleType, upscaler_.mQualityLevel, upscaler_.mDLSSPreset,
-                 settingsDraft.upscaleType, settingsDraft.qualityLevel, settingsDraft.dlssPreset);
+                 settingsDraft.upscaleType, settingsDraft.qualityLevel, settingsDraft.dlssPreset,
+                 settingsDraft.sourceDLSSG.neuralEnabled,
+                 NeuralSettingsUnavailable(settingsDraft.upscaleType, capabilities) ? NeuralSettingsUnavailable(settingsDraft.upscaleType, capabilities) : "none",
+                 settingsDraft.sourceDLSSG.amdNRWaitForNetwork ? "regular-wait" : "async",
+                 settingsDraft.sourceDLSSG.amdNRShowTracking);
     logger::info("[LoadingArtwork] request setting={} save={}", settingsDraft.requestLoadingArtwork, a_saveAsDefault);
     if (sourceUpscaler && !actionMessageIsError)
     {
@@ -255,6 +293,7 @@ RendererSettingsResult RendererSettingsController::Apply(const RendererSettingsD
 
 RendererSettingsResult RendererSettingsController::SetNeuralRenderingEnabled(bool enabled)
 {
+    logger::info("[NR request] control=direct requested={} hostStartupConfigured={}", enabled, host_.StartupConfigured());
 #if defined(TRP_NO_NEURAL_RENDERING)
     (void)enabled;
     return {"Neural Rendering is not included in this build.", true};
@@ -268,7 +307,10 @@ RendererSettingsResult RendererSettingsController::SetNeuralRenderingEnabled(boo
         auto options = backend.NeuralConfiguration();
         options.runtimePath = SourceDLSSG::ResolveNeuralRuntimeSetting(frameGen_.settings.configuredRuntimePaths.neural,
             PluginPaths::Directory(), backend.NeuralComputeCapability(), NeuralRendering::RuntimeKernelsSupported());
+
         options.automaticRuntime = SourceDLSSG::IsAutomaticNeuralRuntime(frameGen_.settings.configuredRuntimePaths.neural);
+        if (options.backend == NeuralRendering::Backend::HIP) { options.runtimePath = SourceDLSSG::AmdNeuralPass::RuntimePath(); }
+        else if (options.backend == NeuralRendering::Backend::Vulkan) { options.runtimePath = NeuralRendering::VulkanNRHost::Path(); }
         options.enabled = enabled;
         const auto admission = backend.CheckNeuralAdmission(options,
             options.beforeUpscaling ? host_.RenderWidth() : host_.OutputWidth(),

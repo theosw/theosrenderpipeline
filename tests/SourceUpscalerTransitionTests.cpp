@@ -51,5 +51,13 @@ int main()
     Require(native.NeedsRestart() && native.LiveCandidate().mode==3,"native DLAA allocation remains restart-bound");
     auto quality=Ready();quality.Request({4,0,11,true,true});
     Require(quality.NeedsRestart() && quality.LiveCandidate().mode==4 && quality.LiveCandidate().quality==2,"mode can change without applying a pending render-size change");
-    std::puts("PASS repeated warm switches, stage failures, refusal, persistence and cold/native guards");
+    // FSR 4 (6) started sessions switch on Apply like FSR 3.1 (5); a sharpening-only
+    // change in FSR 4 is a live change that keeps the mode.
+    auto fsr4=Ready(6);fsr4.Request({5,2,11,true,true});
+    Require(!fsr4.NeedsRestart() && fsr4.NeedsLiveChange() && fsr4.LiveCandidate().mode==5,"FSR 4 session switches to FSR 3.1 live");
+    auto fsr31=Ready(5);fsr31.Request({6,2,11,true,true});
+    Require(fsr31.NeedsLiveChange() && fsr31.LiveCandidate().mode==6,"FSR 3.1 session switches to FSR 4 live");
+    auto sharpen=Ready(6);sharpen.Request({6,2,11,false,true});
+    Require(sharpen.NeedsLiveChange() && sharpen.LiveCandidate().mode==6,"FSR 4 setting change keeps FSR 4");
+    std::puts("PASS repeated warm switches, stage failures, refusal, persistence and cold/native guards, FSR 3.1/4 switching");
 }

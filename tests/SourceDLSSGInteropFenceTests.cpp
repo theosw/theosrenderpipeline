@@ -269,6 +269,35 @@ int main(int argc, char** argv)
         Require(d3d11Completes(2000), "the next frame runs after release");
         Check(overlap.Drain(), "retire the overlap interop");
     }
-    std::puts("PASS: same-device input fences, foreign-device rejection, pending GPU wait, retirement, extended waits and diagnostics; deferred bridge overlap");
+    // Vulkan producer submission survives a refused/discarded consumer. The
+    // external wait checkpoint must prevent allocator reuse without CPU waiting.
+    {
+        Interop split;
+        Check(split.Initialize(device11.Get(), device12.Get(), queue.Get()), "initialize split interop");
+        Check(split.Begin(Work::Upscaling, &list, nullptr, true), "begin split producer");
+        auto* producer=list;
+        const auto slot=split.CurrentSlot(Work::Upscaling);
+        Require(split.TrackExternal(Work::Upscaling)==E_UNEXPECTED, "external checkpoint requires a split");
+        Check(split.Split(Work::Upscaling, &list), "submit producer and continue");
+        Require(list!=producer && split.CurrentList(Work::Upscaling)==list, "split returns distinct continuation");
+        Require(split.Split(Work::Upscaling, &list)==E_UNEXPECTED, "second split refused");
+        Check(queue->Wait(input.Get(),17), "simulate external Vulkan completion");
+        Check(split.TrackExternal(Work::Upscaling), "track external wait before consumer");
+        const auto tracked=split.LastValue(Work::Upscaling);
+        Check(split.Discard(Work::Upscaling), "discard only unsubmitted continuation");
+        Require(split.LastValue(Work::Upscaling)==tracked && split.CurrentSlot(Work::Upscaling)==slot,
+            "discard retains producer and external retirement without advancing slot");
+        const auto start=std::chrono::steady_clock::now();
+        Require(split.Begin(Work::Upscaling,&list,nullptr,true)==S_FALSE && !list,
+            "busy split slot returns pass-through without resetting a command list");
+        Require(std::chrono::steady_clock::now()-start<std::chrono::milliseconds(100), "busy split admission never CPU waits");
+        Require(split.Ready(), "busy split refusal preserves interop");
+        Check(input->Signal(17), "release simulated external queue");
+        Check(split.Drain(), "drain includes discarded consumer's external wait");
+        Check(split.Begin(Work::Upscaling,&list,nullptr,true), "reuse retired split slot");
+        Check(split.Submit(Work::Upscaling), "submit a model-skipped frame without split");
+        Check(split.Drain(), "retire model-skipped frame");
+    }
+    std::puts("PASS: input fences, retirement, deferred bridge overlap; nonblocking split, external retirement and consumer discard");
     return 0;
 }

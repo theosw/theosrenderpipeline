@@ -19,7 +19,16 @@ namespace TheosRenderPipeline
         status_ = "Capturing CS world guides";
         const auto captured = resources_.CaptureGuides(input.context, input.frame, input.motion,
             input.depth, input.render, input.output);
-        if (captured != S_OK) { status_ = "CS world guides unavailable"; return false; }
+        if (captured != S_OK) {
+            status_ = "CS world guides unavailable";
+            // Each distinct refusal once, and a few at most: this runs every frame.
+            if (FAILED(captured) && guideRefusalsLogged_ < 8 && resources_.GuideRefusal() != guideRefusalLogged_) {
+                guideRefusalLogged_ = resources_.GuideRefusal();
+                ++guideRefusalsLogged_;
+                logger::error("[CS Adapter] world guides refused: {}", guideRefusalLogged_);
+            }
+            return false;
+        }
         candidate_ = history_;
         cameraValid_ = SourceDLSSG::CaptureCameraCandidate(input.graphics, input.render.width,
             input.render.height, input.jitterX, input.jitterY, reset_, input.jittered, camera_, candidate_);
@@ -115,6 +124,24 @@ namespace TheosRenderPipeline
         return worldCompleted_;
     }
 
+    bool CommunityShaderAdapter::RefreshCompletedWorld()
+    {
+        if (!worldCompleted_ || prepared_) { return false; }
+        // NR and ReShade already ran on the scene in CompleteWorld; this only
+        // adds what was drawn on it since. It stays HUD-less: no menu has been
+        // drawn, and frame generation still receives no UI layer on this route.
+        const auto result = resources_.RefreshScene(context_.Get());
+        if (result == S_OK && !sceneRefreshReported_) {
+            sceneRefreshReported_ = true;
+            logger::info("[CS Adapter] HUD-less scene taken again at the interface boundary; it includes what was drawn on the scene after post-processing");
+        } else if (FAILED(result) && !sceneRefreshFailureReported_) {
+            sceneRefreshFailureReported_ = true;
+            logger::warn("[CS Adapter] HUD-less scene could not be taken again at the interface boundary (0x{:08X}); keeping the post-processing snapshot",
+                static_cast<unsigned>(result));
+        }
+        return result == S_OK;
+    }
+
     HRESULT CommunityShaderAdapter::CaptureDisplayTransform(ID3D11DeviceContext* context,
         UINT x, UINT y, UINT z, CommunityShaderFrame::Dispatch dispatch)
     {
@@ -169,6 +196,7 @@ namespace TheosRenderPipeline
         history_.Reset(); candidate_.Reset();
         worldBegun_ = upscalingCompleted_ = worldCompleted_ = prepared_ = cameraValid_ = false;
         neuralBoundaryReported_ = extendedScene_ = false;
+        sceneRefreshReported_ = sceneRefreshFailureReported_ = false;
         status_ = "Waiting for a CS world frame";
     }
 }

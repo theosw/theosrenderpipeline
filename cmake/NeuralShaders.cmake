@@ -19,6 +19,7 @@ function(trp_target_neural_shaders target)
             DEPENDS TRPCompileNeuralShaders
                 "${source_root}/src/FrameGen/SourceDLSSGNeuralResolveShader.h"
                 "${source_root}/src/FrameGen/SourceDLSSGNeuralComposeShader.h"
+                "${source_root}/src/FrameGen/VulkanNRShader.h"
             COMMENT "Compiling embedded Neural Rendering shaders"
             VERBATIM)
         add_custom_target(TRPNeuralShaderBytecode DEPENDS "${generated_header}")

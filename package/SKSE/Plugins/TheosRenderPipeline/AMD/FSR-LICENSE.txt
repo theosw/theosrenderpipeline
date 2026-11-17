@@ -1,6 +1,7 @@
-This file is part of the FidelityFX SDK.
+AMD FSR SDK 2.4.0: amd_fidelityfx_loader_dx12.dll, amd_fidelityfx_upscaler_dx12.dll
+and the FSR API headers TRP compiles.
 
-Copyright (C) 2024 Advanced Micro Devices, Inc.
+Copyright (C) 2026 Advanced Micro Devices, Inc.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files(the "Software"), to deal

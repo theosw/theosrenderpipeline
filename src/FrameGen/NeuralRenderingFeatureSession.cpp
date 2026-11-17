@@ -1,4 +1,7 @@
 #include "NeuralRenderingFeatureSession.h"
+#include "VulkanNRHost.h"
+#include <atomic>
+#include <thread>
 
 #include "NeuralRenderingCreationContext.h"
 #include "NeuralRenderingModulePathHook.h"
@@ -179,11 +182,29 @@ namespace TheosRenderPipeline::NeuralRendering
 
 	}
 
+    namespace
+    {
+        struct VulkanPreparation {
+            std::unique_ptr<VulkanNRHost> host{std::make_unique<VulkanNRHost>()};
+            std::atomic_bool done{};
+            std::atomic_bool cancelled{};
+            bool success{};
+            ~VulkanPreparation() {
+                if (host && !host->ReleaseAfterRetirement()) { host.release(); } // uncertain owners remain quarantined
+            }
+        };
+
+    }
+
 	struct FeatureSession::State
 	{
-		std::unique_ptr<CreationContext> creationContext;
+		std::unique_ptr<VulkanNRHost> vulkan;
+        std::shared_ptr<VulkanPreparation> preparation;
+        FeatureSession::CreateInfo preparingInfo;
+        std::unique_ptr<CreationContext> creationContext;
 		HMODULE module{ nullptr };
 		bool ownsModule{ false };
+		TheosRenderPipeline::NeuralRendering::Backend backend{};
 		bool researchRuntime{};
 		NVSDK_NGX_Result(NVSDK_CONV* shutdownRuntime)(ID3D12Device*){};
 		std::unique_ptr<ModulePathHook> modulePathHook;
@@ -213,8 +234,12 @@ namespace TheosRenderPipeline::NeuralRendering
 
         bool Release()
         {
+            if (preparation) preparation->cancelled.store(true, std::memory_order_release);
+            preparation.reset(); // a pending worker owns its resources until completion; never join the render thread
             std::scoped_lock lock(initializationMutex);
             if (teardownFailed) { return false; }
+            if (vulkan && !vulkan->ReleaseAfterRetirement()) { status=vulkan->Status();teardownFailed=true;return false; }
+            vulkan.reset();
             auto failed = [&](const char* operation, NVSDK_NGX_Result result) {
                 teardownFailed = true;
                 failedResearchRuntimes.insert(module); // All runtimes: never admit a competing owner.
@@ -265,7 +290,7 @@ namespace TheosRenderPipeline::NeuralRendering
 		using namespace TheosRenderPipeline::NeuralRenderingRuntimeIdentity;
 		auto& state = *state_;
 		if (state.initialized) {
-			const bool compatible = state.device == a_info.device &&
+			const bool compatible = state.backend == a_info.backend && state.device == a_info.device &&
 				(!UsesReconstructionContract(state.contract.build) || a_info.allowReconstructionRuntime) &&
 				state.contract == MakeFeatureContract(state.contract.build, a_info.displayWidth,
 					a_info.displayHeight, a_info.renderWidth, a_info.renderHeight, a_info.networkPreset) &&
@@ -279,11 +304,51 @@ namespace TheosRenderPipeline::NeuralRendering
 			}
 			return compatible;
 		}
-		if (state.attempted) {
-			return false;
-		}
-		state.attempted = true;
-		std::scoped_lock initializationLock(initializationMutex);
+        if (a_info.backend == Backend::Vulkan) {
+#if !defined(TRP_VENDOR_NEUTRAL_NR)
+            state.status = kVendorEditionReason; return false;
+#else
+            if (!state.preparation) {
+                if (state.attempted) return false;
+                state.attempted = true; state.backend = Backend::Vulkan;
+                state.preparingInfo = a_info;
+                state.preparation = std::make_shared<VulkanPreparation>();
+                Microsoft::WRL::ComPtr<ID3D12Device> device = a_info.device;
+                try { std::thread([job = state.preparation, info = a_info, device] {
+                    // Limit pipeline construction to one job; cancellation releases only
+                    // the caller's reference. No renderer mutex is held by this worker.
+                    static std::mutex workerMutex;
+                    std::scoped_lock lock(workerMutex);
+                    try { if (!job->cancelled.load(std::memory_order_acquire)) job->success = job->host->Initialize(info); }
+                    catch (...) { job->success = false; }
+                    job->done.store(true, std::memory_order_release);
+                }).detach(); } catch (...) { state.preparation.reset(); state.status="Vulkan NR preparation worker could not start"; return false; }
+                state.status = kPreparingVulkan; return false;
+            }
+            if (!state.preparation->done.load(std::memory_order_acquire)) { state.status = kPreparingVulkan; return false; }
+            const auto info = state.preparingInfo;
+            const bool compatible = info.device == a_info.device && info.displayWidth == a_info.displayWidth &&
+                info.displayHeight == a_info.displayHeight && info.renderWidth == a_info.renderWidth &&
+                info.renderHeight == a_info.renderHeight && info.runtimePath == a_info.runtimePath;
+            if (!compatible) {
+                state.preparation.reset(); state.attempted = false;
+                state.status = kPreparingVulkan; return EnsureInitialized(a_info);
+            }
+            const bool success = state.preparation->success;
+            state.vulkan = std::move(state.preparation->host); state.preparation.reset();
+            state.status = state.vulkan->Status(); state.unsafe = !state.vulkan->Safe();
+            if (!success) { if (state.status.empty()) state.status = "Vulkan NR preparation failed"; return false; }
+            state.device=a_info.device;state.runtimePath=state.boundRuntimeRequest=a_info.runtimePath;
+            state.displayWidth=a_info.displayWidth;state.displayHeight=a_info.displayHeight;
+            state.renderWidth=a_info.renderWidth;state.renderHeight=a_info.renderHeight;
+            state.contract=MakeFeatureContract(RuntimeBuild::Version310,a_info.displayWidth,a_info.displayHeight,
+                a_info.renderWidth,a_info.renderHeight,a_info.networkPreset);
+            state.initialized=true;return true;
+#endif
+        }
+        if (state.attempted) return false;
+        state.attempted = true;
+        std::scoped_lock initializationLock(initializationMutex);
 		const auto started = std::chrono::steady_clock::now();
 		const auto elapsed = [&] {
 			return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
@@ -600,9 +665,36 @@ namespace TheosRenderPipeline::NeuralRendering
 		return true;
 	}
 
+    bool FeatureSession::EvaluateVulkan(const EvaluationInput& input, SourceDLSSG::Interop& interop,
+        ID3D12CommandQueue* queue, std::size_t slot, ID3D12GraphicsCommandList*& list,bool background)
+    {
+        auto& state=*state_;
+        if (!state.initialized || !state.vulkan) { return false; }
+        const bool result=state.vulkan->Evaluate(input,interop,queue,slot,list,background,true);
+        state.status=state.vulkan->Status();state.unsafe |= !state.vulkan->Safe();
+        if(result) { ++state.evaluationsRecorded; }
+        return result;
+    }
+    bool FeatureSession::PollVulkan(std::size_t slot,ID3D12CommandQueue* queue,bool& ready) {
+        if(!state_->vulkan)return false;
+        const auto ok=state_->vulkan->BeginFrame(slot,queue,ready);
+        state_->unsafe|=!state_->vulkan->Safe();state_->status=state_->vulkan->Status();return ok;
+    }
+    bool FeatureSession::ConsumeVulkan(const EvaluationInput& input,ID3D12CommandQueue* queue,std::size_t slot,ID3D12GraphicsCommandList* list) {
+        if(!state_->vulkan)return false;
+        const auto ok=state_->vulkan->Consume(input,queue,slot,list);
+        state_->unsafe|=!state_->vulkan->Safe();state_->status=state_->vulkan->Status();return ok;
+    }
+    bool FeatureSession::DropVulkan(ID3D12CommandQueue* queue) {
+        const bool ok=state_->vulkan&&state_->vulkan->DropCompleted(queue);
+        if(!ok&&state_->vulkan)state_->status=state_->vulkan->Status();return ok;
+    }
+    VulkanNRMeasurements FeatureSession::VulkanMeasurements() const { return state_->vulkan?state_->vulkan->Measurements():VulkanNRMeasurements{}; }
+
 	bool FeatureSession::RecordEvaluation(const EvaluationInput& a_input)
 	{
 		auto& state = *state_;
+        if (state.vulkan) { state.status="Vulkan NR requires an explicit host submission boundary";return false; }
 		if (!state.initialized || !a_input.commandList || !a_input.color ||
 			!a_input.motionVectors || !a_input.depth || !a_input.output ||
 			!a_input.backbuffer) {
@@ -733,4 +825,8 @@ namespace TheosRenderPipeline::NeuralRendering
 	{
 		return publicNGXInitialized.load(std::memory_order_acquire);
 	}
+}
+
+namespace TheosRenderPipeline::NeuralRendering {
+bool FeatureSession::Preparing() const { return state_->preparation != nullptr; }
 }

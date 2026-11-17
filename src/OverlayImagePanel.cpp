@@ -221,9 +221,9 @@ void OverlayUI::DrawImagePanel(float tabCardHeight, const FrameView& view)
     else
     {
         const bool warmSwitch = view.sourceDLSSGActive && (view.upscalerStartupMode == DLSS ||
-            view.upscalerStartupMode == XeSS || view.upscalerStartupMode == FSR);
+            view.upscalerStartupMode == XeSS || IsFSR(view.upscalerStartupMode));
         const bool xess = settingsDraft.upscaleType == XeSS;
-        const bool fsr = settingsDraft.upscaleType == FSR;
+        const bool fsr = IsFSR(settingsDraft.upscaleType);
         const bool vendorNeutral = xess || fsr;
         const bool native = settingsDraft.upscaleType == DLAA;
         const float label = ImageLabelWidth();
@@ -234,15 +234,26 @@ void OverlayUI::DrawImagePanel(float tabCardHeight, const FrameView& view)
                     ? TR("FSR and XeSS can switch on Apply at the current render size. DLSS also requires initialized NVIDIA services.\nDLAA needs Save as default and a restart.")
                     : TR("Changing the mode needs Save as default and a restart."));
                 SettingRow(TR("Mode"), nullptr, true, false, [&] {
-                    int mode = fsr ? 3 : xess ? 2 : native ? 1 : 0;
+                    const char* missing = TR("AMD's FSR runtime is missing from TheosRenderPipeline\\AMD. Reinstall TRP Standard, then restart.");
+                    const bool fsr4Available = view.fsrRuntimePresent && !view.fsr4Reason;
+                    const std::string fsr4Help = !view.fsrRuntimePresent ? std::string(missing)
+                        : view.fsr4Reason ? std::string(TR(view.fsr4Reason))
+                        : view.fsr4NeedsRestart ? std::string(TR("AMD's ML upscaler. Not enabled by AMD on this GPU: experimental, about 4 to 5 times the cost of FSR 3.1. Needs Save as default and a restart."))
+                        : std::string(TR("AMD's ML upscaler (experimental)."));
+                    int mode = settingsDraft.upscaleType == FSR4 ? 4 : settingsDraft.upscaleType == FSR ? 3 : xess ? 2 : native ? 1 : 0;
                     const bool changed = Segmented("mode", mode, {
                         {"DLSS", view.nvidiaFeatures, TR("Requires NVIDIA RTX hardware.")},
                         {"DLAA", view.nvidiaFeatures, TR("Requires NVIDIA RTX hardware.")},
                         {TR("XeSS"), true, TR("Intel XeSS (experimental). After restart it uses Intel's quality resolutions.")},
-                        {"FSR 3.1", view.fsrRuntimePresent, view.fsrRuntimePresent // not translated: product name and version
-                            ? TR("AMD FSR 3.1 temporal upscaling (experimental).")
-                            : TR("AMD's FSR runtime is missing from TheosRenderPipeline\\AMD. Reinstall TRP Standard, then restart.")}});
-                    if (changed) { settingsDraft.upscaleType = mode == 3 ? FSR : mode == 2 ? XeSS : mode == 1 ? DLAA : DLSS; }
+                        {"FSR 3.1", view.fsrRuntimePresent, view.fsrRuntimePresent // not translated: product names and versions
+                            ? TR("AMD FSR 3.1 temporal upscaling (experimental). Runs on every GPU.") : missing},
+                        {"FSR 4", fsr4Available, fsr4Help.c_str()}});
+                    if (changed) { settingsDraft.upscaleType = mode == 4 ? FSR4 : mode == 3 ? FSR : mode == 2 ? XeSS : mode == 1 ? DLAA : DLSS; }
+                    if (IsFSR(view.upscaler.mode) && !view.fsrRunning.empty()) {
+                        const auto running = view.fsrFallback.empty() ? TRF("Running: {}", view.fsrRunning)
+                            : TRF("{}. Running: {}", TR(view.fsrFallback.c_str()), view.fsrRunning);
+                        ImGui::TextDisabled("%s", running.c_str());
+                    }
                     return changed;
                 });
             }

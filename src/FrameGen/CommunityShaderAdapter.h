@@ -30,6 +30,9 @@ namespace TheosRenderPipeline
         bool BeginWorld(const Input& input);
         bool AfterUpscaling();
         bool CompleteWorld(ID3D11Texture2D* scene);
+        // Before the first menu is drawn: take the completed scene again with
+        // what the engine and the producer drew on it after post-processing.
+        bool RefreshCompletedWorld();
         HRESULT CaptureDisplayTransform(ID3D11DeviceContext* context, UINT x, UINT y, UINT z,
             CommunityShaderFrame::Dispatch dispatch);
         bool ConfirmPresentationCopy(ID3D11Resource* source);
@@ -50,8 +53,11 @@ namespace TheosRenderPipeline
         Microsoft::WRL::ComPtr<ID3D11DeviceContext> context_;
         bool cameraValid_{}, eligible_{}, reset_{}, worldBegun_{}, upscalingCompleted_{}, worldCompleted_{}, prepared_{};
         bool neuralBoundaryReported_{};
+        bool sceneRefreshReported_{}, sceneRefreshFailureReported_{};
         // Last completed scene was CS HDR Display's extended-range FP16 target.
         bool extendedScene_{};
         const char* status_{"Waiting for a CS world frame"};
+        std::string guideRefusalLogged_;
+        unsigned guideRefusalsLogged_{};
     };
 }

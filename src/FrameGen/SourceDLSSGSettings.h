@@ -1,4 +1,5 @@
 #pragma once
+#include "NeuralBackend.h"
 
 #include <string>
 #include <string_view>
@@ -39,6 +40,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// XeFG x3/x4 with VSync: space generated frames evenly in software when
 		// NVIDIA flip metering is unavailable. Costs base FPS; recreates XeFG.
 		bool xefgEvenPacing{ false };
+		// Lab: AMD's own FSR watermark (MLSR-WATERMARK), to confirm which FSR runs. Restart.
+		bool fsrWatermark{ false };
 		// Intel XeFG scene-change sensitivity, 0-1. Live.
 		float xefgSceneChangeThreshold{ XeFGDefaultSceneChangeThreshold };
 		GenerationRequest generation{};
@@ -46,6 +49,10 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// Automatic, or an NR runtime DLL relative to Data/SKSE/Plugins unless
 		// absolute. Any file loads by its version; see NeuralRuntimeFiles.h.
 		std::string neuralRuntime{ kAutomaticNeuralRuntime };
+        NeuralRendering::Backend neuralBackend{};
+        NeuralRendering::VulkanScheduling vulkanScheduling{};
+		bool amdNRWaitForNetwork{ true }; // Regular is the Radeon default.
+		bool amdNRShowTracking{ false }; // Lab pixel-coverage diagnostic; off by default.
 		bool neuralBeforeUpscaling{ true };
 		int neuralPasses{ 1 };
 		NeuralRendering::CombatSettings neuralCombat{};
@@ -57,6 +64,11 @@ namespace TheosRenderPipeline::SourceDLSSG
 		HDROutput::Settings hdrOutput{};
 		bool operator==(const Preferences&) const = default;
 	};
+
+    inline void ApplyNeuralHardwareDefaults(Preferences& value, bool amd, bool automaticBackend = true, bool automaticInput = true) {
+        if (automaticBackend) value.neuralBackend = amd ? NeuralRendering::Backend::HIP : NeuralRendering::Backend::Native;
+        if (automaticInput) value.neuralReconstruction.inputScale = amd ? 0.5f : 1.0f;
+    }
 
 	inline Preferences SanitizePreferences(Preferences value)
 	{
@@ -93,6 +105,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		value.xefgFrameTime = ini.GetBoolValue("FrameGeneration", "XeFGFrameTime", true);
 		value.xefgTensorCores = ini.GetBoolValue("FrameGeneration", "XeFGTensorCores", false);
 		value.xefgEvenPacing = ini.GetBoolValue("FrameGeneration", "XeFGEvenPacing", false);
+		value.fsrWatermark = ini.GetBoolValue("Upscaling", "FSRWatermark", false);
 		value.xefgSceneChangeThreshold = static_cast<float>(ini.GetDoubleValue("FrameGeneration", "XeFGSceneChangeThreshold",
 			XeFGDefaultSceneChangeThreshold));
 		value.xefg.generatedFrames = static_cast<std::uint32_t>(std::clamp(ini.GetLongValue("FrameGeneration", "XeFGMultiplier", 2), 2L, static_cast<long>(XeFGMaxGeneratedFrames+1))-1);
@@ -116,6 +129,10 @@ namespace TheosRenderPipeline::SourceDLSSG
 		value.neuralRuntime = NormalizeNeuralRuntimeSetting(
 			ini.GetValue("Experimental", "NeuralRenderingRuntimePath", std::string(kAutomaticNeuralRuntime).c_str()),
 			ini.GetBoolValue("Experimental", "NeuralRenderingRuntimeExplicit", false));
+        value.neuralBackend = NeuralRendering::SanitizeBackend(ini.GetLongValue(section, "NeuralBackend", -1));
+        value.vulkanScheduling = NeuralRendering::SanitizeVulkanScheduling(ini.GetLongValue(section, "VulkanScheduling", 0));
+		value.amdNRWaitForNetwork = ini.GetBoolValue(section, "AMDNRWaitForNetwork", true);
+		value.amdNRShowTracking = ini.GetBoolValue(section, "AMDNRShowTracking", false);
 		value.neuralBeforeUpscaling = ini.GetBoolValue(section, "NRBeforeUpscaling", value.neuralBeforeUpscaling);
 		value.neuralPasses = static_cast<int>(ini.GetLongValue(section, "NRPasses", 1));
 		value.neuralCombat.inCombat = ini.GetBoolValue(section, "NROnePassInCombat", false);
@@ -145,6 +162,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 		ini.SetBoolValue("FrameGeneration", "XeFGFrameTime", value.xefgFrameTime);
 		ini.SetBoolValue("FrameGeneration", "XeFGTensorCores", value.xefgTensorCores);
 		ini.SetBoolValue("FrameGeneration", "XeFGEvenPacing", value.xefgEvenPacing);
+		ini.SetBoolValue("Upscaling", "FSRWatermark", value.fsrWatermark);
+		ini.Delete("Upscaling", "FSRVersion");
 		ini.SetDoubleValue("FrameGeneration", "XeFGSceneChangeThreshold", value.xefgSceneChangeThreshold);
 		ini.Delete("FrameGeneration", "XeFGExperimentalMFG");
 		ini.SetLongValue("FrameGeneration", "XeFGMultiplier", value.xefg.generatedFrames+1);
@@ -162,6 +181,10 @@ namespace TheosRenderPipeline::SourceDLSSG
 		ini.SetValue("Experimental", "NeuralRenderingRuntimePath", value.neuralRuntime.c_str());
 		// Keeps a chosen 310.8 from being read back as Automatic.
 		ini.SetBoolValue("Experimental", "NeuralRenderingRuntimeExplicit", !IsAutomaticNeuralRuntime(value.neuralRuntime));
+        ini.SetLongValue(section, "NeuralBackend", static_cast<long>(value.neuralBackend));
+        ini.SetLongValue(section, "VulkanScheduling", static_cast<long>(value.vulkanScheduling));
+		ini.SetBoolValue(section, "AMDNRWaitForNetwork", value.amdNRWaitForNetwork);
+		ini.SetBoolValue(section, "AMDNRShowTracking", value.amdNRShowTracking);
 		ini.SetBoolValue(section, "NRBeforeUpscaling", value.neuralBeforeUpscaling);
 		ini.SetLongValue(section, "NRPasses", value.neuralPasses);
 		ini.SetBoolValue(section, "NROnePassInCombat", value.neuralCombat.inCombat);

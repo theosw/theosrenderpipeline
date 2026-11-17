@@ -1,0 +1,62 @@
+--- a/core/network.cpp
++++ b/core/network.cpp
+@@ -74,7 +74,7 @@
+ void observe_hip(const char* phase) {
+     const auto s = TRPAmdDiagnostics::CurrentHip();
+     const int match = g.expected_luid && s.luidResult == 0 && s.luid ? (g.expected_luid == s.luid ? 1 : 0) : -1;
+-    log(match == 0 ? 1 : 2, "C5 HIP phase=%s CUDA-device=%d CUDA-context=%p HIP-device=%d HIP-context=%p "
++    log(match == 0 ? 1 : 2, "C6 HIP phase=%s CUDA-device=%d CUDA-context=%p HIP-device=%d HIP-context=%p "
+         "expectedLUID=%016llx HIP-LUID=%016llx match=%d PCI=%s queryResults=%d/%d/%d/%d",
+         phase, g.selected_device, g.context, s.device, s.context, (unsigned long long)g.expected_luid,
+         (unsigned long long)s.luid, match, s.pci, s.contextResult, s.deviceResult, s.luidResult, s.pciResult);
+@@ -897,7 +897,7 @@
+     if (!cu_ok(g.cu.cuCtxSynchronize(), "cuCtxSynchronize", error)) return false;
+     if (sample) {
+         observe_hip("worker-evaluate-after-sync");
+-        log(2, "C5 NGX evaluations synchronized=%llu", (unsigned long long)g.evaluations);
++        log(2, "C6 NGX evaluations synchronized=%llu", (unsigned long long)g.evaluations);
+     }
+     return !copy_mode_ || copy_out(d, error);
+ }
+--- a/core/runtime.cpp
++++ b/core/runtime.cpp
+@@ -476,7 +476,7 @@
+             failures = 0;
+             ++completed_evaluations;
+             if (completed_evaluations == 1 || completed_evaluations % 300 == 0)
+-                log(2, "C5 completed evaluations=%llu captureFrame=%llu reset=%d",
++                log(2, "C6 completed evaluations=%llu captureFrame=%llu reset=%d",
+                     (unsigned long long)completed_evaluations, (unsigned long long)slot.frame,
+                     slot.reset ? 1 : 0);
+             slot.state = Slot::Ready;
+--- a/gate/native_hook.h
++++ b/gate/native_hook.h
+@@ -200,7 +200,7 @@
+     const auto bound = TRPAmdDiagnostics::CurrentHip();
+     e.bound_context = bound.contextResult == 0 ? bound.context : nullptr;
+     e.bound_device = bound.deviceResult == 0 ? bound.device : -1;
+-    logf("[native] %s hooked by %s; C5 bind HIP-device=%d HIP-context=%p HIP-LUID=%016llx PCI=%s queries=%d/%d/%d/%d function=%p\n",
++    logf("[native] %s hooked by %s; C6 bind HIP-device=%d HIP-context=%p HIP-LUID=%016llx PCI=%s queries=%d/%d/%d/%d function=%p\n",
+         e.kernel, e.object, bound.device, bound.context, (unsigned long long)bound.luid, bound.pci,
+         bound.contextResult, bound.deviceResult, bound.luidResult, bound.pciResult, e.fn);
+     return true;
+@@ -258,7 +258,7 @@
+         ++e.launches;
+         if (e.launches == 1 || e.launches % 1000 == 0) {
+             const auto current = TRPAmdDiagnostics::CurrentHip();
+-            logf("[native] C5 queued kernel=%s launches=%u function=%p stream=%p boundHIP=%d/%p currentHIP=%d/%p "
++            logf("[native] C6 queued kernel=%s launches=%u function=%p stream=%p boundHIP=%d/%p currentHIP=%d/%p "
+                  "HIP-LUID=%016llx queries=%d/%d/%d/%d launchResult=%d (queued, not completion)\n",
+                  name, e.launches, e.fn, stream, e.bound_device, e.bound_context, current.device, current.context,
+                  (unsigned long long)current.luid, current.contextResult, current.deviceResult,
+--- a/include/trp_diagnostics.h
++++ b/include/trp_diagnostics.h
+@@ -17,7 +17,7 @@
+ }
+ inline void Prefix(char* text, size_t size) {
+     SYSTEMTIME utc{}; GetSystemTime(&utc);
+-    std::snprintf(text, size, "[%04u-%02u-%02uT%02u:%02u:%02u.%03uZ C5 session=%s tid=%lu] ",
++    std::snprintf(text, size, "[%04u-%02u-%02uT%02u:%02u:%02u.%03uZ C6 session=%s tid=%lu] ",
+         utc.wYear, utc.wMonth, utc.wDay, utc.wHour, utc.wMinute, utc.wSecond, utc.wMilliseconds,
+         Session(), GetCurrentThreadId());
+ }

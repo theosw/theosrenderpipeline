@@ -2,6 +2,7 @@
 #include "../EngineScreenshot.h"
 #include "SourceDLSSGBackend.h"
 #include "XeFGLayerSelection.h"
+#include "../../third_party/amd-nr/trp_diagnostics.h"
 #include <PCH.h>
 #include "NeuralFrameEligibility.h"
 #include "CommunityShaderIntegration.h"
@@ -366,7 +367,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		const bool communityShaders = CommunityShaders::Active();
 		// The host has already replaced DLSS/DLAA with XeSS on other GPUs.
 		const bool xeSSStartup = !communityShaders && RenderPipeline::GetSingleton()->mUpscaleType == ::XeSS;
-		const bool fsrStartup = !communityShaders && RenderPipeline::GetSingleton()->mUpscaleType == ::FSR;
+		const bool fsrStartup = !communityShaders && IsFSR(RenderPipeline::GetSingleton()->mUpscaleType);
 		const auto startup = SelectProviderStartup(xeSSStartup || fsrStartup, NvidiaFrameGenerationAvailable(), RequestedProvider());
 		RequestProvider(startup.requested);
 		provider_ = startup.presenter;
@@ -395,6 +396,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			const auto before = neuralOptions_.runtimePath;
 			if (const auto* note = SelectNeuralRuntime(neuralOptions_)) { neuralSnapshot_.fallback = *note; }
 			if (neuralOptions_.runtimePath != before) { neuralAvailability_.Reset(); }
+            LogNeuralDecision("startup device ready");
 		}
 #endif
 		if (FAILED(queue_->GetTimestampFrequency(&hdrTimestampFrequency_))) { hdrTimestampFrequency_ = 0; }
@@ -492,6 +494,11 @@ namespace TheosRenderPipeline::SourceDLSSG
 	{
 		motion_ = {}; depth_ = {}; ui_ = {}; hudless_ = {}; earlyNeuralColor_ = {}; objectMask_ = {}; objectMaskCurrent_ = false;
 		uiSource_.Reset(); depthCopy_.ResetViews();
+		// New guide textures follow (a resize, a new presenter): try the copies once more.
+		if (GuidesRefused()) {
+			logger::info("[SourceDLSSG] guide textures released; frame generation and NR may resume with the new ones");
+			guideRefusal_.clear();
+		}
 	}
     bool Backend::CopyObjectMask(FrameExtent extent)
     {
@@ -544,15 +551,56 @@ namespace TheosRenderPipeline::SourceDLSSG
 	}
 	bool Backend::CopyDepth(ID3D11Texture2D* a_depth)
 	{
-		return Check(interop_.BeforeSharedWrites(), "deferred input wait before depth copy") &&
-			Check(depthCopy_.Copy(context11_.Get(), a_depth, depth_.texture11.Get(),
-			{depth_.desc.Width, depth_.desc.Height}), "depth copy");
+		if (!Check(interop_.BeforeSharedWrites(), "deferred input wait before depth copy")) { return false; }
+		const FrameExtent extent{depth_.desc.Width, depth_.desc.Height};
+		auto result = depthCopy_.Copy(context11_.Get(), a_depth, depth_.texture11.Get(), extent);
+		const char* step = FAILED(result) ? D3D11FrameCopy::Depth::Name(depthCopy_.Refused()) : nullptr;
+#if defined(TRP_GUIDE_REFUSAL_TEST)
+		// Private test builds only: refuse the 600th depth copy, so a game run
+		// shows frame generation working and then the refusal path. A shipped
+		// plugin has no switch for this.
+		static unsigned copies{};
+		if (SUCCEEDED(result) && ++copies == 600) { result = E_INVALIDARG; step = "the test build's injected refusal"; }
+#endif
+		return GuideCopied(result, "depth copy", true, a_depth, depth_.texture11.Get(), extent, step);
+	}
+	bool Backend::CopyGuide(ID3D11Texture2D* a_source, const SharedTexture& a_destination, FrameExtent a_extent, const char* a_operation)
+	{
+		return GuideCopied(interop_.CopyInputRegion(a_source, a_destination, a_extent), a_operation, false,
+			a_source, a_destination.texture11.Get(), a_extent, nullptr);
+	}
+	bool Backend::GuideCopied(HRESULT a_result, const char* a_operation, bool a_untouched, ID3D11Texture2D* a_source,
+		ID3D11Texture2D* a_destination, FrameExtent a_extent, const char* a_step)
+	{
+		if (SUCCEEDED(a_result)) { return true; } // Ask the device only about a failure.
+		if (RouteGuideCopy(a_result, device11_->GetDeviceRemovedReason(), a_untouched) == GuideCopyRouting::Fault) {
+			Check(a_result, a_operation);
+		} else {
+			// Nothing was written and the frame is whole: keep presenting it, without
+			// the features that need this guide. See RouteGuideCopy.
+			guideRefusal_ = std::format("Frame generation and NR are off: the {} was refused (0x{:08X}). Restart to retry.",
+				a_operation, static_cast<std::uint32_t>(a_result));
+			status_ = guideRefusal_;
+			neuralHistory_.Invalidate();
+			neuralEligible_ = false;
+			logger::error("[SourceDLSSG] {} refused HRESULT=0x{:08X} before anything was written; presenting without frame generation and NR until restart",
+				a_operation, static_cast<std::uint32_t>(a_result));
+		}
+		// The HRESULT alone does not say which check refused (a player's log, 0.6.4).
+		if (a_untouched || a_result == E_INVALIDARG) {
+			logger::error("[SourceDLSSG] {} refused{}{}: {}", a_operation, a_step ? " at " : "", a_step ? a_step : "",
+				D3D11FrameCopy::Describe(context11_.Get(), a_source, a_destination, a_extent));
+		}
+		return false;
 	}
 	bool Backend::Prepare(const sl::Constants& a_constants, ID3D11Texture2D* a_motion, ID3D11Texture2D* a_depth,
 		ID3D11Texture2D* a_ui, ID3D11Texture2D* a_hudless, FrameExtent a_renderExtent,
 		UINT a_width, UINT a_height, bool a_neuralEligible)
 	{
 		if (startupTransport_) { return Ready(); } // Plain output only; no vendor frame inputs are consumed.
+		// A refused guide copy leaves frames unprepared: they present as menus
+		// and warm-up frames do, without frame generation or late NR.
+		if (GuidesRefused()) { return false; }
 		if (!Ready() || presenterReplacement_.Pending() || !Session::ValidConstants(a_constants) || !a_motion || !a_depth ||
 			!a_renderExtent.width || !a_renderExtent.height) { return false; }
 		if (neuralEvaluatedEarly_) {
@@ -562,8 +610,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 				depth_.desc.Width != a_renderExtent.width || depth_.desc.Height != a_renderExtent.height) { return false; }
 		} else if (!EnsureGuide(a_motion, motion_, DXGI_FORMAT_UNKNOWN, a_renderExtent) ||
 			!EnsureGuide(a_depth, depth_, DXGI_FORMAT_R32_FLOAT, a_renderExtent) ||
-			!CopyDepth(a_depth) || !Check(interop_.CopyInputRegion(a_motion, motion_, a_renderExtent), "motion copy")) { return false; }
-		if (a_hudless && (!EnsureGuide(a_hudless, hudless_) || !Check(interop_.CopyInput(a_hudless, hudless_), "HUD-less copy"))) { return false; }
+			!CopyDepth(a_depth) || !CopyGuide(a_motion, motion_, a_renderExtent, "motion copy")) { return false; }
+		if (a_hudless && (!EnsureGuide(a_hudless, hudless_) || !GuideCopied(interop_.CopyInput(a_hudless, hudless_), "HUD-less copy", false,
+			a_hudless, hudless_.texture11.Get(), {hudless_.desc.Width, hudless_.desc.Height}, nullptr))) { return false; }
 		if (a_ui && !EnsureGuide(a_ui, ui_)) { return false; }
 		uiSource_ = a_ui;
 		frameConstants_ = a_constants;
@@ -982,8 +1031,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 #if !defined(TRP_NO_NEURAL_RENDERING)
 		{
 			std::scoped_lock lock(neuralMutex_);
-			const bool changed = neuralSnapshot_.active != active;
-			neuralSnapshot_.active = active;
+			const bool actuallyActive = active && neuralPass_ && (!neuralPass_->AMD() || neuralPass_->AMDRunning());
+			const bool changed = neuralSnapshot_.active != actuallyActive;
+			neuralSnapshot_.active = actuallyActive;
 			// A new pass runs from the frame after its feature's creation.
 			neuralSnapshot_.effectivePasses = active && neuralPass_ ?
 				(std::max)(1, (std::min)(options.EffectivePasses(), neuralPass_->ReadyPasses())) : options.EffectivePasses();
@@ -993,13 +1043,26 @@ namespace TheosRenderPipeline::SourceDLSSG
 			if (reset) { ++neuralSnapshot_.resets; }
 			if (active) { neuralSnapshot_.telemetry = neuralPass_->Telemetry(); }
 			if (active) { neuralRecovery_.Enabled(); }
-			neuralSnapshot_.status = neuralSnapshot_.sessionDisabled ? neuralSnapshot_.reason : unavailable ? unavailable : active ? neuralPass_->Status() : options.enabled ?
+			neuralSnapshot_.status = neuralPass_ && neuralPass_->Preparing() ? NeuralRendering::kPreparingVulkan : neuralSnapshot_.sessionDisabled ? neuralSnapshot_.reason : unavailable ? unavailable : active ? neuralPass_->Status() : options.enabled ?
 				"NR waiting for world inputs and dedicated native UI; standard DLSS active" : "standard DLSS; source NR is off";
-			if (changed || (active && (reset || neuralSnapshot_.evaluations % 600 == 0))) {
-				logger::info("[SourceDLSSG NR] frame={} active={} evaluations={} reset={} style={} fgRequested={} {}",
-					FrameIndex(), active, neuralSnapshot_.evaluations, reset,
-					options.tuning.style, enabled_, neuralSnapshot_.status);
-			}
+            const bool amd = neuralPass_ && neuralPass_->AMD();
+            if (!amd && (changed || (active && (reset || neuralSnapshot_.evaluations % 600 == 0)))) {
+                logger::info("[SourceDLSSG NR] frame={} active={} evaluations={} reset={} style={} fgRequested={} {}",
+                    FrameIndex(), active, neuralSnapshot_.evaluations, reset,
+                    options.tuning.style, enabled_, neuralSnapshot_.status);
+            }
+            if (amd && options.enabled && !neuralSnapshot_.sessionDisabled) { neuralSnapshot_.status = neuralPass_->Status(); }
+            const NRDiagnosticState state{options.enabled, eligible, active, actuallyActive,
+                neuralSnapshot_.failed, options.amdWaitForNetwork, amd ? neuralPass_->AMDModelState() : -1,
+                NRReason(options.enabled, unavailable != nullptr, prepared, neuralEligible_, active,
+                    neuralSnapshot_.failed, actuallyActive)};
+            if (amd && nrDiagnosticLog_.ShouldLog(GetTickCount64(), state)) {
+                logger::info("[NR state] session={} frame={} enabledRequest={} eligible={} hostStageEvaluated={} passActive={} failed={} execution={} amdModelState={} reason={} hostEvaluations={} amdSubmissions={} amdComposed={} completed=runtime-log status={}",
+                    TRPAmdDiagnostics::Session(), FrameIndex(), options.enabled, eligible, active, actuallyActive,
+                    neuralSnapshot_.failed, options.amdWaitForNetwork ? "regular-wait" : "async", state.modelState,
+                    NRReasonName(state.reason), neuralSnapshot_.evaluations, amd ? neuralPass_->AMDSubmissions() : 0,
+                    amd ? neuralPass_->AMDComposedResults() : 0, neuralSnapshot_.status);
+            }
 		}
 		neuralFrameBegun_ = neuralEvaluatedEarly_ = frameNeuralModelChanged_ = false;
 #endif
@@ -1256,7 +1319,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		{
 			std::scoped_lock lock(neuralMutex_);
 			neuralSnapshot_.active = false;
-			neuralSnapshot_.status = neuralSnapshot_.sessionDisabled ? neuralSnapshot_.reason : purpose == RetirementPurpose::Resize ?
+			neuralSnapshot_.status = neuralPass_ && neuralPass_->Preparing() ? NeuralRendering::kPreparingVulkan : neuralSnapshot_.sessionDisabled ? neuralSnapshot_.reason : purpose == RetirementPurpose::Resize ?
 				"NR retired for resize; next eligible frame recreates the feature" :
 				"NR retained for fixed-size upscaler replacement; next eligible frame resets history";
 		}
