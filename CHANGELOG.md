@@ -1,5 +1,16 @@
-# 0.7.0 Beta 2
+# 0.7.1 Beta 1
 
+- Community Shaders: frame generation now gets the scene after Skyrim's screen
+  blood and Bottled Shaders' Camera FX lens effects, so they no longer wobble on
+  generated frames. Under CS HDR Display, vanilla screen blood is still not
+  covered. Not yet tested in game.
+- A refused depth, motion or HUD-less copy no longer freezes the picture for the
+  rest of the session. TRP keeps presenting without frame generation and NR, and
+  both tabs give the reason. Before, the screen kept its last image while the
+  game ran on behind it (a 0.6.4 report with Community Shaders). The log now
+  also says which check refused the copy and what each texture was.
+- Vulkan NR: the freeze check waits 10 seconds instead of 3, ignores time the PC
+  is asleep, and releases the game at once if the Vulkan GPU device is lost.
 - FSR 4: Image > Mode now offers FSR 3.1 and FSR 4, using AMD's FSR SDK 2.4.
   FSR 4 is AMD's ML upscaler, official on Radeon RX 6000 or newer and supported
   Ryzen graphics (not yet tested on a Radeon). Under the Mode row the menu shows
