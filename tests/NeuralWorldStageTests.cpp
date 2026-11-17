@@ -63,7 +63,7 @@ struct NeuralPass {
     bool AMDFailed() const { return false; }
 };
 struct Backend {
-    bool ready{true}, recreate{}, retry{}, unavailable{};
+    bool ready{true}, recreate{}, retry{}, unavailable{}, refuseGuides{}, guidesRefused{};
     unsigned retirements{};
     std::unique_ptr<NeuralPass> neuralPass_;
     NeuralOptions frameNeuralOptions_;
@@ -90,6 +90,9 @@ struct Backend {
     bool EnsureGuide(ID3D11Texture2D*, Guide&, DXGI_FORMAT, FrameExtent, bool) { return true; }
     bool CopyObjectMask(FrameExtent) { return true; }
     bool CopyDepth(ID3D11Texture2D*) { return true; }
+    // A refused guide copy (wrong format, device, size): nothing written, frame still whole.
+    bool CopyGuide(ID3D11Texture2D*, const Guide&, FrameExtent, const char*) { if (refuseGuides) { guidesRefused = true; return false; } return true; }
+    bool GuidesRefused() const { return guidesRefused; }
     bool Check(HRESULT hr, const char*) { return SUCCEEDED(hr); }
     bool FailNeuralRecording(const char* = "") { neuralPass_.reset(); neuralRecovery_.disabled=true; return true; }
     unsigned FrameIndex() const { return 1; }
@@ -123,6 +126,10 @@ static void Run() {
         Require(frame() && !reset && b.interop_.discards==2, "preparing frame preserves upscaler history");
         NeuralPass::nextPreparing=false;
         Require(frame() && reset && b.neuralEvaluatedEarly_, "preparing to ready resets upscaler history");
+        b.refuseGuides=true; const auto submits=b.interop_.submits;
+        Require(frame() && reset && !b.neuralEvaluatedEarly_ && b.interop_.submits==submits,
+            "refused guide copy keeps presenting: frame continues, history resets, NR skipped");
+        b.refuseGuides=false; b.guidesRefused=false;
         std::printf("PASS: %s first/steady/Apply/recovery/preparing/ready stage sequence\n", NeuralRendering::BackendName(selected));
     }
 }
