@@ -962,8 +962,13 @@ void DrawNeuralSettings(const OverlayUI::FrameView& view, TheosRenderPipeline::S
             ImGui::PopID();
             return changed;
         });
-        SettingRow(TR("Intensity"), key("Intensity").c_str(), false, unavailable || alternate,
-                   [&] { return ImGui::SliderFloat("##v", &tuning.intensity, 0, 2); });
+        SettingRow(TR("Intensity"), key("Intensity").c_str(), false, unavailable || alternate, [&] {
+            const bool changed = ImGui::SliderFloat("##v", &tuning.intensity, 0, 2);
+            DrawSettingsHelp(TR("Above 1, TRP boosts the brightness and contrast changes made by NR. "
+                                "TRP scales RGB together to keep hue until a channel clips. "
+                                "This boost is separate from NVIDIA's Intensity control."));
+            return changed;
+        });
         SettingRow(TR("Local tone"), key("LocalTone").c_str(), false, unavailable,
                    [&] { return ImGui::SliderFloat("##v", &tuning.localToneStrength, 0, 2); });
         SettingRow(TR("Local structure"), key("LocalStructure").c_str(), false, unavailable,
