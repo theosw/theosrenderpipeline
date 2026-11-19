@@ -101,8 +101,8 @@ inline const char* NeuralSettingsUnavailable(int mode, RendererSettingsCapabilit
     if (capabilities.backend == NeuralRendering::Backend::HIP) {
         if (!capabilities.amdAdapter) return NeuralRendering::kHIPGPUReason;
         if (capabilities.amdNeuralPrerequisite) return capabilities.amdNeuralPrerequisite;
-        if (capabilities.externalWorld) return NeuralRendering::kHIPCommunityShadersReason;
-        if (mode != XeSS || !capabilities.xeSSReady) return NeuralRendering::kHIPUpscalerReason;
+        // Community Shaders upscales on its own route; HIP's world pass runs before it.
+        if (!capabilities.externalWorld && (mode != XeSS || !capabilities.xeSSReady)) return NeuralRendering::kHIPUpscalerReason;
     }
     if (NeuralRendering::TestBackend(capabilities.backend)) {
         // Community Shaders upscales on its own route; the world pass runs before it.

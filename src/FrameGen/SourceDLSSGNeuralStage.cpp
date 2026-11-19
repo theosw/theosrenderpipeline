@@ -112,10 +112,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (GuidesRefused()) { return guideRefusal_.c_str(); }
 		std::scoped_lock lock(neuralMutex_);
         if (NeuralRendering::TestBackend(options.backend) && options.enabled) {
-            // On Community Shaders (worldOnly) CS upscales; Vulkan runs its world pass there.
-            if (options.backend == NeuralRendering::Backend::HIP && options.worldOnly) { return NeuralRendering::kHIPCommunityShadersReason; }
+            // On Community Shaders (worldOnly) CS upscales; the world pass runs before it.
             if (!options.worldOnly && !xess_.Ready() && !fsr_.Ready()) { return NeuralRendering::kVendorUpscalerReason; }
-            if (options.backend == NeuralRendering::Backend::HIP) { return AmdNeuralPass::Availability(AmdAdapter()) ? AmdNeuralPass::Availability(AmdAdapter()) : AmdNeuralPass::AdmissionReason(options, NvidiaHost::GetSingleton()->XeSSActive()); }
+            if (options.backend == NeuralRendering::Backend::HIP) { return AmdNeuralPass::Availability(AmdAdapter()) ? AmdNeuralPass::Availability(AmdAdapter()) : AmdNeuralPass::AdmissionReason(options, options.worldOnly || NvidiaHost::GetSingleton()->XeSSActive()); }
             const auto caps = NeuralRendering::VulkanNRHost::Probe(device12_.Get(), false, true);
             neuralAdmissionReason_ = caps.available ? "" : caps.reason;
             return neuralAdmissionReason_.empty() ? nullptr : neuralAdmissionReason_.c_str();
@@ -182,8 +181,7 @@ namespace TheosRenderPipeline::SourceDLSSG
             admission.luid = device12_->GetAdapterLuid(); admission.vendorBackend = true;
             if (options.backend == NeuralRendering::Backend::HIP) {
                 admission.vendorRefusal = AmdNeuralPass::Availability(AmdAdapter());
-                if (!admission.vendorRefusal && options.worldOnly) admission.vendorRefusal = NeuralRendering::kHIPCommunityShadersReason;
-                if (!admission.vendorRefusal) admission.vendorRefusal = AmdNeuralPass::AdmissionReason(VendorNeutralOptions(options), xess_.Ready());
+                if (!admission.vendorRefusal) admission.vendorRefusal = AmdNeuralPass::AdmissionReason(VendorNeutralOptions(options), xess_.Ready() || options.worldOnly);
             } else {
                 const auto caps = NeuralRendering::VulkanNRHost::Probe(device12_.Get(), false, true);
                 neuralAdmissionReason_ = caps.available ? "" : caps.reason;

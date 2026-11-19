@@ -602,7 +602,7 @@ void DrawNeuralSettings(const OverlayUI::FrameView& view, TheosRenderPipeline::S
         unavailable = !view.sourceReady || (!view.communityShaders && !view.xessActive && !view.fsrActive) || !reason.empty();
     }
     if (draft.neuralBackend == NR::Backend::HIP) {
-        unavailable = unavailable || !view.xessActive || view.communityShaders;
+        unavailable = unavailable || (!view.xessActive && !view.communityShaders);
         if (!ActivePresetDecor()) DrawNeuralRuntimeCombo(view,draft,ImGui::GetContentRegionAvail().x);
         ImGui::TextWrapped(TR("AMD HIP/ZLUDA NR: one world pass before XeSS."));
         ImGui::TextWrapped(TR("A compatible Windows AMD HIP runtime/driver is required. NR starts off; enable it after checking XeSS alone."));
@@ -1338,8 +1338,7 @@ bool DrawNeuralRuntimeCombo(const OverlayUI::FrameView& view, TheosRenderPipelin
         }
         ImGui::SeparatorText(TR("Other GPUs (experimental)"));
         const auto refusal = !view.neuralHIPReason.empty() ? view.neuralHIPReason :
-            view.communityShaders ? std::string(NR::kHIPCommunityShadersReason) :
-            !view.xessActive ? std::string(NR::kHIPUpscalerReason) : std::string{};
+            !view.xessActive && !view.communityShaders ? std::string(NR::kHIPUpscalerReason) : std::string{};
         const float ms = view.neuralHIPMilliseconds;
         const bool hipRunning = applied.backend == TheosRenderPipeline::NeuralRendering::Backend::HIP && view.neuralState.active;
         const auto hipName = view.amdAdapter ? std::string(TR("HIP/ZLUDA (default)")) : std::string(TR("HIP/ZLUDA"));
@@ -1400,8 +1399,7 @@ void DrawSourceNeuralControls(const OverlayUI::FrameView& view, TheosRenderPipel
     if (NR::TestBackend(draft.neuralBackend)) {
         const auto& reason = draft.neuralBackend == NR::Backend::Vulkan ? view.neuralVulkanReason : view.neuralHIPReason;
         unavailableReason = !reason.empty() ? TR(reason.c_str()) :
-            draft.neuralBackend == NR::Backend::HIP && view.communityShaders ? TR(NR::kHIPCommunityShadersReason) :
-            draft.neuralBackend == NR::Backend::HIP && !view.xessActive ? TR(NR::kHIPUpscalerReason) :
+            draft.neuralBackend == NR::Backend::HIP && !view.xessActive && !view.communityShaders ? TR(NR::kHIPUpscalerReason) :
             !view.communityShaders && !view.xessActive && !view.fsrActive ? TR(NR::kVendorUpscalerReason) : nullptr;
     }
     const bool unavailable = unavailableReason != nullptr;
