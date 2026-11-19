@@ -215,6 +215,8 @@ set(ARP_BASELINE_SOURCES
     src/UpscalerTextureHook.h
     src/UpscalerDeviceHooks.cpp
     src/StartupHints.cpp
+    src/NvidiaAppProfile.cpp
+    src/NvidiaAppProfile.h
     src/UpscalerDeviceHooks.h
     src/UpscalerSamplerHooks.cpp
     src/UpscalerSamplerHooks.h

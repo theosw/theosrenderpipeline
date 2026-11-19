@@ -139,29 +139,40 @@ void OverlayUI::BuildUI()
 
 void OverlayUI::DrawPipelineSummary(const FrameView& view)
 {
+    // A box changed by NVIDIA App or the driver leads its tooltip with why.
+    const auto withAlert = [](const std::string& alert, const std::string& tooltip) {
+        return alert.empty() ? tooltip : alert + "\n\n" + tooltip;
+    };
 #if !defined(TRP_NO_NEURAL_RENDERING)
-    const auto neuralTooltip = TheosRenderPipeline::Localization::TranslateText(view.sourceNeural.status) + "\n" +
-                               TR("Click to open Neural Rendering settings.");
+    const auto neuralTooltip = withAlert(view.neuralAlertText,
+        TheosRenderPipeline::Localization::TranslateText(view.sourceNeural.status) + "\n" +
+        TR("Click to open Neural Rendering settings."));
 #endif
+    const auto upscaleTooltip = withAlert(view.upscaleAlertText,
+        view.communityShaders ? TR("Upscaling is controlled in the Community Shaders menu.\nClick to open Image status.") :
+        TR("DLSS or XeSS reconstruction, or native-resolution DLAA.\nClick to open Image settings."));
+    const auto generationTooltip = withAlert(view.generationAlertText,
+        TR("Adds generated frames between game-rendered frames.\nClick to open Frame generation settings."));
+    const bool appOverride = view.upscaleAlert != 0 || view.generationAlert != 0 || view.neuralAlert != 0;
+    const auto statusColor = view.pipelineHealth != UIHealth::kHealthy ? HealthColor(view.pipelineHealth)
+                             : appOverride ? kRust : HealthColor(view.pipelineHealth);
     PipelineDiagram diagram{
         {{{TR("World"), view.renderDetail, TR("Game-rendered scene.\nClick to open Image settings."),
            SettingsPage::Image},
 #if !defined(TRP_NO_NEURAL_RENDERING)
           {TR("Neural Rendering"), view.neuralDetail, neuralTooltip.c_str(), SettingsPage::NeuralRendering,
-           !view.neuralEnabled},
+           !view.neuralEnabled, view.neuralAlert},
 #endif
-          {view.upscaleTitle, view.upscaleDetail,
-           view.communityShaders ? TR("Upscaling is controlled in the Community Shaders menu.\nClick to open Image status.") :
-           TR("DLSS or XeSS reconstruction, or native-resolution DLAA.\nClick to open Image settings."), SettingsPage::Image},
-          {TR("Frame generation"), view.generationTitle,
-           TR("Adds generated frames between game-rendered frames.\nClick to open Frame generation settings."),
-           SettingsPage::FrameGeneration, !view.frameGenerationRuntimeActive},
+          {view.upscaleTitle, view.upscaleDetail, upscaleTooltip.c_str(), SettingsPage::Image, false, view.upscaleAlert},
+          {TR("Frame generation"), view.generationTitle, generationTooltip.c_str(),
+           SettingsPage::FrameGeneration, !view.frameGenerationRuntimeActive && view.generationAlert == 0,
+           view.generationAlert},
           {TR("Output"), view.nativeDetail,
            TR("Final output resolution.\nClick to open Image settings."), SettingsPage::Image}}},
         view.nativeDetail,
         view.nativeUIHealth == UIHealth::kHealthy,
         view.pipelineLabel,
-        HealthColor(view.pipelineHealth)};
+        statusColor};
 #if !defined(TRP_NO_NEURAL_RENDERING)
     if (!view.neuralBeforeUpscaling)
     {

@@ -111,6 +111,74 @@ void OverlayUI::DescribeFrameView(FrameView& view) const
         std::snprintf(view.generationTitle, sizeof(view.generationTitle), "%s",
                       view.nvidiaHostActive ? (view.provider == TheosRenderPipeline::FrameGenerationProvider::XeFG ? TR("XeFG off") : TR("DLSS-G off")) : TR("Generation unavailable"));
     }
+    // NVIDIA App and driver overrides never stop TRP; they colour the box they change.
+    const auto& app = view.nvidiaApp;
+    const char* undo = TR("To let TRP decide, open NVIDIA App > Graphics > Skyrim Special Edition and set it to "
+                          "\"Use the 3D application setting\", then restart Skyrim.");
+    view.upscaleAlert = view.generationAlert = view.neuralAlert = 0;
+    view.upscaleAlertText.clear();
+    view.generationAlertText.clear();
+    view.neuralAlertText.clear();
+    if (app.neuralModelOverride && view.neuralEnabled && view.sourceNeural.active)
+    {
+        view.neuralAlert = 1;
+        view.neuralAlertText = TRF("NVIDIA App chooses the Neural Rendering model ({}). TRP's Network setting is not used.",
+                                   app.neuralModel);
+        view.neuralAlertText += std::string("\n") + undo;
+    }
+    if (app.upscalingModelOverride && view.nvidiaHostActive && !cs && view.upscaler.mode != XeSS && !IsFSR(view.upscaler.mode))
+    {
+        view.upscaleAlert = 1;
+        view.upscaleAlertText = TRF("NVIDIA App chooses the DLSS model ({}). TRP's Model preset is not used.", app.upscalingModel);
+        view.upscaleAlertText += std::string("\n") + undo;
+        std::snprintf(view.upscaleDetail, sizeof(view.upscaleDetail), TR("%.0f%% | Preset by NVIDIA App"), view.proxyScale * 100.0f);
+    }
+    const unsigned requestedMultiplier = view.session.options.numFramesToGenerate + 1;
+    const bool trpGenerating = view.frameGenerationRuntimeActive;
+    // With an override in place, what DLSS-G actually presents shows a forced
+    // multiplier; Dynamic MFG varies it on purpose, so it is not compared.
+    unsigned forcedMultiplier = app.forcedMultiplier;
+    const unsigned presented = view.session.state.numFramesActuallyPresented;
+    if (!forcedMultiplier && app.frameGenerationOverride && view.provider == TheosRenderPipeline::FrameGenerationProvider::NVIDIA &&
+        view.session.options.mode != sl::DLSSGMode::eDynamic && presented > 1 && presented != requestedMultiplier)
+    {
+        forcedMultiplier = presented;
+    }
+    if (app.smoothMotion == 1 && trpGenerating)
+    {
+        view.generationAlert = 2;
+        view.generationAlertText = TR("Two frame generators are on: NVIDIA Smooth Motion adds frames on top of TRP's, "
+                                      "which causes stutter, smearing and extra input lag.\nTurn Smooth Motion off for "
+                                      "Skyrim in NVIDIA App > Graphics, or turn TRP frame generation off.");
+    }
+    else if (app.smoothMotion == 1)
+    {
+        view.generationAlert = 1;
+        std::snprintf(view.generationTitle, sizeof(view.generationTitle), "%s", TR("Smooth Motion (driver)"));
+        view.generationAlertText = TR("NVIDIA Smooth Motion is generating frames instead of TRP. This works, but TRP's "
+                                      "frame generation usually keeps menus and the HUD sharper.\nTo switch, turn Smooth "
+                                      "Motion off in NVIDIA App and turn TRP frame generation on.");
+    }
+    else if (forcedMultiplier > 1 && trpGenerating && forcedMultiplier != requestedMultiplier)
+    {
+        view.generationAlert = 2;
+        view.generationAlertText = TRF("NVIDIA App forces x{} for Skyrim, so TRP's Multiplier (x{}) is ignored.",
+                                       forcedMultiplier, requestedMultiplier);
+        view.generationAlertText += std::string("\n") + undo;
+    }
+    else if (app.frameGenerationOverride && trpGenerating)
+    {
+        view.generationAlert = 1;
+        view.generationAlertText = TR("NVIDIA App overrides DLSS Frame Generation for Skyrim (model, version or mode). "
+                                      "TRP's frame generation still runs with it.");
+        view.generationAlertText += std::string("\n") + undo;
+    }
+    const bool conflict = view.upscaleAlert == 2 || view.generationAlert == 2 || view.neuralAlert == 2;
+    if ((view.upscaleAlert | view.generationAlert | view.neuralAlert) != 0 && view.pipelineHealth == UIHealth::kHealthy)
+    {
+        view.pipelineLabel = conflict ? TR("NVIDIA App conflict") : TR("NVIDIA App override");
+    }
+
     const auto& output = view.outputRate;
     view.outputText = output.available ? TRF("{:.1f} FPS", output.fps) : std::string(TR("unavailable"));
     view.outputLabel = TR("Runtime output");

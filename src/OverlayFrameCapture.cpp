@@ -18,8 +18,38 @@
 #include "PluginPaths.h"
 #include "NeuralObjectHooks.h"
 
+#include "NvidiaAppProfile.h"
+
 #include <chrono>
+#include <mutex>
+#include <thread>
 #include <unordered_map>
+
+namespace
+{
+    // The driver profile is read once, on a worker thread when the menu first
+    // opens: it loads the whole profile store, and NVIDIA App changes need a
+    // restart of the game anyway. Until it finishes the menu shows no override.
+    TheosRenderPipeline::NvidiaApp::Overrides NvidiaAppOverrides()
+    {
+        static std::mutex lock;
+        static TheosRenderPipeline::NvidiaApp::Overrides result;
+        static std::once_flag started;
+        std::call_once(started, [] {
+            std::thread([] {
+                const auto values = TheosRenderPipeline::NvidiaApp::ReadProfile();
+                const auto overrides = TheosRenderPipeline::NvidiaApp::Interpret(values);
+                spdlog::info("[NvidiaApp] profile {}: upscaling {} ({}), frame generation {}, NR {} ({}), Smooth Motion {}",
+                    overrides.read ? "read" : "unavailable", overrides.upscaling, overrides.upscalingModel,
+                    overrides.frameGeneration, overrides.neural, overrides.neuralModel, overrides.smoothMotion);
+                std::scoped_lock guard(lock);
+                result = overrides;
+            }).detach();
+        });
+        std::scoped_lock guard(lock);
+        return result;
+    }
+}
 
 // The only place the menu reads the renderer. Drawing uses the returned view.
 OverlayUI::FrameView OverlayUI::CaptureFrameView()
@@ -199,6 +229,17 @@ OverlayUI::FrameView OverlayUI::CaptureFrameView()
 #endif
     view.nvidiaFeatures = backend.NvidiaFeaturesAvailable();
     view.nvidiaFrameGeneration = backend.NvidiaFrameGenerationAvailable();
+    if (view.nvidiaAdapter) {
+        const auto app = NvidiaAppOverrides();
+        view.nvidiaApp.profileRead = app.read;
+        view.nvidiaApp.upscalingModelOverride = app.upscaling;
+        view.nvidiaApp.upscalingModel = app.upscalingModel;
+        // Streamline's own log also reports an NVIDIA App frame-generation override.
+        view.nvidiaApp.frameGenerationOverride = app.frameGeneration || backend.FrameGenerationOverrideReported();
+        view.nvidiaApp.neuralModelOverride = app.neural;
+        view.nvidiaApp.neuralModel = app.neuralModel;
+        view.nvidiaApp.smoothMotion = app.read ? app.smoothMotion : -1;
+    }
     view.videoMemoryFull = backend.VideoMemoryFullRecently();
     view.nvidiaServicesReady = backend.NvidiaServicesReady();
     view.generationActive = backend.GenerationActive();

@@ -111,7 +111,19 @@ SettingsPage DrawPipelineDiagram(const PipelineDiagram& diagram)
         draw->AddRectFilled(start, end,
                             ImGui::GetColorU32(interactiveHover ? ImGuiCol_FrameBgHovered : ImGuiCol_ChildBg),
                             style.FrameRounding);
-        draw->AddRect(start, end, interactiveHover ? amber : ImGui::GetColorU32(ImGuiCol_Border), style.FrameRounding);
+        if (stage.alert != 0)
+        {
+            // Changed by NVIDIA App or the driver: a red box with a heavier edge.
+            // TRP is tuned for its own settings, so every outside change is flagged
+            // the same way; the tooltip says whether it is merely an override or a conflict.
+            const auto& tone = kRust;
+            draw->AddRectFilled(start, end, ImGui::GetColorU32(ImVec4(tone.x, tone.y, tone.z, 0.12f)), style.FrameRounding);
+            draw->AddRect(start, end, ImGui::GetColorU32(tone), style.FrameRounding, 0, Px(2.0f));
+        }
+        else
+        {
+            draw->AddRect(start, end, interactiveHover ? amber : ImGui::GetColorU32(ImGuiCol_Border), style.FrameRounding);
+        }
         draw->PushClipRect(start, end, true);
         const auto titleSize = ImGui::CalcTextSize(stage.title, nullptr, false, textWidth);
         draw->AddText(ImGui::GetFont(), ImGui::GetFontSize(),

@@ -715,6 +715,81 @@ PreviewScenario Lab()
     scenario.actionMessage = "Session settings applied.";
     return scenario;
 }
+// NVIDIA App and driver overrides, each on the healthy DLSS-G state.
+PreviewScenario AppClean()
+{
+    auto scenario = Healthy();
+    scenario.name = "app-clean";
+    scenario.summary = "Driver profile read: no NVIDIA App overrides, Smooth Motion off";
+    scenario.view.nvidiaApp.profileRead = true;
+    scenario.view.nvidiaApp.smoothMotion = 0;
+    return scenario;
+}
+
+PreviewScenario AppModel()
+{
+    auto scenario = AppClean();
+    scenario.name = "app-model";
+    scenario.summary = "NVIDIA App chooses the DLSS model (Latest)";
+    scenario.view.nvidiaApp.upscalingModelOverride = true;
+    scenario.view.nvidiaApp.upscalingModel = "Latest";
+    return scenario;
+}
+
+PreviewScenario AppNeural()
+{
+    auto scenario = AppClean();
+    scenario.name = "app-nr";
+    scenario.summary = "NVIDIA App chooses the DLSS NR model (preset B)";
+    scenario.view.nvidiaApp.neuralModelOverride = true;
+    scenario.view.nvidiaApp.neuralModel = "B";
+    return scenario;
+}
+
+PreviewScenario AppFrameGenerationModel()
+{
+    auto scenario = AppClean();
+    scenario.name = "app-fg-model";
+    scenario.summary = "NVIDIA App replaces the DLSS-G model; multiplier as TRP set it";
+    scenario.view.nvidiaApp.frameGenerationOverride = true;
+    return scenario;
+}
+
+PreviewScenario AppMultiplier()
+{
+    auto scenario = AppClean();
+    scenario.name = "app-multiplier";
+    scenario.summary = "NVIDIA App forces x4 while TRP is set to x2";
+    auto& view = scenario.view;
+    view.nvidiaApp.frameGenerationOverride = true;
+    view.nvidiaApp.forcedMultiplier = 4;
+    view.session.options.numFramesToGenerate = 1;
+    scenario.applied.sourceDLSSG.generation.generatedFrames = 1;
+    scenario.draft = scenario.applied;
+    return scenario;
+}
+
+PreviewScenario AppSmoothMotionConflict()
+{
+    auto scenario = AppClean();
+    scenario.name = "app-smooth-motion";
+    scenario.summary = "Smooth Motion on with TRP DLSS-G on";
+    scenario.view.nvidiaApp.smoothMotion = 1;
+    return scenario;
+}
+
+PreviewScenario AppSmoothMotionOnly()
+{
+    auto scenario = AppClean();
+    scenario.name = "app-smooth-motion-only";
+    scenario.summary = "Smooth Motion on, TRP frame generation off";
+    auto& view = scenario.view;
+    view.nvidiaApp.smoothMotion = 1;
+    view.generationActive = false;
+    view.effectiveMultiplier = 1;
+    view.hostFrameGenerationEnabled = view.frameGenerationRequested = false;
+    return scenario;
+}
 } // namespace
 
 std::vector<PreviewScenario> PreviewScenarios()
@@ -725,5 +800,6 @@ std::vector<PreviewScenario> PreviewScenarios()
         Pascal("pascal-driver", NeuralRendering::kPascalDriverReason),
         Pascal("pascal-missing-pack", NeuralRendering::kPascalAssetReason),
         Pascal("pascal-checking", NeuralRendering::kPascalAssetsChecking),
-        Pascal("pascal-low-budget", NeuralRendering::kPascalBudgetReason), PascalOldNetwork(), Runtimes(), TestBackendsNvidia(), TestBackendsAmd(), VulkanNvidia(), VendorFSR(), FSR4Forced(), FSR4Pascal(), VulkanBackground(), VulkanAmdRefused(), VulkanAmdPortable(), HIPMissing(), VendorStandard(), VulkanPreparing(), HIPLockedVulkan(), VulkanLockedHIP(), HIPFSRRefused(), Lab(), EvenPacing(), IntelSteady()};
+        Pascal("pascal-low-budget", NeuralRendering::kPascalBudgetReason), PascalOldNetwork(), Runtimes(), TestBackendsNvidia(), TestBackendsAmd(), VulkanNvidia(), VendorFSR(), FSR4Forced(), FSR4Pascal(), VulkanBackground(), VulkanAmdRefused(), VulkanAmdPortable(), HIPMissing(), VendorStandard(), VulkanPreparing(), HIPLockedVulkan(), VulkanLockedHIP(), HIPFSRRefused(), Lab(), EvenPacing(), IntelSteady(),
+        AppClean(), AppModel(), AppNeural(), AppFrameGenerationModel(), AppMultiplier(), AppSmoothMotionConflict(), AppSmoothMotionOnly()};
 }
