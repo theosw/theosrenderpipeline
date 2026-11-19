@@ -5,6 +5,8 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace Paths = TheosRenderPipeline::PluginPaths;
 
@@ -51,6 +53,41 @@ struct VirtualPathMapping
 	}
 };
 
+// Count canonicalisations: each opens the file, which MO2's virtual file system
+// makes slow, so a lookup must not normalize every loaded module.
+decltype(&GetFinalPathNameByHandleW) originalFinalPath{};
+int finalPathCalls = 0;
+DWORD WINAPI CountedFinalPath(HANDLE file, LPWSTR output, DWORD size, DWORD flags)
+{
+	++finalPathCalls;
+	return originalFinalPath(file, output, size, flags);
+}
+
+struct FinalPathCounter
+{
+	std::vector<std::pair<uintptr_t, uintptr_t>> hooks;
+	bool Install()
+	{
+		// std::filesystem's handle query can be in the executable or in the STL DLL.
+		for (const auto module : {GetModuleHandleW(nullptr), GetModuleHandleW(L"msvcp140.dll")}) {
+			if (!module) { continue; }
+			const auto previous = Detours::IATHook(reinterpret_cast<uintptr_t>(module), "kernel32.dll",
+				"GetFinalPathNameByHandleW", reinterpret_cast<uintptr_t>(CountedFinalPath));
+			if (previous) {
+				originalFinalPath = reinterpret_cast<decltype(originalFinalPath)>(previous);
+				hooks.emplace_back(reinterpret_cast<uintptr_t>(module), previous);
+			}
+		}
+		return !hooks.empty();
+	}
+	~FinalPathCounter()
+	{
+		for (const auto& [module, previous] : hooks) {
+			Detours::IATHook(module, "kernel32.dll", "GetFinalPathNameByHandleW", previous);
+		}
+	}
+};
+
 int Identity(HMODULE module)
 {
 	auto function = reinterpret_cast<int(*)()>(GetProcAddress(module, "ModuleIdentity"));
@@ -88,6 +125,33 @@ int wmain(int argc, wchar_t** argv)
 		Module retainedB{Paths::RetainLoadedModule(pathB)};
 		Require(retainedA.handle == a.handle && retainedB.handle == b.handle, "configured module selected regardless of load order");
 		Require(Identity(retainedA.handle) == 1 && Identity(retainedB.handle) == 2, "selected exports retain distinct module state");
+		{
+			FinalPathCounter counter;
+			Require(counter.Install(), "canonicalisation counter installed");
+			finalPathCalls = 0;
+			// The fixtures' reported paths have the configured path's shape; a missing
+			// (virtual) directory costs more queries than an existing one.
+			(void)Paths::Normalize(pathA);
+			const int one = finalPathCalls;
+			Require(one >= 1, "counter sees one normalization");
+			finalPathCalls = 0;
+			Module probe{Paths::RetainLoadedModule(pathA)};
+			const int lookup = finalPathCalls;
+			const auto modules = Paths::LoadedModules().size();
+			std::cout << "lookup canonicalisations " << lookup << " (one normalization " << one << ", "
+				<< modules << " modules loaded)\n";
+			Require(probe.handle == a.handle, "counted lookup selects the configured module");
+			// The configured path and the two same-named fixtures; every module before.
+			Require(lookup <= 3 * one, "lookup normalizes only modules named like the configured file");
+			Require(modules > 8, "enough modules loaded for the bound to mean something");
+		}
+		Module renamed{Paths::RetainLoadedModule(pathA.parent_path() / L"OTHER.dll")};
+		Require(!renamed.handle, "a different file name in the same directory never matches");
+		auto upper = pathB.filename().wstring();
+		std::transform(upper.begin(), upper.end(), upper.begin(), [](wchar_t c) { return static_cast<wchar_t>(towupper(c)); });
+		Module cased{Paths::RetainLoadedModule(pathB.parent_path() / upper)};
+		Require(cased.handle == b.handle, "file names compare without case");
+		cased.Release();
 		Require(!Paths::RetainLoadedModule(pathA.parent_path() / L"missing" / pathA.filename()), "missing path must not fall back to same-named DLL");
 		Require(!Paths::RetainLoadedModule(pathA.filename()), "relative name must not select a runtime");
 		Require(!Paths::RetainLoadedModule({}), "empty path must not select the executable");
