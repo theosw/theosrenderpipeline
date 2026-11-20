@@ -1,6 +1,7 @@
 #include "ReShadeIntegration.h"
 #include "../EngineScreenshot.h"
 #include "SourceDLSSGBackend.h"
+#include "AdapterInventory.h"
 #include "XeFGLayerSelection.h"
 #include "../../third_party/amd-nr/trp_diagnostics.h"
 #include <PCH.h>
@@ -345,6 +346,10 @@ namespace TheosRenderPipeline::SourceDLSSG
 			logger::info("[SourceDLSSG] rendering adapter={} vendor=0x{:04X} device=0x{:04X} LUID={:08X}:{:08X}",
 				std::filesystem::path(adapterDesc.Description).string(), adapterDesc.VendorId, adapterDesc.DeviceId,
 				static_cast<std::uint32_t>(adapterDesc.AdapterLuid.HighPart), adapterDesc.AdapterLuid.LowPart);
+			const auto adapters = AdapterInventory::List(adapterDesc.AdapterLuid);
+			logger::info("[SourceDLSSG] {} adapter(s) reported by Windows; {} other hardware GPU(s) besides the rendering one",
+				adapters.size(), AdapterInventory::OtherHardware(adapters));
+			for (std::size_t i = 0; i < adapters.size(); ++i) { logger::info("[SourceDLSSG] {}", AdapterInventory::Format(i, adapters[i])); }
 		}
 		if (ReShadeIntegration::Get().Blocked()) { logger::warn("[ReShade] {}", ReShadeIntegration::Get().Status()); }
 		else { logger::info("[ReShade] {}", ReShadeIntegration::Get().Status()); }
