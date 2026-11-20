@@ -1,7 +1,17 @@
-# 0.7.1 Beta 1
+# 0.7.2 Beta 1
 
+- AMD Radeon NR (Universal) now runs with Community Shaders and Bottled Shaders,
+  on both HIP/ZLUDA and Vulkan. It runs one world pass before CS's own upscaling.
+  Vulkan was tested with Bottled Shaders on an RTX 4080 SUPER; HIP/ZLUDA with
+  Community Shaders has not run on a Radeon yet.
 - Native Neural Rendering: Intensity above 1 now boosts each pass's brightness
   and contrast changes while preserving hue up to clipping.
+- Faster start under Mod Organizer 2: TRP's checks of already loaded DLLs no
+  longer resolve every loaded module's path through MO2's virtual file system.
+  In a large LoreRim setup TRP's start-up took about 3 seconds less.
+
+# 0.7.1 Beta 1
+
 - Community Shaders: frame generation now gets the scene after Skyrim's screen
   blood and Bottled Shaders' Camera FX lens effects, so they no longer wobble on
   generated frames. Under CS HDR Display, vanilla screen blood is still not
