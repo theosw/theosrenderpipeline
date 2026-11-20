@@ -1,5 +1,7 @@
 #include "AmdNeuralPass.h"
 #include "AmdAdapterSelection.h"
+#include "AdapterInventory.h"
+#include "HipDevicePin.h"
 #include "NeuralRuntimeSession.h"
 #include "../../third_party/amd-nr/trp_diagnostics.h"
 #include <cstring>
@@ -9,6 +11,8 @@
 #include <bcrypt.h>
 #include <d3dkmthk.h>
 #include <algorithm>
+#include <chrono>
+#include <cstdlib>
 #include <array>
 #include <condition_variable>
 #include <memory>
@@ -135,6 +139,7 @@ namespace TheosRenderPipeline::SourceDLSSG {
         const auto luid = device->GetAdapterLuid();
         std::memcpy(&adapterLUID_, &luid, sizeof(adapterLUID_));
         auto emit = [&](int level, const std::string& text) { if (log) log(level, text.c_str()); };
+        PinHipToRenderingGpu(luid);
         for (const auto* name : {L"amdhip64_7.dll", L"amdhip64_6.dll", L"amdhip64.dll"}) {
             hip_ = GetModuleHandleW(name);
             if (!hip_) hip_ = LoadLibraryW(name);
@@ -202,6 +207,49 @@ namespace TheosRenderPipeline::SourceDLSSG {
         emit(2,std::format("AMD NR selected HIP device {} by {}; expected PCI={} LUID={:016X}; runtime must match independently",
             selected.ordinal,selected.byLUID ? "LUID" : "PCI",adapterPCI_,adapterLUID_));
         return true;
+    }
+    void AmdNeuralPass::PinHipToRenderingGpu(LUID rendering) {
+        namespace Pin = TheosRenderPipeline::HipDevicePin;
+        auto emit = [&](int level, const std::string& text) { if (log) log(level, text.c_str()); };
+        std::size_t amd{};
+        for (const auto& adapter : AdapterInventory::List(rendering)) { amd += adapter.vendor == 0x1002 && !adapter.software; }
+        wchar_t existing[256]{};
+        const bool userSetting = GetEnvironmentVariableW(L"HIP_VISIBLE_DEVICES", existing, 256) > 0;
+        bool hipLoaded{};
+        for (const auto* name : {L"amdhip64_7.dll", L"amdhip64_6.dll", L"amdhip64.dll"}) { hipLoaded |= GetModuleHandleW(name) != nullptr; }
+        auto decision = Pin::Precheck(amd, userSetting, hipLoaded);
+        if (decision.outcome != Pin::Outcome::ProbeFailed) {
+            emit(decision.outcome == Pin::Outcome::NotNeeded ? 2 : 1, std::format("AMD NR GPU pin: {} AMD GPUs; {}{}", amd,
+                Pin::Describe(decision.outcome), userSetting ? std::format(" (HIP_VISIBLE_DEVICES={})", std::filesystem::path(existing).string()) : ""));
+            return;
+        }
+        const auto exe = Directory() / L"TRPHipProbe.exe";
+        const auto start = std::chrono::steady_clock::now();
+        DWORD exitCode{}; std::string failure;
+        std::error_code error;
+        const auto output = std::filesystem::is_regular_file(exe, error) ? Pin::Run(exe, 15000, exitCode, failure) :
+            (failure = "TRPHipProbe.exe is missing from the AMDNR folder", std::string{});
+        const auto ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+        std::size_t lineStart = 0;
+        while (lineStart < output.size()) {
+            const auto end = output.find('\n', lineStart);
+            auto line = output.substr(lineStart, end == std::string::npos ? std::string::npos : end - lineStart);
+            if (!line.empty() && line.back() == '\r') { line.pop_back(); }
+            if (!line.empty()) { emit(2, "AMD NR GPU probe: " + line); }
+            lineStart = end == std::string::npos ? output.size() : end + 1;
+        }
+        decision = failure.empty() ? Pin::Select(Pin::Parse(output), adapterLUID_) : Pin::Decision{ Pin::Outcome::ProbeFailed };
+        if (decision.outcome == Pin::Outcome::Pinned) {
+            const auto value = std::to_wstring(decision.ordinal);
+            // Both the C runtime's copy and the process environment: HIP may read either.
+            const bool set = _wputenv_s(L"HIP_VISIBLE_DEVICES", value.c_str()) == 0 &&
+                SetEnvironmentVariableW(L"HIP_VISIBLE_DEVICES", value.c_str());
+            if (!set) { decision = { Pin::Outcome::ProbeFailed }; failure = "the environment could not be set"; }
+        }
+        emit(decision.outcome == Pin::Outcome::Pinned ? 2 : 1, std::format("AMD NR GPU pin: {} AMD GPUs; {}{}; probe exit={} {:.0f} ms{}",
+            amd, Pin::Describe(decision.outcome),
+            decision.outcome == Pin::Outcome::Pinned ? std::format(" (HIP_VISIBLE_DEVICES={})", decision.ordinal) : "",
+            exitCode, ms, failure.empty() ? "" : "; " + failure));
     }
     void AmdNeuralPass::Log(void* self, int level, const char* text) {
         auto& owner = *static_cast<AmdNeuralPass*>(self);

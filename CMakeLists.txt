@@ -286,9 +286,22 @@ find_package(xbyak CONFIG REQUIRED)
 # Build the plugin without packaging, deployment or game launch.
 add_custom_target(ARPBaseline DEPENDS TheosRenderPipeline)
 
+# TRPHipProbe.exe lists HIP devices with their LUIDs in a separate process, so TRP can
+# restrict HIP to Skyrim's GPU before HIP loads (src/FrameGen/HipDevicePin.h).
+add_executable(TRPHipProbe tools/hip-probe/TRPHipProbe.cpp)
+target_compile_definitions(TRPHipProbe PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
+set_property(TARGET TRPHipProbe PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+add_dependencies(ARPBaseline TRPHipProbe)
+
 option(TRP_BUILD_COMPATIBILITY_TESTS "Build offline runtime and frame contract checks" OFF)
 if(TRP_BUILD_COMPATIBILITY_TESTS)
     enable_testing()
+    add_executable(TRPHipDevicePinTests tests/HipDevicePinTests.cpp)
+    target_compile_features(TRPHipDevicePinTests PRIVATE cxx_std_23)
+    target_compile_definitions(TRPHipDevicePinTests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
+    target_include_directories(TRPHipDevicePinTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    add_dependencies(TRPHipDevicePinTests TRPHipProbe)
+    add_test(NAME HipDevicePin COMMAND TRPHipDevicePinTests $<TARGET_FILE:TRPHipProbe>)
     add_executable(TRPAmdAdapterSelectionTests tests/AmdAdapterSelectionTests.cpp)
     target_compile_features(TRPAmdAdapterSelectionTests PRIVATE cxx_std_17)
     target_include_directories(TRPAmdAdapterSelectionTests PRIVATE src)
