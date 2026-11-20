@@ -24,7 +24,12 @@ namespace TheosRenderPipeline::SourceDLSSG
     // retained; null without one. Shared by both editions.
     inline HMODULE RetainNvidiaOverrideDlssg()
     {
-        return PluginPaths::RetainLoadedModuleIf([](const std::filesystem::path& path, HMODULE module) {
+        // Normalize only modules already under a model store path (or with an
+        // 8.3 short name): normalizing all ~500 modules is slow under MO2.
+        const auto candidate = [](const std::filesystem::path& raw) {
+            return IsNvidiaModelStorePath(raw) || raw.native().find(L'~') != std::wstring::npos;
+        };
+        return PluginPaths::RetainLoadedModuleIf(candidate, [](const std::filesystem::path& path, HMODULE module) {
             auto text = path.generic_wstring();
             std::transform(text.begin(), text.end(), text.begin(), [](wchar_t c) { return static_cast<wchar_t>(std::towlower(c)); });
             return IsNvidiaModelStorePath(path) && text.find(L"/models/dlssg/") != std::wstring::npos &&

@@ -35,7 +35,10 @@ namespace TheosRenderPipeline
             modules.resize(needed / sizeof(HMODULE));
             unsigned count = 0;
             for (const auto module : modules) {
-                if (_wcsicmp(PluginPaths::ModulePath(module).filename().c_str(), name) == 0) { ++count; }
+                // The loader's own name; normalize (slow under MO2) only an 8.3 short name.
+                auto file = PluginPaths::RawModulePath(module).filename();
+                if (file.native().find(L'~') != std::wstring::npos) { file = PluginPaths::ModulePath(module).filename(); }
+                if (_wcsicmp(file.c_str(), name) == 0) { ++count; }
             }
             return count;
         }

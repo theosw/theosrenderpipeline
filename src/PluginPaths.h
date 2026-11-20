@@ -18,7 +18,11 @@ namespace TheosRenderPipeline::PluginPaths
 		return error ? absolute.lexically_normal() : canonical;
 	}
 
-	inline std::filesystem::path ModulePath(HMODULE a_module)
+	// The loader's path for a module, as GetModuleFileNameW reports it, not
+	// normalized. It needs no file access. Normalize opens the file, and under
+	// MO2 every open goes through its virtual file system, so a walk over all
+	// loaded modules (about 500 in a large modlist) must not normalize each one.
+	inline std::filesystem::path RawModulePath(HMODULE a_module)
 	{
 		if (!a_module) {
 			return {};
@@ -29,7 +33,13 @@ namespace TheosRenderPipeline::PluginPaths
 			return {};
 		}
 		path.resize(written);
-		return Normalize(path);
+		return path;
+	}
+
+	inline std::filesystem::path ModulePath(HMODULE a_module)
+	{
+		auto path = RawModulePath(a_module);
+		return path.empty() ? path : Normalize(path);
 	}
 
 	inline bool EqualPath(const std::filesystem::path& a_left, const std::filesystem::path& a_right)
@@ -37,26 +47,35 @@ namespace TheosRenderPipeline::PluginPaths
 		return _wcsicmp(Normalize(a_left).c_str(), Normalize(a_right).c_str()) == 0;
 	}
 
-	// Select an already loaded module by its configured path. The caller owns
-	// the returned reference; a same-named DLL in another directory is unrelated.
-	// The first loaded module, retained, for which `a_match(path, module)` holds.
-	template <class Match> HMODULE RetainLoadedModuleIf(Match&& a_match)
+	// A snapshot of the loaded modules, grown until it is complete.
+	inline std::vector<HMODULE> LoadedModules()
 	{
-		std::vector<HMODULE> modules(128);
+		std::vector<HMODULE> modules(512);
 		DWORD bytes{};
 		for (;;) {
 			if (!::K32EnumProcessModules(::GetCurrentProcess(), modules.data(),
-				static_cast<DWORD>(modules.size() * sizeof(HMODULE)), &bytes)) { return nullptr; }
+				static_cast<DWORD>(modules.size() * sizeof(HMODULE)), &bytes)) { return {}; }
 			if (bytes <= modules.size() * sizeof(HMODULE)) { break; }
 			modules.resize(bytes / sizeof(HMODULE));
 		}
 		modules.resize(bytes / sizeof(HMODULE));
-		for (const auto module : modules) {
+		return modules;
+	}
+
+	// The first loaded module, retained, whose unnormalized path passes
+	// `a_candidate` and whose normalized path and handle pass `a_match`.
+	// `a_candidate` must not reject a module `a_match` would accept; it only
+	// spares the normalization of modules that cannot match.
+	template <class Candidate, class Match> HMODULE RetainLoadedModuleIf(Candidate&& a_candidate, Match&& a_match)
+	{
+		for (const auto module : LoadedModules()) {
 			HMODULE retained{};
 			if (!::GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
 				reinterpret_cast<LPCWSTR>(module), &retained)) { continue; }
+			// Compare after retaining: an enumerated address can have been reused.
 			try {
-				if (a_match(ModulePath(retained), retained)) { return retained; }
+				const auto raw = RawModulePath(retained);
+				if (!raw.empty() && a_candidate(raw) && a_match(Normalize(raw), retained)) { return retained; }
 			} catch (...) {
 				::FreeLibrary(retained);
 				throw;
@@ -66,35 +85,34 @@ namespace TheosRenderPipeline::PluginPaths
 		return nullptr;
 	}
 
+	template <class Match> HMODULE RetainLoadedModuleIf(Match&& a_match)
+	{
+		return RetainLoadedModuleIf([](const std::filesystem::path&) { return true; }, std::forward<Match>(a_match));
+	}
+
+	// Select an already loaded module by its configured path. The caller owns
+	// the returned reference; a same-named DLL in another directory is unrelated.
 	inline HMODULE RetainLoadedModule(const std::filesystem::path& a_path)
 	{
 		if (!a_path.is_absolute()) { return nullptr; }
 		const auto path = Normalize(a_path);
+		const auto requestedName = a_path.filename();
+		const auto resolvedName = path.filename();
 		// MO2 maps GetModuleFileNameW to the virtual Data tree, but does not
-		// apply that mapping to GetModuleHandleExW's filename lookup.
-		std::vector<HMODULE> modules(128);
-		DWORD bytes{};
-		for (;;) {
-			if (!::K32EnumProcessModules(::GetCurrentProcess(), modules.data(),
-				static_cast<DWORD>(modules.size() * sizeof(HMODULE)), &bytes)) { return nullptr; }
-			if (bytes <= modules.size() * sizeof(HMODULE)) { break; }
-			modules.resize(bytes / sizeof(HMODULE));
-		}
-		modules.resize(bytes / sizeof(HMODULE));
-		for (const auto module : modules) {
-			HMODULE retained{};
-			if (!::GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
-				reinterpret_cast<LPCWSTR>(module), &retained)) { continue; }
-			// Compare after retaining: an enumerated address can have been reused.
-			try {
-				if (EqualPath(ModulePath(retained), path)) { return retained; }
-			} catch (...) {
-				::FreeLibrary(retained);
-				throw;
-			}
-			::FreeLibrary(retained);
-		}
-		return nullptr;
+		// apply that mapping to GetModuleHandleExW's filename lookup, so the
+		// modules are compared by path. Normalization keeps the file name
+		// unless it resolves a link or an 8.3 short name, so only a module
+		// named like the requested or resolved file, or with a short name,
+		// can match.
+		const auto candidate = [&](const std::filesystem::path& raw) {
+			const auto name = raw.filename();
+			return _wcsicmp(name.c_str(), requestedName.c_str()) == 0 ||
+				_wcsicmp(name.c_str(), resolvedName.c_str()) == 0 ||
+				name.native().find(L'~') != std::wstring::npos;
+		};
+		return RetainLoadedModuleIf(candidate, [&](const std::filesystem::path& normalized, HMODULE) {
+			return _wcsicmp(normalized.c_str(), path.c_str()) == 0;
+		});
 	}
 
     // CS owns a separate runtime bundle. Only that coordinated mode admits
