@@ -1,5 +1,7 @@
 # 0.7.1 Beta 1
 
+- Native Neural Rendering: Intensity above 1 now boosts each pass's brightness
+  and contrast changes while preserving hue up to clipping.
 - Community Shaders: frame generation now gets the scene after Skyrim's screen
   blood and Bottled Shaders' Camera FX lens effects, so they no longer wobble on
   generated frames. Under CS HDR Display, vanilla screen blood is still not

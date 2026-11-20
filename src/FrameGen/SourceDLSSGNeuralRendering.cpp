@@ -707,22 +707,58 @@ namespace TheosRenderPipeline::SourceDLSSG
 			marks.End(D3D12Stage::kNeuralPrepare);
 			marks.Begin(D3D12Stage::kNeuralInference);
 			if (gpuTiming) { list->EndQuery(timestampHeap_.Get(), D3D12_QUERY_TYPE_TIMESTAMP, query); }
-			// Strength is source-owned, unlike the provider's tone/structure controls.
-			// Blend before the next pass reads this output, retaining that pass's input
-			// at zero. Each pass owns its scratch texture and retired-slot descriptors.
-			// The existing chain timing includes these blends and extra-pass preparation.
-			auto applyObjectStrength = [&](unsigned pass, const NeuralRendering::FeatureSession::EvaluationInput& evaluation) {
+			auto ensurePassScratch = [&](unsigned pass, ID3D12Resource* output) {
+				auto& result = passScratch_[pass];
+				if (!result) {
+					D3D12_HEAP_PROPERTIES heap{}; heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+					const auto desc = output->GetDesc();
+					const auto hr = device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc,
+						common, nullptr, IID_PPV_ARGS(&result));
+					if (FAILED(hr)) { status_ = "NR per-pass composition scratch allocation failed"; }
+				}
+				return result.Get();
+			};
+			auto applyIntensityBoost = [&](unsigned pass, const NeuralRendering::FeatureSession::EvaluationInput& evaluation) {
+				if (backend_ != NeuralRendering::Backend::Native) { return true; }
+				// With object controls NGX reads the absolute tuning from the mask.
+				// Intensity is still shared across groups, so use the effective setting.
+				const float intensity = NeuralRendering::SanitizeIntensity(
+					pass ? options.EffectiveExtra(pass - 1).tuning.intensity : options.tuning.intensity);
+				if (intensity <= 1) { return true; }
+				if (FAILED(resolve_.Initialize(device))) { status_ = "NR intensity boost initialization failed"; return false; }
+				const auto desc = evaluation.output->GetDesc();
+				ResolveConstants boost;
+				boost.targetWidth = static_cast<UINT>(desc.Width);
+				boost.targetHeight = desc.Height;
+				boost.intensity = intensity;
+				const auto kernel = resolve_.IntensityKernel(desc.Format);
+				const auto stage = NeuralResolveKernels::IntensityStage(pass);
+				// DLSSNR.Color is the model's base here, including the prepared proxy
+				// or the resized previous result. Boost before blending/restoring.
+				if (kernel != ResolveKernel::BoostIntensity) {
+					if (SUCCEEDED(resolve_.Record(device, list, slot, stage, kernel, boost,
+						evaluation.color, nullptr, nullptr, evaluation.output))) { return true; }
+				} else if (auto* scratch = ensurePassScratch(pass, evaluation.output)) {
+					Barriers{list}.Add(evaluation.color, read, common).Add(evaluation.output, write, common).Flush();
+					if (SUCCEEDED(resolve_.Record(device, list, slot, stage, kernel, boost,
+						evaluation.color, evaluation.output, nullptr, scratch)) &&
+						SUCCEEDED(Interop::RecordCopy(list, scratch, evaluation.output))) {
+						Barriers{list}.Add(evaluation.color, common, read).Add(evaluation.output, common, write).Flush();
+						return true;
+					}
+				}
+				status_ = std::format("NR pass {} intensity boost recording failed", pass + 1);
+				return false;
+			};
+			// Strength is source-owned. Blend the boosted result with this pass's
+			// input before the next pass reads it, retaining that input at zero.
+			auto finishEvaluation = [&](unsigned pass, const NeuralRendering::FeatureSession::EvaluationInput& evaluation) {
+				if (!applyIntensityBoost(pass, evaluation)) { return false; }
 				if (!objectMask) { return true; }
 				const auto strengths = options.objectMasks.passes[pass].Strengths();
 				if (std::all_of(strengths.begin(), strengths.end(), [](float value) { return value == 1; })) { return true; }
-				auto& result = passObjectResult_[pass];
-				if (!result) {
-					D3D12_HEAP_PROPERTIES heap{}; heap.Type = D3D12_HEAP_TYPE_DEFAULT;
-					const auto desc = evaluation.output->GetDesc();
-					const auto hr = device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc,
-						common, nullptr, IID_PPV_ARGS(&result));
-					if (FAILED(hr)) { status_ = "NR per-pass object-result allocation failed"; return false; }
-				}
+				auto* result = ensurePassScratch(pass, evaluation.output);
+				if (!result) { return false; }
 				// Raw depth remains readable when used directly by the first model;
 				// peripheral preparation instead left it COMMON. Other guides stay put.
 				const bool rawDepthRead = featureDepth == depth;
@@ -733,9 +769,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 				NeuralRendering::ObjectBlendRequest request;
 				request.strength = strengths;
 				const auto hr = passObjectBlend_[pass].Record(device, list, slot, request,
-					evaluation.color, evaluation.output, objectMask, depth, result.Get(), objectMaskGuideOffset,
+					evaluation.color, evaluation.output, objectMask, depth, result, objectMaskGuideOffset,
 					reconstruction.peripheralCompression);
-				if (FAILED(hr) || FAILED(Interop::RecordCopy(list, result.Get(), evaluation.output))) {
+				if (FAILED(hr) || FAILED(Interop::RecordCopy(list, result, evaluation.output))) {
 					status_ = std::format("NR pass {} object-strength composition failed", pass + 1); return false;
 				}
 				Barriers after{list};
@@ -758,11 +794,11 @@ namespace TheosRenderPipeline::SourceDLSSG
                 if(evaluated) { Barriers after{list};transitionInputs(after,common,read);after.Add(featureOutput,common,write).Flush(); }
             } else { evaluated=feature_.RecordEvaluation(input); }
 			if (!evaluated) { status_ = feature_.Status(); }
-			if (evaluated) { evaluated = applyObjectStrength(0, input); }
+			if (evaluated) { evaluated = finishEvaluation(0, input); }
 			for (int pass = 1; evaluated && pass < effectivePasses; ++pass) {
 				auto& evaluation = extras[pass - 1];
 				evaluated = RecordExtra(device, list, slot, pass, options, input, previous, constants, motion, depth, ui, evaluation);
-				if (evaluated) { evaluated = applyObjectStrength(pass, evaluation); }
+				if (evaluated) { evaluated = finishEvaluation(pass, evaluation); }
 				// Every pass but the last is restored here for the next; the last after timing.
 				if (evaluated && pass + 1 < effectivePasses) {
 					evaluated = FinishExtra(device, list, slot, pass, input, previous, evaluation, constants, &previous);

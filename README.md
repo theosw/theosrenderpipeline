@@ -66,6 +66,10 @@ Resets, setting changes and Freeze frame run the model on that frame. It works b
 between real ones can look unevenly paced. The rate applies to every pass, switches live, is a weather override setting
 (`ModelRate`) and defaults to every frame (INI `NRModelRate`).
 
+In native NR, **Intensity** above 1 boosts the brightness and contrast changes
+made by each pass. TRP scales RGB together to preserve hue until a channel
+clips. Linked passes use Pass 1's value, and weather overrides can set Intensity
+per pass.
 
 ### Experimental NR object masks
 

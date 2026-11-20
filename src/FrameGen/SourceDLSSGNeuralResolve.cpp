@@ -6,6 +6,14 @@
 namespace TheosRenderPipeline::SourceDLSSG
 {
 	using Microsoft::WRL::ComPtr;
+	namespace
+	{
+		bool InPlaceIntensity(ResolveKernel kernel)
+		{
+			return kernel == ResolveKernel::BoostIntensityInPlace || kernel == ResolveKernel::BoostIntensityUNorm;
+		}
+	}
+
 	HRESULT NeuralResolveKernels::Initialize(ID3D12Device* device)
 	{
 		if (!device) { return E_INVALIDARG; }
@@ -27,7 +35,11 @@ namespace TheosRenderPipeline::SourceDLSSG
 		hr = device->CreateRootSignature(0, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&root));
 		if (FAILED(hr)) { return hr; }
 		static_assert(CompiledNeuralShaders::Resolve.size() == std::tuple_size_v<decltype(pipelines_)>);
+		D3D12_FEATURE_DATA_D3D12_OPTIONS options{};
+		const bool typedLoads = SUCCEEDED(device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS, &options, sizeof(options))) &&
+			options.TypedUAVLoadAdditionalFormats;
 		for (unsigned i = 0; i < pipelines_.size(); ++i) {
+			if (!typedLoads && InPlaceIntensity(static_cast<ResolveKernel>(i))) { continue; }
 			const auto& shader = CompiledNeuralShaders::Resolve[i];
 			D3D12_SHADER_BYTECODE bytecode{ shader.data, shader.size };
 			D3D12_COMPUTE_PIPELINE_STATE_DESC pso{}; pso.pRootSignature = root.Get(); pso.CS = bytecode;
@@ -43,6 +55,17 @@ namespace TheosRenderPipeline::SourceDLSSG
 		root_ = std::move(root);
 		return S_OK;
 	}
+	ResolveKernel NeuralResolveKernels::IntensityKernel(DXGI_FORMAT format) const
+	{
+		if (pipelines_[unsigned(ResolveKernel::BoostIntensityInPlace)]) {
+			if (format == DXGI_FORMAT_R16G16B16A16_FLOAT || format == DXGI_FORMAT_R32G32B32A32_FLOAT) {
+				return ResolveKernel::BoostIntensityInPlace;
+			}
+			if (format == DXGI_FORMAT_R8G8B8A8_UNORM) { return ResolveKernel::BoostIntensityUNorm; }
+		}
+		return ResolveKernel::BoostIntensity;
+	}
+
 	HRESULT NeuralResolveKernels::CreateHeap(ID3D12Device* device, ComPtr<ID3D12DescriptorHeap>& heap)
 	{
 		D3D12_DESCRIPTOR_HEAP_DESC h{ D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 7, D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE, 0 };
@@ -53,7 +76,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 		ID3D12Resource* b, ID3D12Resource* original, ID3D12Resource* output, ID3D12Resource* secondOutput,
 		ID3D12Resource* fourth)
 	{
+		const bool inPlace = InPlaceIntensity(kernel);
 		if (!root_ || !device || !list || slot >= heaps_.size() || stage >= kStages || unsigned(kernel) >= pipelines_.size() ||
+			!pipelines_[unsigned(kernel)] || (inPlace && (b || original || secondOutput || fourth)) ||
 			!a || !output || a == output || b == output || original == output ||
 			(secondOutput && (secondOutput == a || secondOutput == b || secondOutput == original || secondOutput == output)) ||
 			(kernel == ResolveKernel::PackGuides && (!b || !secondOutput)) || (fourth && (fourth == output || fourth == secondOutput))) {
@@ -61,13 +86,14 @@ namespace TheosRenderPipeline::SourceDLSSG
 		}
 		// The measuring pass writes the exposure, so it is not also bound for reading.
 		// A fourth input takes its slot (t3) for this dispatch.
-		auto* exposure = fourth ? fourth : exposure_ && exposure_ != output ? exposure_ : nullptr;
-		auto* tone = tone_ && tone_ != output && tone_ != secondOutput ? tone_ : nullptr;
+		const bool boost = inPlace || kernel == ResolveKernel::BoostIntensity;
+		auto* exposure = boost ? nullptr : fourth ? fourth : exposure_ && exposure_ != output ? exposure_ : nullptr;
+		auto* tone = !boost && tone_ && tone_ != output && tone_ != secondOutput ? tone_ : nullptr;
 		const std::array<ID3D12Resource*, 7> bound{ a, b, original, exposure, tone, output, secondOutput };
 		auto& table = tables_[slot][stage];
 		bool unchanged = table.valid;
 		for (std::size_t i = 0; unchanged && i < bound.size(); ++i) { unchanged = table.resources[i].Get() == bound[i]; }
-		// Only Passes 3 to 5 use the later stages; one and two passes never allocate them.
+		// Allocated on demand for extra passes, model-rate and intensity stages.
 		if (!heaps_[slot][stage]) {
 			if (const auto hr = CreateHeap(device, heaps_[slot][stage]); FAILED(hr)) { return hr; }
 		}
@@ -120,13 +146,22 @@ namespace TheosRenderPipeline::SourceDLSSG
 			if (secondOutput) { add(secondOutput, write); }
 			list->ResourceBarrier(count, barriers.data());
 		};
-		record(true);
+		if (inPlace) {
+			// The model just wrote this UAV. A later state transition orders the
+			// boost against the next pass, blend or resolve that reads it.
+			D3D12_RESOURCE_BARRIER barrier{};
+			barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+			barrier.UAV.pResource = output;
+			list->ResourceBarrier(1, &barrier);
+		} else {
+			record(true);
+		}
 		list->SetDescriptorHeaps(1, &heap); list->SetComputeRootSignature(root_.Get());
 		list->SetPipelineState(pipelines_[unsigned(kernel)].Get());
 		list->SetComputeRoot32BitConstants(0, sizeof(constants) / 4, &constants, 0);
 		list->SetComputeRootDescriptorTable(1, heap->GetGPUDescriptorHandleForHeapStart());
 		list->Dispatch((table.width + 7) / 8, (table.height + 7) / 8, 1);
-		record(false);
+		if (!inPlace) { record(false); }
 		return S_OK;
 	}
 }

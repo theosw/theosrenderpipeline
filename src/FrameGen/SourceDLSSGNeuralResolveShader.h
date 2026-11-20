@@ -32,6 +32,7 @@ cbuffer NRParams : register(b0) {
     float CameraJitterX, CameraJitterY, PreviousJitterX, PreviousJitterY;
     uint GuidesJittered, DepthInverted, Categories;
     float ChangeFloor;
+    float Intensity;
 };
 Texture2D<float4> Tex0 : register(t0);
 Texture2D<float4> Tex1 : register(t1);
@@ -41,6 +42,7 @@ Texture2D<float> ExposureTex : register(t3);
 // Broad and Detail: NR's brightness change in stops after the edge-aware blur.
 Texture2D<float2> ToneTex : register(t4);
 RWTexture2D<float4> OutputColor : register(u0);
+RWTexture2D<unorm float4> OutputUNorm : register(u0);
 // Only the entry point's output is live in the compiled shader.
 RWTexture2D<float> OutputDepth : register(u0);
 RWTexture2D<float2> OutputMotion : register(u0);
@@ -132,6 +134,31 @@ void FilterColor(uint3 p, bool encode) {
 }
 )"
 // MSVC limits one literal to 16 KB; adjacent literals concatenate.
+R"(
+// Luminance-ratio boost adapted from DLSSNR-AMD and dlssnr-pytorch.
+// See THIRD-PARTY.md. Work in the model's colour domain, before reconstruction.
+float4 IntensityBoost(uint2 p, float4 nr) {
+    if (Intensity <= 1) return nr;
+    const float3 weights = float3(0.2126, 0.7152, 0.0722);
+    const float floorLuma = 1.0 / 512.0;
+    float3 source = Tex0.Load(int3(p, 0)).rgb;
+    float ratio = max((dot(nr.rgb, weights) + floorLuma) / (dot(source, weights) + floorLuma), 1e-6);
+    float amp = clamp(pow(ratio, Intensity), 0.5, 2.0);
+    return float4(saturate(nr.rgb * (amp / ratio)), nr.a);
+}
+[numthreads(8,8,1)] void BoostIntensity(uint3 p : SV_DispatchThreadID) {
+    if (p.x >= TargetWidth || p.y >= TargetHeight) return;
+    OutputColor[p.xy] = IntensityBoost(p.xy, Tex1.Load(int3(p.xy, 0)));
+}
+[numthreads(8,8,1)] void BoostIntensityInPlace(uint3 p : SV_DispatchThreadID) {
+    if (p.x >= TargetWidth || p.y >= TargetHeight) return;
+    OutputColor[p.xy] = IntensityBoost(p.xy, OutputColor[p.xy]);
+}
+[numthreads(8,8,1)] void BoostIntensityUNorm(uint3 p : SV_DispatchThreadID) {
+    if (p.x >= TargetWidth || p.y >= TargetHeight) return;
+    OutputUNorm[p.xy] = IntensityBoost(p.xy, OutputUNorm[p.xy]);
+}
+)"
 R"(// Compare: original left of SplitX, NR's result from it, and a two-pixel
 // black/white divider that reads on bright and dark content alike.
 [numthreads(8,8,1)] void Split(uint3 p : SV_DispatchThreadID) {

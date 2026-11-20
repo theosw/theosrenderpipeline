@@ -229,7 +229,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		bool HoldFrame(ID3D12Device* device, ID3D12GraphicsCommandList* list, bool freeze,
 			ID3D12Resource*& motion, ID3D12Resource*& depth, ID3D12Resource* hudless, ID3D12Resource*& objectMask, bool& reset);
         std::array<NeuralRendering::ObjectBlend,NeuralRendering::kMaxNeuralPasses> passObjectBlend_;
-        std::array<Microsoft::WRL::ComPtr<ID3D12Resource>,NeuralRendering::kMaxNeuralPasses> passObjectResult_;
+        std::array<Microsoft::WRL::ComPtr<ID3D12Resource>,NeuralRendering::kMaxNeuralPasses> passScratch_;
         NeuralRendering::ObjectControl objectControl_;
         std::array<bool,NeuralRendering::kMaxNeuralPasses> objectControlActive_{};
 		bool fusedColor_{};

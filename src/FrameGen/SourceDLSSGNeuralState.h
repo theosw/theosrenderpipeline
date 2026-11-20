@@ -167,6 +167,17 @@ namespace TheosRenderPipeline::SourceDLSSG
 			options->combat = {};
 		}
 		const bool blending = current.appearanceRevision && current.appearanceRevision == previous.appearanceRevision;
+		// Smooth weather changes can reuse the last evaluated look. Crossing
+		// the native boost threshold needs a fresh result on that frame.
+		if (blending && current.backend == NeuralRendering::Backend::Native && previous.backend == current.backend) {
+			const auto boosted = [](float intensity) { return NeuralRendering::SanitizeIntensity(intensity) > 1; };
+			if (boosted(current.tuning.intensity) != boosted(previous.tuning.intensity)) { return false; }
+			for (int i = 0; i + 1 < current.presetPasses && i + 1 < previous.presetPasses; ++i) {
+				if (boosted(current.EffectiveExtra(i).tuning.intensity) != boosted(previous.EffectiveExtra(i).tuning.intensity)) {
+					return false;
+				}
+			}
+		}
 		const bool bands = current.reconstruction.broadStrength == previous.reconstruction.broadStrength &&
 			current.reconstruction.detailStrength == previous.reconstruction.detailStrength;
 		return SameHistoryOptions(current, previous) && (blending || bands);

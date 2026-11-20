@@ -29,10 +29,11 @@ static void Compare(const CompiledNeuralShaders::Bytecode& embedded, const char*
 
 int main()
 {
-    // Independent manifest of the pre-change runtime entry order and profiles.
+    // Independent manifest of runtime entry order and profiles.
     const char* entries[]{ "Downsample", "Residual", "Ratio", "PackDepth", "PackMotion",
         "PrepareColor", "PackGuides", "ResizeColor", "RestoreSecond", "Split", "MeasureExposure", "PrepareTone", "FilterTone",
-            "CaptureGuides", "ComposeMotion", "StoreChange", "Reproject" };
+        "CaptureGuides", "ComposeMotion", "StoreChange", "Reproject",
+        "BoostIntensity", "BoostIntensityInPlace", "BoostIntensityUNorm" };
     static_assert(std::size(entries) == CompiledNeuralShaders::Resolve.size());
     for (std::size_t i = 0; i < std::size(entries); ++i) {
         Compare(CompiledNeuralShaders::Resolve[i], kNeuralResolveShader, sizeof(kNeuralResolveShader) - 1,
@@ -40,5 +41,5 @@ int main()
     }
     Compare(CompiledNeuralShaders::Compose, kNeuralComposeShader, sizeof(kNeuralComposeShader) - 1,
         "SourceDLSSG-NR-compose", "main", "cs_5_0");
-    std::puts("All eighteen embedded NR shaders exactly match the original runtime compilation.");
+    std::puts("All embedded NR shaders exactly match independent compilation.");
 }

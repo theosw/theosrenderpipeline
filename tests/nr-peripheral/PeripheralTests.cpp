@@ -23,6 +23,86 @@ static std::vector<Pixel> Pattern(unsigned w,unsigned h,bool producer=false){
     }
     return v;
 }
+
+static void IntensityBoostMath(GPU& gpu)
+{
+    NeuralResolveKernels kernels;
+    Check(kernels.Initialize(gpu.device.Get()), "intensity kernels");
+    const std::vector<Pixel> source{
+        {.2f, .1f, .05f, 1}, {.2f, .2f, .2f, 1}, {.8f, .8f, .8f, 1},
+        {0, 0, 0, 1}, {.65f, .065f, .022f, 1}, {0, 0, 0, 1}
+    };
+    const std::vector<Pixel> model{
+        {.3f, .15f, .075f, .7f}, {.8f, .8f, .8f, .8f}, {.2f, .2f, .2f, .9f},
+        {1.f / 2048, 1.f / 2048, 1.f / 2048, .5f}, {.9f, .09f, .03f, .4f}, {0, 0, 0, .6f}
+    };
+    constexpr auto common = D3D12_RESOURCE_STATE_COMMON;
+    constexpr auto read = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+    constexpr auto write = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+    const auto width = static_cast<unsigned>(source.size());
+    const auto stage = NeuralResolveKernels::IntensityStage(0);
+    auto input = gpu.Texture(width, 1, source);
+    auto answer = gpu.Texture(width, 1, model);
+    auto scratch = gpu.Texture(width, 1);
+    auto run = [&](ResolveKernel kernel, float intensity, ID3D12Resource* in, ID3D12Resource* nr, ID3D12Resource* out) {
+        const bool inPlace = kernel != ResolveKernel::BoostIntensity;
+        ResolveConstants constants;
+        constants.targetWidth = width;
+        constants.targetHeight = 1;
+        constants.intensity = intensity;
+        gpu.Begin();
+        if (inPlace) {
+            gpu.Barrier(in, common, read);
+            gpu.Barrier(out, common, write);
+        }
+        Check(kernels.Record(gpu.device.Get(), gpu.list.Get(), 0, stage, kernel, constants,
+            in, nr, nullptr, out), "record intensity boost");
+        if (inPlace) {
+            gpu.Barrier(out, write, common);
+            gpu.Barrier(in, read, common);
+        }
+        gpu.End();
+        return gpu.Read(out);
+    };
+    for (float intensity : {0.f, .5f, 1.f}) {
+        const auto same = run(ResolveKernel::BoostIntensity, intensity, input.Get(), answer.Get(), scratch.Get());
+        Require(std::memcmp(same.data(), model.data(), model.size() * sizeof(Pixel)) == 0, "intensity at or below one is exact");
+    }
+    const auto actual = run(ResolveKernel::BoostIntensity, 2, input.Get(), answer.Get(), scratch.Get());
+    constexpr double floor = 1. / 512;
+    Near(actual[1][0], double(model[1][0]) * 2 * (source[1][0] + floor) / (model[1][0] + floor),
+        1e-6, "upper ratio clamp");
+    Near(actual[2][0], double(model[2][0]) * .5 * (source[2][0] + floor) / (model[2][0] + floor),
+        1e-6, "lower ratio clamp");
+    Near(actual[3][0], 1.25 / 2048, 1e-7, "near-black luma floor");
+    Near(actual[4][0], 1, 0, "output saturation");
+    Near(actual[5][0], 0, 0, "black stays black");
+    Require(actual[0][0] > model[0][0], "an unclipped brightening is stronger");
+    Near(actual[0][1] / actual[0][0], .5, 1e-6, "green to red ratio preserved");
+    Near(actual[0][2] / actual[0][0], .25, 1e-6, "blue to red ratio preserved");
+    for (std::size_t i = 0; i < actual.size(); ++i) {
+        Near(actual[i][3], model[i][3], 0, "alpha unchanged");
+        for (unsigned ch = 0; ch < 3; ++ch) {
+            Require(actual[i][ch] >= 0 && actual[i][ch] <= 1, "finite, bounded RGB");
+        }
+    }
+    const auto inplace = kernels.IntensityKernel(DXGI_FORMAT_R32G32B32A32_FLOAT);
+    if (inplace != ResolveKernel::BoostIntensity) {
+        const auto result = run(inplace, 2, input.Get(), nullptr, answer.Get());
+        Require(result == actual, "typed float UAV path matches the fallback");
+
+        const auto format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        auto unormInput = gpu.Texture(width, 1, source, format);
+        auto unormOutput = gpu.Texture(width, 1, model, format);
+        auto expected = gpu.Texture(width, 1, {}, format);
+        // The fallback and in-place paths must use the same quantized vendor
+        // output when comparing normalized textures.
+        const auto unormReference = run(ResolveKernel::BoostIntensity, 1.5f, unormInput.Get(), unormOutput.Get(), expected.Get());
+        const auto unormResult = run(kernels.IntensityKernel(format), 1.5f, unormInput.Get(), nullptr, unormOutput.Get());
+        Require(unormResult == unormReference, "typed UNORM UAV path matches the fallback");
+    }
+    std::puts("PASS: intensity boost preserves identity, alpha and unclipped hue, with ratio guards and a near-black floor");
+}
 static void Kernels(GPU& gpu){
     NeuralResolveKernels kernels;Check(kernels.Initialize(gpu.device.Get()),"production kernels");
     for(const auto dims:{std::array<unsigned,6>{200,100,180,90,100,50},{203,117,91,53,97,57}}){
@@ -377,4 +457,4 @@ static void ManyPasses(GPU& gpu){
 // keep running, the refused pass is not tried again and no runtime refusal is reported.
 #include "ObjectMaskCases.h"
 #include "ModelRateCases.h"
-int main(){GPU gpu;ObjectMaskCases(gpu);PassObjectStrengthCases(gpu);Kernels(gpu);Enlarged(gpu);EdgeAware(gpu);DescriptorCache(gpu);Passes(gpu);CombinedPreparation(gpu);PreparationRecorder(gpu);IndependentPasses(gpu);IndependentPasses(gpu,true);ManyPasses(gpu);ModelRateKernels(gpu);ModelRatePasses(gpu);}
+int main(){GPU gpu;IntensityBoostMath(gpu);ObjectMaskCases(gpu);PassObjectStrengthCases(gpu);Kernels(gpu);Enlarged(gpu);EdgeAware(gpu);DescriptorCache(gpu);Passes(gpu);CombinedPreparation(gpu);PreparationRecorder(gpu);IndependentPasses(gpu);IndependentPasses(gpu,true);ManyPasses(gpu);ModelRateKernels(gpu);ModelRatePasses(gpu);}
