@@ -288,8 +288,18 @@ int main()
         caps.backend=NRBackend::Vulkan;
         caps.neuralAdmissionReason="Vulkan capability probe refused";
         Require(std::string_view(NeuralSettingsUnavailable(XeSS,caps))==caps.neuralAdmissionReason,"probe refusal survives settings admission");
-        caps.neuralAdmissionReason=nullptr;caps.externalWorld=true;
-        Require(NeuralSettingsUnavailable(XeSS,caps)!=nullptr,"private Vulkan refuses unsupported external-world host route");
+        caps.neuralAdmissionReason=nullptr;caps.externalWorld=true;caps.xeSSReady=caps.fsrReady=false;
+        // Community Shaders upscales on its own route; Vulkan's world pass runs before it,
+        // whatever TRP's own (unused) upscaler mode says.
+        for (const int mode : {XeSS,FSR,DLSS})
+            Require(!NeuralSettingsUnavailable(mode,caps),"Vulkan runs on the Community Shaders world route");
+        caps.neuralAdmissionReason="Vulkan capability probe refused";
+        Require(std::string_view(NeuralSettingsUnavailable(DLSS,caps))==caps.neuralAdmissionReason,"probe refusal still applies on Community Shaders");
+        caps.neuralAdmissionReason=nullptr;caps.backend=NRBackend::HIP;
+        for (const int mode : {XeSS,FSR,DLSS})
+            Require(!NeuralSettingsUnavailable(mode,caps),"HIP runs on the Community Shaders world route");
+        caps.externalWorld=false;caps.xeSSReady=false;caps.fsrReady=true;
+        Require(std::string_view(NeuralSettingsUnavailable(FSR,caps))==NeuralRendering::kHIPUpscalerReason,"HIP still refuses TRP FSR");
     }
     std::puts("NR world contract: native/external placement, temporal changes, UI ownership and missing runtime/host checks passed.");
 }

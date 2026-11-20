@@ -220,8 +220,10 @@ void Neural()
         for (const int mode : {DLSS, DLAA}) {
             draft.upscaleType = mode;
             Require(ValidateRendererSettings(draft, amd), "AMD NR must not admit NVIDIA DLSS/DLAA");
+            // Community Shaders upscales on its own route; TRP's own mode is unused
+            // there and HIP's world pass runs before CS's upscaler.
             amd.externalWorld = true;
-            Require(ValidateRendererSettings(draft, amd), "external world source cannot bypass AMD XeSS requirement");
+            Require(!ValidateRendererSettings(draft, amd), "HIP runs on the Community Shaders world route");
             amd.externalWorld = false;
         }
     }

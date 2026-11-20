@@ -599,10 +599,10 @@ void DrawNeuralSettings(const OverlayUI::FrameView& view, TheosRenderPipeline::S
     namespace NR = TheosRenderPipeline::NeuralRendering;
     if (NR::TestBackend(draft.neuralBackend)) {
         const auto& reason = draft.neuralBackend == NR::Backend::Vulkan ? view.neuralVulkanReason : view.neuralHIPReason;
-        unavailable = !view.sourceReady || (!view.xessActive && !view.fsrActive) || view.communityShaders || !reason.empty();
+        unavailable = !view.sourceReady || (!view.communityShaders && !view.xessActive && !view.fsrActive) || !reason.empty();
     }
     if (draft.neuralBackend == NR::Backend::HIP) {
-        unavailable = unavailable || !view.xessActive || view.communityShaders;
+        unavailable = unavailable || (!view.xessActive && !view.communityShaders);
         if (!ActivePresetDecor()) DrawNeuralRuntimeCombo(view,draft,ImGui::GetContentRegionAvail().x);
         ImGui::TextWrapped(TR("AMD HIP/ZLUDA NR: one world pass before XeSS."));
         ImGui::TextWrapped(TR("A compatible Windows AMD HIP runtime/driver is required. NR starts off; enable it after checking XeSS alone."));
@@ -1343,7 +1343,7 @@ bool DrawNeuralRuntimeCombo(const OverlayUI::FrameView& view, TheosRenderPipelin
         }
         ImGui::SeparatorText(TR("Other GPUs (experimental)"));
         const auto refusal = !view.neuralHIPReason.empty() ? view.neuralHIPReason :
-            (!view.xessActive || view.communityShaders) ? std::string(NR::kHIPUpscalerReason) : std::string{};
+            !view.xessActive && !view.communityShaders ? std::string(NR::kHIPUpscalerReason) : std::string{};
         const float ms = view.neuralHIPMilliseconds;
         const bool hipRunning = applied.backend == TheosRenderPipeline::NeuralRendering::Backend::HIP && view.neuralState.active;
         const auto hipName = view.amdAdapter ? std::string(TR("HIP/ZLUDA (default)")) : std::string(TR("HIP/ZLUDA"));
@@ -1357,7 +1357,7 @@ bool DrawNeuralRuntimeCombo(const OverlayUI::FrameView& view, TheosRenderPipelin
         }
         const bool vkUnchecked = view.neuralVulkanReason == NR::kVulkanNotChecked;
         const std::string vkRefusal{NR::VulkanChoiceRefusal(view.neuralVulkanReason,
-            (view.xessActive || view.fsrActive) && !view.communityShaders)};
+            view.xessActive || view.fsrActive || view.communityShaders)};
         const float vkMs=view.neuralVulkanMilliseconds;
         const auto vkDetail = !vkRefusal.empty() ? std::string(TR(vkRefusal.c_str())) : vkUnchecked ? std::string(TR(NR::kVulkanNotChecked)) :
             view.neuralVulkanPath.empty() ? std::string(TR("Portable KHR / probed RDNA 3, small 310.9.16 model")) : std::string(TR(view.neuralVulkanPath.c_str()));
@@ -1403,7 +1403,9 @@ void DrawSourceNeuralControls(const OverlayUI::FrameView& view, TheosRenderPipel
     const char* unavailableReason = NeuralUnavailableReason(view, upscaleType, nrRuntimePresent);
     if (NR::TestBackend(draft.neuralBackend)) {
         const auto& reason = draft.neuralBackend == NR::Backend::Vulkan ? view.neuralVulkanReason : view.neuralHIPReason;
-        unavailableReason = !reason.empty() ? TR(reason.c_str()) : draft.neuralBackend == NR::Backend::HIP && (!view.xessActive || view.communityShaders) ? TR(NR::kHIPUpscalerReason) : (!view.xessActive && !view.fsrActive) || view.communityShaders ? TR(NR::kVendorUpscalerReason) : nullptr;
+        unavailableReason = !reason.empty() ? TR(reason.c_str()) :
+            draft.neuralBackend == NR::Backend::HIP && !view.xessActive && !view.communityShaders ? TR(NR::kHIPUpscalerReason) :
+            !view.communityShaders && !view.xessActive && !view.fsrActive ? TR(NR::kVendorUpscalerReason) : nullptr;
     }
     const bool unavailable = unavailableReason != nullptr;
     const auto& applied = view.neuralApplied;
