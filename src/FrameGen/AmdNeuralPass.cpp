@@ -223,12 +223,18 @@ namespace TheosRenderPipeline::SourceDLSSG {
                 Pin::Describe(decision.outcome), userSetting ? std::format(" (HIP_VISIBLE_DEVICES={})", std::filesystem::path(existing).string()) : ""));
             return;
         }
-        const auto exe = Directory() / L"TRPHipProbe.exe";
+        // The probe is exported from this DLL (Universal) and run by Windows' rundll32.
+        HMODULE self{};
+        GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+            reinterpret_cast<LPCWSTR>(&AmdNeuralPass::Directory), &self);
+        const auto dll = PluginPaths::RawModulePath(self);
+        const auto rundll32 = Pin::Rundll32();
         const auto start = std::chrono::steady_clock::now();
         DWORD exitCode{}; std::string failure;
-        std::error_code error;
-        const auto output = std::filesystem::is_regular_file(exe, error) ? Pin::Run(exe, 15000, exitCode, failure) :
-            (failure = "TRPHipProbe.exe is missing from the AMDNR folder", std::string{});
+        std::string output;
+        if (!self || dll.empty() || !GetProcAddress(self, "TRPHipProbeW")) { failure = "the HIP device probe is not in this TRP edition"; }
+        else if (rundll32.empty()) { failure = "rundll32 was not found"; }
+        else { output = Pin::Run(rundll32, Pin::ProbeCommand(rundll32, dll), 15000, exitCode, failure); }
         const auto ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
         std::size_t lineStart = 0;
         while (lineStart < output.size()) {

@@ -37,12 +37,30 @@ int wmain(int argc, wchar_t** argv)
 		Require(Pin::Precheck(2, true, false).outcome == Pin::Outcome::UserSetting, "the user's HIP_VISIBLE_DEVICES wins");
 		Require(Pin::Precheck(2, false, true).outcome == Pin::Outcome::HipAlreadyLoaded, "a loaded HIP cannot be restricted");
 		Require(Pin::Precheck(2, false, false).outcome == Pin::Outcome::ProbeFailed, "two AMD GPUs run the probe");
+		{
+			// The probe body in this process. Without HIP it must fail cleanly.
+			std::string out;
+			const int code = Pin::Enumerate(out);
+			std::printf("in-process probe=%d %s", code, out.c_str());
+			Require(code == 0 || (code == 2 && out == "error=no AMD HIP runtime found\n"), "the probe body reports HIP or its absence");
+		}
 		if (argc > 1) {
-			// The real helper on this PC. Without a Radeon it must fail cleanly.
+			// The real helper: Windows' rundll32 running the export from the built DLL.
+			const HMODULE dll = LoadLibraryW(argv[1]);
+			Require(dll != nullptr, "the renderer DLL loads outside Skyrim");
+			const bool exported = GetProcAddress(dll, "TRPHipProbeW") != nullptr;
+			FreeLibrary(dll);
+			if (!exported) {
+				std::puts("Standard edition: no HIP probe export (HIP NR is Universal only); helper run skipped.");
+				std::puts("HIP device pin: parsing, LUID selection and refusals passed.");
+				return 0;
+			}
 			DWORD exitCode{};
 			std::string failure;
+			const auto rundll32 = Pin::Rundll32();
+			Require(!rundll32.empty(), "rundll32 found");
 			// The launcher TRP itself uses in Skyrim: handle list, no window, timeout.
-			const auto output = Pin::Run(argv[1], 15000, exitCode, failure);
+			const auto output = Pin::Run(rundll32, Pin::ProbeCommand(rundll32, argv[1]), 15000, exitCode, failure);
 			Require(failure.empty(), "the probe ran to completion");
 			const auto probe = Pin::Parse(output);
 			std::printf("probe exit=%lu output:\n%s", exitCode, output.c_str());

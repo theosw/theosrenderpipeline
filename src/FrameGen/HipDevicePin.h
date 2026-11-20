@@ -2,6 +2,7 @@
 #include <Windows.h>
 #include <charconv>
 #include <cstddef>
+#include <cstring>
 #include <filesystem>
 #include <format>
 #include <cstdint>
@@ -11,8 +12,9 @@
 
 // HIP/ZLUDA has crashed inside AMD's HIP runtime on PCs with a second AMD GPU
 // (typically a Ryzen iGPU) enabled. HIP reads HIP_VISIBLE_DEVICES once, when it
-// starts, so TRP asks a separate process (TRPHipProbe.exe) which HIP ordinal is
-// Skyrim's GPU and sets the variable before HIP loads in Skyrim. HIP, ZLUDA and
+// starts, so TRP asks a separate process which HIP ordinal is Skyrim's GPU and sets
+// the variable before HIP loads in Skyrim. The helper is Windows' rundll32 running
+// TRPHipProbeW, exported from TRP's own DLL: nothing extra ships. HIP, ZLUDA and
 // the NR runtime then see only that GPU.
 namespace TheosRenderPipeline::HipDevicePin
 {
@@ -51,7 +53,7 @@ namespace TheosRenderPipeline::HipDevicePin
 		}
 	}
 
-	// TRPHipProbe.exe output, one record per line:
+	// Probe output (Enumerate), one record per line:
 	//   hip=<path>
 	//   count=<n> result=<hipError_t>
 	//   device <ordinal> luid=<16 hex> luid-result=<hipError_t> name=<text>
@@ -123,9 +125,61 @@ namespace TheosRenderPipeline::HipDevicePin
 		return decision;
 	}
 
-    // Runs TRPHipProbe.exe without a window and returns its standard output.
+	// The probe itself: loads HIP in the current (helper) process and lists each
+	// device in the format Parse reads. Returns the helper's exit code.
+	inline int Enumerate(std::string& out)
+	{
+		HMODULE hip{};
+		for (const auto* name : { L"amdhip64_7.dll", L"amdhip64_6.dll", L"amdhip64.dll" }) {
+			hip = LoadLibraryW(name);  // the same search TRP uses in Skyrim
+			if (hip) { break; }
+		}
+		if (!hip) { out += "error=no AMD HIP runtime found\n"; return 2; }
+		wchar_t path[MAX_PATH]{};
+		GetModuleFileNameW(hip, path, MAX_PATH);
+		out += "hip=" + std::filesystem::path(path).string() + "\n";
+		using Count = int (*)(int*);
+		using Luid = int (*)(char*, unsigned*, int);
+		using Name = int (*)(char*, int, int);
+		const auto count = reinterpret_cast<Count>(GetProcAddress(hip, "hipGetDeviceCount"));
+		const auto luid = reinterpret_cast<Luid>(GetProcAddress(hip, "hipDeviceGetLuid"));
+		const auto name = reinterpret_cast<Name>(GetProcAddress(hip, "hipDeviceGetName"));
+		if (!count) { out += "error=hipGetDeviceCount missing\n"; return 3; }
+		int n{};
+		const int result = count(&n);
+		out += std::format("count={} result={}\n", n, result);
+		for (int i = 0; result == 0 && i < n && i < 64; ++i) {
+			char bytes[8]{}, gpu[256]{};
+			unsigned mask{};
+			const int luidResult = luid ? luid(bytes, &mask, i) : -1;
+			if (name) { name(gpu, sizeof(gpu), i); }
+			std::uint64_t value{};
+			static_assert(sizeof(value) == sizeof(bytes));
+			std::memcpy(&value, bytes, sizeof(value));
+			for (auto& c : gpu) { if (c == '\n' || c == '\r') { c = ' '; } }
+			out += std::format("device {} luid={:016X} luid-result={} name={}\n", i, value, luidResult, gpu);
+		}
+		return result == 0 ? 0 : 4;
+	}
+
+	// Windows' own rundll32, which runs the probe exported from TRP's DLL.
+	inline std::filesystem::path Rundll32()
+	{
+		wchar_t system[MAX_PATH]{};
+		const auto length = GetSystemDirectoryW(system, MAX_PATH);
+		return length && length < MAX_PATH ? std::filesystem::path(system) / L"rundll32.exe" : std::filesystem::path{};
+	}
+
+	// "<rundll32>" "<TRP DLL>",TRPHipProbe  (rundll32 picks the Unicode TRPHipProbeW export).
+	inline std::wstring ProbeCommand(const std::filesystem::path& rundll32, const std::filesystem::path& dll)
+	{
+		return L"\"" + rundll32.wstring() + L"\" \"" + dll.wstring() + L"\",TRPHipProbe";
+	}
+
+	// Runs the probe without a window and returns its standard output.
 	// Only the pipe's write end is inherited; the probe is killed at the timeout.
-	inline std::string Run(const std::filesystem::path& exe, DWORD timeoutMs, DWORD& exitCode, std::string& failure) {
+	inline std::string Run(const std::filesystem::path& application, std::wstring command, DWORD timeoutMs,
+		DWORD& exitCode, std::string& failure) {
 	    SECURITY_ATTRIBUTES security{ sizeof(security), nullptr, TRUE };
 	    HANDLE read{}, write{};
 	    if (!CreatePipe(&read, &write, &security, 1 << 16)) { failure = std::format("pipe failed ({})", GetLastError()); return {}; }
@@ -142,9 +196,8 @@ namespace TheosRenderPipeline::HipDevicePin
 	    startup.StartupInfo.hStdOutput = write; startup.StartupInfo.hStdError = write;
 	    startup.lpAttributeList = listed ? attributes : nullptr;
 	    PROCESS_INFORMATION process{};
-	    std::wstring command = L"\"" + exe.wstring() + L"\"";
-	    const BOOL started = listed && CreateProcessW(exe.c_str(), command.data(), nullptr, nullptr, TRUE,
-			CREATE_NO_WINDOW | EXTENDED_STARTUPINFO_PRESENT, nullptr, exe.parent_path().c_str(), &startup.StartupInfo, &process);
+	    const BOOL started = listed && CreateProcessW(application.c_str(), command.data(), nullptr, nullptr, TRUE,
+			CREATE_NO_WINDOW | EXTENDED_STARTUPINFO_PRESENT, nullptr, application.parent_path().c_str(), &startup.StartupInfo, &process);
 	    const DWORD startError = started ? 0 : GetLastError();
 	    if (listed) { DeleteProcThreadAttributeList(attributes); }
 	    CloseHandle(write);
