@@ -1,6 +1,6 @@
 # Theo's Render Pipeline — Universal, 0.7.2
 
-Version 0.7.2 Beta 1 adds Neural Rendering on AMD Radeon (HIP/ZLUDA by default
+Version 0.7.2 Beta 2 adds Neural Rendering on AMD Radeon (HIP/ZLUDA by default
 and an experimental Vulkan engine) and FSR 4 on Radeon RX 6000 or newer. It is a beta; 0.6.5 remains the main release.
 See CHANGELOG.md and the AMD section at the end of this file.
 

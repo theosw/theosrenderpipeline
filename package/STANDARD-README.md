@@ -1,6 +1,6 @@
 # Theo's Render Pipeline — Standard, 0.7.2
 
-Version 0.7.2 Beta 1 is the AMD Radeon NR and FSR 4 beta. The Radeon backends are in
+Version 0.7.2 Beta 2 is the AMD Radeon NR and FSR 4 beta. The Radeon backends are in
 Universal; Standard lists them greyed out. It is a beta; 0.6.5 remains the main
 release. See CHANGELOG.md.
 

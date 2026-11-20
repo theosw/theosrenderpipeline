@@ -1,3 +1,8 @@
+# 0.7.2 Beta 2
+
+- The log now lists every GPU Windows reports at startup, including an
+  integrated GPU next to the graphics card, and marks the one Skyrim renders on.
+
 # 0.7.2 Beta 1
 
 - AMD Radeon NR (Universal) now runs with Community Shaders and Bottled Shaders,
