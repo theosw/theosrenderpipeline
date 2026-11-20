@@ -3,7 +3,7 @@
 Rendering integration for Skyrim: NVIDIA DLSS/DLAA and frame generation,
 experimental Intel XeSS upscaling and XeFG frame generation, optional Neural
 Rendering (NR), and native-resolution menus and HUD. Current version:
-**0.7.2 Beta 2**, the AMD Radeon NR and FSR 4 beta; 0.6.5 remains the main release.
+**0.7.2 Beta 3**, the AMD Radeon NR and FSR 4 beta; 0.6.5 remains the main release.
 See [CHANGELOG.md](CHANGELOG.md) for release changes.
 
 Universal adds experimental Neural Rendering on GTX 10 (Pascal, sm_61), using
@@ -128,8 +128,13 @@ after a restart. Settings saved by an older test build can start the wrong
 backend, so delete `TheosRenderPipeline.User.ini` from MO2's Overwrite folder
 when coming from one.
 
-**Reports.** An earlier HIP crash was reportedly avoided by disabling the
-integrated GPU; the cause is not confirmed. If something goes wrong, copy
+**Integrated graphics.** HIP/ZLUDA has crashed inside AMD's HIP driver on PCs
+with a Ryzen CPU's integrated graphics enabled next to the Radeon card. Since
+0.7.2 Beta 3 TRP limits HIP to Skyrim's GPU on such PCs (log line "AMD NR GPU
+pin"). If HIP/ZLUDA still crashes, disable the integrated GPU in Device Manager
+(Display adapters) or choose Vulkan.
+
+**Reports.** If something goes wrong, copy
 `TheosRenderPipeline.log` from `Documents\My Games\Skyrim Special Edition\SKSE`
 before starting Skyrim again, and include your GPU and driver version.
 

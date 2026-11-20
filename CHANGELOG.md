@@ -1,3 +1,11 @@
+# 0.7.2 Beta 3
+
+- HIP/ZLUDA NR on PCs with a second AMD GPU, such as a Ryzen CPU's integrated
+  graphics: TRP now limits HIP to the GPU Skyrim renders on. HIP/ZLUDA has crashed
+  inside AMD's HIP driver on such PCs. A small helper in the AMDNR folder,
+  TRPHipProbe.exe, lists HIP's GPUs so TRP can pick the right one; the log line
+  "AMD NR GPU pin" says what it did. Not yet tested on such a PC.
+
 # 0.7.2 Beta 2
 
 - The log now lists every GPU Windows reports at startup, including an
