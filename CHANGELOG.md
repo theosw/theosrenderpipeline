@@ -1,3 +1,16 @@
+# 0.7.2 Beta 4
+
+- Bottled Shaders' Camera FX: with frame generation on, rain, frost and blood on
+  the lens are drawn into a layer under the HUD, as Bottled does for its own
+  frame generation, and no longer onto the scene. 0.7.1 put them in the scene
+  picture, so generated frames moved them with the world; now frame generation
+  sees them the way it sees the HUD. TRP redirects one Bottled function in
+  memory, only on builds where it finds that function exactly (checked: Bottled
+  Shaders V2 2.0.1); otherwise nothing changes and the log says so. The file on
+  disk is untouched. Lab > Bottled lens effects puts them back on the scene.
+  Camera FX's full-screen effects (tints, fades, blur) and Skyrim's screen
+  blood stay in the scene picture as in 0.7.1. Not yet tested in game.
+
 # 0.7.2 Beta 3
 
 - HIP/ZLUDA NR on PCs with a second AMD GPU, such as a Ryzen CPU's integrated

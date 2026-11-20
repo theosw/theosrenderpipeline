@@ -39,6 +39,11 @@ namespace TheosRenderPipeline
             if (depth_ && !worldSeen_) { worldSeen_ = true; scene(); }
         }
 
+        // Inside an interface call whose world-completion call is still to
+        // come, or which will be followed by the menus-hidden scene read: what
+        // is on the scene now is still read and may still be drawn under the HUD.
+        bool BeforeMenus() const { return worldHook_ && depth_ && !worldSeen_; }
+
         template <class Complete>
         void BeforePresent(bool test, bool directFramebuffer, Complete&& complete)
         {

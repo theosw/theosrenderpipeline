@@ -247,6 +247,16 @@ otherwise TRP owns upscaling, with optional ENB. With CS, both editions include 
 CS settings override that keeps CS frame generation and Reflex off; CS retains
 its shading, upscaling, UI and HDR output. CS builds without an Overrides tab
 need both turned off by hand.
+With Bottled Shaders' Camera FX and frame generation on, TRP has Bottled draw its
+lens effects (rain, frost, blood on the lens) into a layer under the HUD, as Bottled
+does for its own frame generation, and no longer onto the scene. Frame generation then
+sees them the way it sees the HUD; how that looks in motion is not yet tested in game.
+TRP redirects one Bottled function in memory, only on builds where it finds that
+function exactly (checked: Bottled Shaders V2 2.0.1); `TheosRenderPipeline.log` says
+whether it did, and `CommunityShaders.dll` on disk is untouched. **Lab > Bottled lens
+effects** (`[CommunityShaders] LensEffects`) puts them back on the scene. With CS HDR
+Display the lens overlay goes onto CS's own interface surface with the HUD, while its
+light effects (sun and moon glare, embers) stay on the scene.
 Keep SSE ReShade Helper disabled when using TRP's ReShade integration. Use one shading
 setup per profile and disable competing upscaler/frame-generation injectors.
 

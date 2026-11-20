@@ -13,6 +13,7 @@
 #include "D3D11FrameCopy.h"
 #include "SourceDLSSGSession.h"
 #include "DlssgPreset.h"
+#include "CommunityLensMode.h"
 #include "SourceDLSSGNeuralState.h"
 #include "RuntimeStateDiagnostics.h"
 #if !defined(TRP_NO_NEURAL_RENDERING)
@@ -176,6 +177,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 		bool XeFGModelBeatRequested() const { return xefgModelBeatRequested_.load(std::memory_order_relaxed); }
 		const char* XeFGModelBeatUnavailable() const;
         void ConfigureXeFGVSyncCadence(bool enabled) { xefgVSyncCadence_.store(enabled, std::memory_order_relaxed); }
+        // Community Shaders route: where Bottled's Camera FX lens overlay is drawn.
+        void ConfigureCommunityLens(CommunityLensMode mode) { communityLens_.store(mode, std::memory_order_relaxed); }
+        CommunityLensMode CommunityLens() const { return communityLens_.load(std::memory_order_relaxed); }
         bool XeFGVSyncCadence() const { return xefgVSyncCadence_.load(std::memory_order_relaxed); }
         const char* XeFGVSyncCadenceUnavailable() const;
 		// Lab A/B, not saved: NVIDIA's next frame waits for frame generation's
@@ -363,6 +367,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		std::atomic<DlssgPreset> preset_{ DlssgPreset::B };
 		std::atomic<bool> releaseForPreset_{};
 		std::atomic<bool> xefgVSyncCadence_{};
+        std::atomic<CommunityLensMode> communityLens_{ CommunityLensMode::WithHUD };
         std::atomic<bool> xefgFrameTime_{ true }, xefgOnlyGenerated_{}, xefgTagGenerated_{}, xefgGpuInputWait_{}, xefgFlipMetering_{true};
 		std::atomic<float> xefgSceneChange_{ XeFGDefaultSceneChangeThreshold };
 		std::atomic<bool> nvidiaOverlapNextFrame_{};

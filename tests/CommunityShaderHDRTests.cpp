@@ -263,6 +263,7 @@ int main(int argc, char** argv)
         const auto before = f.overlays;
         bool engineFinished = false;
         f.boundary.DrawInterface(true, [&] {
+            Require(!f.boundary.BeforeMenus(), "without the world-completion hook nothing is promised a place under the HUD");
             // A nested engine interface call must not finish UI prematurely.
             f.boundary.DrawInterface(true, [] {}, noScene, [&] { Require(false, "nested completion"); return false; });
             engineFinished = true;
@@ -333,11 +334,14 @@ int main(int argc, char** argv)
             ++scenes;
             Require(f.frame.RefreshScene(f.context.Get()) == S_OK, "late scene refresh");
         };
+        Require(!late.BeforeMenus(), "outside the interface nothing can be drawn under the HUD");
         late.DrawInterface(hidden, [&] {
             // An interface entry hook draws on the completed scene first.
+            Require(late.BeforeMenus(), "an entry hook runs before the menus");
             f.context->ClearRenderTargetView(f.sceneRTV.Get(), lens);
             if (!hidden) {
                 late.WorldCompleted(refresh);
+                Require(!late.BeforeMenus(), "after world completion the menus are being drawn");
                 late.WorldCompleted(refresh);
                 Require(scenes == 1, "world completion refreshes once");
             }

@@ -393,7 +393,7 @@ opening CS, temporarily disable TRP, start Skyrim and turn Frame Generation off
 under CS Upscaling. Close Skyrim, re-enable TRP and restart. You can then enable
 the Baseline pack on newer CS and restart again. TRP does not change CS's settings files.
 
-Bottled Shaders' default post-processing preset turns on Depth of Field, lens flare and colour grading; if near objects look blurred, turn off Depth of Field under Post Processing.
+Bottled Shaders' default post-processing preset turns on Depth of Field, lens flare and colour grading; if near objects look blurred, turn off Depth of Field under Post Processing. With Bottled's Camera FX and frame generation on, TRP has Bottled draw its lens effects (rain, frost, blood on the lens) into a layer under the HUD, so frame generation sees them the way it sees the HUD (not yet tested in game). This works on Bottled builds TRP recognises (checked: V2 2.0.1), changes nothing on disk, and Lab > Bottled lens effects turns it off.
 
 Assign CS a separate menu key,
 such as F8, avoiding keys already assigned to ReShade or capture tools. TRP keeps End

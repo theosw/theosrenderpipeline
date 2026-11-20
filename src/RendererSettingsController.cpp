@@ -210,6 +210,7 @@ RendererSettingsResult RendererSettingsController::Apply(const RendererSettingsD
         source.ConfigureXeFGTensor(frameGen_.settings.sourceDLSSG.xefgTensorCores);
         // A running XeFG presenter is recreated with or without even pacing.
         source.ConfigureXeFGVSyncCadence(frameGen_.settings.sourceDLSSG.xefgEvenPacing);
+        source.ConfigureCommunityLens(frameGen_.settings.sourceDLSSG.communityLens);
         source.ConfigureOutputFPSLimit(frameGen_.settings.sourceDLSSG.outputFPSLimit);
         source.ConfigureFrameLimit(frameGen_.settings.sourceDLSSG.frameLimit);
         source.ConfigureGeneration(frameGen_.settings.sourceDLSSG.generation);

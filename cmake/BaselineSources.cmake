@@ -66,6 +66,10 @@ set(ARP_BASELINE_SOURCES
     src/FrameGen/D3D11ContextIsolation.h
     src/FrameGen/FinalFrameCapture.h
     src/FrameGen/CommunityShaderFrame.h
+    src/FrameGen/CommunityShaderLens.h
+    src/FrameGen/CommunityLensMode.h
+    src/FrameGen/BottledLensTarget.h
+    src/FrameGen/BottledLensPatch.h
     src/FrameGen/CommunityShaderAdapter.h
     src/FrameGen/CommunityShaderAdapter.cpp
     src/FrameGen/SourceNvidiaEvaluation.cpp
