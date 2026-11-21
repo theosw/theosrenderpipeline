@@ -227,6 +227,7 @@ void OverlayUI::DrawImagePanel(float tabCardHeight, const FrameView& view)
         const bool vendorNeutral = xess || fsr;
         const bool native = settingsDraft.upscaleType == DLAA;
         const float label = ImageLabelWidth();
+        DrawOverrideNotice(view.upscaleAlertText.c_str());
         if (BeginSettingRows("upscaling", label))
         {
             {

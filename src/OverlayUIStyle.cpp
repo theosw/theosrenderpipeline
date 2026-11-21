@@ -269,6 +269,14 @@ namespace TheosRenderPipeline::Overlay
 		ImGui::TextColored(HealthColor(a_health), "%s", a_label);
 	}
 
+	void DrawOverrideNotice(const char* a_text)
+	{
+		if (!a_text || !*a_text) { return; }
+		ImGui::PushStyleColor(ImGuiCol_Text, kRust);
+		ImGui::TextWrapped("%s", a_text);
+		ImGui::PopStyleColor();
+	}
+
 	void DrawBadge(const char* a_label, const ImVec4& a_color)
 	{
 		ImGui::PushStyleColor(ImGuiCol_Text, a_color);

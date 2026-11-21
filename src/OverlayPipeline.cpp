@@ -137,7 +137,12 @@ SettingsPage DrawPipelineDiagram(const PipelineDiagram& diagram)
         draw->PopClipRect();
         if (hovered)
         {
-            ImGui::SetTooltip("%s", stage.tooltip);
+            // Wrapped: NVIDIA App explanations run to several sentences.
+            ImGui::BeginTooltip();
+            ImGui::PushTextWrapPos(ImGui::GetFontSize() * 36.0f);
+            ImGui::TextUnformatted(stage.tooltip);
+            ImGui::PopTextWrapPos();
+            ImGui::EndTooltip();
             if (stage.page != SettingsPage::None)
             {
                 ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);

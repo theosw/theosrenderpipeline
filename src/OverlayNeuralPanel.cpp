@@ -1444,6 +1444,7 @@ void OverlayUI::DrawNeuralRenderingPanel(float height, const FrameView& view)
                         state.failed   ? UIHealth::kError
                         : state.active ? UIHealth::kHealthy
                                        : UIHealth::kIdle);
+        DrawOverrideNotice(view.neuralAlertText.c_str());
         const auto& timing = state.telemetry;
         const auto interval = TheosRenderPipeline::NeuralRendering::ModelRateInterval(
             TheosRenderPipeline::NeuralRendering::EffectiveModelRate(applied.reconstruction.modelRate));
