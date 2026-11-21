@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.21)
 
 project(
 	TheosRenderPipeline
-	VERSION 0.7.1
+	VERSION 0.7.2
 	LANGUAGES C CXX
 )
 
@@ -62,7 +62,7 @@ if(TRP_ENABLE_NEURAL_RENDERING)
     target_sources(TheosRenderPipeline PRIVATE ${ARP_NEURAL_SOURCES})
     if(TRP_ENABLE_OPTIONAL_FEATURES)
         target_compile_definitions(TheosRenderPipeline PRIVATE TRP_VENDOR_NEUTRAL_NR)
-        target_sources(TheosRenderPipeline PRIVATE src/FrameGen/VulkanNRHost.cpp)
+        target_sources(TheosRenderPipeline PRIVATE src/FrameGen/VulkanNRHost.cpp src/FrameGen/HipProbeExport.cpp)
     else()
         target_sources(TheosRenderPipeline PRIVATE src/FrameGen/VulkanNRHostDisabled.cpp)
     endif()
@@ -289,6 +289,13 @@ add_custom_target(ARPBaseline DEPENDS TheosRenderPipeline)
 option(TRP_BUILD_COMPATIBILITY_TESTS "Build offline runtime and frame contract checks" OFF)
 if(TRP_BUILD_COMPATIBILITY_TESTS)
     enable_testing()
+    add_executable(TRPHipDevicePinTests tests/HipDevicePinTests.cpp)
+    target_compile_features(TRPHipDevicePinTests PRIVATE cxx_std_23)
+    target_compile_definitions(TRPHipDevicePinTests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
+    target_include_directories(TRPHipDevicePinTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    add_dependencies(TRPHipDevicePinTests TheosRenderPipeline)
+    # Runs the real probe: rundll32 on the built renderer DLL (the export is Universal only).
+    add_test(NAME HipDevicePin COMMAND TRPHipDevicePinTests $<TARGET_FILE:TheosRenderPipeline>)
     add_executable(TRPAmdAdapterSelectionTests tests/AmdAdapterSelectionTests.cpp)
     target_compile_features(TRPAmdAdapterSelectionTests PRIVATE cxx_std_17)
     target_include_directories(TRPAmdAdapterSelectionTests PRIVATE src)
@@ -615,6 +622,12 @@ if(TRP_BUILD_COMPATIBILITY_TESTS)
             RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/module-fixtures/${module}"
             ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/module-fixtures/${module}")
     endforeach()
+    add_executable(TRPAdapterInventoryTests tests/AdapterInventoryTests.cpp)
+    target_compile_features(TRPAdapterInventoryTests PRIVATE cxx_std_23)
+    target_compile_definitions(TRPAdapterInventoryTests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    target_include_directories(TRPAdapterInventoryTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_link_libraries(TRPAdapterInventoryTests PRIVATE dxgi)
+    add_test(NAME AdapterInventory COMMAND TRPAdapterInventoryTests)
     add_executable(TRPPluginPathsTests tests/PluginPathsTests.cpp)
     target_compile_features(TRPPluginPathsTests PRIVATE cxx_std_23)
     target_compile_definitions(TRPPluginPathsTests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)

@@ -106,7 +106,7 @@ namespace TheosRenderPipeline::SourceDLSSG
         // Check every creation queue before releasing any feature.
         if (!RecoverySafe()) { return false; }
         background_.schedule.Close();
-        if (amd_) { amd_.reset(); return true; }
+        if (amd_) { amd_.reset(); hipEncoded_.Reset(); hipRestored_.Reset(); hipProducer_ = false; return true; }
         if (!feature_.ReleaseAfterRetirement()) { status_ = feature_.Status(); return false; }
         background_.schedule.Drained();
         for (auto& extra : extra_) {
@@ -400,6 +400,54 @@ namespace TheosRenderPipeline::SourceDLSSG
 		return true;
 	}
 
+    bool NeuralPass::RecordHIPProducer(ID3D12Device* device, ID3D12GraphicsCommandList* list, std::size_t slot,
+        const NeuralOptions& options, bool reset, bool depthInverted, float scaleX, float scaleY,
+        ID3D12Resource* motion, ID3D12Resource* depth, ID3D12Resource* hudless)
+    {
+        if (!device || !list || !hudless) { status_ = "HIP/ZLUDA producer colour input is incomplete"; return false; }
+        const auto desc = hudless->GetDesc();
+        if (!hipEncoded_ || !SameSize(hipEncoded_.Get(), hudless) || hipEncoded_->GetDesc().Format != desc.Format) {
+            // A size or format change also recreates the HIP session (NeedsRecreation),
+            // which retires these before a different producer frame reaches them.
+            hipEncoded_.Reset(); hipRestored_.Reset();
+            if (FAILED(resolve_.Initialize(device))) { status_ = "HIP/ZLUDA producer colour kernels failed"; return false; }
+            auto create = [&](Microsoft::WRL::ComPtr<ID3D12Resource>& out) {
+                auto texture = desc; texture.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+                D3D12_HEAP_PROPERTIES heap{}; heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+                return SUCCEEDED(device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &texture,
+                    D3D12_RESOURCE_STATE_COMMON, nullptr, IID_PPV_ARGS(&out)));
+            };
+            if (!create(hipEncoded_) || !create(hipRestored_)) {
+                hipEncoded_.Reset(); hipRestored_.Reset();
+                status_ = "HIP/ZLUDA producer colour allocation failed"; return false;
+            }
+        }
+        const auto reconstruction = NeuralRendering::SanitizeReconstruction(options.reconstruction);
+        ResolveConstants constants;
+        constants.sourceWidth = constants.targetWidth = constants.workWidth = static_cast<UINT>(desc.Width);
+        constants.sourceHeight = constants.targetHeight = constants.workHeight = desc.Height;
+        constants.producerColor = 1;
+        constants.transferStrength = reconstruction.transferStrength; constants.colourStrength = reconstruction.colourStrength;
+        constants.maxRatio = reconstruction.maxRatio; constants.whitePoint = reconstruction.whitePoint;
+        constants.encodedFormat = desc.Format == DXGI_FORMAT_R16G16B16A16_FLOAT ? 1 : desc.Format == DXGI_FORMAT_R8G8B8A8_UNORM ? 2 : 0;
+        constants.guideWidth = static_cast<UINT>(motion ? motion->GetDesc().Width : desc.Width);
+        constants.guideHeight = motion ? motion->GetDesc().Height : desc.Height;
+        // The kernels take every resource in COMMON and leave it there, as HIP does.
+        constants.mode = 0;
+        if (const auto hr = resolve_.Record(device, list, slot, 0, ResolveKernel::Ratio, constants, hudless, nullptr, nullptr,
+            hipEncoded_.Get()); FAILED(hr)) {
+            status_ = std::format("HIP/ZLUDA producer colour encode failed 0x{:08X}", static_cast<UINT>(hr)); return false;
+        }
+        if (!amd_->Record(device, list, options, reset, depthInverted, scaleX, scaleY, motion, depth, hipEncoded_.Get())) { return false; }
+        // A refused frame copies its input to the output: no change to restore.
+        constants.mode = 1;
+        if (const auto hr = resolve_.Record(device, list, slot, 3, ResolveKernel::Ratio, constants, hipEncoded_.Get(), amd_->Output(),
+            hudless, hipRestored_.Get()); FAILED(hr)) {
+            status_ = std::format("HIP/ZLUDA producer colour restore failed 0x{:08X}", static_cast<UINT>(hr)); return false;
+        }
+        return true;
+    }
+
 	bool NeuralPass::Record(ID3D12Device* device, ID3D12GraphicsCommandList* list, std::size_t slot,
 		const NeuralOptions& options, bool reset, bool depthInverted, float scaleX, float scaleY,
 		ID3D12Resource* motion, ID3D12Resource* depth, ID3D12Resource* ui,
@@ -420,6 +468,11 @@ namespace TheosRenderPipeline::SourceDLSSG
                     else if (level == 1) { logger::warn("[AMD NR] {}", text); }
                     else { logger::info("[AMD NR] {}", text); }
                 };
+            }
+            status_.clear(); // HIP reports its own status; this pass only its producer wrapper's errors.
+            hipProducer_ = options.reconstruction.producerColor;
+            if (hipProducer_) {
+                return RecordHIPProducer(device, list, slot, options, reset, depthInverted, scaleX, scaleY, motion, depth, hudless);
             }
             return amd_->Record(device, list, options, reset, depthInverted, scaleX, scaleY, motion, depth, hudless);
         }
@@ -707,22 +760,58 @@ namespace TheosRenderPipeline::SourceDLSSG
 			marks.End(D3D12Stage::kNeuralPrepare);
 			marks.Begin(D3D12Stage::kNeuralInference);
 			if (gpuTiming) { list->EndQuery(timestampHeap_.Get(), D3D12_QUERY_TYPE_TIMESTAMP, query); }
-			// Strength is source-owned, unlike the provider's tone/structure controls.
-			// Blend before the next pass reads this output, retaining that pass's input
-			// at zero. Each pass owns its scratch texture and retired-slot descriptors.
-			// The existing chain timing includes these blends and extra-pass preparation.
-			auto applyObjectStrength = [&](unsigned pass, const NeuralRendering::FeatureSession::EvaluationInput& evaluation) {
+			auto ensurePassScratch = [&](unsigned pass, ID3D12Resource* output) {
+				auto& result = passScratch_[pass];
+				if (!result) {
+					D3D12_HEAP_PROPERTIES heap{}; heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+					const auto desc = output->GetDesc();
+					const auto hr = device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc,
+						common, nullptr, IID_PPV_ARGS(&result));
+					if (FAILED(hr)) { status_ = "NR per-pass composition scratch allocation failed"; }
+				}
+				return result.Get();
+			};
+			auto applyIntensityBoost = [&](unsigned pass, const NeuralRendering::FeatureSession::EvaluationInput& evaluation) {
+				if (backend_ != NeuralRendering::Backend::Native) { return true; }
+				// With object controls NGX reads the absolute tuning from the mask.
+				// Intensity is still shared across groups, so use the effective setting.
+				const float intensity = NeuralRendering::SanitizeIntensity(
+					pass ? options.EffectiveExtra(pass - 1).tuning.intensity : options.tuning.intensity);
+				if (intensity <= 1) { return true; }
+				if (FAILED(resolve_.Initialize(device))) { status_ = "NR intensity boost initialization failed"; return false; }
+				const auto desc = evaluation.output->GetDesc();
+				ResolveConstants boost;
+				boost.targetWidth = static_cast<UINT>(desc.Width);
+				boost.targetHeight = desc.Height;
+				boost.intensity = intensity;
+				const auto kernel = resolve_.IntensityKernel(desc.Format);
+				const auto stage = NeuralResolveKernels::IntensityStage(pass);
+				// DLSSNR.Color is the model's base here, including the prepared proxy
+				// or the resized previous result. Boost before blending/restoring.
+				if (kernel != ResolveKernel::BoostIntensity) {
+					if (SUCCEEDED(resolve_.Record(device, list, slot, stage, kernel, boost,
+						evaluation.color, nullptr, nullptr, evaluation.output))) { return true; }
+				} else if (auto* scratch = ensurePassScratch(pass, evaluation.output)) {
+					Barriers{list}.Add(evaluation.color, read, common).Add(evaluation.output, write, common).Flush();
+					if (SUCCEEDED(resolve_.Record(device, list, slot, stage, kernel, boost,
+						evaluation.color, evaluation.output, nullptr, scratch)) &&
+						SUCCEEDED(Interop::RecordCopy(list, scratch, evaluation.output))) {
+						Barriers{list}.Add(evaluation.color, common, read).Add(evaluation.output, common, write).Flush();
+						return true;
+					}
+				}
+				status_ = std::format("NR pass {} intensity boost recording failed", pass + 1);
+				return false;
+			};
+			// Strength is source-owned. Blend the boosted result with this pass's
+			// input before the next pass reads it, retaining that input at zero.
+			auto finishEvaluation = [&](unsigned pass, const NeuralRendering::FeatureSession::EvaluationInput& evaluation) {
+				if (!applyIntensityBoost(pass, evaluation)) { return false; }
 				if (!objectMask) { return true; }
 				const auto strengths = options.objectMasks.passes[pass].Strengths();
 				if (std::all_of(strengths.begin(), strengths.end(), [](float value) { return value == 1; })) { return true; }
-				auto& result = passObjectResult_[pass];
-				if (!result) {
-					D3D12_HEAP_PROPERTIES heap{}; heap.Type = D3D12_HEAP_TYPE_DEFAULT;
-					const auto desc = evaluation.output->GetDesc();
-					const auto hr = device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc,
-						common, nullptr, IID_PPV_ARGS(&result));
-					if (FAILED(hr)) { status_ = "NR per-pass object-result allocation failed"; return false; }
-				}
+				auto* result = ensurePassScratch(pass, evaluation.output);
+				if (!result) { return false; }
 				// Raw depth remains readable when used directly by the first model;
 				// peripheral preparation instead left it COMMON. Other guides stay put.
 				const bool rawDepthRead = featureDepth == depth;
@@ -733,9 +822,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 				NeuralRendering::ObjectBlendRequest request;
 				request.strength = strengths;
 				const auto hr = passObjectBlend_[pass].Record(device, list, slot, request,
-					evaluation.color, evaluation.output, objectMask, depth, result.Get(), objectMaskGuideOffset,
+					evaluation.color, evaluation.output, objectMask, depth, result, objectMaskGuideOffset,
 					reconstruction.peripheralCompression);
-				if (FAILED(hr) || FAILED(Interop::RecordCopy(list, result.Get(), evaluation.output))) {
+				if (FAILED(hr) || FAILED(Interop::RecordCopy(list, result, evaluation.output))) {
 					status_ = std::format("NR pass {} object-strength composition failed", pass + 1); return false;
 				}
 				Barriers after{list};
@@ -758,11 +847,11 @@ namespace TheosRenderPipeline::SourceDLSSG
                 if(evaluated) { Barriers after{list};transitionInputs(after,common,read);after.Add(featureOutput,common,write).Flush(); }
             } else { evaluated=feature_.RecordEvaluation(input); }
 			if (!evaluated) { status_ = feature_.Status(); }
-			if (evaluated) { evaluated = applyObjectStrength(0, input); }
+			if (evaluated) { evaluated = finishEvaluation(0, input); }
 			for (int pass = 1; evaluated && pass < effectivePasses; ++pass) {
 				auto& evaluation = extras[pass - 1];
 				evaluated = RecordExtra(device, list, slot, pass, options, input, previous, constants, motion, depth, ui, evaluation);
-				if (evaluated) { evaluated = applyObjectStrength(pass, evaluation); }
+				if (evaluated) { evaluated = finishEvaluation(pass, evaluation); }
 				// Every pass but the last is restored here for the next; the last after timing.
 				if (evaluated && pass + 1 < effectivePasses) {
 					evaluated = FinishExtra(device, list, slot, pass, input, previous, evaluation, constants, &previous);

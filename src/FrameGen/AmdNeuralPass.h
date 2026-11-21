@@ -63,6 +63,8 @@ namespace TheosRenderPipeline::SourceDLSSG {
     private:
         bool Initialize(ID3D12Device* device);
         bool VerifyHipAdapter(ID3D12Device* device);
+        // Before HIP loads: restrict it to Skyrim's GPU when Windows reports another AMD GPU.
+        void PinHipToRenderingGpu(LUID rendering);
         void Refresh();
         void CopyOriginal(ID3D12GraphicsCommandList* list, ID3D12Resource* color);
         static void Log(void* self, int level, const char* text);

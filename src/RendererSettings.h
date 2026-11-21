@@ -101,10 +101,12 @@ inline const char* NeuralSettingsUnavailable(int mode, RendererSettingsCapabilit
     if (capabilities.backend == NeuralRendering::Backend::HIP) {
         if (!capabilities.amdAdapter) return NeuralRendering::kHIPGPUReason;
         if (capabilities.amdNeuralPrerequisite) return capabilities.amdNeuralPrerequisite;
-        if (mode != XeSS || !capabilities.xeSSReady || capabilities.externalWorld) return NeuralRendering::kHIPUpscalerReason;
+        // Community Shaders upscales on its own route; HIP's world pass runs before it.
+        if (!capabilities.externalWorld && (mode != XeSS || !capabilities.xeSSReady)) return NeuralRendering::kHIPUpscalerReason;
     }
     if (NeuralRendering::TestBackend(capabilities.backend)) {
-        if (!((mode == XeSS && capabilities.xeSSReady) || (IsFSR(mode) && capabilities.fsrReady)) || capabilities.externalWorld) { return NeuralRendering::kVendorUpscalerReason; }
+        // Community Shaders upscales on its own route; the world pass runs before it.
+        if (!capabilities.externalWorld && !((mode == XeSS && capabilities.xeSSReady) || (IsFSR(mode) && capabilities.fsrReady))) { return NeuralRendering::kVendorUpscalerReason; }
     } else if (!capabilities.nvidiaAdapter) { return NeuralRendering::kNativeGPUReason; }
     if (capabilities.neuralAdmissionReason) { return capabilities.neuralAdmissionReason; }
     if (!capabilities.neuralRuntime) {

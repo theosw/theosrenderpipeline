@@ -30,7 +30,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			std::uint64_t timestampFrequency = 0, const D3D12StageMarks& marks = {}, ID3D12Resource* objectMask = nullptr,
             std::array<float,2> objectMaskGuideOffset = {},
 			std::array<float,2> colorJitter = {}, std::optional<std::uint32_t> applicationFrame = {}, Interop* splitInterop = nullptr, ID3D12CommandQueue* queue = nullptr);
-		ID3D12Resource* Corrected() const { return amd_ ? amd_->Output() : corrected_.Get(); }
+		ID3D12Resource* Corrected() const { return amd_ ? (hipProducer_ ? hipRestored_.Get() : amd_->Output()) : corrected_.Get(); }
         ID3D12Resource* Composed() const { return composed_.Get(); }
         unsigned VulkanJobsInFlight() const { return background_.schedule.InFlight(); }
         std::uint64_t VulkanResultAge() const { return background_.schedule.DisplayedAge(background_.frame); }
@@ -91,7 +91,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		bool RetireChangedModels(const NeuralOptions& options);
 		bool RecoverySafe() const;
         bool Preparing() const { return feature_.Preparing(); }
-        const std::string& Status() const { return amd_ ? amd_->Status() : status_; }
+        const std::string& Status() const { return amd_ && status_.empty() ? amd_->Status() : status_; }
 		bool ReleaseAfterRetirement();
 		// NGX refused to create Pass 1. Every initialization/recording refusal,
 		// including a later pass, is handled by the backend recovery owner.
@@ -187,6 +187,13 @@ namespace TheosRenderPipeline::SourceDLSSG
             ID3D12Resource*,ID3D12Resource*,ID3D12Resource*,std::array<float,2>,std::optional<std::uint32_t>,Interop*,ID3D12CommandQueue*);
         std::unique_ptr<AmdNeuralPass> amd_;
         bool adapterChecked_{}, amdAdapter_{};
+        // Community Shaders: HIP runs on producer colour encoded to its working
+        // range, and its change is restored onto the original (as native NR does).
+        bool RecordHIPProducer(ID3D12Device* device, ID3D12GraphicsCommandList* list, std::size_t slot,
+            const NeuralOptions& options, bool reset, bool depthInverted, float scaleX, float scaleY,
+            ID3D12Resource* motion, ID3D12Resource* depth, ID3D12Resource* hudless);
+        Microsoft::WRL::ComPtr<ID3D12Resource> hipEncoded_, hipRestored_;
+        bool hipProducer_{};
 		NeuralRendering::FeatureSession feature_;
 		// Passes 2 to 5. Each runs the model on the previous pass's result with its
 		// own feature, history and model raster, and is restored to Pass 1's grid
@@ -229,7 +236,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		bool HoldFrame(ID3D12Device* device, ID3D12GraphicsCommandList* list, bool freeze,
 			ID3D12Resource*& motion, ID3D12Resource*& depth, ID3D12Resource* hudless, ID3D12Resource*& objectMask, bool& reset);
         std::array<NeuralRendering::ObjectBlend,NeuralRendering::kMaxNeuralPasses> passObjectBlend_;
-        std::array<Microsoft::WRL::ComPtr<ID3D12Resource>,NeuralRendering::kMaxNeuralPasses> passObjectResult_;
+        std::array<Microsoft::WRL::ComPtr<ID3D12Resource>,NeuralRendering::kMaxNeuralPasses> passScratch_;
         NeuralRendering::ObjectControl objectControl_;
         std::array<bool,NeuralRendering::kMaxNeuralPasses> objectControlActive_{};
 		bool fusedColor_{};

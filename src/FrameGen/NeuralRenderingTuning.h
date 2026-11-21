@@ -20,11 +20,16 @@ namespace TheosRenderPipeline::NeuralRendering
 		bool operator==(const Tuning&) const = default;
 	};
 
+	inline float SanitizeIntensity(float value)
+	{
+		return std::isfinite(value) ? std::clamp(value, 0.0f, 2.0f) : 1.0f;
+	}
+
 	inline Tuning SanitizeTuning(Tuning a_tuning)
 	{
 		const auto unit = [](float value) { return std::isfinite(value) ? std::clamp(value, 0.0f, 1.0f) : 1.0f; };
 		a_tuning.style = std::clamp(a_tuning.style, 0, 2);
-		a_tuning.intensity = unit(a_tuning.intensity);
+		a_tuning.intensity = SanitizeIntensity(a_tuning.intensity);
 		a_tuning.localToneStrength = unit(a_tuning.localToneStrength);
 		a_tuning.localStructureStrength = unit(a_tuning.localStructureStrength);
 		a_tuning.skinStructureStrength = unit(a_tuning.skinStructureStrength);
@@ -41,7 +46,7 @@ namespace TheosRenderPipeline::NeuralRendering
 		// The runtime takes any style. On 310.8 and 310.9.16 every value from 2
 		// up gives Cinematic's exact output, but a later runtime may add styles.
 		value.style = std::clamp(value.style, 0, 255);
-		value.intensity = strength(value.intensity);
+		value.intensity = SanitizeIntensity(value.intensity);
 		value.localToneStrength = strength(value.localToneStrength);
 		value.localStructureStrength = strength(value.localStructureStrength);
 		value.skinStructureStrength = strength(value.skinStructureStrength, -1.0f);

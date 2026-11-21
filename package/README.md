@@ -1,6 +1,6 @@
-# Theo's Render Pipeline — Universal, 0.7.1
+# Theo's Render Pipeline — Universal, 0.7.2
 
-Version 0.7.1 Beta 1 adds Neural Rendering on AMD Radeon (HIP/ZLUDA by default
+Version 0.7.2 Beta 3 adds Neural Rendering on AMD Radeon (HIP/ZLUDA by default
 and an experimental Vulkan engine) and FSR 4 on Radeon RX 6000 or newer. It is a beta; 0.6.5 remains the main release.
 See CHANGELOG.md and the AMD section at the end of this file.
 
@@ -182,7 +182,7 @@ This package includes the full renderer, configuration and sharpening shader.
 It requires no other Theo's Render Pipeline package. NVIDIA DLLs are supplied
 separately: download the SR/FG files below, and the NR runtime if you want NR.
 Alternatively, install Standard first and Universal after it in MO2; Standard
-0.7.1 supplies the complete NVIDIA and Intel runtime bundles, including the
+0.7.2 supplies the complete NVIDIA and Intel runtime bundles, including the
 original NR 310.9.16 and the retained older NR runtime. Universal adds the
 compatibility pack and legacy INT8 alternative. In that setup,
 skip the runtime downloads below.
@@ -367,7 +367,8 @@ which includes Intel's runtimes and XeFG x2. Universal, installed after it, adds
 the experimental XeFG x3-x6 as well as the NVIDIA compatibility paths. With
 Community Shaders, CS upscales instead (FSR on AMD) and TRP adds XeFG. Keep AMD Fluid Motion
 Frames, Anti-Lag, Radeon Chill, Radeon Boost and other frame-generation or
-upscaler mods off. NR requires NVIDIA RTX hardware.
+upscaler mods off. Native NR requires NVIDIA RTX hardware; Universal adds NR on AMD
+Radeon (see the AMD section).
 
 ENB is optional. With Community Shaders, keep CS upscaling enabled. TRP provides
 FG/Reflex/NR while CS retains upscaling, render scale, sharpening and colour.
@@ -439,7 +440,7 @@ an RTX 4080 SUPER: ordinary 6.8.0.2158 and full add-on 6.8.0.2155, with
 early NR and x4. Sky Reflection Fix's ReShade registration was excluded;
 Rumble passed a separate initial test. Combined third-party add-ons,
 Standard gameplay and CS with ReShade remain unverified. These were earlier
-development builds; the exact 0.7.1 package has not been tested with ReShade.
+development builds; the exact 0.7.2 package has not been tested with ReShade.
 
 MartysMods ReGrade+ (ReShade 6.6 or newer) used to crash the game while TRP
 started ReShade: it prepares itself only in a device event that ReShade does not
@@ -570,7 +571,8 @@ On a Radeon the NR runtime list offers:
   translation cache; don't mix them with files from older test builds. Tested on
   an RX 7900 GRE. The kernels target RX 7000/9000 and include RX 6000
   translation coverage, but RX 6000 and RX 9000 are untested. HIP/ZLUDA needs
-  TRP's XeSS upscaling; FSR is greyed out for it until that combination is tested.
+  TRP's XeSS upscaling or Community Shaders; TRP's FSR is greyed out for it
+  until that combination is tested.
 - **Vulkan (experimental).** TRP's own engine, built from source. Needs a driver
   with Vulkan cooperative matrices (RX 7000/9000, Intel Arc, RTX); RX 6000 and
   older can't run it. The menu checks the GPU when you select Vulkan and explains
@@ -580,8 +582,8 @@ On a Radeon the NR runtime list offers:
   **Preparing Vulkan NR...**), which can take a few seconds.
 
 Both backends use the NVIDIA 310.9.16 model that Standard supplies, and run one
-world pass before upscaling. Community Shaders handles its own upscaling, so
-they are unavailable on that route.
+world pass before upscaling. With Community Shaders or Bottled Shaders they run
+before CS's own upscaling (since 0.7.2; HIP/ZLUDA has not run there on a Radeon yet).
 
 **Defaults and speed.** AMD defaults are Execution **Regular (wait)** and
 **NR input 50%**. On the RX 7900 GRE, HIP/ZLUDA took about 30–34 ms per NR run
@@ -598,7 +600,12 @@ after a restart. Settings saved by an older test build can start the wrong
 backend, so delete `TheosRenderPipeline.User.ini` from MO2's Overwrite folder
 when coming from one.
 
-**Reports.** An earlier HIP crash was reportedly avoided by disabling the
-integrated GPU; the cause is not confirmed. If something goes wrong, copy
+**Integrated graphics.** HIP/ZLUDA has crashed inside AMD's HIP driver on PCs
+with a Ryzen CPU's integrated graphics enabled next to the Radeon card. Since
+0.7.2 Beta 3 TRP limits HIP to Skyrim's GPU on such PCs (log line "AMD NR GPU
+pin"). If HIP/ZLUDA still crashes, disable the integrated GPU in Device Manager
+(Display adapters) or choose Vulkan.
+
+**Reports.** If something goes wrong, copy
 `TheosRenderPipeline.log` from `Documents\My Games\Skyrim Special Edition\SKSE`
 before starting Skyrim again, and include your GPU and driver version.

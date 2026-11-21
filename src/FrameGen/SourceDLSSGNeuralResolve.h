@@ -7,7 +7,7 @@
 namespace TheosRenderPipeline::SourceDLSSG
 {
 	enum class ResolveKernel : unsigned { Downsample, Residual, Ratio, PackDepth, PackMotion, PrepareColor, PackGuides, ResizeColor, RestoreSecond, Split, MeasureExposure, PrepareTone, FilterTone,
-		CaptureGuides, ComposeMotion, StoreChange, Reproject };
+		CaptureGuides, ComposeMotion, StoreChange, Reproject, BoostIntensity, BoostIntensityInPlace, BoostIntensityUNorm };
 	struct ResolveConstants
 	{
 		UINT sourceWidth{}, sourceHeight{}, targetWidth{}, targetHeight{};
@@ -32,10 +32,12 @@ namespace TheosRenderPipeline::SourceDLSSG
 		UINT categories{};
 		// The stored change's floor: multiplicative above it, additive below.
 		float changeFloor{};
+		float intensity{ 1 };
 	};
-	static_assert(sizeof(ResolveConstants) == 152);
-	// All resources enter and leave COMMON. Slot retirement is the caller's
-	// responsibility. Each dispatch in a frame needs a distinct stage index.
+	static_assert(sizeof(ResolveConstants) == 156);
+	// Resources enter and leave COMMON except for in-place intensity boost,
+	// which keeps the input readable and the model result writable. Each
+	// dispatch in a frame needs its own stage index in a retired slot.
 	class NeuralResolveKernels
 	{
 	public:
@@ -48,14 +50,17 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// Model rate: capture guides, compose motion, store the change, reproject it,
 		// and on a second skip in a row compose the motion back and capture it again.
 		static constexpr unsigned kModelRateStages = 6;
-		static constexpr unsigned kStages = kExtraStagesEnd + kModelRateStages;
+		static constexpr unsigned kBoostStagesBegin = kExtraStagesEnd + kModelRateStages;
+		static constexpr unsigned kStages = kBoostStagesBegin + NeuralRendering::kMaxNeuralPasses;
 		static constexpr unsigned ModelRateStage(unsigned step) { return kExtraStagesEnd + step; }
+		static constexpr unsigned IntensityStage(unsigned pass) { return kBoostStagesBegin + pass; }
 		// pass is 1 for Pass 2 up to 4 for Pass 5.
 		static constexpr unsigned ExtraPassStage(unsigned pass, unsigned step)
 		{
 			return pass <= 1 ? 7 + step : kBaseStages + kExtraPassSteps * (pass - 2) + step;
 		}
 		HRESULT Initialize(ID3D12Device* device);
+		ResolveKernel IntensityKernel(DXGI_FORMAT format) const;
 		// The measured white point bound at t3 for this frame's dispatches, or null.
 		void SetExposure(ID3D12Resource* exposure) { exposure_ = exposure; }
 		// Broad and Detail's blurred tone bound at t4 for the next dispatches, or null.
@@ -79,7 +84,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		std::array<std::array<DescriptorTable, kStages>, kCommandSlots> tables_;
 		std::uint64_t descriptorWrites_{};
 		Microsoft::WRL::ComPtr<ID3D12RootSignature> root_;
-		std::array<Microsoft::WRL::ComPtr<ID3D12PipelineState>, 17> pipelines_;
+		std::array<Microsoft::WRL::ComPtr<ID3D12PipelineState>, 20> pipelines_;
 		ID3D12Resource* exposure_{}; // Owned by the pass.
 		ID3D12Resource* tone_{}; // Owned by the pass.
 		std::array<std::array<Microsoft::WRL::ComPtr<ID3D12DescriptorHeap>, kStages>, kCommandSlots> heaps_;

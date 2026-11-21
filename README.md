@@ -3,7 +3,7 @@
 Rendering integration for Skyrim: NVIDIA DLSS/DLAA and frame generation,
 experimental Intel XeSS upscaling and XeFG frame generation, optional Neural
 Rendering (NR), and native-resolution menus and HUD. Current version:
-**0.7.1 Beta 1**, the AMD Radeon NR and FSR 4 beta; 0.6.5 remains the main release.
+**0.7.2 Beta 3**, the AMD Radeon NR and FSR 4 beta; 0.6.5 remains the main release.
 See [CHANGELOG.md](CHANGELOG.md) for release changes.
 
 Universal adds experimental Neural Rendering on GTX 10 (Pascal, sm_61), using
@@ -66,6 +66,10 @@ Resets, setting changes and Freeze frame run the model on that frame. It works b
 between real ones can look unevenly paced. The rate applies to every pass, switches live, is a weather override setting
 (`ModelRate`) and defaults to every frame (INI `NRModelRate`).
 
+In native NR, **Intensity** above 1 boosts the brightness and contrast changes
+made by each pass. TRP scales RGB together to preserve hue until a channel
+clips. Linked passes use Pass 1's value, and weather overrides can set Intensity
+per pass.
 
 ### Experimental NR object masks
 
@@ -95,7 +99,8 @@ On a Radeon the NR runtime list offers:
   translation cache; don't mix them with files from older test builds. Tested on
   an RX 7900 GRE. The kernels target RX 7000/9000 and include RX 6000
   translation coverage, but RX 6000 and RX 9000 are untested. HIP/ZLUDA needs
-  TRP's XeSS upscaling; FSR is greyed out for it until that combination is tested.
+  TRP's XeSS upscaling or Community Shaders; TRP's FSR is greyed out for it
+  until that combination is tested.
 - **Vulkan (experimental).** TRP's own engine, built from source. Needs a driver
   with Vulkan cooperative matrices (RX 7000/9000, Intel Arc, RTX); RX 6000 and
   older can't run it. The menu checks the GPU when you select Vulkan and explains
@@ -105,8 +110,8 @@ On a Radeon the NR runtime list offers:
   **Preparing Vulkan NR...**), which can take a few seconds.
 
 Both backends use the NVIDIA 310.9.16 model that Standard supplies, and run one
-world pass before upscaling. Community Shaders handles its own upscaling, so
-they are unavailable on that route.
+world pass before upscaling. With Community Shaders or Bottled Shaders they run
+before CS's own upscaling (since 0.7.2; HIP/ZLUDA has not run there on a Radeon yet).
 
 **Defaults and speed.** AMD defaults are Execution **Regular (wait)** and
 **NR input 50%**. On the RX 7900 GRE, HIP/ZLUDA took about 30–34 ms per NR run
@@ -123,8 +128,13 @@ after a restart. Settings saved by an older test build can start the wrong
 backend, so delete `TheosRenderPipeline.User.ini` from MO2's Overwrite folder
 when coming from one.
 
-**Reports.** An earlier HIP crash was reportedly avoided by disabling the
-integrated GPU; the cause is not confirmed. If something goes wrong, copy
+**Integrated graphics.** HIP/ZLUDA has crashed inside AMD's HIP driver on PCs
+with a Ryzen CPU's integrated graphics enabled next to the Radeon card. Since
+0.7.2 Beta 3 TRP limits HIP to Skyrim's GPU on such PCs (log line "AMD NR GPU
+pin"). If HIP/ZLUDA still crashes, disable the integrated GPU in Device Manager
+(Display adapters) or choose Vulkan.
+
+**Reports.** If something goes wrong, copy
 `TheosRenderPipeline.log` from `Documents\My Games\Skyrim Special Edition\SKSE`
 before starting Skyrim again, and include your GPU and driver version.
 
