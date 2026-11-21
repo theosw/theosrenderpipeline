@@ -19,6 +19,7 @@ namespace TheosRenderPipeline::StartupHints
         CompatibilityRuntimeUnsupported, // NVIDIA runtime differs from the supported build
         CompatibilityAdapterUnidentified, // NVAPI could not match the rendering GPU
         DriverTooOld, // RTX 20/30 frame generation needs a newer NVIDIA driver
+        DLSSUnavailable, // NVIDIA's DLSS runtime did not create its feature
     };
 
     // What the renderer actually observed when the failure happened.
@@ -30,6 +31,7 @@ namespace TheosRenderPipeline::StartupHints
         bool frameGenerationOverrideReported{}; // Streamline logged an NVIDIA frame-generation override
         bool hardwareSchedulingOff{}; // Windows reports HAGS explicitly disabled
         std::string otherOwner; // path of an already loaded same-name module from another folder
+        bool smoothMotion{}; // the driver loaded NVIDIA Smooth Motion (NvPresent64.dll) into Skyrim
     };
 
     inline bool Contains(std::string_view text, std::string_view part) { return text.find(part) != std::string_view::npos; }
@@ -44,6 +46,7 @@ namespace TheosRenderPipeline::StartupHints
         if (Contains(status, "configured DLSS-G module or required export missing") ||
             Contains(status, "prepared Ampere modules changed")) { return Failure::CompatibilityRuntimeMissing; }
         if (Contains(status, "is too old for RTX 20/30 frame generation")) { return Failure::DriverTooOld; }
+        if (Contains(status, "direct DLSS feature initialization failed")) { return Failure::DLSSUnavailable; }
         if (Contains(status, "NVAPI")) { return Failure::CompatibilityAdapterUnidentified; }
         if (Contains(status, "publication changed") || Contains(status, "publication verification failed") ||
             Contains(status, "resolver changed") || Contains(status, "export changed identity") ||
@@ -59,11 +62,19 @@ namespace TheosRenderPipeline::StartupHints
     // the renderer cannot observe is phrased as a likely cause.
     using Translate = const char* (*)(const char*);
 
-    inline std::string Hint(Failure failure, const Facts& facts, Translate translate = nullptr)
+    // Smooth Motion runs inside Skyrim, so it is stated as a fact, not a guess. On an RTX 4080 SUPER
+    // (driver 621.01) it made NVIDIA's DLSS fail to create its D3D11 kernels at startup.
+    inline constexpr const char* kSmoothMotionLine =
+        "NVIDIA Smooth Motion is on for Skyrim. It stops DLSS from starting and adds its own generated frames. "
+        "In NVIDIA App, open Graphics > Program settings > The Elder Scrolls V: Skyrim Special Edition, set "
+        "Smooth Motion to Use global - Off (or turn it off globally), then start Skyrim again.";
+
+    inline std::string Hint(std::optional<Failure> failure, const Facts& facts, Translate translate = nullptr)
     {
         std::string hint;
         auto line = [&](const char* text) { hint += "- "; hint += translate ? translate(text) : text; hint += '\n'; };
-        switch (failure) {
+        if (facts.smoothMotion) { line(kSmoothMotionLine); }
+        if (failure) switch (*failure) {
         case Failure::CompetingFrameGeneration:
             line("PureDark's Upscaler or frame generation is loaded. Disable it in this profile; TRP replaces it.");
             break;
@@ -122,6 +133,12 @@ namespace TheosRenderPipeline::StartupHints
             line("Update the NVIDIA driver to 572.16 or newer (the latest is best) through NVIDIA App or nvidia.com, "
                  "then start Skyrim again.");
             break;
+        case Failure::DLSSUnavailable:
+            if (!facts.smoothMotion) {
+                line("NVIDIA's DLSS did not start. Turn off NVIDIA App's Smooth Motion and any DLSS override for Skyrim, "
+                     "disable global DLSS override tools and update the NVIDIA driver, then start Skyrim again.");
+            }
+            break;
         }
         return hint.empty() ? hint : std::string(translate ? translate("Likely causes and what to try:\n") : "Likely causes and what to try:\n") + hint;
     }
@@ -135,6 +152,6 @@ namespace TheosRenderPipeline::StartupHints
     inline std::string HintFor(std::string_view status, const Facts& facts)
     {
         const auto failure = Classify(status);
-        return failure ? Hint(*failure, facts) : std::string{};
+        return failure || facts.smoothMotion ? Hint(failure, facts) : std::string{};
     }
 }

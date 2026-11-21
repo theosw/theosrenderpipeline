@@ -3,6 +3,7 @@
 #include "CommunityShaderIntegration.h"
 #include "FrameGen/SourceDLSSGBackend.h"
 #include "PluginPaths.h"
+#include "NvidiaAppProfile.h"
 #include "Localization.h"
 #include "UserSettings.h"
 #include <SimpleIni.h>
@@ -43,6 +44,7 @@ namespace TheosRenderPipeline::StartupHints
         facts.frameGenerationUnsupportedReported = backend.FrameGenerationUnsupportedReported();
         facts.frameGenerationOverrideReported = backend.FrameGenerationOverrideReported();
         facts.hardwareSchedulingOff = HardwareSchedulingOff();
+        facts.smoothMotion = NvidiaApp::SmoothMotionLoaded();
         try { facts.otherOwner = OtherOwner(status); } catch (...) {}
         return facts;
     }
