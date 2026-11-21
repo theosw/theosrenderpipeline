@@ -28,10 +28,9 @@ int main(int argc, char** argv)
         Print("generationPreset", values.generationPreset); Print("generationMode", values.generationMode);
         Print("generationFrames", values.generationFrames); Print("neuralEnable", values.neuralEnable);
         Print("neuralPreset", values.neuralPreset); Print("streamlineEnable", values.streamlineEnable);
-        Print("smoothMotion", values.smoothMotion);
         const auto result = Interpret(values);
-        std::printf("=> upscaling %d (%s), frame generation %d, NR %d (%s), Smooth Motion %d\n", result.upscaling,
-            result.upscalingModel.c_str(), result.frameGeneration, result.neural, result.neuralModel.c_str(), result.smoothMotion);
+        std::printf("=> upscaling %d (%s), frame generation %d, NR %d (%s)\n", result.upscaling,
+            result.upscalingModel.c_str(), result.frameGeneration, result.neural, result.neuralModel.c_str());
         return 0;
     }
     // Reading this test's own (absent) profile must not fail without an NVIDIA driver.
@@ -39,21 +38,19 @@ int main(int argc, char** argv)
     Values none;
     auto result = Interpret(none);
     Require(!result.read && !result.upscaling && !result.frameGeneration && !result.neural, "an unread profile reports nothing");
-    Require(result.smoothMotion == -1, "an unread profile leaves Smooth Motion unknown");
 
     Values clean;
     clean.read = true;
     clean.upscalingEnable = 0;
     clean.upscalingPreset = 0xFFFFFF;   // a preset left behind while the override is off
     clean.generationEnable = 0;
-    clean.smoothMotion = 0;
     result = Interpret(clean);
     Require(result.read && !result.upscaling && !result.frameGeneration && !result.neural, "settings with their switch off are no override");
-    Require(result.smoothMotion == 0, "Smooth Motion off");
 
     Values absent;
     absent.read = true;
-    Require(Interpret(absent).smoothMotion == 0, "Smooth Motion set nowhere is the driver default, off");
+    result = Interpret(absent);
+    Require(!result.upscaling && !result.frameGeneration && !result.neural, "settings set nowhere are no override");
 
     Values latest = clean;
     latest.upscalingEnable = 1;
@@ -85,9 +82,8 @@ int main(int argc, char** argv)
     result = Interpret(neural);
     Require(result.neural && result.neuralModel == "B", "App's NR preset");
 
-    Values smooth = clean;
-    smooth.smoothMotion = 1;
-    Require(Interpret(smooth).smoothMotion == 1, "Smooth Motion on");
+    // The driver loads Smooth Motion only with a swapchain; this test process has none.
+    Require(!SmoothMotionLoaded(), "no Smooth Motion without a swapchain");
 
     Require(PresetName(0xFFFFFE) == "NVIDIA App", "unknown preset values are not guessed");
     std::puts("NvidiaAppProfile tests passed");

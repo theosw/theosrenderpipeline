@@ -39,9 +39,9 @@ namespace
             std::thread([] {
                 const auto values = TheosRenderPipeline::NvidiaApp::ReadProfile();
                 const auto overrides = TheosRenderPipeline::NvidiaApp::Interpret(values);
-                spdlog::info("[NvidiaApp] profile {}: upscaling {} ({}), frame generation {}, NR {} ({}), Smooth Motion {}",
+                spdlog::info("[NvidiaApp] profile {}: upscaling {} ({}), frame generation {}, NR {} ({})",
                     overrides.read ? "read" : "unavailable", overrides.upscaling, overrides.upscalingModel,
-                    overrides.frameGeneration, overrides.neural, overrides.neuralModel, overrides.smoothMotion);
+                    overrides.frameGeneration, overrides.neural, overrides.neuralModel);
                 std::scoped_lock guard(lock);
                 result = overrides;
             }).detach();
@@ -238,7 +238,8 @@ OverlayUI::FrameView OverlayUI::CaptureFrameView()
         view.nvidiaApp.frameGenerationOverride = app.frameGeneration || backend.FrameGenerationOverrideReported();
         view.nvidiaApp.neuralModelOverride = app.neural;
         view.nvidiaApp.neuralModel = app.neuralModel;
-        view.nvidiaApp.smoothMotion = app.read ? app.smoothMotion : -1;
+        // Smooth Motion is known from the process itself, profile read or not.
+        view.nvidiaApp.smoothMotion = TheosRenderPipeline::NvidiaApp::SmoothMotionLoaded() ? 1 : 0;
     }
     view.videoMemoryFull = backend.VideoMemoryFullRecently();
     view.nvidiaServicesReady = backend.NvidiaServicesReady();

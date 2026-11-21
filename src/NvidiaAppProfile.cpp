@@ -74,9 +74,10 @@ namespace TheosRenderPipeline::NvidiaApp
             values.neuralEnable = read(kNeuralEnable);
             values.neuralPreset = read(kNeuralPreset);
             values.streamlineEnable = read(kStreamlineEnable);
-            values.smoothMotion = read(kSmoothMotion);
         }
         destroy(session);
         return values;
     }
+
+    bool SmoothMotionLoaded() { return GetModuleHandleW(L"NvPresent64.dll") != nullptr; }
 }
