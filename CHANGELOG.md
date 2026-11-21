@@ -1,4 +1,4 @@
-# 0.7.2 Beta 4
+# 0.7.3 Beta 1
 
 - Bottled Shaders' Camera FX: with frame generation on, rain, frost and blood on
   the lens are drawn into a layer under the HUD, as Bottled does for its own
