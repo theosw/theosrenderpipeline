@@ -1,6 +1,6 @@
-# Theo's Render Pipeline — Standard, 0.7.3
+# Theo's Render Pipeline — Standard, 0.7.4
 
-Version 0.7.3 Beta 1 is the AMD Radeon NR and FSR 4 beta. The Radeon backends are in
+Version 0.7.4 Beta 1 is the AMD Radeon NR and FSR 4 beta. The Radeon backends are in
 Universal; Standard lists them greyed out. It is a beta; 0.6.5 remains the main
 release. See CHANGELOG.md.
 
@@ -341,7 +341,7 @@ an RTX 4080 SUPER: ordinary 6.8.0.2158 and full add-on 6.8.0.2155, with
 early NR and x4. Sky Reflection Fix's ReShade registration was excluded;
 Rumble passed a separate initial test. Combined third-party add-ons,
 Standard gameplay and CS with ReShade remain unverified. These were earlier
-development builds; the exact 0.7.3 package has not been tested with ReShade.
+development builds; the exact 0.7.4 package has not been tested with ReShade.
 
 MartysMods ReGrade+ (ReShade 6.6 or newer) used to crash the game while TRP
 started ReShade: it prepares itself only in a device event that ReShade does not
@@ -403,7 +403,7 @@ rendering dimensions.
 ## With the Universal edition
 
 For the RTX 40 MFG unlock or experimental RTX 20/30 support, install the matching
-0.7.3 Universal ZIP after Standard in MO2's left pane. Let Universal win file conflicts. Universal uses
+0.7.4 Universal ZIP after Standard in MO2's left pane. Let Universal win file conflicts. Universal uses
 the NVIDIA runtimes included here, including NR.
 
 Both editions contain settings files; the later mod's files win. Switching
