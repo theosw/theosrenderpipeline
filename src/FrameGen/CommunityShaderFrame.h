@@ -172,8 +172,21 @@ namespace TheosRenderPipeline
             // The interface has been drawn: on a direct framebuffer the scene
             // resource now holds UI, so it can no longer refresh the snapshot.
             sceneFinal_ = true;
-            if (sceneReady_ && !consumed_ && !D3D11FrameCopy::SameObject(texture, sceneSource_.Get())) { uiSource_ = texture; }
+            if (!sceneReady_ || consumed_) { return; }
+            if (!D3D11FrameCopy::SameObject(texture, sceneSource_.Get())) { uiSource_ = uiSurface_ = texture; }
+            else { uiSurface_.Reset(); } // Drawn on the scene itself: no separate surface is in use.
         }
+
+        // The completed scene resource of this frame while it may still be
+        // read again: captured, and no menu drawn on it yet.
+        ID3D11Texture2D* OpenScene() const
+        {
+            return sceneReady_ && !sceneFinal_ && !consumed_ && !encodedSource_ ? sceneSource_.Get() : nullptr;
+        }
+        // The producer's separate UI surface as seen at the last world frame's
+        // interface boundary (CS HDR Display). It outlives the frame: the next
+        // frame's interface draws on it before this owner sees that boundary.
+        ID3D11Texture2D* UISurface() const { return uiSurface_.Get(); }
 
         PresentationState PresentationStatus(const D3D11_TEXTURE2D_DESC& presentation) const
         {
@@ -207,7 +220,7 @@ namespace TheosRenderPipeline
         void ResetAfterRetirement()
         {
             isolation_.ResetAfterRetirement(); depthCopy_.ResetViews();
-            motion_.Reset(); depth_.Reset(); scene_.Reset(); sceneSource_.Reset(); uiSource_.Reset();
+            motion_.Reset(); depth_.Reset(); scene_.Reset(); sceneSource_.Reset(); uiSource_.Reset(); uiSurface_.Reset();
             encoded_.Reset(); encodedSource_.Reset(); encodedUAV_.Reset(); encodedUAVSource_.Reset();
             sceneSRV_.Reset(); sceneSRVSource_.Reset();
             guidesReady_ = sceneReady_ = sceneFinal_ = encodedReady_ = consumed_ = false;
@@ -255,7 +268,7 @@ namespace TheosRenderPipeline
         D3D11ContextIsolation isolation_;
         D3D11FrameCopy::Depth depthCopy_;
         std::string guideRefusal_;
-        Microsoft::WRL::ComPtr<ID3D11Texture2D> motion_, depth_, scene_, sceneSource_, uiSource_, encoded_, encodedSource_;
+        Microsoft::WRL::ComPtr<ID3D11Texture2D> motion_, depth_, scene_, sceneSource_, uiSource_, uiSurface_, encoded_, encodedSource_;
         Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> sceneSRV_;
         Microsoft::WRL::ComPtr<ID3D11Texture2D> sceneSRVSource_, encodedUAVSource_;
         Microsoft::WRL::ComPtr<ID3D11UnorderedAccessView> encodedUAV_;

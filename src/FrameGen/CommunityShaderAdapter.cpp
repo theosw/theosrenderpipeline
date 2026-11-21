@@ -11,6 +11,7 @@ namespace TheosRenderPipeline
     bool CommunityShaderAdapter::BeginWorld(const Input& input)
     {
         if (prepared_ || resources_.Frame() == input.frame) { return false; }
+        lens_.NextFrame();
         worldBegun_ = upscalingCompleted_ = worldCompleted_ = prepared_ = cameraValid_ = false;
         context_ = input.context;
         resources_.SetProducerContext(input.producerContext);
@@ -124,12 +125,69 @@ namespace TheosRenderPipeline
         return worldCompleted_;
     }
 
+    void CommunityShaderAdapter::RouteLens(const char* route)
+    {
+        if (lensRoute_ == route) { return; }
+        lensRoute_ = route;
+        // Routes alternate with menus and weather; the first changes tell the story.
+        if (lensRoutesLogged_ < 24) { ++lensRoutesLogged_; logger::info("[CS Adapter] Camera FX lens overlay: {}", route); }
+    }
+
+    ID3D11RenderTargetView* CommunityShaderAdapter::LensTarget(ID3D11RenderTargetView* scene,
+        ID3D11RenderTargetView* framebuffer, bool beforeMenus)
+    {
+        auto& backend = SourceDLSSG::Backend::Get();
+        auto* open = worldCompleted_ && !prepared_ ? resources_.OpenScene() : nullptr;
+        const auto route = ChooseLensRoute(backend.CommunityLens(), backend.Enabled(), lensSuspended_, beforeMenus, open,
+            CommunityShaderFrame::Texture(scene).Get(), CommunityShaderFrame::Texture(framebuffer).Get(), resources_.UISurface());
+        if (route == LensRoute::ProducerSurface) { RouteLens(Describe(route)); return framebuffer; }
+        if (route != LensRoute::Layer) { RouteLens(Describe(route)); return nullptr; }
+        if (auto* layer = lens_.Begin(context_.Get(), open)) { RouteLens(Describe(route)); return layer; }
+        using Refusal = CommunityShaderLens::Refusal;
+        RouteLens(lens_.LastRefusal() == Refusal::Format ? "on the scene; the scene format cannot be layered" :
+            lens_.LastRefusal() == Refusal::Resources ? "on the scene; the lens layer could not be created" :
+            lens_.LastRefusal() == Refusal::Busy ? "on the scene; a lens layer was already drawn this frame" :
+            "on the scene; the scene resource cannot be layered");
+        return nullptr;
+    }
+
+    void CommunityShaderAdapter::ComposeLens(bool beforeMenus)
+    {
+        if (!lens_.Pending()) { return; }
+        const auto result = lens_.Compose(context_.Get());
+        if (FAILED(result) && !lensFailureReported_) {
+            lensFailureReported_ = true;
+            logger::error("[CS Adapter] Camera FX lens layer could not be laid over the scene (0x{:08X}); the lens is missing from this frame",
+                static_cast<unsigned>(result));
+        } else if (SUCCEEDED(result) && !beforeMenus && !lensSuspended_) {
+            // Kept on the frame this once, in the wrong order. Whatever stopped
+            // the world-completion call will stop it again: back to the scene.
+            lensSuspended_ = true;
+            logger::warn("[CS Adapter] Camera FX lens layer was laid over the frame after the interface, above the HUD, because "
+                "the engine's world-completion call did not arrive; lens effects go back on the scene until restart");
+        }
+    }
+
+    void CommunityShaderAdapter::SceneBeforeMenus()
+    {
+        // The HUD-less scene first: it must not hold the lens layer.
+        RefreshCompletedWorld();
+        ComposeLens(true);
+    }
+
+    void CommunityShaderAdapter::InterfaceCompleted(ID3D11Texture2D* texture)
+    {
+        resources_.SetUIBoundary(texture);
+        // Never lose a redirected lens: late is above the HUD, but on the frame.
+        ComposeLens(false);
+    }
+
     bool CommunityShaderAdapter::RefreshCompletedWorld()
     {
         if (!worldCompleted_ || prepared_) { return false; }
         // NR and ReShade already ran on the scene in CompleteWorld; this only
         // adds what was drawn on it since. It stays HUD-less: no menu has been
-        // drawn, and frame generation still receives no UI layer on this route.
+        // drawn, and a redirected lens overlay is not on the scene yet.
         const auto result = resources_.RefreshScene(context_.Get());
         if (result == S_OK && !sceneRefreshReported_) {
             sceneRefreshReported_ = true;
@@ -174,6 +232,8 @@ namespace TheosRenderPipeline
         D3D11ContextIsolation::Scope scope{resources_.Isolation(), context_.Get()};
         if (!scope) { status_ = "CS context unavailable at submission"; return false; }
         const auto render = resources_.RenderExtent(), output = resources_.OutputExtent();
+        // No UI layer: the HUD is not in one on this route, and DLSS-G's UI
+        // layer must hold the whole interface. A lens layer alone is not one.
         prepared_ = SourceDLSSG::Backend::Get().Prepare(camera_, resources_.Motion(), resources_.Depth(),
             nullptr, hudless, render, output.width, output.height, eligible_);
         status_ = prepared_ ? "CS frame submitted to NVIDIA" : "CS frame preparation failed";
@@ -187,16 +247,18 @@ namespace TheosRenderPipeline
         if (prepared_ && succeeded) { history_ = candidate_; }
         else { history_.Reset(); }
         resources_.Consume();
+        lens_.NextFrame();
         worldBegun_ = upscalingCompleted_ = worldCompleted_ = prepared_ = cameraValid_ = false;
     }
 
     void CommunityShaderAdapter::ResetAfterRetirement()
     {
-        resources_.ResetAfterRetirement(); context_.Reset();
+        resources_.ResetAfterRetirement(); lens_.ResetAfterRetirement(); context_.Reset();
         history_.Reset(); candidate_.Reset();
         worldBegun_ = upscalingCompleted_ = worldCompleted_ = prepared_ = cameraValid_ = false;
         neuralBoundaryReported_ = extendedScene_ = false;
         sceneRefreshReported_ = sceneRefreshFailureReported_ = false;
+        lensFailureReported_ = false;
         status_ = "Waiting for a CS world frame";
     }
 }

@@ -154,6 +154,21 @@ void Generation()
         Require(CountRendererSettingsChanges(draft, current) == 1, "XeFG even pacing participates in Apply/Discard");
     }
     {
+        using TheosRenderPipeline::CommunityLensMode;
+        CSimpleIniA ini;
+        Require(LoadPreferences(ini).communityLens == CommunityLensMode::WithHUD, "existing INIs draw Bottled's lens with the HUD");
+        Preferences preferences; preferences.communityLens = CommunityLensMode::Scene;
+        StorePreferences(ini, preferences);
+        Require(LoadPreferences(ini).communityLens == CommunityLensMode::Scene, "a saved lens choice round trips");
+        for (long unknown : {2L, 9L, -1L}) {
+            ini.SetLongValue("CommunityShaders", "LensEffects", unknown);
+            Require(LoadPreferences(ini).communityLens == CommunityLensMode::WithHUD, "an unknown lens value falls back to the default");
+        }
+        RendererSettingsDraft current; current.valid = true;
+        auto draft = current; draft.sourceDLSSG.communityLens = CommunityLensMode::Scene;
+        Require(CountRendererSettingsChanges(draft, current) == 1, "the lens choice participates in Apply/Discard");
+    }
+    {
         using TheosRenderPipeline::XeFGDefaultSceneChangeThreshold;
         CSimpleIniA ini;
         Require(LoadPreferences(ini).xefgSceneChangeThreshold == XeFGDefaultSceneChangeThreshold,

@@ -5,6 +5,7 @@
 #include "FrameGen/NvidiaHost.h"
 #include "FrameGen/CommunityShaderAdapter.h"
 #include "FrameGen/D3D11EntryObservers.h"
+#include "FrameGen/BottledLensPatch.h"
 #include "RenderPipeline.h"
 #include "OverlayUI.h"
 #include "PerformanceTuning.h"
@@ -162,11 +163,21 @@ namespace TheosRenderPipeline::CommunityShaders
         {
             auto frame = Framebuffer();
             if (!frame) { return false; }
-            NvidiaHost::GetSingleton()->CommunityFrame().SetUIBoundary(frame.Get());
+            NvidiaHost::GetSingleton()->CommunityFrame().InterfaceCompleted(frame.Get());
             OverlayUI::GetSingleton()->OnPresent(frame.Get());
             return true;
         }
-        void RefreshScene() { NvidiaHost::GetSingleton()->CommunityFrame().RefreshCompletedWorld(); }
+        void RefreshScene() { NvidiaHost::GetSingleton()->CommunityFrame().SceneBeforeMenus(); }
+        // From inside Bottled Shaders, as its Camera FX decides where to draw
+        // the lens overlay. Its entry hook on the interface function runs inside
+        // ours, so the interface call is open and no menu has been drawn.
+        ID3D11RenderTargetView* LensTarget(ID3D11RenderTargetView* scene)
+        {
+            auto* renderer = RE::BSGraphics::Renderer::GetSingleton();
+            auto* framebuffer = renderer ? reinterpret_cast<ID3D11RenderTargetView*>(
+                renderer->GetRuntimeData().renderTargets[RE::RENDER_TARGETS::kFRAMEBUFFER].RTV) : nullptr;
+            return NvidiaHost::GetSingleton()->CommunityFrame().LensTarget(scene, framebuffer, uiBoundary.BeforeMenus());
+        }
         // The engine's last renderer call before it draws the menus. It is
         // inside the interface function, so every hook on that function's
         // entry has already run, whichever plugin installed it first: CS
@@ -261,6 +272,22 @@ namespace TheosRenderPipeline::CommunityShaders
             "without what is drawn on the scene afterwards",
             site - base, bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], readable, HookSafety::DirectCallTarget(site), identified);
     }
+    // Optional: Bottled Shaders' Camera FX then draws its lens overlay into a
+    // layer, as it does for its own frame generation, and not on the scene.
+    static void InstallLensTarget()
+    {
+        const auto state = BottledLens::Install(GetModuleHandleW(L"CommunityShaders.dll"), &LensTarget);
+        if (state == BottledLens::State::Installed) {
+            const auto build = BottledLens::InstalledBuild();
+            logger::info("[CS Adapter] Camera FX lens target redirected in memory; CommunityShaders.dll on disk is unchanged. "
+                "Build timestamp=0x{:08X} image=0x{:X}: {}", build.timestamp, build.imageSize,
+                build.checked ? "Bottled Shaders V2 2.0.1, the build this was checked on" :
+                "not a build this was checked on; the lens function and its single call match");
+            if (!CommunityShaderLens::Precompile()) { logger::warn("[CS Adapter] lens composition shader did not compile; lens effects stay on the scene"); }
+        } else {
+            logger::info("[CS Adapter] Camera FX lens target left alone: {}. Lens effects stay on the scene", BottledLens::Describe(state));
+        }
+    }
     void InstallEngineHooks()
     {
         if (!active || installed) { return; }
@@ -275,6 +302,7 @@ namespace TheosRenderPipeline::CommunityShaders
             REL::RelocationID(79947, 82084).address(), reinterpret_cast<std::uintptr_t>(&Interface)));
         if (!interfaceOriginal) { util::report_and_fail("Could not preserve the Community Shaders interface draw chain."); }
         InstallWorldCompletion();
+        InstallLensTarget();
         installed = true;
         logger::info("[CS Adapter] engine postprocessing chain installed; CS owns upscaling, jitter and render scale");
         logger::info("[CS Adapter] interface completion boundary installed; overlay and UI identity precede display composition");

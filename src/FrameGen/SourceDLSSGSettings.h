@@ -16,6 +16,7 @@
 #include "DlssgPreset.h"
 #include "SteadyPacing.h"
 #include "NeuralRuntimeFiles.h"
+#include "CommunityLensMode.h"
 
 namespace TheosRenderPipeline::SourceDLSSG
 {
@@ -42,6 +43,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 		bool xefgEvenPacing{ false };
 		// Lab: AMD's own FSR watermark (MLSR-WATERMARK), to confirm which FSR runs. Restart.
 		bool fsrWatermark{ false };
+		// Lab: where Bottled Shaders' Camera FX lens overlay goes for frame generation. Live.
+		CommunityLensMode communityLens{ CommunityLensMode::WithHUD };
 		// Intel XeFG scene-change sensitivity, 0-1. Live.
 		float xefgSceneChangeThreshold{ XeFGDefaultSceneChangeThreshold };
 		GenerationRequest generation{};
@@ -106,6 +109,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 		value.xefgTensorCores = ini.GetBoolValue("FrameGeneration", "XeFGTensorCores", false);
 		value.xefgEvenPacing = ini.GetBoolValue("FrameGeneration", "XeFGEvenPacing", false);
 		value.fsrWatermark = ini.GetBoolValue("Upscaling", "FSRWatermark", false);
+		value.communityLens = SanitizeCommunityLens(ini.GetLongValue("CommunityShaders", "LensEffects",
+			static_cast<long>(CommunityLensMode::WithHUD)));
 		value.xefgSceneChangeThreshold = static_cast<float>(ini.GetDoubleValue("FrameGeneration", "XeFGSceneChangeThreshold",
 			XeFGDefaultSceneChangeThreshold));
 		value.xefg.generatedFrames = static_cast<std::uint32_t>(std::clamp(ini.GetLongValue("FrameGeneration", "XeFGMultiplier", 2), 2L, static_cast<long>(XeFGMaxGeneratedFrames+1))-1);
@@ -163,6 +168,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		ini.SetBoolValue("FrameGeneration", "XeFGTensorCores", value.xefgTensorCores);
 		ini.SetBoolValue("FrameGeneration", "XeFGEvenPacing", value.xefgEvenPacing);
 		ini.SetBoolValue("Upscaling", "FSRWatermark", value.fsrWatermark);
+		ini.SetLongValue("CommunityShaders", "LensEffects", static_cast<long>(value.communityLens));
 		ini.Delete("Upscaling", "FSRVersion");
 		ini.SetDoubleValue("FrameGeneration", "XeFGSceneChangeThreshold", value.xefgSceneChangeThreshold);
 		ini.Delete("FrameGeneration", "XeFGExperimentalMFG");

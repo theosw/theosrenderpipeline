@@ -1,6 +1,6 @@
-# Theo's Render Pipeline — Standard, 0.7.2
+# Theo's Render Pipeline — Standard, 0.7.3
 
-Version 0.7.2 Beta 3 is the AMD Radeon NR and FSR 4 beta. The Radeon backends are in
+Version 0.7.3 Beta 1 is the AMD Radeon NR and FSR 4 beta. The Radeon backends are in
 Universal; Standard lists them greyed out. It is a beta; 0.6.5 remains the main
 release. See CHANGELOG.md.
 
@@ -266,7 +266,7 @@ opening CS, temporarily disable TRP, start Skyrim and turn Frame Generation off
 under CS Upscaling. Close Skyrim, re-enable TRP and restart. You can then enable
 the Baseline pack on newer CS and restart again. TRP does not change CS's settings files.
 
-Bottled Shaders' default post-processing preset turns on Depth of Field, lens flare and colour grading; if near objects look blurred, turn off Depth of Field under Post Processing.
+Bottled Shaders' default post-processing preset turns on Depth of Field, lens flare and colour grading; if near objects look blurred, turn off Depth of Field under Post Processing. With Bottled's Camera FX and frame generation on, TRP has Bottled draw its lens effects (rain, frost, blood on the lens) into a layer under the HUD, so frame generation sees them the way it sees the HUD (not yet tested in game). This works on Bottled builds TRP recognises (checked: V2 2.0.1), changes nothing on disk, and Lab > Bottled lens effects turns it off.
 
 Assign CS a separate menu key, such as F8, to avoid End conflicts with
 TRP or KreatE, or change TRP's key under Advanced > Menu key. Do not use F8 if
@@ -341,7 +341,7 @@ an RTX 4080 SUPER: ordinary 6.8.0.2158 and full add-on 6.8.0.2155, with
 early NR and x4. Sky Reflection Fix's ReShade registration was excluded;
 Rumble passed a separate initial test. Combined third-party add-ons,
 Standard gameplay and CS with ReShade remain unverified. These were earlier
-development builds; the exact 0.7.2 package has not been tested with ReShade.
+development builds; the exact 0.7.3 package has not been tested with ReShade.
 
 MartysMods ReGrade+ (ReShade 6.6 or newer) used to crash the game while TRP
 started ReShade: it prepares itself only in a device event that ReShade does not
@@ -403,7 +403,7 @@ rendering dimensions.
 ## With the Universal edition
 
 For the RTX 40 MFG unlock or experimental RTX 20/30 support, install the matching
-0.7.2 Universal ZIP after Standard in MO2's left pane. Let Universal win file conflicts. Universal uses
+0.7.3 Universal ZIP after Standard in MO2's left pane. Let Universal win file conflicts. Universal uses
 the NVIDIA runtimes included here, including NR.
 
 Both editions contain settings files; the later mod's files win. Switching

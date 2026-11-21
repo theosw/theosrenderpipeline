@@ -105,6 +105,7 @@ HRESULT NvidiaHost::CreateSwapChain(IDXGIFactory* a_factory, ID3D11Device* a_dev
     backend.ConfigureVSync(settings.sourceDLSSG.vsync);
     backend.ConfigureXeFGTensor(settings.sourceDLSSG.xefgTensorCores);
     backend.ConfigureXeFGVSyncCadence(settings.sourceDLSSG.xefgEvenPacing);
+    backend.ConfigureCommunityLens(settings.sourceDLSSG.communityLens);
     if (settings.sourceDLSSG.fsrWatermark) {
         // AMD reads this when its runtime initializes; set before the loader is opened.
         SetEnvironmentVariableW(L"MLSR-WATERMARK", L"1"); _putenv_s("MLSR-WATERMARK", "1");

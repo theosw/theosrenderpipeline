@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.21)
 
 project(
 	TheosRenderPipeline
-	VERSION 0.7.2
+	VERSION 0.7.3
 	LANGUAGES C CXX
 )
 
@@ -685,6 +685,12 @@ if(TRP_BUILD_COMPATIBILITY_TESTS)
     target_include_directories(TRPLoadingFadeTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
     target_link_libraries(TRPLoadingFadeTests PRIVATE d3d11 d3dcompiler dxgi)
     add_test(NAME LoadingFade COMMAND TRPLoadingFadeTests)
+    add_executable(TRPCommunityShaderLensTests tests/CommunityShaderLensTests.cpp)
+    target_compile_features(TRPCommunityShaderLensTests PRIVATE cxx_std_23)
+    target_compile_definitions(TRPCommunityShaderLensTests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    target_include_directories(TRPCommunityShaderLensTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_link_libraries(TRPCommunityShaderLensTests PRIVATE TRPD3D11EntryObservers d3d11 d3dcompiler)
+    add_test(NAME CommunityShaderLens COMMAND TRPCommunityShaderLensTests)
     add_executable(TRPCommunityShaderHDRTests tests/CommunityShaderHDRTests.cpp)
     target_compile_features(TRPCommunityShaderHDRTests PRIVATE cxx_std_23)
     target_compile_definitions(TRPCommunityShaderHDRTests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)

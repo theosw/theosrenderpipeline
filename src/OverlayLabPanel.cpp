@@ -9,6 +9,7 @@
 #include "FrameGen/SourceDLSSGBackend.h"
 #include "FrameGen/FGInputDebugView.h"
 #include "FrameGen/FGMotionRepair.h"
+#include "FrameGen/BottledLensPatch.h"
 
 using namespace TheosRenderPipeline::Overlay;
 
@@ -125,6 +126,27 @@ void OverlayUI::DrawLabGenerationControls(const FrameView& view)
         DrawSettingsHelp(TR("A/B, not saved. Off: the game's next frame waits on the GPU until frame generation has read this "
                          "frame's inputs. On: it waits only where TRP first writes them, so the world can render meanwhile. "
                          "Compare FPS and the frame generation time."));
+    }
+    {
+        // Bottled Shaders' Camera FX lens overlay under TRP's frame generation.
+        using TheosRenderPipeline::CommunityLensMode;
+        namespace Lens = TheosRenderPipeline::BottledLens;
+        const char* lensReason = !view.communityShaders ? TR("Community Shaders is not the renderer here.")
+            : Lens::Installed() != Lens::State::Installed ? TR("This Community Shaders build has no Camera FX lens function TRP recognises.")
+            : nullptr;
+        static const char* lensModes[] = {TR("On the scene"), TR("With the HUD")};
+        int lensMode = static_cast<int>(settingsDraft.sourceDLSSG.communityLens);
+        ImGui::BeginDisabled(lensReason != nullptr);
+        if (ImGui::Combo(TR("Bottled lens effects (Lab)"), &lensMode, lensModes, static_cast<int>(std::size(lensModes))))
+            settingsDraft.sourceDLSSG.communityLens = static_cast<CommunityLensMode>(lensMode);
+        ImGui::EndDisabled();
+        if (lensReason) DrawSettingsHelp(lensReason);
+        DrawSettingsHelp(TR("Where Camera FX's rain, frost and blood on the lens are drawn while TRP generates frames. On the scene: "
+            "they are part of the picture generation moves with the world. With the HUD: TRP has Bottled draw them into a layer "
+            "under the HUD, as it does for its own frame generation, so generation sees them the way it sees the HUD. "
+            "Not yet tested in game. Apply to compare; Save as default keeps it."));
+        if (!lensReason)
+            ImGui::TextWrapped(TR("Last lens draw: %s"), TR(NvidiaHost::GetSingleton()->CommunityFrame().LensRoute()));
     }
     auto& repair = TheosRenderPipeline::FGMotionRepair::Get();
     bool repairMotion = repair.Enabled();

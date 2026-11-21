@@ -8,9 +8,11 @@ FetchContent_Declare(hde64
     SOURCE_SUBDIR src/hde)
 FetchContent_MakeAvailable(hde64)
 FetchContent_GetProperties(hde64)
-# The ReShade game-device route patches D3D11/DXGI entries with the same MinHook.
+# The ReShade game-device route patches D3D11/DXGI entries with the same MinHook,
+# and the Bottled lens redirect one Community Shaders function.
 add_library(TRPD3D11EntryObservers STATIC
     "${PROJECT_SOURCE_DIR}/src/FrameGen/D3D11EntryObservers.cpp"
+    "${PROJECT_SOURCE_DIR}/src/FrameGen/BottledLensPatch.cpp"
     "${PROJECT_SOURCE_DIR}/src/ReShadeGameDevice.cpp"
     "${hde64_SOURCE_DIR}/src/buffer.c"
     "${hde64_SOURCE_DIR}/src/hook.c"
