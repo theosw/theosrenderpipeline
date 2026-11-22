@@ -86,6 +86,10 @@ void OverlayUI::DescribeFrameView(FrameView& view) const
     std::snprintf(view.nativeDetail, sizeof(view.nativeDetail), "%d x %d", view.nativeWidth, view.nativeHeight);
     if (view.steppedAside) {
         // The game renders and presents itself at its own size; TRP does not upscale.
+        if (view.renderWidth == 0 || view.renderHeight == 0) {
+            view.renderWidth = static_cast<uint32_t>(view.displaySizeX);
+            view.renderHeight = static_cast<uint32_t>(view.displaySizeY);
+        }
         std::snprintf(view.renderDetail, sizeof(view.renderDetail), "%d x %d", view.displaySizeX, view.displaySizeY);
         std::snprintf(view.upscaleDetail, sizeof(view.upscaleDetail), "%s", TR("Off this session"));
     }
