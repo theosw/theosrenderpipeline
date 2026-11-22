@@ -21,6 +21,7 @@
 #include "NvidiaAppProfile.h"
 #include "SessionDegradation.h"
 #include "StartupHints.h"
+#include "FrameGen/NvidiaDriverVersion.h"
 
 #include <chrono>
 #include <mutex>
@@ -51,6 +52,69 @@ namespace
         std::scoped_lock guard(lock);
         return result;
     }
+}
+
+namespace
+{
+    std::string FileVersion(const std::filesystem::path& path)
+    {
+        DWORD ignored{};
+        const auto size = GetFileVersionInfoSizeW(path.c_str(), &ignored);
+        std::vector<std::byte> data(size);
+        VS_FIXEDFILEINFO* info{};
+        UINT infoSize{};
+        if (!size || !GetFileVersionInfoW(path.c_str(), 0, size, data.data()) ||
+            !VerQueryValueW(data.data(), L"\\", reinterpret_cast<void**>(&info), &infoSize) || !info || infoSize < sizeof(VS_FIXEDFILEINFO)) {
+            return {};
+        }
+        return std::format("{}.{}.{}.{}", HIWORD(info->dwFileVersionMS), LOWORD(info->dwFileVersionMS),
+            HIWORD(info->dwFileVersionLS), LOWORD(info->dwFileVersionLS));
+    }
+}
+
+// Read when Copy details is pressed, not every frame: it walks the module list
+// and reads file versions. Everything here is also in TheosRenderPipeline.log.
+TheosRenderPipeline::Support::Summary OverlayUI::CaptureSupportSystem()
+{
+    namespace SD = TheosRenderPipeline::SourceDLSSG;
+    TheosRenderPipeline::Support::Summary summary;
+    summary.release = Plugin::RELEASE_VERSION;
+    summary.edition = Plugin::EDITION;
+    summary.source = Plugin::SOURCE_REVISION;
+    summary.skyrim = REL::Module::get().version().string();
+    const auto& backend = SD::Backend::Get();
+    summary.gpu = backend.AdapterName();
+    if (const auto driver = backend.AdapterDriver(); driver.QuadPart) {
+        summary.driver = std::format("{}.{}.{}.{}", HIWORD(driver.HighPart), LOWORD(driver.HighPart), HIWORD(driver.LowPart), LOWORD(driver.LowPart));
+        if (const auto nvidia = backend.NvidiaAdapter() ? SD::NvidiaDriverVersion(driver.LowPart) : 0u) {
+            summary.driver = SD::DriverVersionText(nvidia) + " (" + summary.driver + ")";
+        }
+    }
+    if (summary.gpu.empty() && NvidiaHost::GetSingleton()->SteppedAside()) { summary.gpu = "not read (TRP stepped aside before starting its renderer)"; }  // not translated: support text is English, like the log
+    wchar_t profile[MAX_PATH]{};
+    if (const auto length = GetEnvironmentVariableW(L"USERPROFILE", profile, MAX_PATH); length && length < MAX_PATH) {
+        summary.userProfile = std::filesystem::path(profile).string();
+    }
+    // Vendor runtimes, other renderers' files and TRP itself, by file name.
+    static constexpr std::wstring_view prefixes[]{L"theosrenderpipeline", L"trp", L"nvngx", L"_nvngx", L"sl.", L"nvpresent", L"libxess", L"libxell",
+        L"amd_fidelityfx", L"amdhip64", L"dlss5nr", L"communityshaders", L"reshade", L"pdperfplugin", L"skyrimupscaler", L"d3d11.dll", L"dxgi.dll",
+        L"d3d12core", L"enbseries", L"optiscaler"};
+    wchar_t system[MAX_PATH]{};
+    const std::wstring systemFolder(system, GetSystemDirectoryW(system, MAX_PATH));
+    for (const auto module : TheosRenderPipeline::PluginPaths::LoadedModules()) {
+        const auto path = TheosRenderPipeline::PluginPaths::RawModulePath(module);
+        auto name = path.filename().wstring();
+        std::wstring lower = name;
+        for (auto& character : lower) { character = static_cast<wchar_t>(towlower(character)); }
+        bool listed = false;
+        for (const auto prefix : prefixes) { listed |= lower.starts_with(prefix); }
+        // Windows' own d3d11.dll and dxgi.dll say nothing; a copy elsewhere is ENB, ReShade or another wrapper.
+        if (listed && (lower == L"d3d11.dll" || lower == L"dxgi.dll") && !systemFolder.empty() &&
+            _wcsnicmp(path.c_str(), systemFolder.c_str(), systemFolder.size()) == 0) { listed = false; }
+        if (listed) { summary.modules.push_back({path.filename().string(), FileVersion(path), path.string()}); }
+    }
+    std::sort(summary.modules.begin(), summary.modules.end(), [](const auto& left, const auto& right) { return left.name < right.name; });
+    return summary;
 }
 
 // The only place the menu reads the renderer. Drawing uses the returned view.

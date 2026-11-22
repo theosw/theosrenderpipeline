@@ -109,6 +109,8 @@ public:
     bool RuntimePresent() const;
     void SetRuntimePresent(bool present);
     TheosRenderPipeline::Overlay::Layout CurrentLayout() const;
+    // The Copy details text for the scenario, with the preview's invented system part.
+    std::string SupportText();
 
     // The scenario being drawn, for PreviewHost.cpp.
     static PreviewScenario& Scenario() { return *current_; }

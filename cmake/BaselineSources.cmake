@@ -221,6 +221,8 @@ set(ARP_BASELINE_SOURCES
     src/SessionDegradation.h
     src/SessionDegradationLog.h
     src/SessionDegradationText.h
+    src/SupportDetails.h
+    src/SupportSummary.h
     src/UpscalerDeviceHooks.h
     src/UpscalerSamplerHooks.cpp
     src/UpscalerSamplerHooks.h
@@ -245,6 +247,8 @@ set(ARP_OVERLAY_MENU_SOURCES
     src/OverlayLayout.cpp
     src/OverlayUIStyle.cpp
     src/OverlayHotkeys.cpp
+    # The Copy details text; English like the log, so not named Overlay*.
+    src/SupportDetails.cpp
     # Menu languages; only the menu translates.
     src/Localization.cpp
 )

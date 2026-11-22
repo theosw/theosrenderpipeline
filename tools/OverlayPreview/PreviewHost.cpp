@@ -1,5 +1,6 @@
 #include "Localization.h"
 #include "OverlayPreview.h"
+#include "SupportDetails.h"
 
 #include <imgui_impl_dx11.h>
 
@@ -73,6 +74,13 @@ void OverlayPreview::SetLabMode(bool enabled) { menu_->showDeveloperControls = e
 bool OverlayPreview::RuntimePresent() const { return menu_->nrRuntimePresent; }
 void OverlayPreview::SetRuntimePresent(bool present) { menu_->nrRuntimePresent = present; }
 Layout OverlayPreview::CurrentLayout() const { return menu_->layout; }
+std::string OverlayPreview::SupportText()
+{
+    const auto view = menu_->CaptureFrameView();
+    auto summary = menu_->CaptureSupportSystem();
+    TheosRenderPipeline::Support::AddMenuState(summary, view);
+    return TheosRenderPipeline::Support::Format(summary);
+}
 
 // The renderer-facing OverlayUI members. In the plugin they read or change the
 // renderer (OverlayUI.cpp, OverlayFrameCapture.cpp and OverlayLabPanel.cpp);
@@ -124,6 +132,19 @@ void OverlayUI::SetNeuralCompare(TheosRenderPipeline::NeuralRendering::CompareSe
 void OverlayUI::PausePresets(bool) {}
 void OverlayUI::RefreshWeatherList() {}
 void OverlayUI::ResetSessionFallbacks() {}
+// Invented, like the rest of the scenario: enough to read the summary's layout.
+TheosRenderPipeline::Support::Summary OverlayUI::CaptureSupportSystem()
+{
+    TheosRenderPipeline::Support::Summary summary;
+    summary.release = "preview"; summary.edition = "Universal"; summary.source = "preview";
+    summary.skyrim = "1.6.1170.0";
+    const bool nvidia = OverlayPreview::Scenario().view.nvidiaAdapter;
+    summary.gpu = nvidia ? "NVIDIA GeForce RTX 4080 SUPER" : "AMD Radeon RX 7800 XT";
+    summary.driver = nvidia ? "621.01 (32.0.16.2101)" : "32.0.21030.2001";
+    summary.userProfile = "C:\\Users\\Player";
+    summary.modules = {{"TheosRenderPipeline.dll", "0.7.4.0", "C:\\Users\\Player\\MO2\\mods\\TRP\\SKSE\\Plugins\\TheosRenderPipeline.dll"}};
+    return summary;
+}
 void OverlayUI::ClearTimingWindow() {}
 
 namespace

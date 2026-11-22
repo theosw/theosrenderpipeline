@@ -3,6 +3,7 @@
 #include "OverlayFrameView.h"
 #include "OverlayUI.h"
 #include "OverlayUIStyle.h"
+#include "SupportDetails.h"
 #include <PCH.h>
 using namespace TheosRenderPipeline::Overlay;
 
@@ -259,6 +260,21 @@ void OverlayUI::DrawUIStatusPanel(const FrameView& view)
 void OverlayUI::DrawReportingDetails(const FrameView& view)
 {
     ImGui::Spacing();
+    // Always visible: the first thing asked for in a bug report.
+    if (ImGui::Button(TR("Copy details")))
+    {
+        auto summary = CaptureSupportSystem();
+        TheosRenderPipeline::Support::AddMenuState(summary, view);
+        ImGui::SetClipboardText(TheosRenderPipeline::Support::Format(summary).c_str());
+        supportCopied = true;
+    }
+    if (ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip("%s", TR("Copies TRP's version, your GPU and driver, what is running and anything that is off this "
+                          "session as text.\nPaste it into your report."));
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("%s", supportCopied ? TR("Copied. Paste it into your report.") : TR("for a bug report or a question"));
     if (ImGui::CollapsingHeader(TRID("Reporting a problem").c_str()))
     {
         const auto& upscaler = view.upscaler;

@@ -352,6 +352,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			!Check(ReShadeIntegration::Get().CreateSourceDevice(adapter.Get(), D3D_FEATURE_LEVEL_12_0, &device12_), "D3D12 device")) { return fault_; }
 		DXGI_ADAPTER_DESC adapterDesc{};
 		if (SUCCEEDED(adapter->GetDesc(&adapterDesc))) {
+			adapterName_ = std::filesystem::path(adapterDesc.Description).string();
 			logger::info("[SourceDLSSG] rendering adapter={} vendor=0x{:04X} device=0x{:04X} LUID={:08X}:{:08X}",
 				std::filesystem::path(adapterDesc.Description).string(), adapterDesc.VendorId, adapterDesc.DeviceId,
 				static_cast<std::uint32_t>(adapterDesc.AdapterLuid.HighPart), adapterDesc.AdapterLuid.LowPart);
