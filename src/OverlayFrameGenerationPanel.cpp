@@ -145,7 +145,8 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& v
         auto& request = draft.generation;
         const auto& style = ImGui::GetStyle();
         const float label = LabelWidth({TR("Frame generation"), TR("Frame limit"), TR("Scene change"), TR("Flip metering")});
-        if (!sourceDLSSGActive)
+        // Stepped aside for Smooth Motion: the red notice above already says why and how to undo it.
+        if (!sourceDLSSGActive && !view.steppedAside)
         {
             ImGui::TextColored(kOchre, "%s", TR("NVIDIA host is unavailable. Check runtime status and restart Skyrim."));
         }

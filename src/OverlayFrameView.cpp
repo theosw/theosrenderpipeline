@@ -84,6 +84,11 @@ void OverlayUI::DescribeFrameView(FrameView& view) const
     }
     if (view.upscaler.mode == XeSS || IsFSR(view.upscaler.mode)) { std::snprintf(view.upscaleDetail, sizeof(view.upscaleDetail), "%.0f%%", view.proxyScale * 100.0f); }
     std::snprintf(view.nativeDetail, sizeof(view.nativeDetail), "%d x %d", view.nativeWidth, view.nativeHeight);
+    if (view.steppedAside) {
+        // The game renders and presents itself at its own size; TRP does not upscale.
+        std::snprintf(view.renderDetail, sizeof(view.renderDetail), "%d x %d", view.displaySizeX, view.displaySizeY);
+        std::snprintf(view.upscaleDetail, sizeof(view.upscaleDetail), "%s", TR("Off this session"));
+    }
     if (cs) {
         view.upscaleTitle = TR("CS upscaling");
         std::snprintf(view.upscaleDetail, sizeof(view.upscaleDetail), "%.0f%%", view.proxyScale * 100.0f);

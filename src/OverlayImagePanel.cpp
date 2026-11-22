@@ -357,7 +357,7 @@ void OverlayUI::DrawImagePanel(float tabCardHeight, const FrameView& view)
                 ImGui::TextDisabled("%s", TR("Feature update queued"));
             }
         }
-        else
+        else if (!view.steppedAside)
         {
             ImGui::TextColored(kRust, "%s", TR("NVIDIA host is unavailable."));
         }
