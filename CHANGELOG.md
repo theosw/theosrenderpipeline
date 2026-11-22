@@ -1,12 +1,14 @@
 # 0.7.4 Beta 1
 
-- NVIDIA Smooth Motion: with Smooth Motion on for Skyrim (or globally) in
-  NVIDIA App, NVIDIA's DLSS cannot start in Skyrim, so TRP's start-up failed
-  with a generic "could not start rendering" message. The message now says
-  Smooth Motion is the cause and where in NVIDIA App to turn it off. Tested on
-  an RTX 4080 SUPER with driver 621.01.
-- NVIDIA App and driver overrides: when Smooth Motion is running without
-  stopping TRP (for example with XeSS or FSR), or a driver profile override (for
+- NVIDIA Smooth Motion no longer stops Skyrim. With Smooth Motion on for Skyrim
+  (or globally) in NVIDIA App, TRP used to close the game at start-up, or show
+  a black screen. The driver loads Smooth Motion when the game creates its
+  device, before TRP takes over presentation, so TRP now steps aside for that
+  session: the game starts normally with Smooth Motion and without TRP's
+  upscaling, frame generation and NR. TRP's menu (End) says it is off and how to
+  turn Smooth Motion off to use TRP again. Tested on an RTX 4080 SUPER with
+  driver 621.01.
+- NVIDIA App and driver overrides: when a driver profile override (for
   example from NVIDIA Profile Inspector) replaces TRP's DLSS, frame generation
   or NR model choice, the affected box at the top of the settings is drawn red.
   Its tooltip and the matching tab say what is overriding TRP and how to undo

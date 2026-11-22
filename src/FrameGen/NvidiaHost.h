@@ -76,6 +76,11 @@ class NvidiaHost
     void OnGameFacingSwapChainDestroyed(IDXGISwapChain* a_swapChain);
 
     bool ProxyActive() const { return proxyActive_; }
+    // TRP declined the game's swapchain before owning anything (NVIDIA Smooth Motion
+    // is loaded): the game presents through its own swapchain and TRP's render hooks
+    // stay out of the way for the session; only the menu draws, to explain why.
+    bool SteppedAside() const { return steppedAside_; }
+    void StepAside(const char* reason) { steppedAside_ = true; status_ = reason; }
     bool FrameGenerationEnabled() const { return frameGenerationEnabled_; }
     bool UpscalerReady() const { return upscalerReady_ && SUCCEEDED(FailureResult()); }
     bool SplitSourceDLSSActive() const { return splitSourceDLSSActive_ || xeSSActive_ || fsrActive_; }
@@ -191,6 +196,7 @@ class NvidiaHost
     UINT renderWidth_{0};
     UINT renderHeight_{0};
     bool proxyActive_{false};
+    bool steppedAside_{false};
     bool sourceUpscalerInitializationPending_{false};
     // Retained feature ownership can outlive a terminal failure. Runtime callers
     // must use UpscalerReady(), which also checks the latched lifecycle error.

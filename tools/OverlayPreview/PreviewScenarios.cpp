@@ -736,6 +736,18 @@ PreviewScenario AppModel()
     return scenario;
 }
 
+PreviewScenario AppSteppedAside()
+{
+    auto scenario = HostUnavailable();
+    scenario.name = "app-stepped-aside";
+    scenario.summary = "NVIDIA Smooth Motion on: TRP stepped aside, the game presents itself";
+    scenario.view.steppedAside = true;
+    scenario.view.nvidiaApp.profileRead = true;
+    scenario.view.nvidiaApp.smoothMotion = 1;
+    scenario.nrRuntimePresent = true;
+    return scenario;
+}
+
 PreviewScenario AppNeural()
 {
     auto scenario = AppClean();
@@ -801,5 +813,5 @@ std::vector<PreviewScenario> PreviewScenarios()
         Pascal("pascal-missing-pack", NeuralRendering::kPascalAssetReason),
         Pascal("pascal-checking", NeuralRendering::kPascalAssetsChecking),
         Pascal("pascal-low-budget", NeuralRendering::kPascalBudgetReason), PascalOldNetwork(), Runtimes(), TestBackendsNvidia(), TestBackendsAmd(), VulkanNvidia(), VendorFSR(), FSR4Forced(), FSR4Pascal(), VulkanBackground(), VulkanAmdRefused(), VulkanAmdPortable(), HIPMissing(), VendorStandard(), VulkanPreparing(), HIPLockedVulkan(), VulkanLockedHIP(), HIPFSRRefused(), Lab(), EvenPacing(), IntelSteady(),
-        AppClean(), AppModel(), AppNeural(), AppFrameGenerationModel(), AppMultiplier(), AppSmoothMotionConflict(), AppSmoothMotionOnly()};
+        AppClean(), AppModel(), AppSteppedAside(), AppNeural(), AppFrameGenerationModel(), AppMultiplier(), AppSmoothMotionConflict(), AppSmoothMotionOnly()};
 }

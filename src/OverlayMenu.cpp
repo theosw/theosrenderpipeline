@@ -184,6 +184,13 @@ void OverlayUI::DrawPipelineSummary(const FrameView& view)
     {
         requestedPage = page;
     }
+    if (view.steppedAside) {
+        DrawOverrideNotice(TR("Theo's Render Pipeline is off this session because NVIDIA Smooth Motion is on for Skyrim; "
+                              "Smooth Motion generates frames instead, and the game runs without TRP's upscaling, frame "
+                              "generation and Neural Rendering. To use TRP, open NVIDIA App > Graphics > Program settings > "
+                              "The Elder Scrolls V: Skyrim Special Edition, set Smooth Motion to Use global - Off, then "
+                              "restart Skyrim. Settings changed here apply after that restart."));
+    }
 }
 
 void OverlayUI::DrawSettingsActions(const FrameView& view)

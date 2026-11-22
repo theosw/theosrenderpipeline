@@ -43,6 +43,7 @@ struct OverlayUI::FrameView
     TheosRenderPipeline::Upscaler::Creation upscaler{};
     bool upscalerNeedsRestart{}, upscalerFailed{}, upscalerChangeQueued{}, upscalerLiveModeRejected{};
     int upscalerStartupMode{};
+    bool steppedAside{}; // TRP declined presentation this session (NVIDIA Smooth Motion)
     int renderSizeX{}, renderSizeY{}, displaySizeX{}, displaySizeY{};
     bool nativeUI{true};
     bool reShadeBeforeUpscaling{};

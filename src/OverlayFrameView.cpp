@@ -65,6 +65,10 @@ void OverlayUI::DescribeFrameView(FrameView& view) const
                          : view.pipelineHealth == UIHealth::kWarning ? TR("Warming up")
                          : view.pipelineHealth == UIHealth::kError   ? TR("Attention required")
                                                                      : TR("Bypassed");
+    if (view.steppedAside) {
+        view.pipelineHealth = UIHealth::kError;
+        view.pipelineLabel = TR("Off this session");
+    }
 
     std::snprintf(view.renderDetail, sizeof(view.renderDetail), "%d x %d", view.renderSizeX, view.renderSizeY);
     view.upscaleTitle = ModeName(view.upscaler.mode);

@@ -115,6 +115,7 @@ OverlayUI::FrameView OverlayUI::CaptureFrameView()
     view.upscalerChangeQueued = upscalerSettings.NeedsLiveChange();
     view.upscalerLiveModeRejected = upscalerSettings.LiveModeRejected();
     view.upscalerStartupMode = upscalerSettings.Startup().mode;
+    view.steppedAside = nvidiaHost->SteppedAside();
 
     view.renderSizeX = upscaler->mRenderSizeX;
     view.renderSizeY = upscaler->mRenderSizeY;
