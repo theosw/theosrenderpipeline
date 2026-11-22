@@ -14,6 +14,28 @@
   Its tooltip and the matching tab say what is overriding TRP and how to undo
   it. TRP keeps running; it only reports. NVIDIA App itself offers no DLSS
   overrides for Skyrim.
+- Fewer start-up failures close Skyrim. Each of these now turns off only the
+  part it affects for that session, and TRP's menu says what is off and what to
+  do:
+  - Intel XeFG fails its start-up check (for example a missing
+    libxess_fg.dll): XeSS or FSR still upscale, without frame generation.
+  - RTX 20/30 frame generation can't start (driver too old,
+    SourceDLSSGMFGUnlock=false, or the GPU could not be identified): TRP runs
+    without frame generation. Failures after TRP has patched NVIDIA's code
+    still close the game, as before.
+  - TheosRenderPipeline.ini is missing or unreadable: TRP uses the same
+    defaults built into the plugin, and your saved settings still apply.
+  - Old settings from earlier versions are ignored and listed in the menu. The
+    files are not changed.
+  - Request loading artwork can't attach to the game: only that option is off.
+- The menu now shows anything TRP is running without this session, including
+  the cases above, a frame-generation drop to x2, a refused depth copy and NR
+  turning itself off. The affected box is red, the status reads "Reduced this
+  session", and the tab explains it. Saved settings are never changed.
+- Advanced > Copy details puts a plain-text summary on the clipboard for bug
+  reports: TRP version and edition, Skyrim version, GPU and driver, what
+  upscaling, frame generation and NR are doing, NVIDIA App overrides and
+  anything reduced this session.
 
 # 0.7.3 Beta 1
 
