@@ -217,6 +217,9 @@ set(ARP_BASELINE_SOURCES
     src/StartupHints.cpp
     src/NvidiaAppProfile.cpp
     src/NvidiaAppProfile.h
+    src/SessionDegradation.h
+    src/SessionDegradationLog.h
+    src/SessionDegradationText.h
     src/UpscalerDeviceHooks.h
     src/UpscalerSamplerHooks.cpp
     src/UpscalerSamplerHooks.h

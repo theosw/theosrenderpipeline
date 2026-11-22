@@ -6,6 +6,8 @@
 #include "FrameTrace.h"
 #include "NvidiaUpscalerConfiguration.h"
 #include "PerformanceTuning.h"
+#include "SessionDegradation.h"
+#include "StartupHints.h"
 #include "VideoMemoryTelemetry.h"
 #include "WeatherAppearanceController.h"
 #include "FrameGen/DlssgLiteBlending.h"
@@ -88,6 +90,10 @@ struct OverlayUI::FrameView
         std::string neuralModel;
         int smoothMotion{-1};              // driver Smooth Motion: -1 unknown, 0 off, 1 on
     } nvidiaApp{};
+    // What TRP runs without this session and why (SessionDegradation.h), with the
+    // facts its advice rests on. Resolved entries stay, marked inactive.
+    std::vector<TheosRenderPipeline::Degradation::Entry> degraded;
+    TheosRenderPipeline::StartupHints::Facts degradedFacts{};
     bool videoMemoryFull{};
     bool xessActive{};
     bool nrFriendlyRenderSizeActive{};
@@ -152,6 +158,10 @@ struct OverlayUI::FrameView
     // effect (fine), 2 conflict the user should resolve. The text explains it.
     int upscaleAlert{}, generationAlert{}, neuralAlert{};
     std::string upscaleAlertText, generationAlertText, neuralAlertText;
+    // Degraded states that belong to no pipeline box (settings files, loading
+    // artwork): shown under the pipeline. sessionDegraded is true for any active entry.
+    std::string sessionNoticeText;
+    bool sessionDegraded{}, loadingArtworkUnavailable{};
     char renderDetail[64]{};
     char upscaleDetail[96]{};
     char nativeDetail[64]{};

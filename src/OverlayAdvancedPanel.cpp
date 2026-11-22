@@ -209,8 +209,12 @@ void OverlayUI::DrawAdvancedPanel(float height, const FrameView& view)
         if (ImGui::Combo("ReShade", &placement, placements, 2))
             settingsDraft.reShadeBeforeUpscaling = placement == 0;
         DrawSettingsHelp(TR("Processes world colour/depth before Skyrim UI. Changing placement reloads effects."));
+        // Greyed, not hidden, when the hook is missing; the notice under the pipeline says why.
+        ImGui::BeginDisabled(view.loadingArtworkUnavailable);
         ImGui::Checkbox(TR("Request loading artwork"), &settingsDraft.requestLoadingArtwork);
-        DrawSettingsHelp(TR("Requests artwork at the next eligible cell transition; Skyrim selects the image."));
+        ImGui::EndDisabled();
+        DrawSettingsHelp(view.loadingArtworkUnavailable ? TR("Unavailable this session; see the note under the pipeline above.") :
+            TR("Requests artwork at the next eligible cell transition; Skyrim selects the image."));
         ImGui::Separator();
         ImGui::Checkbox(TR("Lab mode"), &showDeveloperControls);
         DrawSettingsHelp(TR("Show runtime details and experimental controls. This changes menu visibility only."));

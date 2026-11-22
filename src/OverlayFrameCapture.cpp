@@ -19,6 +19,8 @@
 #include "NeuralObjectHooks.h"
 
 #include "NvidiaAppProfile.h"
+#include "SessionDegradation.h"
+#include "StartupHints.h"
 
 #include <chrono>
 #include <mutex>
@@ -242,6 +244,24 @@ OverlayUI::FrameView OverlayUI::CaptureFrameView()
         view.nvidiaApp.frameGenerationOverride = app.frameGeneration || backend.FrameGenerationOverrideReported();
         view.nvidiaApp.neuralModelOverride = app.neural;
         view.nvidiaApp.neuralModel = app.neuralModel;
+    }
+    {
+        // The facts behind the advice read the registry and module list: gather
+        // them once per change of the record, not every menu frame.
+        static std::uint32_t described = ~0u;
+        static TheosRenderPipeline::StartupHints::Facts facts;
+        auto& record = TheosRenderPipeline::Degradation::Session();
+        view.degraded = record.Entries();
+        if (const auto revision = record.Revision(); revision != described) {
+            described = revision;
+            std::string status;
+            for (const auto& entry : view.degraded) {
+                if (entry.reason == TheosRenderPipeline::Degradation::Reason::FrameGenerationStartup) { status = entry.detail; }
+            }
+            facts = view.degraded.empty() ? TheosRenderPipeline::StartupHints::Facts{} :
+                TheosRenderPipeline::StartupHints::CurrentFacts(status);
+        }
+        view.degradedFacts = facts;
     }
     view.videoMemoryFull = backend.VideoMemoryFullRecently();
     view.nvidiaServicesReady = backend.NvidiaServicesReady();

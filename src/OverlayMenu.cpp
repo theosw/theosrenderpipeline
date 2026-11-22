@@ -153,7 +153,7 @@ void OverlayUI::DrawPipelineSummary(const FrameView& view)
         TR("DLSS or XeSS reconstruction, or native-resolution DLAA.\nClick to open Image settings."));
     const auto generationTooltip = withAlert(view.generationAlertText,
         TR("Adds generated frames between game-rendered frames.\nClick to open Frame generation settings."));
-    const bool appOverride = view.upscaleAlert != 0 || view.generationAlert != 0 || view.neuralAlert != 0;
+    const bool appOverride = view.upscaleAlert != 0 || view.generationAlert != 0 || view.neuralAlert != 0 || view.sessionDegraded;
     const auto statusColor = view.pipelineHealth != UIHealth::kHealthy ? HealthColor(view.pipelineHealth)
                              : appOverride ? kRust : HealthColor(view.pipelineHealth);
     PipelineDiagram diagram{
@@ -191,6 +191,8 @@ void OverlayUI::DrawPipelineSummary(const FrameView& view)
                               "The Elder Scrolls V: Skyrim Special Edition, set Smooth Motion to Use global - Off, then "
                               "restart Skyrim. Settings changed here apply after that restart."));
     }
+    // Degraded states with no pipeline box of their own (settings files, loading artwork).
+    DrawOverrideNotice(view.sessionNoticeText.c_str());
 }
 
 void OverlayUI::DrawSettingsActions(const FrameView& view)

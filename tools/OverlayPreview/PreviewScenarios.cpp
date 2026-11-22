@@ -802,6 +802,91 @@ PreviewScenario AppSmoothMotionOnly()
     view.hostFrameGenerationEnabled = view.frameGenerationRequested = false;
     return scenario;
 }
+
+// Degraded sessions (SessionDegradation.h): the game runs, something is off, and the menu says why.
+// Frame generation did not start: normal presentation, no FG, Reflex or NR.
+PreviewScenario DegradedStartup(const char* name, const char* summary, const char* status)
+{
+    auto scenario = AppClean();
+    scenario.name = name;
+    scenario.summary = summary;
+    auto& view = scenario.view;
+    view.degraded = {{Degradation::Reason::FrameGenerationStartup, status}};
+    view.degradedFacts.universal = true;
+    view.generationActive = view.nvidiaServicesReady = false;
+    view.effectiveMultiplier = 1;
+    view.session = {};
+    view.providerStatus = std::string("Normal presentation; frame generation, Reflex and NR unavailable: ") + status + ". Restart to retry.";
+    view.neuralState = {};
+    view.neuralState.status = "NR unavailable after frame-generation startup failure; restart to retry";
+    view.neuralAdmissionReason = view.neuralState.status;
+    view.outputRate = {Telemetry::OutputSource::Streamline, 59.2f, true};
+    return scenario;
+}
+
+PreviewScenario DegradedMFG()
+{
+    auto scenario = AppClean();
+    scenario.name = "degraded-mfg";
+    scenario.summary = "x3-x6 unlock stood down; DLSS-G continues at x2";
+    auto& view = scenario.view;
+    const char* status = "MFG unavailable this session: this DLSS-G build's capability patch targets are missing, ambiguous or "
+                         "have an unsupported layout; no patches applied. x2 frame generation continues.";
+    view.degraded = {{Degradation::Reason::MultiFrameGeneration, status}};
+    view.mfg.route = SourceDLSSG::MFGRoute::AdaUnlock;
+    view.mfg.requested = view.mfg.adapterVerified = view.mfg.failed = true;
+    view.mfg.status = status;
+    view.effectiveMultiplier = 2;
+    view.session.state.numFramesToGenerateMax = 1;
+    view.session.options.numFramesToGenerate = 1;
+    scenario.applied.sourceDLSSG.generation.generatedFrames = 1;
+    scenario.draft = scenario.applied;
+    return scenario;
+}
+
+PreviewScenario DegradedGuides()
+{
+    auto scenario = AppClean();
+    scenario.name = "degraded-guides";
+    scenario.summary = "A guide copy was refused: frame generation and NR paused, frames still present";
+    auto& view = scenario.view;
+    const char* status = "Frame generation and NR are off: the depth copy was refused (0x80070057). Restart to retry.";
+    view.degraded = {{Degradation::Reason::GuideRefused, status}};
+    view.providerStatus = status;
+    view.generationActive = false;
+    view.effectiveMultiplier = 1;
+    view.neuralState.active = false;
+    view.neuralState.status = status;
+    view.neuralAdmissionReason = status;
+    return scenario;
+}
+
+PreviewScenario DegradedNeural()
+{
+    auto scenario = AppClean();
+    scenario.name = "degraded-nr";
+    scenario.summary = "NR turned itself off after a refused recording; Apply retries";
+    auto& neural = scenario.view.neuralState;
+    neural.active = false;
+    neural.failed = neural.sessionDisabled = neural.retryable = true;
+    neural.reason = "NR feature creation failed (0xBAD00002); NR is off. Apply to retry; saved preference unchanged.";
+    neural.status = neural.reason;
+    scenario.view.degraded = {{Degradation::Reason::NeuralRenderingStopped, neural.reason}};
+    return scenario;
+}
+
+// Startup problems that used to close Skyrim and now only cost the affected part.
+PreviewScenario DegradedSettings()
+{
+    auto scenario = AppClean();
+    scenario.name = "degraded-settings";
+    scenario.summary = "Packaged INI missing, old keys ignored, loading-artwork hook not installed";
+    scenario.view.degraded = {
+        {Degradation::Reason::PackagedSettingsMissing, "Data\\SKSE\\Plugins\\TheosRenderPipeline.ini rc=-3"},
+        {Degradation::Reason::LegacySettingsIgnored, "Settings/EnableUpscaler, Experimental/FrameGenerationBackend"},
+        {Degradation::Reason::LoadingArtworkUnavailable, "Loading artwork hook does not match the engine transition sender"}};
+    return scenario;
+}
 } // namespace
 
 std::vector<PreviewScenario> PreviewScenarios()
@@ -813,5 +898,10 @@ std::vector<PreviewScenario> PreviewScenarios()
         Pascal("pascal-missing-pack", NeuralRendering::kPascalAssetReason),
         Pascal("pascal-checking", NeuralRendering::kPascalAssetsChecking),
         Pascal("pascal-low-budget", NeuralRendering::kPascalBudgetReason), PascalOldNetwork(), Runtimes(), TestBackendsNvidia(), TestBackendsAmd(), VulkanNvidia(), VendorFSR(), FSR4Forced(), FSR4Pascal(), VulkanBackground(), VulkanAmdRefused(), VulkanAmdPortable(), HIPMissing(), VendorStandard(), VulkanPreparing(), HIPLockedVulkan(), VulkanLockedHIP(), HIPFSRRefused(), Lab(), EvenPacing(), IntelSteady(),
-        AppClean(), AppModel(), AppSteppedAside(), AppNeural(), AppFrameGenerationModel(), AppMultiplier(), AppSmoothMotionConflict(), AppSmoothMotionOnly()};
+        AppClean(), AppModel(), AppSteppedAside(), AppNeural(), AppFrameGenerationModel(), AppMultiplier(), AppSmoothMotionConflict(), AppSmoothMotionOnly(),
+        DegradedStartup("degraded-fg-startup", "DLSS-G did not load (feature 1000): normal presentation, the dialog's advice in the menu",
+            "slSetFeatureLoaded feature=1000 Streamline result=34 failed HRESULT=0x80004005"),
+        DegradedStartup("degraded-fg-module", "A Streamline module was missing: normal presentation",
+            "nvngx_dlssg.dll was not loaded from the configured Streamline directory failed HRESULT=0x80004005"),
+        DegradedMFG(), DegradedGuides(), DegradedNeural(), DegradedSettings()};
 }

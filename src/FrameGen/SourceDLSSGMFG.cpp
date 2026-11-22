@@ -3,6 +3,7 @@
 #include "../PluginPaths.h"
 #include "CommunityShaderIntegration.h"
 #include "../StartupHints.h"
+#include "../SessionDegradationLog.h"
 #include "DlssgOverride.h"
 #include "NvidiaDriverVersion.h"
 #include "../../extern/dlssg-turing/src/SourceDLSSGMFGPatch.h"
@@ -59,6 +60,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 				"Use the 3D application setting to restore MFG." : "");
 		state_.status = standDownStatus_.c_str();
 		spdlog::warn("[SourceDLSSG MFG] {}", standDownStatus_);
+		Degradation::Note(Degradation::Reason::MultiFrameGeneration, standDownStatus_);
 	}
 	void MFGUnlock::CheckBackportDriver(ID3D12Device* device)
 	{

@@ -20,6 +20,8 @@ namespace TheosRenderPipeline::StartupHints
         CompatibilityAdapterUnidentified, // NVAPI could not match the rendering GPU
         DriverTooOld, // RTX 20/30 frame generation needs a newer NVIDIA driver
         DLSSUnavailable, // NVIDIA's DLSS runtime did not create its feature
+        CompatibilityDisabled, // RTX 20/30 with SourceDLSSGMFGUnlock=false
+        XeFGUnavailable, // Intel XeFG did not pass its startup check
     };
 
     // What the renderer actually observed when the failure happened.
@@ -47,7 +49,11 @@ namespace TheosRenderPipeline::StartupHints
             Contains(status, "prepared Ampere modules changed")) { return Failure::CompatibilityRuntimeMissing; }
         if (Contains(status, "is too old for RTX 20/30 frame generation")) { return Failure::DriverTooOld; }
         if (Contains(status, "direct DLSS feature initialization failed")) { return Failure::DLSSUnavailable; }
-        if (Contains(status, "NVAPI")) { return Failure::CompatibilityAdapterUnidentified; }
+        if (Contains(status, "SourceDLSSGMFGUnlock=false disables")) { return Failure::CompatibilityDisabled; }
+        if (Contains(status, "Intel XeFG startup")) { return Failure::XeFGUnavailable; }
+        if (Contains(status, "NVAPI") || Contains(status, "rendering adapter could not be identified")) {
+            return Failure::CompatibilityAdapterUnidentified;
+        }
         if (Contains(status, "publication changed") || Contains(status, "publication verification failed") ||
             Contains(status, "resolver changed") || Contains(status, "export changed identity") ||
             Contains(status, "Streamline bypassed")) { return Failure::CompatibilityRuntimeChanged; }
@@ -138,6 +144,15 @@ namespace TheosRenderPipeline::StartupHints
                 line("NVIDIA's DLSS did not start. Turn off NVIDIA App's Smooth Motion and any DLSS override for Skyrim, "
                      "disable global DLSS override tools and update the NVIDIA driver, then start Skyrim again.");
             }
+            break;
+        case Failure::CompatibilityDisabled:
+            line("RTX 20 and RTX 30 cards need TRP's compatibility path for frame generation, and a setting turns it off. "
+                 "Set SourceDLSSGMFGUnlock=true under [Experimental] in SKSE/Plugins/TheosRenderPipeline.User.ini "
+                 "(in MO2, also check Overwrite), then start Skyrim again.");
+            break;
+        case Failure::XeFGUnavailable:
+            line("Intel XeFG could not start. Check that TRP's Intel files (libxess_fg.dll, libxess.dll and libxell.dll) are "
+                 "installed and not replaced by another mod, update the graphics driver, then start Skyrim again.");
             break;
         }
         return hint.empty() ? hint : std::string(translate ? translate("Likely causes and what to try:\n") : "Likely causes and what to try:\n") + hint;

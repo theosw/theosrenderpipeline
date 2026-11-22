@@ -4,6 +4,7 @@
 #include "OverlayFrameView.h"
 #include "OverlayUIStyle.h"
 #include "DLSSPreset.h"
+#include "SessionDegradationText.h"
 #include "UpscaleType.h"
 
 using namespace TheosRenderPipeline::Overlay;
@@ -190,6 +191,56 @@ void OverlayUI::DescribeFrameView(FrameView& view) const
     if ((view.upscaleAlert | view.generationAlert | view.neuralAlert) != 0 && view.pipelineHealth == UIHealth::kHealthy)
     {
         view.pipelineLabel = conflict ? TR("NVIDIA App conflict") : TR("NVIDIA App override");
+    }
+
+    // Features TRP runs without this session: the same red box, with what is off,
+    // that the game keeps running, and what to do. Leads any NVIDIA App text.
+    namespace Degradation = TheosRenderPipeline::Degradation;
+    view.sessionNoticeText.clear();
+    view.sessionDegraded = view.loadingArtworkUnavailable = false;
+    const auto lead = [](std::string& target, const std::string& text) {
+        target = target.empty() ? text : text + "\n\n" + target;
+    };
+    for (const auto& entry : view.degraded)
+    {
+        if (!entry.active) { continue; }
+        view.sessionDegraded = true;
+        const auto text = Degradation::Explain(entry, view.degradedFacts,
+            [](const char* english) { return TheosRenderPipeline::Localization::Translate(english); });
+        const auto feature = Degradation::FeatureOf(entry.reason);
+        if (feature == Degradation::Feature::FrameGeneration)
+        {
+            view.generationAlert = 2;
+            lead(view.generationAlertText, text);
+            if (entry.reason != Degradation::Reason::MultiFrameGeneration)
+            {
+                std::snprintf(view.generationTitle, sizeof(view.generationTitle), "%s", TR(Degradation::BoxLabel(entry.reason)));  // translated where shown
+                // NR loses its inputs with it; the Neural Rendering tab points at the cause.
+                if (view.neuralEnabled)
+                {
+                    view.neuralAlert = 2;
+                    std::snprintf(view.neuralDetail, sizeof(view.neuralDetail), "%s", TR(Degradation::BoxLabel(entry.reason)));  // translated where shown
+                    lead(view.neuralAlertText, entry.reason == Degradation::Reason::GuideRefused ?
+                        TR("Neural Rendering is paused together with frame generation. The Frame generation tab says why and what to do.") :
+                        TR("Neural Rendering is off this session because frame generation could not start. "
+                           "The Frame generation tab says why and what to do."));
+                }
+            }
+        }
+        else if (feature == Degradation::Feature::NeuralRendering)
+        {
+            view.neuralAlert = 2;
+            lead(view.neuralAlertText, text);
+        }
+        else
+        {
+            view.loadingArtworkUnavailable |= feature == Degradation::Feature::LoadingArtwork;
+            view.sessionNoticeText += (view.sessionNoticeText.empty() ? "" : "\n\n") + text;
+        }
+    }
+    if (view.sessionDegraded && view.pipelineHealth == UIHealth::kHealthy)
+    {
+        view.pipelineLabel = TR("Reduced this session");
     }
 
     const auto& output = view.outputRate;

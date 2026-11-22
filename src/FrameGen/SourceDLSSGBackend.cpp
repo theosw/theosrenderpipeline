@@ -21,6 +21,8 @@
 #include "../VideoMemoryTelemetry.h"
 #include "SourceFrameGeneration.h"
 #include "StartupFallback.h"
+#include "../SessionDegradationLog.h"
+#include "../StartupHints.h"
 #include <d3dcompiler.h>
 #include <chrono>
 #include <thread>
@@ -308,6 +310,10 @@ namespace TheosRenderPipeline::SourceDLSSG
 		fault_ = S_OK;
 		providerStatus_ = std::format("Normal presentation; frame generation, Reflex and NR unavailable: {}. Restart to retry.", startupFailure_);
 		logger::warn("[FrameGeneration] {}", providerStatus_);
+		// The menu explains this session with the same advice the startup dialog gives.
+		Degradation::Note(Degradation::Reason::FrameGenerationStartup, startupFailure_);
+		const auto hint = StartupHints::HintFor(startupFailure_, StartupHints::CurrentFacts(startupFailure_));
+		if (!hint.empty()) { logger::info("[FrameGeneration] {}", hint); }
 		return true;
 	}
 	HRESULT Backend::CreateSwapChain(IDXGIFactory* a_factory, ID3D11Device* a_device,
@@ -503,6 +509,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (GuidesRefused()) {
 			logger::info("[SourceDLSSG] guide textures released; frame generation and NR may resume with the new ones");
 			guideRefusal_.clear();
+			Degradation::Restored(Degradation::Reason::GuideRefused);
 		}
 	}
     bool Backend::CopyObjectMask(FrameExtent extent)
@@ -586,6 +593,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			guideRefusal_ = std::format("Frame generation and NR are off: the {} was refused (0x{:08X}). Restart to retry.",
 				a_operation, static_cast<std::uint32_t>(a_result));
 			status_ = guideRefusal_;
+			Degradation::Note(Degradation::Reason::GuideRefused, guideRefusal_);
 			neuralHistory_.Invalidate();
 			neuralEligible_ = false;
 			logger::error("[SourceDLSSG] {} refused HRESULT=0x{:08X} before anything was written; presenting without frame generation and NR until restart",
