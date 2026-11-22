@@ -230,6 +230,9 @@ OverlayUI::FrameView OverlayUI::CaptureFrameView()
 #endif
     view.nvidiaFeatures = backend.NvidiaFeaturesAvailable();
     view.nvidiaFrameGeneration = backend.NvidiaFrameGenerationAvailable();
+    // Smooth Motion is the driver's own component in this process; it needs no adapter
+    // check, and TRP's backend never starts when TRP stepped aside for it.
+    view.nvidiaApp.smoothMotion = TheosRenderPipeline::NvidiaApp::SmoothMotionLoaded() ? 1 : 0;
     if (view.nvidiaAdapter) {
         const auto app = NvidiaAppOverrides();
         view.nvidiaApp.profileRead = app.read;
@@ -239,8 +242,6 @@ OverlayUI::FrameView OverlayUI::CaptureFrameView()
         view.nvidiaApp.frameGenerationOverride = app.frameGeneration || backend.FrameGenerationOverrideReported();
         view.nvidiaApp.neuralModelOverride = app.neural;
         view.nvidiaApp.neuralModel = app.neuralModel;
-        // Smooth Motion is known from the process itself, profile read or not.
-        view.nvidiaApp.smoothMotion = TheosRenderPipeline::NvidiaApp::SmoothMotionLoaded() ? 1 : 0;
     }
     view.videoMemoryFull = backend.VideoMemoryFullRecently();
     view.nvidiaServicesReady = backend.NvidiaServicesReady();
