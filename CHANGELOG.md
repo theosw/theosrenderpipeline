@@ -19,10 +19,12 @@
   do:
   - Intel XeFG fails its start-up check (for example a missing
     libxess_fg.dll): XeSS or FSR still upscale, without frame generation.
-  - RTX 20/30 frame generation can't start (driver too old,
-    SourceDLSSGMFGUnlock=false, or the GPU could not be identified): TRP runs
-    without frame generation. Failures after TRP has patched NVIDIA's code
-    still close the game, as before.
+  - RTX 20/30 frame generation can't start (driver too old or
+    SourceDLSSGMFGUnlock=false): TRP runs without frame generation. Failures
+    after TRP has patched NVIDIA's code still close the game, as before.
+  - TRP can't identify the NVIDIA GPU: it skips its own frame-generation
+    unlocks and uses NVIDIA's frame generation where the card supports it
+    (RTX 40 stays at x2; RTX 50 is unaffected).
   - TheosRenderPipeline.ini is missing or unreadable: TRP uses the same
     defaults built into the plugin, and your saved settings still apply.
   - Old settings from earlier versions are ignored and listed in the menu. The

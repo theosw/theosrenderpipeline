@@ -22,7 +22,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 		bool SelectRoute(midpoint_fix::AdapterKind observed)
 		{
 			adapter = observed;
-			if (requested && adapter == midpoint_fix::AdapterKind::Unavailable) { return false; }
+			// Only the three verified architectures receive TRP's unlocks, which patch kernels
+			// built for them. Anything else, including a GPU CUDA could not identify, runs
+			// NVIDIA's own frame generation, whose support check decides what works.
 			adapterVerified = adapter == midpoint_fix::AdapterKind::Ada || adapter == midpoint_fix::AdapterKind::Ampere || adapter == midpoint_fix::AdapterKind::Turing;
 			route = !requested || !adapterVerified ? MFGRoute::Native :
 				adapter == midpoint_fix::AdapterKind::Ampere ? MFGRoute::AmpereUnlock :

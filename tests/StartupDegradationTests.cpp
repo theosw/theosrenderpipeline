@@ -38,9 +38,8 @@ int main()
     {
         using enum MFGStartupRefusal;
         Require(CanContinueWithoutFrameGeneration(DriverTooOld, false, "NVIDIA driver 566.36 is too old for RTX 20/30 frame generation") &&
-            CanContinueWithoutFrameGeneration(CompatibilityDisabled, false, "SourceDLSSGMFGUnlock=false disables its compatibility path") &&
-            CanContinueWithoutFrameGeneration(AdapterUnidentified, false, "active rendering adapter could not be identified; no patches applied"),
-            "driver too old, unlock off and an unidentified adapter cost frame generation only");
+            CanContinueWithoutFrameGeneration(CompatibilityDisabled, false, "SourceDLSSGMFGUnlock=false disables its compatibility path"),
+            "driver too old and unlock off cost frame generation only");
         // Preparation: as trp::ampere::Start reports its failures.
         for (const char* early : {"NVAPI could not be loaded", "NVAPI does not match the physical compatibility adapter",
                 "Ampere provider ABI is unsupported", "Ampere provider has no retargetable programs",

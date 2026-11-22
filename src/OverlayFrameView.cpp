@@ -212,7 +212,8 @@ void OverlayUI::DescribeFrameView(FrameView& view) const
         {
             view.generationAlert = 2;
             lead(view.generationAlertText, text);
-            if (entry.reason != Degradation::Reason::MultiFrameGeneration)
+            // These two leave NVIDIA's own frame generation running; the others stop it.
+            if (entry.reason != Degradation::Reason::MultiFrameGeneration && entry.reason != Degradation::Reason::AdapterUnidentified)
             {
                 std::snprintf(view.generationTitle, sizeof(view.generationTitle), "%s", TR(Degradation::BoxLabel(entry.reason)));  // translated where shown
                 // NR loses its inputs with it; the Neural Rendering tab points at the cause.

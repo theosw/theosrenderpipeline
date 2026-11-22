@@ -861,6 +861,27 @@ PreviewScenario DegradedMFG()
     return scenario;
 }
 
+// CUDA could not identify the rendering GPU: no TRP unlock, NVIDIA's own DLSS-G (here an RTX 40 at x2).
+PreviewScenario DegradedAdapter()
+{
+    auto scenario = AppClean();
+    scenario.name = "degraded-fg-adapter";
+    scenario.summary = "Rendering GPU not identified: TRP's unlocks off, NVIDIA's own DLSS-G continues (RTX 40 at x2)";
+    auto& view = scenario.view;
+    const char* status = "the rendering GPU could not be identified (code 3); no patches applied, NVIDIA's own frame "
+                         "generation runs where the GPU supports it";
+    view.degraded = {{Degradation::Reason::AdapterUnidentified, status}};
+    view.mfg.route = SourceDLSSG::MFGRoute::Native;
+    view.mfg.requested = true;
+    view.mfg.adapterVerified = false;
+    view.effectiveMultiplier = 2;
+    view.session.state.numFramesToGenerateMax = 1;
+    view.session.options.numFramesToGenerate = 1;
+    scenario.applied.sourceDLSSG.generation.generatedFrames = 1;
+    scenario.draft = scenario.applied;
+    return scenario;
+}
+
 PreviewScenario DegradedGuides()
 {
     auto scenario = AppClean();
@@ -925,8 +946,7 @@ std::vector<PreviewScenario> PreviewScenarios()
         DegradedStartup("degraded-fg-unlock-off", "RTX 20/30 with SourceDLSSGMFGUnlock=false: no frame generation",
             "RTX 20/30-series detected, but SourceDLSSGMFGUnlock=false disables its compatibility path. Set it to true in the "
             "winning MO2 INI (including Overwrite) and restart failed HRESULT=0x887A0004"),
-        DegradedStartup("degraded-fg-adapter", "Rendering GPU not identified: no frame generation",
-            "active rendering adapter could not be identified; no patches applied (code 3) failed HRESULT=0x887A0004"),
+        DegradedAdapter(),
         DegradedXeFG(),
         DegradedMFG(), DegradedGuides(), DegradedNeural(), DegradedSettings()};
 }

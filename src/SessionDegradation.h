@@ -17,6 +17,7 @@ namespace TheosRenderPipeline::Degradation
     {
         FrameGenerationStartup,    // frame generation could not start; normal presentation without FG, Reflex and NR
         MultiFrameGeneration,      // x3 and above stood down; x2 continues
+        AdapterUnidentified,       // GPU not identified; TRP's unlocks off, NVIDIA's own FG decides
         GuideRefused,              // a guide copy was refused; FG and NR pause until new guides
         NeuralRenderingStopped,    // NR turned itself off after a refusal
         PackagedSettingsMissing,   // TheosRenderPipeline.ini missing or unreadable; built-in defaults
@@ -29,6 +30,7 @@ namespace TheosRenderPipeline::Degradation
         switch (reason) {
         case Reason::FrameGenerationStartup:
         case Reason::MultiFrameGeneration:
+        case Reason::AdapterUnidentified:
         case Reason::GuideRefused: return Feature::FrameGeneration;
         case Reason::NeuralRenderingStopped: return Feature::NeuralRendering;
         case Reason::PackagedSettingsMissing:
@@ -59,6 +61,7 @@ namespace TheosRenderPipeline::Degradation
         switch (reason) {
         case Reason::FrameGenerationStartup: return "frame generation did not start";
         case Reason::MultiFrameGeneration: return "multi frame generation stood down to x2";
+        case Reason::AdapterUnidentified: return "GPU not identified; TRP's frame-generation unlocks off";
         case Reason::GuideRefused: return "a frame-generation input copy was refused";
         case Reason::NeuralRenderingStopped: return "Neural Rendering stopped";
         case Reason::PackagedSettingsMissing: return "packaged settings file missing; built-in defaults";

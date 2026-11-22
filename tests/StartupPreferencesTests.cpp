@@ -257,7 +257,8 @@ int main(int argc, char** argv)
         for (const auto adapter : {Ampere, Ada, Other, Unavailable}) { CheckRoute(false, adapter, Native); }
         TheosRenderPipeline::SourceDLSSG::MFGSnapshot unresolved;
         unresolved.requested = true;
-        Require(!unresolved.SelectRoute(Unavailable), "unidentified GPU cannot receive compatibility");
+        Require(unresolved.SelectRoute(Unavailable) && unresolved.route == Native && !unresolved.adapterVerified &&
+            !unresolved.UsesCompatibilityUnlock(), "unidentified GPU takes NVIDIA's own route without TRP's unlocks");
         std::cout << "PASS: startup defaults, persistence, explicit opt-out and adapter routing\n";
         return 0;
     } catch (const std::exception& error) {

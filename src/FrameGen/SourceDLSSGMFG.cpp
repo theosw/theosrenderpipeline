@@ -108,9 +108,13 @@ namespace TheosRenderPipeline::SourceDLSSG
 			trp::ampere::EmulateAmpereOnAda(true);
 			adapter = midpoint_fix::AdapterKind::Ampere;
 		}
-		if (!state_.SelectRoute(adapter)) {
+		state_.SelectRoute(adapter);
+		if (state_.requested && adapter == midpoint_fix::AdapterKind::Unavailable) {
 			state_.temporalFailure = midpoint_fix::FailureCode();
-			return Refuse(std::format("active rendering adapter could not be identified; no patches applied (code {})", state_.temporalFailure));
+			const auto reason = std::format("the rendering GPU could not be identified (code {}); no patches applied, "
+				"NVIDIA's own frame generation runs where the GPU supports it", state_.temporalFailure);
+			spdlog::warn("[SourceDLSSG MFG] {}", reason);
+			Degradation::Note(Degradation::Reason::AdapterUnidentified, reason);
 		}
 		spdlog::info("[SourceDLSSG MFG] selected route={} compatibilityRequested={}",
 			state_.UsesTuringUnlock() ? "Turing" : state_.UsesAmpereUnlock() ? "Ampere" : state_.UsesAdaUnlock() ? "Ada" : "Native", state_.requested);

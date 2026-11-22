@@ -3,10 +3,11 @@
 
 namespace TheosRenderPipeline::SourceDLSSG
 {
-    // Why the RTX 20/30 compatibility path cannot start. The first three are
-    // decided from the adapter, the setting and the driver version alone, before
-    // any NVIDIA module is loaded.
-    enum class MFGStartupRefusal { AdapterUnidentified, CompatibilityDisabled, DriverTooOld, PreparationFailed };
+    // Why the RTX 20/30 compatibility path cannot start. The first two are
+    // decided from the setting and the driver version alone, before any NVIDIA
+    // module is loaded. (A GPU CUDA cannot identify is not a refusal: it takes
+    // NVIDIA's own route without TRP's unlocks.)
+    enum class MFGStartupRefusal { CompatibilityDisabled, DriverTooOld, PreparationFailed };
 
     // True when only frame generation has to go: Streamline is never loaded and
     // the session continues on the startup transport. False keeps the fatal

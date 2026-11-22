@@ -33,6 +33,13 @@ namespace TheosRenderPipeline::Degradation
                    "replacement nvngx_dlssg.dll from other mods, then restart Skyrim.");
             text += '\n';
             break;
+        case Reason::AdapterUnidentified:
+            text = tr("TRP could not identify your NVIDIA GPU, so its frame-generation unlocks are off this session: RTX 40 "
+                      "cards stay at x2, and RTX 20 and 30 cards have no frame generation. RTX 50 cards are not affected. "
+                      "The game keeps running.");
+            text += '\n';
+            text += StartupHints::Hint(StartupHints::Failure::CompatibilityAdapterUnidentified, facts, translate);
+            break;
         case Reason::GuideRefused:
             text = tr("Frame generation and Neural Rendering are paused: an image they need from the game could not be copied. "
                       "The game keeps running normally without them.");

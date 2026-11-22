@@ -91,6 +91,11 @@ int main()
             "NVIDIA app is overriding DLSS Frame Generation for Skyrim; set its Frame Generation overrides to Use the 3D application setting to restore MFG."}, {});
         Require(Has(overridden, "NVIDIA App replaces the frame-generation file") && !Has(overridden, "Reinstall TRP's own files"),
             "MFG stand-down under an NVIDIA App override points at the override");
+        const auto gpu = Explain({Reason::AdapterUnidentified, "the rendering GPU could not be identified (code 3); no patches applied"}, {});
+        Require(Has(gpu, "could not identify your NVIDIA GPU") && Has(gpu, "RTX 40 cards stay at x2") && Has(gpu, "RTX 50 cards are not affected") &&
+            Has(gpu, "keeps running") && Has(gpu, "did not identify the GPU"), "GPU not identified: what each card keeps, plus driver/laptop advice");
+        Require(FeatureOf(Reason::AdapterUnidentified) == Feature::FrameGeneration && !Affects(Reason::AdapterUnidentified, Feature::NeuralRendering),
+            "GPU not identified marks frame generation only");
         const auto guide = Explain({Reason::GuideRefused, "Frame generation and NR are off: the depth copy was refused (0x80070057). Restart to retry."}, {});
         Require(Has(guide, "are paused") && Has(guide, "keeps running normally") && Has(guide, "Restart Skyrim"), "guide refusal");
         const auto retry = Explain({Reason::NeuralRenderingStopped, "NR feature creation failed; NR is off. Apply to retry; saved preference unchanged."}, {});
