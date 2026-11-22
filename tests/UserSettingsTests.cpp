@@ -38,6 +38,31 @@ int main(int argc, char** argv)
     Write(paths.defaults, Defaults);
     auto load = [&](CSimpleIniA& ini) { ini.SetUnicode(); return UserSettings::Load(ini, paths); };
 
+    // Packaged file missing: an error by default; with the plugin's built-in
+    // defaults set, every reader starts from them and the user file still applies.
+    {
+        const UserSettings::Paths missing{root / L"Missing.ini", root / L"Missing.User.ini"};
+        CSimpleIniA none; none.SetUnicode();
+        Require(UserSettings::Load(none, missing) < 0, "a missing packaged file is an error without built-in defaults");
+        UserSettings::BuiltInDefaults() = UserSettings::PackagedDefaults;
+        Write(missing.user, "[Settings]\nQualityLevel=1\n");
+        CSimpleIniA builtIn; builtIn.SetUnicode();
+        SI_Error userResult = SI_FAIL;
+        Require(UserSettings::Load(builtIn, missing, &userResult) >= 0 && userResult >= 0, "built-in defaults load when the packaged file is missing");
+        CSimpleIniA packaged; packaged.SetUnicode();
+        Require(packaged.LoadFile(argv[1]) >= 0, "packaged INI loads");
+        Require(std::string_view(builtIn.GetValue("Experimental", "SourceDLSSGStreamlineDirectory", "")) ==
+            packaged.GetValue("Experimental", "SourceDLSSGStreamlineDirectory", "?") &&
+            !std::string_view(builtIn.GetValue("Experimental", "SourceDLSSGStreamlineDirectory", "")).empty(),
+            "the built-in defaults carry the packaged runtime folder");
+        Require(builtIn.GetLongValue("Settings", "QualityLevel", -1) == 1, "the user file still applies over the built-in defaults");
+        CSimpleIniA present;
+        Require(load(present) >= 0 && std::string_view(present.GetValue("Settings", "Sharpness", "")) == "0.3",
+            "a readable packaged file still wins over the built-in defaults");
+        UserSettings::BuiltInDefaults() = nullptr;
+        std::filesystem::remove(missing.user, error);
+    }
+
     // Value comparison as TRP reads values.
     Require(UserSettings::ValuesEqual("0.3", "0.300000") && UserSettings::ValuesEqual(" 2 ", "2"), "numbers compare by value");
     Require(UserSettings::ValuesEqual("0x23", "35") && UserSettings::ValuesEqual("true", "1") &&

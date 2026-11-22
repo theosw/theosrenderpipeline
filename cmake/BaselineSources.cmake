@@ -217,6 +217,7 @@ set(ARP_BASELINE_SOURCES
     src/StartupHints.cpp
     src/NvidiaAppProfile.cpp
     src/NvidiaAppProfile.h
+    src/FrameGen/MFGStartupPolicy.h
     src/SessionDegradation.h
     src/SessionDegradationLog.h
     src/SessionDegradationText.h

@@ -267,7 +267,8 @@ OverlayUI::FrameView OverlayUI::CaptureFrameView()
     view.nvidiaServicesReady = backend.NvidiaServicesReady();
     view.generationActive = backend.GenerationActive();
     view.effectiveMultiplier = backend.EffectiveMultiplier();
-    view.provider = backend.Provider();
+    // The startup transport has no presenter; the menu names the provider that was asked for.
+    view.provider = backend.StartupTransport() ? backend.RequestedProvider() : backend.Provider();
     view.requestedProvider = backend.RequestedProvider();
     view.providerStatus = backend.ProviderStatus();
     view.nvidiaSwitchBlocked = backend.NvidiaSwitchBlocked();

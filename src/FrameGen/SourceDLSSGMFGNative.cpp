@@ -3,13 +3,14 @@
 
 namespace TheosRenderPipeline::SourceDLSSG
 {
-    void MFGUnlock::SelectAdapter(ID3D12Device*)
+    bool MFGUnlock::SelectAdapter(ID3D12Device*)
     {
         state_.route = MFGRoute::Native;
         spdlog::info("[SourceDLSSG MFG] selected route=Native edition=Standard compatibilityAvailable=false; "
             "RTX 30-series requires the Universal renderer with SourceDLSSGMFGUnlock=true, even with interpolation off");
+        return true;
     }
-    void MFGUnlock::BeforeStreamline(ID3D12Device*, const std::filesystem::path&) {}
+    bool MFGUnlock::BeforeStreamline(ID3D12Device*, const std::filesystem::path&) { return true; }
     void MFGUnlock::EnterStartupScope() noexcept {}
     void MFGUnlock::LeaveStartupScope() noexcept {}
     // Both variants read the setting; only the full renderer applies the unlock.

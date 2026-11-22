@@ -139,7 +139,10 @@ namespace TheosRenderPipeline::SourceDLSSG
 			return Check(E_UNEXPECTED, "another frame-generation mod is already loaded; disable the competing mod");
 		}
 		directory_ = Normalize(a_directory);
-		mfgUnlock_.SelectAdapter(device12_.Get());
+		// An RTX 20/30 refusal decided before anything is loaded or patched (driver too old,
+		// compatibility switched off, adapter not identified) costs frame generation only:
+		// Streamline is never loaded and CreateSwapChain continues on the startup transport.
+		if (!mfgUnlock_.SelectAdapter(device12_.Get())) { return Check(DXGI_ERROR_UNSUPPORTED, mfgUnlock_.Snapshot().status); }
 		// RTX 20 needs the 310.9.1 set; RTX 30 also runs the newer DLSS-G unless kept on it.
 		if (UsesBackportStreamline(mfgUnlock_.Snapshot().UsesTuringUnlock(), mfgUnlock_.Snapshot().UsesAmpereUnlock(), rtx30LegacyDLSSG_)) {
 			const auto backport = BackportStreamlineDirectory(directory_);
@@ -160,7 +163,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 				return Check(E_UNEXPECTED, std::format("{} already loaded by another owner", std::filesystem::path(name).string()).c_str());
 			}
 		}
-		mfgUnlock_.BeforeStreamline(device12_.Get(), directory_);
+		if (!mfgUnlock_.BeforeStreamline(device12_.Get(), directory_)) { return Check(DXGI_ERROR_UNSUPPORTED, mfgUnlock_.Snapshot().status); }
 		logger::info("[SourceDLSSG] startup stage=load-interposer");
 		interposer_ = ::LoadLibraryExW((directory_ / L"sl.interposer.dll").c_str(), nullptr,
 			LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
@@ -300,10 +303,10 @@ namespace TheosRenderPipeline::SourceDLSSG
 		streamlineFactory_ = upgradedFactory;
 		return true;
 	}
-	bool Backend::EnterStartupTransport()
+	bool Backend::EnterStartupTransport(const char* a_context)
 	{
 		if (!device12_ || !CanUseStartupTransport(fault_, device12_->GetDeviceRemovedReason(), presenterAttempted_)) { return false; }
-		startupFailure_ = status_;
+		startupFailure_ = a_context ? std::format("{}: {}", a_context, status_) : status_;
 		startupTransport_ = true;
 		// This is a new, explicit transport state, not a repaired Streamline
 		// session. Retain all partial SDK state; never call slInit again here.
@@ -448,12 +451,23 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// context when the saved presenter is NVIDIA.
 		if (xeSSStartup &&
 			!Check(xess_.Open(device12_.Get(), PluginPaths::IntelDirectory()), "XeSS context", "XeSS")) { return fault_; }
+		// XeFG's startup check makes no presenter factory call: it loads Intel's SDK and
+		// creates and destroys a probe context. A refusal (libxess_fg.dll missing, no
+		// SM6.4, x2 unavailable) leaves the window without an owner, so the session
+		// continues on the startup transport. An Unsafe result (E_UNEXPECTED) or a probe
+		// context that could not be destroyed stays fatal.
+		if (intelStartup && !CheckXeFG(xefg_.Probe(device12_.Get(), PluginPaths::IntelDirectory(), xefgTensorRequested_))) {
+			if (!CanDegradeXeFGProbe(fault_, device12_->GetDeviceRemovedReason(), xefg_.HasContext(), presenterAttempted_) ||
+				!EnterStartupTransport("Intel XeFG startup")) { return fault_; }
+			// The transport is the presenter-less state the NVIDIA path already uses, and
+			// no XeFG or XeLL call may follow. The saved provider request is unchanged.
+			provider_ = FrameGenerationProvider::NVIDIA;
+		}
 		presenterAttempted_ = true; // Never fall back after any presenter factory call, even if it returns failure.
 		if (startupTransport_) {
 			if (!Check(nativeFactory_->CreateSwapChain(queue_.Get(), &desc, &native), "normal startup transport")) { return fault_; }
 		} else if (intelStartup) {
-			if (!CheckXeFG(xefg_.Probe(device12_.Get(), PluginPaths::IntelDirectory(), xefgTensorRequested_)) ||
-				!CheckXeFG(xefg_.Create(device12_.Get(), queue_.Get(), nativeFactory_.Get(), desc, XeFGStartupInvertedDepth(communityShaders), &native, 0,
+			if (!CheckXeFG(xefg_.Create(device12_.Get(), queue_.Get(), nativeFactory_.Get(), desc, XeFGStartupInvertedDepth(communityShaders), &native, 0,
 					XeFGConfiguration(), IntelPipelines(XeFGPipelineCache(), xefg_.PipelineCacheName(), xefg_.RuntimeModule()), nullptr, XeFGVSyncCadence()))) { return fault_; }
 			providerStatus_ = "Intel XeFG presenter; latency owner=XeLL";
 		} else if (!Check(streamlineFactory_->CreateSwapChain(queue_.Get(), &desc, &native), "Streamline swapchain")) { return fault_; }

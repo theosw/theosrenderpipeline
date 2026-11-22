@@ -276,7 +276,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 	private:
 		friend class SwapChain; // Transport failures use the same first-error latch.
 		Backend() = default;
-		bool EnterStartupTransport();
+		// a_context names the provider whose startup check failed, for the status and the menu.
+		bool EnterStartupTransport(const char* a_context = nullptr);
 		bool startupTransport_{}, presenterAttempted_{};
 		std::uint32_t transportFrame_{};
 		std::string startupFailure_;

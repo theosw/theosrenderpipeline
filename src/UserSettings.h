@@ -127,11 +127,21 @@ inline void Difference(const CSimpleIniA& defaults, const CSimpleIniA& full, CSi
     }
 }
 
+// The packaged defaults as compiled into the plugin. The plugin sets this once
+// at load when TheosRenderPipeline.ini is missing or unreadable; every reader
+// then starts from the same defaults the file would have given. Null elsewhere.
+inline const char*& BuiltInDefaults()
+{
+    static const char* text{};
+    return text;
+}
+
 // Packaged defaults, then the user file. Returns the defaults' load result;
 // an unreadable user file is reported separately and leaves the defaults.
 inline SI_Error Load(CSimpleIniA& ini, const Paths& paths = GamePaths(), SI_Error* userResult = nullptr)
 {
-    const auto result = ini.LoadFile(paths.defaults.c_str());
+    auto result = ini.LoadFile(paths.defaults.c_str());
+    if (result < 0 && BuiltInDefaults()) { result = ini.LoadData(BuiltInDefaults()); }
     CSimpleIniA user;
     user.SetUnicode();
     const auto loaded = LoadOptional(user, paths.user);

@@ -824,6 +824,23 @@ PreviewScenario DegradedStartup(const char* name, const char* summary, const cha
     return scenario;
 }
 
+// XeFG's startup check refused on a non-NVIDIA GPU: XeSS still upscales, no frame generation.
+PreviewScenario DegradedXeFG()
+{
+    auto scenario = Intel();
+    scenario.name = "degraded-xefg";
+    scenario.summary = "XeFG startup check refused (libxess_fg.dll missing): XeSS upscaling, normal presentation";
+    auto& view = scenario.view;
+    const char* status = "Intel XeFG startup: load libxess_fg.dll failed HRESULT=0x8007007E";
+    view.degraded = {{Degradation::Reason::FrameGenerationStartup, status}};
+    view.generationActive = false;
+    view.effectiveMultiplier = 1;
+    view.xefg = {};
+    view.providerStatus = std::string("Normal presentation; frame generation, Reflex and NR unavailable: ") + status + ". Restart to retry.";
+    view.outputRate = {Telemetry::OutputSource::Streamline, 59.2f, true};
+    return scenario;
+}
+
 PreviewScenario DegradedMFG()
 {
     auto scenario = AppClean();
@@ -903,5 +920,13 @@ std::vector<PreviewScenario> PreviewScenarios()
             "slSetFeatureLoaded feature=1000 Streamline result=34 failed HRESULT=0x80004005"),
         DegradedStartup("degraded-fg-module", "A Streamline module was missing: normal presentation",
             "nvngx_dlssg.dll was not loaded from the configured Streamline directory failed HRESULT=0x80004005"),
+        DegradedStartup("degraded-fg-driver", "RTX 30 on driver 566.36: no frame generation, the game still starts",
+            "NVIDIA driver 566.36 is too old for RTX 20/30 frame generation failed HRESULT=0x887A0004"),
+        DegradedStartup("degraded-fg-unlock-off", "RTX 20/30 with SourceDLSSGMFGUnlock=false: no frame generation",
+            "RTX 20/30-series detected, but SourceDLSSGMFGUnlock=false disables its compatibility path. Set it to true in the "
+            "winning MO2 INI (including Overwrite) and restart failed HRESULT=0x887A0004"),
+        DegradedStartup("degraded-fg-adapter", "Rendering GPU not identified: no frame generation",
+            "active rendering adapter could not be identified; no patches applied (code 3) failed HRESULT=0x887A0004"),
+        DegradedXeFG(),
         DegradedMFG(), DegradedGuides(), DegradedNeural(), DegradedSettings()};
 }
