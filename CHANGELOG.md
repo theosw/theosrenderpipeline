@@ -7,13 +7,13 @@
   session: the game starts normally with Smooth Motion and without TRP's
   upscaling, frame generation and NR. TRP's menu (End) says it is off and how to
   turn Smooth Motion off to use TRP again. Tested on an RTX 4080 SUPER with
-  driver 621.01.
+  driver 621.01, with ENB and with Community Shaders.
 - NVIDIA App and driver overrides: when a driver profile override (for
   example from NVIDIA Profile Inspector) replaces TRP's DLSS, frame generation
   or NR model choice, the affected box at the top of the settings is drawn red.
   Its tooltip and the matching tab say what is overriding TRP and how to undo
   it. TRP keeps running; it only reports. NVIDIA App itself offers no DLSS
-  overrides for Skyrim.
+  overrides for Skyrim. Not yet tested in game.
 - Fewer start-up failures close Skyrim. Each of these now turns off only the
   part it affects for that session, and TRP's menu says what is off and what to
   do:
@@ -30,6 +30,11 @@
   - Old settings from earlier versions are ignored and listed in the menu. The
     files are not changed.
   - Request loading artwork can't attach to the game: only that option is off.
+
+  Checked in game on an RTX 4080 SUPER: the missing XeFG file, RTX 30 with
+  SourceDLSSGMFGUnlock=false (emulated), the missing settings file and old
+  settings. Not yet tested in game: an unidentified GPU, a driver too old for
+  RTX 20/30, and the loading-artwork case.
 - The menu now shows anything TRP is running without this session, including
   the cases above, a frame-generation drop to x2, a refused depth copy and NR
   turning itself off. The affected box is red, the status reads "Reduced this
