@@ -6,6 +6,8 @@
 #include "FrameTrace.h"
 #include "NvidiaUpscalerConfiguration.h"
 #include "PerformanceTuning.h"
+#include "SessionDegradation.h"
+#include "StartupHints.h"
 #include "VideoMemoryTelemetry.h"
 #include "WeatherAppearanceController.h"
 #include "FrameGen/DlssgLiteBlending.h"
@@ -43,6 +45,7 @@ struct OverlayUI::FrameView
     TheosRenderPipeline::Upscaler::Creation upscaler{};
     bool upscalerNeedsRestart{}, upscalerFailed{}, upscalerChangeQueued{}, upscalerLiveModeRejected{};
     int upscalerStartupMode{};
+    bool steppedAside{}; // TRP declined presentation this session (NVIDIA Smooth Motion)
     int renderSizeX{}, renderSizeY{}, displaySizeX{}, displaySizeY{};
     bool nativeUI{true};
     bool reShadeBeforeUpscaling{};
@@ -73,6 +76,24 @@ struct OverlayUI::FrameView
     std::string amdNeuralPrerequisite;
     bool nvidiaFeatures{true};
     bool nvidiaFrameGeneration{true};
+    // NVIDIA App and driver settings for Skyrim that change what TRP asked for,
+    // read from the driver profile and the loaded runtime files. Nothing here
+    // stops TRP; the menu only says what is in effect.
+    struct NvidiaAppState
+    {
+        bool profileRead{};                // Skyrim's driver profile was read
+        bool upscalingModelOverride{};     // App chooses the DLSS model
+        std::string upscalingModel;        // what the App selected, e.g. "Latest" or "M"
+        bool frameGenerationOverride{};    // App replaces the DLSS-G model or version
+        unsigned forcedMultiplier{};       // App forces this output multiplier; 0 when not forced
+        bool neuralModelOverride{};        // App chooses the DLSS NR model
+        std::string neuralModel;
+        int smoothMotion{-1};              // driver Smooth Motion: -1 unknown, 0 off, 1 on
+    } nvidiaApp{};
+    // What TRP runs without this session and why (SessionDegradation.h), with the
+    // facts its advice rests on. Resolved entries stay, marked inactive.
+    std::vector<TheosRenderPipeline::Degradation::Entry> degraded;
+    TheosRenderPipeline::StartupHints::Facts degradedFacts{};
     bool videoMemoryFull{};
     bool xessActive{};
     bool nrFriendlyRenderSizeActive{};
@@ -133,6 +154,14 @@ struct OverlayUI::FrameView
     TheosRenderPipeline::Overlay::UIHealth presentHealth{};
     TheosRenderPipeline::Overlay::UIHealth pipelineHealth{};
     const char* pipelineLabel{};
+    // Pipeline boxes the NVIDIA App or driver changes: 0 none, 1 override in
+    // effect (fine), 2 conflict the user should resolve. The text explains it.
+    int upscaleAlert{}, generationAlert{}, neuralAlert{};
+    std::string upscaleAlertText, generationAlertText, neuralAlertText;
+    // Degraded states that belong to no pipeline box (settings files, loading
+    // artwork): shown under the pipeline. sessionDegraded is true for any active entry.
+    std::string sessionNoticeText;
+    bool sessionDegraded{}, loadingArtworkUnavailable{};
     char renderDetail[64]{};
     char upscaleDetail[96]{};
     char nativeDetail[64]{};

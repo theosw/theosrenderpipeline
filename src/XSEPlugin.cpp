@@ -13,6 +13,7 @@
 #endif
 #include "PerformanceTuning.h"
 #include "NvidiaBaselinePolicy.h"
+#include "SessionDegradationLog.h"
 #include "NativeInput.h"
 #include "NativeUIBridge.h"
 #include "ReShadeIntegration.h"
@@ -223,17 +224,31 @@ extern "C" DLLEXPORT bool __cdecl SKSEPlugin_Load(const SKSE::LoadInterface* a_s
 	CSimpleIniA baselineIni;
 	baselineIni.SetUnicode();
 	SI_Error userLoad = SI_OK;
-	if (TheosRenderPipeline::UserSettings::Load(baselineIni, TheosRenderPipeline::UserSettings::GamePaths(), &userLoad) < 0) {
-		util::report_and_fail("Theo's Render Pipeline: SKSE/Plugins/TheosRenderPipeline.ini is missing or unreadable. Install the packaged TheosRenderPipeline.ini and restart Skyrim.");
+	if (const auto packaged = TheosRenderPipeline::UserSettings::Load(baselineIni, TheosRenderPipeline::UserSettings::GamePaths(), &userLoad); packaged < 0) {
+		// The same defaults are compiled into the plugin: every reader uses them for
+		// the session, the user file still applies on top, and the menu says so.
+		TheosRenderPipeline::UserSettings::BuiltInDefaults() = TheosRenderPipeline::UserSettings::PackagedDefaults;
+		baselineIni.Reset();
+		const auto builtIn = TheosRenderPipeline::UserSettings::Load(baselineIni, TheosRenderPipeline::UserSettings::GamePaths(), &userLoad);
+		logger::error("[Settings] SKSE/Plugins/TheosRenderPipeline.ini is missing or unreadable (rc={}); using the plugin's built-in defaults (rc={})",
+			static_cast<int>(packaged), static_cast<int>(builtIn));
+		TheosRenderPipeline::Degradation::Note(TheosRenderPipeline::Degradation::Reason::PackagedSettingsMissing,
+			std::format("SKSE/Plugins/TheosRenderPipeline.ini is missing or unreadable (rc={})", static_cast<int>(packaged)));
 	}
 	if (userLoad < 0) {
 		logger::warn("[Settings] TheosRenderPipeline.User.ini is unreadable (rc={}); using the packaged defaults", static_cast<int>(userLoad));
 	}
-	if (const auto* error = TheosRenderPipeline::ValidateNvidiaBaseline(baselineIni)) {
-		util::report_and_fail(std::format("Theo's Render Pipeline configuration error:\n\n{}\n\nCorrect SKSE/Plugins/TheosRenderPipeline.User.ini "
-			"(your saved settings) or TheosRenderPipeline.ini and restart Skyrim.", error));
+	// Old selectors no reader uses any more are ignored for the session, not fatal.
+	if (const auto ignored = TheosRenderPipeline::IgnoredLegacySettings(baselineIni); !ignored.empty()) {
+		logger::warn("[Settings] ignoring old settings this session: {}; the settings files are left unchanged", ignored);
+		TheosRenderPipeline::Degradation::Note(TheosRenderPipeline::Degradation::Reason::LegacySettingsIgnored, ignored);
 	}
-	nvidiaUpscalerStartup = UsesNvidiaUpscaler(baselineIni.GetLongValue("Settings", "UpscaleType", DLSS));
+#if defined(ARP_DEVELOPER_DIAGNOSTICS)
+	if (const auto* error = TheosRenderPipeline::ValidateDeveloperSettings(baselineIni)) {
+		util::report_and_fail(std::format("Theo's Render Pipeline configuration error:\n\n{}", error));
+	}
+#endif
+	nvidiaUpscalerStartup = UsesNvidiaUpscaler(TheosRenderPipeline::SupportedUpscaleType(baselineIni.GetLongValue("Settings", "UpscaleType", DLSS)));
 	logger::info("{} {}", Plugin::DISPLAY_NAME, Plugin::RELEASE_VERSION);
 
 	// Capture the engine callee before post-load renderer hooks replace its call.

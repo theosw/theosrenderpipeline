@@ -22,7 +22,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 		bool SelectRoute(midpoint_fix::AdapterKind observed)
 		{
 			adapter = observed;
-			if (requested && adapter == midpoint_fix::AdapterKind::Unavailable) { return false; }
+			// Only the three verified architectures receive TRP's unlocks, which patch kernels
+			// built for them. Anything else, including a GPU CUDA could not identify, runs
+			// NVIDIA's own frame generation, whose support check decides what works.
 			adapterVerified = adapter == midpoint_fix::AdapterKind::Ada || adapter == midpoint_fix::AdapterKind::Ampere || adapter == midpoint_fix::AdapterKind::Turing;
 			route = !requested || !adapterVerified ? MFGRoute::Native :
 				adapter == midpoint_fix::AdapterKind::Ampere ? MFGRoute::AmpereUnlock :
@@ -44,10 +46,13 @@ namespace TheosRenderPipeline::SourceDLSSG
 		void Configure(bool requested);
 		// Chooses the route before the Streamline folder is fixed: the RTX 20/30
 		// backport needs its own DLSS-G build. BeforeStreamline then prepares it.
-		void SelectAdapter(ID3D12Device* device);
+		// Both return false when frame generation cannot start but nothing was
+		// patched (see MFGStartupPolicy.h): Snapshot().status holds the reason and
+		// the backend continues on its startup transport instead of closing Skyrim.
+		[[nodiscard]] bool SelectAdapter(ID3D12Device* device);
 		// Developer test (Universal): treat an RTX 40 adapter as RTX 30 and run the SM86 path.
 		void ConfigureEmulation(bool emulateRTX30) { emulateRTX30_ = emulateRTX30; }
-		void BeforeStreamline(ID3D12Device* device, const std::filesystem::path& directory);
+		[[nodiscard]] bool BeforeStreamline(ID3D12Device* device, const std::filesystem::path& directory);
 		void EnterStartupScope() noexcept;
 		void LeaveStartupScope() noexcept;
 		struct StartupScope {
@@ -66,8 +71,10 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// Fail with this guidance instead of the route's general advice.
 		[[noreturn]] void Fail(const char* reason, const std::string& guidance);
 		// RTX 20/30 only: refuses a driver too old to compile DLSS-G's kernels.
-		void CheckBackportDriver(ID3D12Device* device);
-		std::string driverStatus_;
+		bool CheckBackportDriver(ID3D12Device* device);
+		// Frame generation refused before any patch: logs, keeps the reason, returns false.
+		bool Refuse(std::string reason);
+		std::string refusal_;
 		// Ada only, while no patch is in an uncertain state: MFG stays off for the
 		// session and DLSS-G continues at x2. Anything else is fatal, as before.
 		void StandDown(const char* reason);

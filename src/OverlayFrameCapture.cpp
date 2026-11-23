@@ -18,8 +18,104 @@
 #include "PluginPaths.h"
 #include "NeuralObjectHooks.h"
 
+#include "NvidiaAppProfile.h"
+#include "SessionDegradation.h"
+#include "StartupHints.h"
+#include "FrameGen/NvidiaDriverVersion.h"
+
 #include <chrono>
+#include <mutex>
+#include <thread>
 #include <unordered_map>
+
+namespace
+{
+    // The driver profile is read once, on a worker thread when the menu first
+    // opens: it loads the whole profile store, and NVIDIA App changes need a
+    // restart of the game anyway. Until it finishes the menu shows no override.
+    TheosRenderPipeline::NvidiaApp::Overrides NvidiaAppOverrides()
+    {
+        static std::mutex lock;
+        static TheosRenderPipeline::NvidiaApp::Overrides result;
+        static std::once_flag started;
+        std::call_once(started, [] {
+            std::thread([] {
+                const auto values = TheosRenderPipeline::NvidiaApp::ReadProfile();
+                const auto overrides = TheosRenderPipeline::NvidiaApp::Interpret(values);
+                spdlog::info("[NvidiaApp] profile {}: upscaling {} ({}), frame generation {}, NR {} ({})",
+                    overrides.read ? "read" : "unavailable", overrides.upscaling, overrides.upscalingModel,
+                    overrides.frameGeneration, overrides.neural, overrides.neuralModel);
+                std::scoped_lock guard(lock);
+                result = overrides;
+            }).detach();
+        });
+        std::scoped_lock guard(lock);
+        return result;
+    }
+}
+
+namespace
+{
+    std::string FileVersion(const std::filesystem::path& path)
+    {
+        DWORD ignored{};
+        const auto size = GetFileVersionInfoSizeW(path.c_str(), &ignored);
+        std::vector<std::byte> data(size);
+        VS_FIXEDFILEINFO* info{};
+        UINT infoSize{};
+        if (!size || !GetFileVersionInfoW(path.c_str(), 0, size, data.data()) ||
+            !VerQueryValueW(data.data(), L"\\", reinterpret_cast<void**>(&info), &infoSize) || !info || infoSize < sizeof(VS_FIXEDFILEINFO)) {
+            return {};
+        }
+        return std::format("{}.{}.{}.{}", HIWORD(info->dwFileVersionMS), LOWORD(info->dwFileVersionMS),
+            HIWORD(info->dwFileVersionLS), LOWORD(info->dwFileVersionLS));
+    }
+}
+
+// Read when Copy details is pressed, not every frame: it walks the module list
+// and reads file versions. Everything here is also in TheosRenderPipeline.log.
+TheosRenderPipeline::Support::Summary OverlayUI::CaptureSupportSystem()
+{
+    namespace SD = TheosRenderPipeline::SourceDLSSG;
+    TheosRenderPipeline::Support::Summary summary;
+    summary.release = Plugin::RELEASE_VERSION;
+    summary.edition = Plugin::EDITION;
+    summary.source = Plugin::SOURCE_REVISION;
+    summary.skyrim = REL::Module::get().version().string();
+    const auto& backend = SD::Backend::Get();
+    summary.gpu = backend.AdapterName();
+    if (const auto driver = backend.AdapterDriver(); driver.QuadPart) {
+        summary.driver = std::format("{}.{}.{}.{}", HIWORD(driver.HighPart), LOWORD(driver.HighPart), HIWORD(driver.LowPart), LOWORD(driver.LowPart));
+        if (const auto nvidia = backend.NvidiaAdapter() ? SD::NvidiaDriverVersion(driver.LowPart) : 0u) {
+            summary.driver = SD::DriverVersionText(nvidia) + " (" + summary.driver + ")";
+        }
+    }
+    if (summary.gpu.empty() && NvidiaHost::GetSingleton()->SteppedAside()) { summary.gpu = "not read (TRP stepped aside before starting its renderer)"; }  // not translated: support text is English, like the log
+    wchar_t profile[MAX_PATH]{};
+    if (const auto length = GetEnvironmentVariableW(L"USERPROFILE", profile, MAX_PATH); length && length < MAX_PATH) {
+        summary.userProfile = std::filesystem::path(profile).string();
+    }
+    // Vendor runtimes, other renderers' files and TRP itself, by file name.
+    static constexpr std::wstring_view prefixes[]{L"theosrenderpipeline", L"trp", L"nvngx", L"_nvngx", L"sl.", L"nvpresent", L"libxess", L"libxell",
+        L"amd_fidelityfx", L"amdhip64", L"dlss5nr", L"communityshaders", L"reshade", L"pdperfplugin", L"skyrimupscaler", L"d3d11.dll", L"dxgi.dll",
+        L"d3d12core", L"enbseries", L"optiscaler"};
+    wchar_t system[MAX_PATH]{};
+    const std::wstring systemFolder(system, GetSystemDirectoryW(system, MAX_PATH));
+    for (const auto module : TheosRenderPipeline::PluginPaths::LoadedModules()) {
+        const auto path = TheosRenderPipeline::PluginPaths::RawModulePath(module);
+        auto name = path.filename().wstring();
+        std::wstring lower = name;
+        for (auto& character : lower) { character = static_cast<wchar_t>(towlower(character)); }
+        bool listed = false;
+        for (const auto prefix : prefixes) { listed |= lower.starts_with(prefix); }
+        // Windows' own d3d11.dll and dxgi.dll say nothing; a copy elsewhere is ENB, ReShade or another wrapper.
+        if (listed && (lower == L"d3d11.dll" || lower == L"dxgi.dll") && !systemFolder.empty() &&
+            _wcsnicmp(path.c_str(), systemFolder.c_str(), systemFolder.size()) == 0) { listed = false; }
+        if (listed) { summary.modules.push_back({path.filename().string(), FileVersion(path), path.string()}); }
+    }
+    std::sort(summary.modules.begin(), summary.modules.end(), [](const auto& left, const auto& right) { return left.name < right.name; });
+    return summary;
+}
 
 // The only place the menu reads the renderer. Drawing uses the returned view.
 OverlayUI::FrameView OverlayUI::CaptureFrameView()
@@ -85,6 +181,7 @@ OverlayUI::FrameView OverlayUI::CaptureFrameView()
     view.upscalerChangeQueued = upscalerSettings.NeedsLiveChange();
     view.upscalerLiveModeRejected = upscalerSettings.LiveModeRejected();
     view.upscalerStartupMode = upscalerSettings.Startup().mode;
+    view.steppedAside = nvidiaHost->SteppedAside();
 
     view.renderSizeX = upscaler->mRenderSizeX;
     view.renderSizeY = upscaler->mRenderSizeY;
@@ -199,11 +296,43 @@ OverlayUI::FrameView OverlayUI::CaptureFrameView()
 #endif
     view.nvidiaFeatures = backend.NvidiaFeaturesAvailable();
     view.nvidiaFrameGeneration = backend.NvidiaFrameGenerationAvailable();
+    // Smooth Motion is the driver's own component in this process; it needs no adapter
+    // check, and TRP's backend never starts when TRP stepped aside for it.
+    view.nvidiaApp.smoothMotion = TheosRenderPipeline::NvidiaApp::SmoothMotionLoaded() ? 1 : 0;
+    if (view.nvidiaAdapter) {
+        const auto app = NvidiaAppOverrides();
+        view.nvidiaApp.profileRead = app.read;
+        view.nvidiaApp.upscalingModelOverride = app.upscaling;
+        view.nvidiaApp.upscalingModel = app.upscalingModel;
+        // Streamline's own log also reports an NVIDIA App frame-generation override.
+        view.nvidiaApp.frameGenerationOverride = app.frameGeneration || backend.FrameGenerationOverrideReported();
+        view.nvidiaApp.neuralModelOverride = app.neural;
+        view.nvidiaApp.neuralModel = app.neuralModel;
+    }
+    {
+        // The facts behind the advice read the registry and module list: gather
+        // them once per change of the record, not every menu frame.
+        static std::uint32_t described = ~0u;
+        static TheosRenderPipeline::StartupHints::Facts facts;
+        auto& record = TheosRenderPipeline::Degradation::Session();
+        view.degraded = record.Entries();
+        if (const auto revision = record.Revision(); revision != described) {
+            described = revision;
+            std::string status;
+            for (const auto& entry : view.degraded) {
+                if (entry.reason == TheosRenderPipeline::Degradation::Reason::FrameGenerationStartup) { status = entry.detail; }
+            }
+            facts = view.degraded.empty() ? TheosRenderPipeline::StartupHints::Facts{} :
+                TheosRenderPipeline::StartupHints::CurrentFacts(status);
+        }
+        view.degradedFacts = facts;
+    }
     view.videoMemoryFull = backend.VideoMemoryFullRecently();
     view.nvidiaServicesReady = backend.NvidiaServicesReady();
     view.generationActive = backend.GenerationActive();
     view.effectiveMultiplier = backend.EffectiveMultiplier();
-    view.provider = backend.Provider();
+    // The startup transport has no presenter; the menu names the provider that was asked for.
+    view.provider = backend.StartupTransport() ? backend.RequestedProvider() : backend.Provider();
     view.requestedProvider = backend.RequestedProvider();
     view.providerStatus = backend.ProviderStatus();
     view.nvidiaSwitchBlocked = backend.NvidiaSwitchBlocked();

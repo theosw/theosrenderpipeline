@@ -715,6 +715,216 @@ PreviewScenario Lab()
     scenario.actionMessage = "Session settings applied.";
     return scenario;
 }
+// NVIDIA App and driver overrides, each on the healthy DLSS-G state.
+PreviewScenario AppClean()
+{
+    auto scenario = Healthy();
+    scenario.name = "app-clean";
+    scenario.summary = "Driver profile read: no NVIDIA App overrides, Smooth Motion off";
+    scenario.view.nvidiaApp.profileRead = true;
+    scenario.view.nvidiaApp.smoothMotion = 0;
+    return scenario;
+}
+
+PreviewScenario AppModel()
+{
+    auto scenario = AppClean();
+    scenario.name = "app-model";
+    scenario.summary = "NVIDIA App chooses the DLSS model (Latest)";
+    scenario.view.nvidiaApp.upscalingModelOverride = true;
+    scenario.view.nvidiaApp.upscalingModel = "Latest";
+    return scenario;
+}
+
+PreviewScenario AppSteppedAside()
+{
+    auto scenario = HostUnavailable();
+    scenario.name = "app-stepped-aside";
+    scenario.summary = "NVIDIA Smooth Motion on: TRP stepped aside, the game presents itself";
+    scenario.view.steppedAside = true;
+    scenario.view.nvidiaApp.profileRead = true;
+    scenario.view.nvidiaApp.smoothMotion = 1;
+    scenario.nrRuntimePresent = true;
+    return scenario;
+}
+
+PreviewScenario AppNeural()
+{
+    auto scenario = AppClean();
+    scenario.name = "app-nr";
+    scenario.summary = "NVIDIA App chooses the DLSS NR model (preset B)";
+    scenario.view.nvidiaApp.neuralModelOverride = true;
+    scenario.view.nvidiaApp.neuralModel = "B";
+    return scenario;
+}
+
+PreviewScenario AppFrameGenerationModel()
+{
+    auto scenario = AppClean();
+    scenario.name = "app-fg-model";
+    scenario.summary = "NVIDIA App replaces the DLSS-G model; multiplier as TRP set it";
+    scenario.view.nvidiaApp.frameGenerationOverride = true;
+    return scenario;
+}
+
+PreviewScenario AppMultiplier()
+{
+    auto scenario = AppClean();
+    scenario.name = "app-multiplier";
+    scenario.summary = "NVIDIA App forces x4 while TRP is set to x2";
+    auto& view = scenario.view;
+    view.nvidiaApp.frameGenerationOverride = true;
+    view.nvidiaApp.forcedMultiplier = 4;
+    view.session.options.numFramesToGenerate = 1;
+    scenario.applied.sourceDLSSG.generation.generatedFrames = 1;
+    scenario.draft = scenario.applied;
+    return scenario;
+}
+
+PreviewScenario AppSmoothMotionConflict()
+{
+    auto scenario = AppClean();
+    scenario.name = "app-smooth-motion";
+    scenario.summary = "Smooth Motion on with TRP DLSS-G on";
+    scenario.view.nvidiaApp.smoothMotion = 1;
+    return scenario;
+}
+
+PreviewScenario AppSmoothMotionOnly()
+{
+    auto scenario = AppClean();
+    scenario.name = "app-smooth-motion-only";
+    scenario.summary = "Smooth Motion on, TRP frame generation off";
+    auto& view = scenario.view;
+    view.nvidiaApp.smoothMotion = 1;
+    view.generationActive = false;
+    view.effectiveMultiplier = 1;
+    view.hostFrameGenerationEnabled = view.frameGenerationRequested = false;
+    return scenario;
+}
+
+// Degraded sessions (SessionDegradation.h): the game runs, something is off, and the menu says why.
+// Frame generation did not start: normal presentation, no FG, Reflex or NR.
+PreviewScenario DegradedStartup(const char* name, const char* summary, const char* status)
+{
+    auto scenario = AppClean();
+    scenario.name = name;
+    scenario.summary = summary;
+    auto& view = scenario.view;
+    view.degraded = {{Degradation::Reason::FrameGenerationStartup, status}};
+    view.degradedFacts.universal = true;
+    view.generationActive = view.nvidiaServicesReady = false;
+    view.effectiveMultiplier = 1;
+    view.session = {};
+    view.providerStatus = std::string("Normal presentation; frame generation, Reflex and NR unavailable: ") + status + ". Restart to retry.";
+    view.neuralState = {};
+    view.neuralState.status = "NR unavailable after frame-generation startup failure; restart to retry";
+    view.neuralAdmissionReason = view.neuralState.status;
+    view.outputRate = {Telemetry::OutputSource::Streamline, 59.2f, true};
+    return scenario;
+}
+
+// XeFG's startup check refused on a non-NVIDIA GPU: XeSS still upscales, no frame generation.
+PreviewScenario DegradedXeFG()
+{
+    auto scenario = Intel();
+    scenario.name = "degraded-xefg";
+    scenario.summary = "XeFG startup check refused (libxess_fg.dll missing): XeSS upscaling, normal presentation";
+    auto& view = scenario.view;
+    const char* status = "Intel XeFG startup: load libxess_fg.dll failed HRESULT=0x8007007E";
+    view.degraded = {{Degradation::Reason::FrameGenerationStartup, status}};
+    view.generationActive = false;
+    view.effectiveMultiplier = 1;
+    view.xefg = {};
+    view.providerStatus = std::string("Normal presentation; frame generation, Reflex and NR unavailable: ") + status + ". Restart to retry.";
+    view.outputRate = {Telemetry::OutputSource::Streamline, 59.2f, true};
+    return scenario;
+}
+
+PreviewScenario DegradedMFG()
+{
+    auto scenario = AppClean();
+    scenario.name = "degraded-mfg";
+    scenario.summary = "x3-x6 unlock stood down; DLSS-G continues at x2";
+    auto& view = scenario.view;
+    const char* status = "MFG unavailable this session: this DLSS-G build's capability patch targets are missing, ambiguous or "
+                         "have an unsupported layout; no patches applied. x2 frame generation continues.";
+    view.degraded = {{Degradation::Reason::MultiFrameGeneration, status}};
+    view.mfg.route = SourceDLSSG::MFGRoute::AdaUnlock;
+    view.mfg.requested = view.mfg.adapterVerified = view.mfg.failed = true;
+    view.mfg.status = status;
+    view.effectiveMultiplier = 2;
+    view.session.state.numFramesToGenerateMax = 1;
+    view.session.options.numFramesToGenerate = 1;
+    scenario.applied.sourceDLSSG.generation.generatedFrames = 1;
+    scenario.draft = scenario.applied;
+    return scenario;
+}
+
+// CUDA could not identify the rendering GPU: no TRP unlock, NVIDIA's own DLSS-G (here an RTX 40 at x2).
+PreviewScenario DegradedAdapter()
+{
+    auto scenario = AppClean();
+    scenario.name = "degraded-fg-adapter";
+    scenario.summary = "Rendering GPU not identified: TRP's unlocks off, NVIDIA's own DLSS-G continues (RTX 40 at x2)";
+    auto& view = scenario.view;
+    const char* status = "the rendering GPU could not be identified (code 3); no patches applied, NVIDIA's own frame "
+                         "generation runs where the GPU supports it";
+    view.degraded = {{Degradation::Reason::AdapterUnidentified, status}};
+    view.mfg.route = SourceDLSSG::MFGRoute::Native;
+    view.mfg.requested = true;
+    view.mfg.adapterVerified = false;
+    view.effectiveMultiplier = 2;
+    view.session.state.numFramesToGenerateMax = 1;
+    view.session.options.numFramesToGenerate = 1;
+    scenario.applied.sourceDLSSG.generation.generatedFrames = 1;
+    scenario.draft = scenario.applied;
+    return scenario;
+}
+
+PreviewScenario DegradedGuides()
+{
+    auto scenario = AppClean();
+    scenario.name = "degraded-guides";
+    scenario.summary = "A guide copy was refused: frame generation and NR paused, frames still present";
+    auto& view = scenario.view;
+    const char* status = "Frame generation and NR are off: the depth copy was refused (0x80070057). Restart to retry.";
+    view.degraded = {{Degradation::Reason::GuideRefused, status}};
+    view.providerStatus = status;
+    view.generationActive = false;
+    view.effectiveMultiplier = 1;
+    view.neuralState.active = false;
+    view.neuralState.status = status;
+    view.neuralAdmissionReason = status;
+    return scenario;
+}
+
+PreviewScenario DegradedNeural()
+{
+    auto scenario = AppClean();
+    scenario.name = "degraded-nr";
+    scenario.summary = "NR turned itself off after a refused recording; Apply retries";
+    auto& neural = scenario.view.neuralState;
+    neural.active = false;
+    neural.failed = neural.sessionDisabled = neural.retryable = true;
+    neural.reason = "NR feature creation failed (0xBAD00002); NR is off. Apply to retry; saved preference unchanged.";
+    neural.status = neural.reason;
+    scenario.view.degraded = {{Degradation::Reason::NeuralRenderingStopped, neural.reason}};
+    return scenario;
+}
+
+// Startup problems that used to close Skyrim and now only cost the affected part.
+PreviewScenario DegradedSettings()
+{
+    auto scenario = AppClean();
+    scenario.name = "degraded-settings";
+    scenario.summary = "Packaged INI missing, old keys ignored, loading-artwork hook not installed";
+    scenario.view.degraded = {
+        {Degradation::Reason::PackagedSettingsMissing, "Data\\SKSE\\Plugins\\TheosRenderPipeline.ini rc=-3"},
+        {Degradation::Reason::LegacySettingsIgnored, "Settings/EnableUpscaler, Experimental/FrameGenerationBackend"},
+        {Degradation::Reason::LoadingArtworkUnavailable, "Loading artwork hook does not match the engine transition sender"}};
+    return scenario;
+}
 } // namespace
 
 std::vector<PreviewScenario> PreviewScenarios()
@@ -725,5 +935,18 @@ std::vector<PreviewScenario> PreviewScenarios()
         Pascal("pascal-driver", NeuralRendering::kPascalDriverReason),
         Pascal("pascal-missing-pack", NeuralRendering::kPascalAssetReason),
         Pascal("pascal-checking", NeuralRendering::kPascalAssetsChecking),
-        Pascal("pascal-low-budget", NeuralRendering::kPascalBudgetReason), PascalOldNetwork(), Runtimes(), TestBackendsNvidia(), TestBackendsAmd(), VulkanNvidia(), VendorFSR(), FSR4Forced(), FSR4Pascal(), VulkanBackground(), VulkanAmdRefused(), VulkanAmdPortable(), HIPMissing(), VendorStandard(), VulkanPreparing(), HIPLockedVulkan(), VulkanLockedHIP(), HIPFSRRefused(), Lab(), EvenPacing(), IntelSteady()};
+        Pascal("pascal-low-budget", NeuralRendering::kPascalBudgetReason), PascalOldNetwork(), Runtimes(), TestBackendsNvidia(), TestBackendsAmd(), VulkanNvidia(), VendorFSR(), FSR4Forced(), FSR4Pascal(), VulkanBackground(), VulkanAmdRefused(), VulkanAmdPortable(), HIPMissing(), VendorStandard(), VulkanPreparing(), HIPLockedVulkan(), VulkanLockedHIP(), HIPFSRRefused(), Lab(), EvenPacing(), IntelSteady(),
+        AppClean(), AppModel(), AppSteppedAside(), AppNeural(), AppFrameGenerationModel(), AppMultiplier(), AppSmoothMotionConflict(), AppSmoothMotionOnly(),
+        DegradedStartup("degraded-fg-startup", "DLSS-G did not load (feature 1000): normal presentation, the dialog's advice in the menu",
+            "slSetFeatureLoaded feature=1000 Streamline result=34 failed HRESULT=0x80004005"),
+        DegradedStartup("degraded-fg-module", "A Streamline module was missing: normal presentation",
+            "nvngx_dlssg.dll was not loaded from the configured Streamline directory failed HRESULT=0x80004005"),
+        DegradedStartup("degraded-fg-driver", "RTX 30 on driver 566.36: no frame generation, the game still starts",
+            "NVIDIA driver 566.36 is too old for RTX 20/30 frame generation failed HRESULT=0x887A0004"),
+        DegradedStartup("degraded-fg-unlock-off", "RTX 20/30 with SourceDLSSGMFGUnlock=false: no frame generation",
+            "RTX 20/30-series detected, but SourceDLSSGMFGUnlock=false disables its compatibility path. Set it to true in the "
+            "winning MO2 INI (including Overwrite) and restart failed HRESULT=0x887A0004"),
+        DegradedAdapter(),
+        DegradedXeFG(),
+        DegradedMFG(), DegradedGuides(), DegradedNeural(), DegradedSettings()};
 }

@@ -32,6 +32,8 @@ namespace TheosRenderPipeline::Overlay
 	inline float Px(float a_pixels) { return a_pixels * UIScale(); }
 	void DrawHealthDot(UIHealth a_health);
 	void DrawStatusLabel(const char* a_label, UIHealth a_health);
+	// Red, wrapped: what NVIDIA App or the driver changes in this tab and how to undo it.
+	void DrawOverrideNotice(const char* a_text);
 	void DrawBadge(const char* a_label, const ImVec4& a_color);
     void DrawSettingsHeading(const char* title, const char* behavior = "");
     void DrawSettingsHelp(const char* text);

@@ -30,6 +30,7 @@ cropped to the menu window. Options:
 | `--language CODE` | Overlay language: `auto` (default), `en`, or a dictionary code |
 | `--lang-dir DIR` | Read language files from `DIR`. The default is this checkout's `package/SKSE/Plugins/TheosRenderPipeline/Lang`, read in place, so an edited file shows the next time its language is picked in `--live` |
 | `--full` | Keep the whole output rather than cropping to the menu |
+| `--support` | Also write `<scenario>-support.txt`: the text the Advanced tab's Copy details button would copy |
 | `--warp` | Use the WARP software rasterizer |
 | `--out DIR` | Output folder |
 

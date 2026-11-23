@@ -894,6 +894,8 @@ struct UpscalerHooks
 			func();
 			MenuOpenCloseEventHandler::Register();
 			if (TheosRenderPipeline::CommunityShaders::Active()) { return; }
+			// Stepped aside (NVIDIA Smooth Motion): keep Skyrim's own sizes and TAA.
+			if (NvidiaHost::GetSingleton()->SteppedAside()) { return; }
 			RenderPipeline::GetSingleton()->InitUpscaler();
 			// Establish native engine dimensions immediately after renderer
 			// initialization. These fields are distinct from the HWND cache
@@ -939,6 +941,7 @@ struct UpscalerHooks
 		static void thunk(std::uint64_t a1, std::uint32_t a2)
 		{
 			func(a1, a2);
+			if (NvidiaHost::GetSingleton()->SteppedAside()) { return; }
 			TheosRenderPipeline::ObserveNativeWorldCompletion(*NvidiaHost::GetSingleton(), MainOrLoadingMenuOpen());
 		}
 		static inline REL::Relocation<decltype(thunk)> func;
@@ -950,6 +953,7 @@ struct UpscalerHooks
 		static void thunk(std::uint64_t a1, std::uint32_t a2, std::uint32_t a3, std::uint32_t a4)
 		{
 			func(a1, a2, a3, a4);
+			if (NvidiaHost::GetSingleton()->SteppedAside()) { return; }
 			NvidiaHost::GetSingleton()->OnBackgroundReady(
 				TheosRenderPipeline::BackgroundBoundary::Mist, MainOrLoadingMenuOpen());
 		}
@@ -993,6 +997,8 @@ struct UpscalerHooks
 		{
 			ScopedRenderDimensions renderSizeScope;
 			func(a_state);
+			// Stepped aside (NVIDIA Smooth Motion): Skyrim keeps its own TAA and jitter.
+			if (NvidiaHost::GetSingleton()->SteppedAside()) { return; }
 			auto upscaler = RenderPipeline::GetSingleton();
 			auto* performance = PerformanceTuning::GetSingleton();
 			performance->BeginRouteFrame();

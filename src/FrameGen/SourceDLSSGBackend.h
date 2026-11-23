@@ -255,6 +255,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 		const XeSSUpscaler& XeSS() const { return xess_; }
 		ID3D12Device* Device12() const { return device12_.Get(); }
 		bool NvidiaAdapter() const { return adapterVendor_ == 0x10DE; }
+		// The rendering adapter as Windows names it and its user-mode driver version; empty and zero before startup.
+		const std::string& AdapterName() const { return adapterName_; }
+		LARGE_INTEGER AdapterDriver() const { return adapterDriver_; }
 		bool NvidiaFeaturesAvailable() const {
 #if !defined(TRP_NO_NEURAL_RENDERING)
             return neuralCapability_.NvidiaFeatures();
@@ -276,7 +279,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 	private:
 		friend class SwapChain; // Transport failures use the same first-error latch.
 		Backend() = default;
-		bool EnterStartupTransport();
+		// a_context names the provider whose startup check failed, for the status and the menu.
+		bool EnterStartupTransport(const char* a_context = nullptr);
 		bool startupTransport_{}, presenterAttempted_{};
 		std::uint32_t transportFrame_{};
 		std::string startupFailure_;
@@ -402,6 +406,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		std::chrono::steady_clock::time_point lastHostFrame_{};
 		UINT adapterDevice_{};
 		LARGE_INTEGER adapterDriver_{};
+		std::string adapterName_;
 		std::uint64_t presenterPresents_{}; // Since the current presenter was created.
 		bool presenterReplaced_{}; // ApplyProviderSwitch replaced it during this Present.
 		std::atomic<int> outputFPSLimit_{ 0 };

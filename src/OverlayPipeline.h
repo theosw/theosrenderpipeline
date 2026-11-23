@@ -21,6 +21,8 @@ struct PipelineStage
     const char* tooltip{};
     SettingsPage page{SettingsPage::None};
     bool muted{};
+    // 0 none, 1 changed by NVIDIA App or driver, 2 conflict; both draw red.
+    int alert{};
 };
 
 struct PipelineDiagram

@@ -67,6 +67,7 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& v
                         frameGenerationRuntimeActive ? UIHealth::kHealthy : UIHealth::kIdle);
         ImGui::SameLine();
         ImGui::TextDisabled("| %s", path);
+        DrawOverrideNotice(view.generationAlertText.c_str());
         const auto availableMaximum = intel ? view.xefg.maxGeneratedFrames : nvidiaReported ? usableMaximum : 0u;
         DrawSettingsValue(TR("Multiplier"), (availableMaximum > 1 ? TRF("x{} of x2 to x{}", activeDisplayMultiplier, availableMaximum + 1)
                                          : availableMaximum == 1 ? TRF("x{} (x2 only)", activeDisplayMultiplier)
@@ -144,7 +145,8 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& v
         auto& request = draft.generation;
         const auto& style = ImGui::GetStyle();
         const float label = LabelWidth({TR("Frame generation"), TR("Frame limit"), TR("Scene change"), TR("Flip metering")});
-        if (!sourceDLSSGActive)
+        // Stepped aside for Smooth Motion: the red notice above already says why and how to undo it.
+        if (!sourceDLSSGActive && !view.steppedAside)
         {
             ImGui::TextColored(kOchre, "%s", TR("NVIDIA host is unavailable. Check runtime status and restart Skyrim."));
         }

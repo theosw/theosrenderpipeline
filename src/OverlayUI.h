@@ -16,6 +16,7 @@
 #include "RendererSettings.h"
 #include "OverlayPipeline.h"
 #include "OverlayLayout.h"
+#include "SupportSummary.h"
 
 namespace TheosRenderPipeline::SourceDLSSG { struct NeuralSnapshot; }
 
@@ -65,6 +66,8 @@ private:
     void RefreshWeatherList();
     void ResetSessionFallbacks();
     void ClearTimingWindow();
+    // The part of Copy details only the running game knows: versions, GPU, driver, loaded runtime files.
+    TheosRenderPipeline::Support::Summary CaptureSupportSystem();
     void DrawLabImageDetails(const FrameView& view);
     void DrawLabXeFGControls();
     void DrawLabGenerationControls(const FrameView& view);
@@ -142,6 +145,8 @@ private:
     bool fontRebuildPending{false};
 	std::string actionMessage;
 	bool actionMessageIsError{ false };
+    // Copy details was pressed while this menu was open.
+    bool supportCopied{ false };
     std::string menuKeyError;
     // Capture is cancelled on any frame that does not draw the menu key control.
     bool menuKeyControlDrawn{ false };

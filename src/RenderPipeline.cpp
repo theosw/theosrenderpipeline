@@ -10,6 +10,7 @@
 #include "FrameGen/NRRenderSize.h"
 #include "PerformanceTuning.h"
 #include "UserSettings.h"
+#include "NvidiaBaselinePolicy.h"
 #include "PackagedDefaults.h"
 #include "OverlayHotkeys.h"
 #include "OverlayLayout.h"
@@ -40,7 +41,8 @@ void RenderPipeline::LoadINI()
 	if (loadResult < 0) {
 		logger::warn("Could not load Data\\SKSE\\Plugins\\TheosRenderPipeline.ini (rc={}), using defaults", static_cast<int>(loadResult));
 	}
-	mUpscaleType = (int)ini.GetLongValue("Settings", "UpscaleType", 0);
+	// An unsupported saved mode starts as DLSS; XSEPlugin reports it once (IgnoredLegacySettings).
+	mUpscaleType = TheosRenderPipeline::SupportedUpscaleType(ini.GetLongValue("Settings", "UpscaleType", DLSS));
 	mQualityLevel = (int)ini.GetLongValue("Settings", "QualityLevel", 2);
 	mUseOptimalMipLodBias = ini.GetBoolValue("Settings", "UseOptimalMipLodBias", true);
 	mMipLodBias = (float)ini.GetDoubleValue("Settings", "MipLodBias", 0.0);

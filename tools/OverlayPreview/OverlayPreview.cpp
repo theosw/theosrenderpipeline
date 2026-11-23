@@ -53,7 +53,7 @@ struct Options
     // The shipped language files in this checkout, read in place: an edit shows on
     // the next language pick, without a rebuild.
     std::filesystem::path languages{TRP_PREVIEW_LANG_DIR};
-    bool full{}, warp{}, list{}, live{};
+    bool full{}, warp{}, list{}, live{}, support{};
     std::vector<LivePreviewOptions::Step> script;
     std::filesystem::path save;
 };
@@ -123,6 +123,8 @@ std::optional<Options> ParseOptions(int argc, char** argv)
         };
         if (arg == "--full")
             options.full = true;
+        else if (arg == "--support")
+            options.support = true;
         else if (arg == "--warp")
             options.warp = true;
         else if (arg == "--list")
@@ -275,7 +277,7 @@ namespace
 {
 // Draws kFrames frames of the menu at the given output size and returns the last.
 std::optional<PreviewImage> DrawMenu(ID3D11Device* device, ID3D11DeviceContext* context, PreviewScenario& scenario,
-    const Layout& layout, SettingsPage page, Size size, bool crop, std::string_view language)
+    const Layout& layout, SettingsPage page, Size size, bool crop, std::string_view language, std::string* support = nullptr)
 {
     D3D11_TEXTURE2D_DESC desc{};
     desc.Width = size.width;
@@ -317,6 +319,8 @@ std::optional<PreviewImage> DrawMenu(ID3D11Device* device, ID3D11DeviceContext* 
                 window = drawn->Rect();
             ImGui::Render();
         }
+        if (support)
+            *support = menu.SupportText();
     }
     // A neutral backdrop in place of the game frame.
     const float backdrop[4]{0.16f, 0.17f, 0.18f, 1.0f};
@@ -433,8 +437,19 @@ int main(int argc, char** argv)
                     name += std::format("-zoom{:.0f}", *options->zoom);
                 const auto path = std::filesystem::absolute(options->out / (name + ".png"));
                 auto sized = AtOutputSize(scenario, size.width, size.height);
-                const auto image =
-                    DrawMenu(device.Get(), context.Get(), sized, layout, tab.page, size, !options->full, options->language);
+                std::string support;
+                const auto image = DrawMenu(device.Get(), context.Get(), sized, layout, tab.page, size, !options->full,
+                    options->language, options->support ? &support : nullptr);
+                // What Copy details would put on the clipboard for this scenario.
+                if (options->support)
+                {
+                    const auto text = std::filesystem::absolute(options->out / (scenario.name + "-support.txt"));
+                    if (FILE* file = nullptr; _wfopen_s(&file, text.c_str(), L"wb") == 0 && file)
+                    {
+                        std::fwrite(support.data(), 1, support.size(), file);
+                        std::fclose(file);
+                    }
+                }
                 const auto result = image ? TheosRenderPipeline::ScreenshotFile::Replace(path, image->width,
                                                 image->height, image->bgr, 0)
                                           : E_FAIL;

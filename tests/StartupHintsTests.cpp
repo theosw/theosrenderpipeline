@@ -34,6 +34,24 @@ int main()
     Require(Classify("NVIDIA driver 566.36 is too old for RTX 20/30 frame generation") == Failure::DriverTooOld, "old driver");
     Require(Has(Hint(Failure::DriverTooOld, {}), "572.16 or newer"), "old driver hint names the version to install");
 
+    // Smooth Motion on (RTX 4080 SUPER, driver 621.01): NGX could not create its D3D11 kernels and TRP stopped with this status.
+    const char* dlssStatus = "Deferred source DLSS startup failed (0x80004005); rendering stopped, restart required. Source DLSS "
+                             "startup failed: TheosRenderPipeline direct DLSS feature initialization failed";
+    Require(Classify(dlssStatus) == Failure::DLSSUnavailable, "direct DLSS failure");
+    {
+        Facts smooth; smooth.smoothMotion = true;
+        const auto hint = HintFor(dlssStatus, smooth);
+        Require(Has(hint, "Smooth Motion is on for Skyrim") && Has(hint, "Use global - Off"), "Smooth Motion named with the fix");
+        Require(!Has(hint, "NVIDIA's DLSS did not start"), "no generic DLSS line when the cause is known");
+        Require(Has(HintFor("an unrecognised startup failure", smooth), "Smooth Motion is on for Skyrim"),
+            "Smooth Motion is reported even for an unclassified failure");
+        Require(Has(HintFor("NVIDIA driver 566.36 is too old for RTX 20/30 frame generation", smooth), "572.16 or newer"),
+            "the specific hint still follows the Smooth Motion line");
+    }
+    Require(Has(HintFor(dlssStatus, {}), "NVIDIA's DLSS did not start"), "generic DLSS hint without Smooth Motion");
+    Require(!Has(HintFor(dlssStatus, {}), "Smooth Motion is on for Skyrim"), "Smooth Motion not claimed when not loaded");
+    Require(HintFor("an unrecognised startup failure", {}).empty(), "unrecognised failures still give no hint");
+
     // DXGI reports NVIDIA's 566.36 as 32.0.15.6636 and 610.88 as 32.0.16.1088.
     {
         using namespace TheosRenderPipeline::SourceDLSSG;

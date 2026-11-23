@@ -4,7 +4,9 @@
 
 namespace TheosRenderPipeline::LoadingArtwork
 {
-    void Install();
+    // False when the hook was not installed: the feature is off for the session
+    // (recorded for the menu) and nothing was patched.
+    bool Install();
     // Called by the render owner, independently of capture requests or budgets.
     void Boundary(std::uint64_t frame, bool world, bool mainMenu, bool loadingMenu) noexcept;
     void ResetAfterRetirement() noexcept;

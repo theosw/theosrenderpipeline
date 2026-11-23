@@ -3,6 +3,7 @@
 #include "OverlayFrameView.h"
 #include "OverlayUI.h"
 #include "OverlayUIStyle.h"
+#include "SupportDetails.h"
 #include <PCH.h>
 using namespace TheosRenderPipeline::Overlay;
 
@@ -209,8 +210,12 @@ void OverlayUI::DrawAdvancedPanel(float height, const FrameView& view)
         if (ImGui::Combo("ReShade", &placement, placements, 2))
             settingsDraft.reShadeBeforeUpscaling = placement == 0;
         DrawSettingsHelp(TR("Processes world colour/depth before Skyrim UI. Changing placement reloads effects."));
+        // Greyed, not hidden, when the hook is missing; the notice under the pipeline says why.
+        ImGui::BeginDisabled(view.loadingArtworkUnavailable);
         ImGui::Checkbox(TR("Request loading artwork"), &settingsDraft.requestLoadingArtwork);
-        DrawSettingsHelp(TR("Requests artwork at the next eligible cell transition; Skyrim selects the image."));
+        ImGui::EndDisabled();
+        DrawSettingsHelp(view.loadingArtworkUnavailable ? TR("Unavailable this session; see the note under the pipeline above.") :
+            TR("Requests artwork at the next eligible cell transition; Skyrim selects the image."));
         ImGui::Separator();
         ImGui::Checkbox(TR("Lab mode"), &showDeveloperControls);
         DrawSettingsHelp(TR("Show runtime details and experimental controls. This changes menu visibility only."));
@@ -255,6 +260,21 @@ void OverlayUI::DrawUIStatusPanel(const FrameView& view)
 void OverlayUI::DrawReportingDetails(const FrameView& view)
 {
     ImGui::Spacing();
+    // Always visible: the first thing asked for in a bug report.
+    if (ImGui::Button(TR("Copy details")))
+    {
+        auto summary = CaptureSupportSystem();
+        TheosRenderPipeline::Support::AddMenuState(summary, view);
+        ImGui::SetClipboardText(TheosRenderPipeline::Support::Format(summary).c_str());
+        supportCopied = true;
+    }
+    if (ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip("%s", TR("Copies TRP's version, your GPU and driver, what is running and anything that is off this "
+                          "session as text.\nPaste it into your report."));
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("%s", supportCopied ? TR("Copied. Paste it into your report.") : TR("for a bug report or a question"));
     if (ImGui::CollapsingHeader(TRID("Reporting a problem").c_str()))
     {
         const auto& upscaler = view.upscaler;

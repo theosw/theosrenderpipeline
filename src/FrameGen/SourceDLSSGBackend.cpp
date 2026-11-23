@@ -21,6 +21,8 @@
 #include "../VideoMemoryTelemetry.h"
 #include "SourceFrameGeneration.h"
 #include "StartupFallback.h"
+#include "../SessionDegradationLog.h"
+#include "../StartupHints.h"
 #include <d3dcompiler.h>
 #include <chrono>
 #include <thread>
@@ -137,7 +139,10 @@ namespace TheosRenderPipeline::SourceDLSSG
 			return Check(E_UNEXPECTED, "another frame-generation mod is already loaded; disable the competing mod");
 		}
 		directory_ = Normalize(a_directory);
-		mfgUnlock_.SelectAdapter(device12_.Get());
+		// An RTX 20/30 refusal decided before anything is loaded or patched (driver too old,
+		// compatibility switched off, adapter not identified) costs frame generation only:
+		// Streamline is never loaded and CreateSwapChain continues on the startup transport.
+		if (!mfgUnlock_.SelectAdapter(device12_.Get())) { return Check(DXGI_ERROR_UNSUPPORTED, mfgUnlock_.Snapshot().status); }
 		// RTX 20 needs the 310.9.1 set; RTX 30 also runs the newer DLSS-G unless kept on it.
 		if (UsesBackportStreamline(mfgUnlock_.Snapshot().UsesTuringUnlock(), mfgUnlock_.Snapshot().UsesAmpereUnlock(), rtx30LegacyDLSSG_)) {
 			const auto backport = BackportStreamlineDirectory(directory_);
@@ -158,7 +163,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 				return Check(E_UNEXPECTED, std::format("{} already loaded by another owner", std::filesystem::path(name).string()).c_str());
 			}
 		}
-		mfgUnlock_.BeforeStreamline(device12_.Get(), directory_);
+		if (!mfgUnlock_.BeforeStreamline(device12_.Get(), directory_)) { return Check(DXGI_ERROR_UNSUPPORTED, mfgUnlock_.Snapshot().status); }
 		logger::info("[SourceDLSSG] startup stage=load-interposer");
 		interposer_ = ::LoadLibraryExW((directory_ / L"sl.interposer.dll").c_str(), nullptr,
 			LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
@@ -298,16 +303,20 @@ namespace TheosRenderPipeline::SourceDLSSG
 		streamlineFactory_ = upgradedFactory;
 		return true;
 	}
-	bool Backend::EnterStartupTransport()
+	bool Backend::EnterStartupTransport(const char* a_context)
 	{
 		if (!device12_ || !CanUseStartupTransport(fault_, device12_->GetDeviceRemovedReason(), presenterAttempted_)) { return false; }
-		startupFailure_ = status_;
+		startupFailure_ = a_context ? std::format("{}: {}", a_context, status_) : status_;
 		startupTransport_ = true;
 		// This is a new, explicit transport state, not a repaired Streamline
 		// session. Retain all partial SDK state; never call slInit again here.
 		fault_ = S_OK;
 		providerStatus_ = std::format("Normal presentation; frame generation, Reflex and NR unavailable: {}. Restart to retry.", startupFailure_);
 		logger::warn("[FrameGeneration] {}", providerStatus_);
+		// The menu explains this session with the same advice the startup dialog gives.
+		Degradation::Note(Degradation::Reason::FrameGenerationStartup, startupFailure_);
+		const auto hint = StartupHints::HintFor(startupFailure_, StartupHints::CurrentFacts(startupFailure_));
+		if (!hint.empty()) { logger::info("[FrameGeneration] {}", hint); }
 		return true;
 	}
 	HRESULT Backend::CreateSwapChain(IDXGIFactory* a_factory, ID3D11Device* a_device,
@@ -343,6 +352,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			!Check(ReShadeIntegration::Get().CreateSourceDevice(adapter.Get(), D3D_FEATURE_LEVEL_12_0, &device12_), "D3D12 device")) { return fault_; }
 		DXGI_ADAPTER_DESC adapterDesc{};
 		if (SUCCEEDED(adapter->GetDesc(&adapterDesc))) {
+			adapterName_ = std::filesystem::path(adapterDesc.Description).string();
 			logger::info("[SourceDLSSG] rendering adapter={} vendor=0x{:04X} device=0x{:04X} LUID={:08X}:{:08X}",
 				std::filesystem::path(adapterDesc.Description).string(), adapterDesc.VendorId, adapterDesc.DeviceId,
 				static_cast<std::uint32_t>(adapterDesc.AdapterLuid.HighPart), adapterDesc.AdapterLuid.LowPart);
@@ -442,12 +452,23 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// context when the saved presenter is NVIDIA.
 		if (xeSSStartup &&
 			!Check(xess_.Open(device12_.Get(), PluginPaths::IntelDirectory()), "XeSS context", "XeSS")) { return fault_; }
+		// XeFG's startup check makes no presenter factory call: it loads Intel's SDK and
+		// creates and destroys a probe context. A refusal (libxess_fg.dll missing, no
+		// SM6.4, x2 unavailable) leaves the window without an owner, so the session
+		// continues on the startup transport. An Unsafe result (E_UNEXPECTED) or a probe
+		// context that could not be destroyed stays fatal.
+		if (intelStartup && !CheckXeFG(xefg_.Probe(device12_.Get(), PluginPaths::IntelDirectory(), xefgTensorRequested_))) {
+			if (!CanDegradeXeFGProbe(fault_, device12_->GetDeviceRemovedReason(), xefg_.HasContext(), presenterAttempted_) ||
+				!EnterStartupTransport("Intel XeFG startup")) { return fault_; }
+			// The transport is the presenter-less state the NVIDIA path already uses, and
+			// no XeFG or XeLL call may follow. The saved provider request is unchanged.
+			provider_ = FrameGenerationProvider::NVIDIA;
+		}
 		presenterAttempted_ = true; // Never fall back after any presenter factory call, even if it returns failure.
 		if (startupTransport_) {
 			if (!Check(nativeFactory_->CreateSwapChain(queue_.Get(), &desc, &native), "normal startup transport")) { return fault_; }
 		} else if (intelStartup) {
-			if (!CheckXeFG(xefg_.Probe(device12_.Get(), PluginPaths::IntelDirectory(), xefgTensorRequested_)) ||
-				!CheckXeFG(xefg_.Create(device12_.Get(), queue_.Get(), nativeFactory_.Get(), desc, XeFGStartupInvertedDepth(communityShaders), &native, 0,
+			if (!CheckXeFG(xefg_.Create(device12_.Get(), queue_.Get(), nativeFactory_.Get(), desc, XeFGStartupInvertedDepth(communityShaders), &native, 0,
 					XeFGConfiguration(), IntelPipelines(XeFGPipelineCache(), xefg_.PipelineCacheName(), xefg_.RuntimeModule()), nullptr, XeFGVSyncCadence()))) { return fault_; }
 			providerStatus_ = "Intel XeFG presenter; latency owner=XeLL";
 		} else if (!Check(streamlineFactory_->CreateSwapChain(queue_.Get(), &desc, &native), "Streamline swapchain")) { return fault_; }
@@ -503,6 +524,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (GuidesRefused()) {
 			logger::info("[SourceDLSSG] guide textures released; frame generation and NR may resume with the new ones");
 			guideRefusal_.clear();
+			Degradation::Restored(Degradation::Reason::GuideRefused);
 		}
 	}
     bool Backend::CopyObjectMask(FrameExtent extent)
@@ -586,6 +608,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			guideRefusal_ = std::format("Frame generation and NR are off: the {} was refused (0x{:08X}). Restart to retry.",
 				a_operation, static_cast<std::uint32_t>(a_result));
 			status_ = guideRefusal_;
+			Degradation::Note(Degradation::Reason::GuideRefused, guideRefusal_);
 			neuralHistory_.Invalidate();
 			neuralEligible_ = false;
 			logger::error("[SourceDLSSG] {} refused HRESULT=0x{:08X} before anything was written; presenting without frame generation and NR until restart",

@@ -55,17 +55,44 @@ int main(int argc, char** argv)
         }
         CSimpleIniA intel;
         intel.SetLongValue("Settings", "UpscaleType", XeSS);
-        Require(!TheosRenderPipeline::ValidateNvidiaBaseline(intel), "XeSS is admitted without selecting a legacy renderer");
+        using TheosRenderPipeline::IgnoredLegacySettings;
+        using TheosRenderPipeline::SupportedUpscaleType;
+        Require(IgnoredLegacySettings(intel).empty(), "XeSS is admitted without selecting a legacy renderer");
         intel.SetLongValue("Settings", "UpscaleType", FSR);
-        Require(!TheosRenderPipeline::ValidateNvidiaBaseline(intel), "FSR survives the actual SKSE startup admission check");
+        Require(IgnoredLegacySettings(intel).empty(), "FSR survives the actual SKSE startup admission check");
         Require(!UsesNvidiaUpscaler(FSR) && !UsesNvidiaUpscaler(XeSS) && UsesNvidiaUpscaler(DLSS) && UsesNvidiaUpscaler(DLAA),
             "FSR/XeSS startup skips the DLSS runtime preload without changing NVIDIA startup");
+        // Old selectors no longer close Skyrim: they are named and ignored for the session.
         intel.SetBoolValue("Settings", "EnableUpscaler", false);
-        Require(TheosRenderPipeline::ValidateNvidiaBaseline(intel), "FSR cannot bypass the required world upscaler");
+        Require(IgnoredLegacySettings(intel) == "Settings/EnableUpscaler", "a disabled world upscaler is ignored and named");
         intel.SetBoolValue("Settings", "EnableUpscaler", true);
-        for (int legacy : {1, 2}) {
+        for (int legacy : {1, 2, -1, 7}) {
             intel.SetLongValue("Settings", "UpscaleType", legacy);
-            Require(TheosRenderPipeline::ValidateNvidiaBaseline(intel), "legacy FSR/XeSS probe modes remain rejected");
+            Require(IgnoredLegacySettings(intel) == "Settings/UpscaleType" && SupportedUpscaleType(legacy) == DLSS,
+                "legacy FSR/XeSS probe modes and unknown modes are named and start as DLSS");
+        }
+        for (int mode : {DLSS, DLAA, XeSS, FSR, FSR4}) { Require(SupportedUpscaleType(mode) == mode, "supported modes are kept"); }
+        {
+            CSimpleIniA legacy;
+            Require(IgnoredLegacySettings(legacy).empty(), "missing legacy selectors are not reported");
+            legacy.SetBoolValue("Experimental", "PureDarkFullDelegation", true);
+            legacy.SetLongValue("Experimental", "FrameGenerationBackend", 2);
+            legacy.SetBoolValue("Experimental", "SourceDLSSGBackend", false);
+            legacy.SetLongValue("Experimental", "X3PresentationMode", 1);
+            legacy.SetBoolValue("Experimental", "EnableX3Presentation", true);
+            legacy.SetLongValue("Experimental", "NeuralRenderingStartupMode", 2);
+            legacy.SetBoolValue("Experimental", "EnableXessCapabilityProbe", true);
+            legacy.SetBoolValue("Experimental", "EnableNeuralRenderingCapabilityProbe", true);
+            legacy.SetBoolValue("Debug", "AutoABTest", true);
+            Require(IgnoredLegacySettings(legacy) == "Experimental/PureDarkFullDelegation, Experimental/FrameGenerationBackend, "
+                "Experimental/SourceDLSSGBackend, Experimental/X3PresentationMode, Experimental/EnableX3Presentation, "
+                "Experimental/NeuralRenderingStartupMode, Experimental/EnableXessCapabilityProbe, "
+                "Experimental/EnableNeuralRenderingCapabilityProbe, Debug/AutoABTest", "every retired selector is named, in file order");
+            std::string before, after;
+            legacy.Save(before);
+            (void)IgnoredLegacySettings(legacy);
+            legacy.Save(after);
+            Require(before == after, "reporting the old keys leaves the settings untouched");
         }
         Require(argc == 2, "expected packaged INI path");
         auto& owner = *SourceFrameGeneration::GetSingleton();
@@ -230,7 +257,8 @@ int main(int argc, char** argv)
         for (const auto adapter : {Ampere, Ada, Other, Unavailable}) { CheckRoute(false, adapter, Native); }
         TheosRenderPipeline::SourceDLSSG::MFGSnapshot unresolved;
         unresolved.requested = true;
-        Require(!unresolved.SelectRoute(Unavailable), "unidentified GPU cannot receive compatibility");
+        Require(unresolved.SelectRoute(Unavailable) && unresolved.route == Native && !unresolved.adapterVerified &&
+            !unresolved.UsesCompatibilityUnlock(), "unidentified GPU takes NVIDIA's own route without TRP's unlocks");
         std::cout << "PASS: startup defaults, persistence, explicit opt-out and adapter routing\n";
         return 0;
     } catch (const std::exception& error) {

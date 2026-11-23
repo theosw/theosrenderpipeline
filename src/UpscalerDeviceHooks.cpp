@@ -14,11 +14,20 @@
 #include "CommunityShaderIntegration.h"
 #include "HookInstallation.h"
 #include "StartupHints.h"
+#include "NvidiaAppProfile.h"
 #include "ScreenshotDiagnostics.h"
 #include "EngineScreenshot.h"
 
 decltype(&D3D11CreateDeviceAndSwapChain) ptrD3D11CreateDeviceAndSwapChain;
 decltype(&IDXGIFactory::CreateSwapChain) ptrFactoryCreateSwapChain;
+decltype(&IDXGISwapChain::Present) ptrSteppedAsidePresent;
+
+// TRP stepped aside (NVIDIA Smooth Motion): draw only the menu, then the game's own Present.
+HRESULT WINAPI hk_SteppedAsidePresent(IDXGISwapChain* This, UINT SyncInterval, UINT Flags)
+{
+    OverlayUI::GetSingleton()->OnPresent();
+    return (This->*ptrSteppedAsidePresent)(SyncInterval, Flags);
+}
 
 void BeforeGameSwapChainPresent(IDXGISwapChain* a_swapChain)
 {
@@ -88,6 +97,21 @@ HRESULT WINAPI hk_IDXGIFactory_CreateSwapChain(IDXGIFactory* This, IUnknown* pDe
         return (This->*ptrFactoryCreateSwapChain)(pDevice, pDesc, ppSwapChain);
     }
 
+    // NVIDIA Smooth Motion is loaded with the game's device, before this first
+    // swapchain request. TRP presenting under it gives a black picture and device
+    // loss, so TRP declines here, before owning any presenter, size or Streamline
+    // module, and the game keeps its own swapchain with Smooth Motion.
+    if (!nvidiaHost->SteppedAside() && TheosRenderPipeline::NvidiaApp::SmoothMotionLoaded())
+    {
+        nvidiaHost->StepAside("off this session: NVIDIA Smooth Motion is on for Skyrim");
+        logger::warn("[NvidiaHost] NVIDIA Smooth Motion (NvPresent64.dll) is loaded; Theo's Render Pipeline steps aside "
+                     "this session and the game presents through its own swapchain");
+    }
+    if (nvidiaHost->SteppedAside())
+    {
+        d3d11Device->Release();
+        return (This->*ptrFactoryCreateSwapChain)(pDevice, pDesc, ppSwapChain);
+    }
     // The stable render-sized buffer is allocated inside CreateSwapChain, so
     // load its quality/sharpening contract before that one-way size decision.
     RenderPipeline::GetSingleton()->LoadINI();
@@ -183,7 +207,8 @@ HRESULT WINAPI hk_D3D11CreateDeviceAndSwapChain(IDXGIAdapter* pAdapter, D3D_DRIV
         hr, ppSwapChain, ppDevice, ppImmediateContext,
         [&]
         {
-            return TheosRenderPipeline::CompleteRequiredHostStartup(*nvidiaHost);
+            // A deliberate step-aside owns nothing; the game's own swapchain is valid.
+            return nvidiaHost->SteppedAside() ? S_OK : TheosRenderPipeline::CompleteRequiredHostStartup(*nvidiaHost);
         });
     if (FAILED(hr))
     {
@@ -202,6 +227,16 @@ HRESULT WINAPI hk_D3D11CreateDeviceAndSwapChain(IDXGIAdapter* pAdapter, D3D_DRIV
     auto device = *ppDevice;
     auto deviceContext = *ppImmediateContext;
     auto swapChain = *ppSwapChain;
+    if (nvidiaHost->SteppedAside())
+    {
+        // Only the menu runs, drawn on the game's own back buffer, to say why TRP is off.
+        RenderPipeline::GetSingleton()->SetupSwapChain(swapChain);
+        RenderPipeline::GetSingleton()->PreInit();
+        OverlayUI::GetSingleton()->Init(swapChain, device, deviceContext);
+        TheosRenderPipeline::InstallVTableHook(swapChain, 8, &hk_SteppedAsidePresent, ptrSteppedAsidePresent);
+        logger::info("[NvidiaHost] stepped aside: menu only, on the game's own swapchain");
+        return hr;
+    }
     // ENB may return a wrapper distinct from the host's inner immediate
     // context. These are the very interfaces whose vtables we hook below.
     nvidiaHost->RegisterSourceGameContext(deviceContext);

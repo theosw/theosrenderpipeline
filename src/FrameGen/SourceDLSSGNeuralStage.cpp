@@ -10,6 +10,7 @@
 #include "NeuralLaunchHook.h"
 #include "SourceDLSSGSettings.h"
 #include "../PluginPaths.h"
+#include "../SessionDegradationLog.h"
 #include "../NeuralObjectHooks.h"
 #include <algorithm>
 #include <chrono>
@@ -288,6 +289,7 @@ namespace TheosRenderPipeline::SourceDLSSG
         neuralReportedUnavailable_ = nullptr;
         neuralSnapshot_.failed = neuralSnapshot_.sessionDisabled = neuralSnapshot_.retryable = false;
         neuralSnapshot_.reason.clear();
+        Degradation::Restored(Degradation::Reason::NeuralRenderingStopped);
         logger::info("[SourceDLSSG NR] Apply: retry through normal NR admission");
     }
     bool Backend::FailNeuralRecording(std::string failure)
@@ -328,6 +330,7 @@ namespace TheosRenderPipeline::SourceDLSSG
                 "; NR is off. Apply to retry; saved preference unchanged." : "; NR requires restart.");
             neuralSnapshot_.status = neuralSnapshot_.reason;
             logger::warn("[SourceDLSSG NR] {}", neuralSnapshot_.reason);
+            Degradation::Note(Degradation::Reason::NeuralRenderingStopped, neuralSnapshot_.reason);
         }
         // Unknown submission/creation/patch ownership still faults the backend.
         // A failed release alone is quarantined after queue retirement.

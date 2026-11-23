@@ -3,8 +3,10 @@
 #include "../PluginPaths.h"
 #include "CommunityShaderIntegration.h"
 #include "../StartupHints.h"
+#include "../SessionDegradationLog.h"
 #include "DlssgOverride.h"
 #include "NvidiaDriverVersion.h"
+#include "MFGStartupPolicy.h"
 #include "../../extern/dlssg-turing/src/SourceDLSSGMFGPatch.h"
 #include "../../extern/dlssg-turing/extern/RTX40MFG/midpoint_fix.h"
 #include "../../extern/dlssg-turing/extern/RTX40MFG/dlssg_provider_policy.h"
@@ -50,6 +52,14 @@ namespace TheosRenderPipeline::SourceDLSSG
 			"{}\n\n{}{}{}"
 			"See TheosRenderPipeline.log for details. Skyrim will close after this message.", reason, guidance, hint, hint.empty() ? "" : "\n"));
 	}
+	bool MFGUnlock::Refuse(std::string reason)
+	{
+		state_.failed = true;
+		refusal_ = std::move(reason);
+		state_.status = refusal_.c_str();
+		spdlog::warn("[SourceDLSSG MFG] frame generation cannot start: {}; nothing was patched, continuing without it", refusal_);
+		return false;
+	}
 	void MFGUnlock::StandDown(const char* reason)
 	{
 		if (!state_.UsesAdaUnlock() || state_.unsafeMemory) { Fail(reason); }
@@ -59,8 +69,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 				"Use the 3D application setting to restore MFG." : "");
 		state_.status = standDownStatus_.c_str();
 		spdlog::warn("[SourceDLSSG MFG] {}", standDownStatus_);
+		Degradation::Note(Degradation::Reason::MultiFrameGeneration, standDownStatus_);
 	}
-	void MFGUnlock::CheckBackportDriver(ID3D12Device* device)
+	bool MFGUnlock::CheckBackportDriver(ID3D12Device* device)
 	{
 		Microsoft::WRL::ComPtr<IDXGIFactory4> factory;
 		Microsoft::WRL::ComPtr<IDXGIAdapter> adapter;
@@ -72,17 +83,17 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (!version) {
 			spdlog::warn("[SourceDLSSG MFG] NVIDIA driver version unavailable; RTX 20/30 frame generation needs {} or newer",
 				DriverVersionText(kBackportRecommendedDriver));
-			return;
+			return true;
 		}
 		spdlog::info("[SourceDLSSG MFG] NVIDIA driver {}; RTX 20/30 frame generation needs {} or newer",
 			DriverVersionText(version), DriverVersionText(kBackportMinimumDriver));
-		if (BackportDriverSupported(version)) { return; }
-		driverStatus_ = std::format("NVIDIA driver {} is too old for RTX 20/30 frame generation", DriverVersionText(version));
-		Fail(driverStatus_.c_str(), "TRP's RTX 20/30 frame generation uses NVIDIA kernels that this driver cannot compile.\n");
+		if (BackportDriverSupported(version)) { return true; }
+		// Known from the version alone, before any module is loaded: the kernels would fail to compile every frame.
+		return Refuse(std::format("NVIDIA driver {} is too old for RTX 20/30 frame generation", DriverVersionText(version)));
 	}
 	void MFGUnlock::EnterStartupScope() noexcept { trp::ampere::EnterStartupScope(); }
 	void MFGUnlock::LeaveStartupScope() noexcept { trp::ampere::LeaveStartupScope(); }
-	void MFGUnlock::SelectAdapter(ID3D12Device* device)
+	bool MFGUnlock::SelectAdapter(ID3D12Device* device)
 	{
 		if (state_.route != MFGRoute::Unselected) { Fail("MFG startup adapter selection was repeated"); }
 		state_.status = "selecting NVIDIA MFG path";
@@ -97,20 +108,23 @@ namespace TheosRenderPipeline::SourceDLSSG
 			trp::ampere::EmulateAmpereOnAda(true);
 			adapter = midpoint_fix::AdapterKind::Ampere;
 		}
-		if (!state_.SelectRoute(adapter)) {
+		state_.SelectRoute(adapter);
+		if (state_.requested && adapter == midpoint_fix::AdapterKind::Unavailable) {
 			state_.temporalFailure = midpoint_fix::FailureCode();
-			Fail("active rendering adapter could not be identified; no patches applied");
+			const auto reason = std::format("the rendering GPU could not be identified (code {}); no patches applied, "
+				"NVIDIA's own frame generation runs where the GPU supports it", state_.temporalFailure);
+			spdlog::warn("[SourceDLSSG MFG] {}", reason);
+			Degradation::Note(Degradation::Reason::AdapterUnidentified, reason);
 		}
 		spdlog::info("[SourceDLSSG MFG] selected route={} compatibilityRequested={}",
 			state_.UsesTuringUnlock() ? "Turing" : state_.UsesAmpereUnlock() ? "Ampere" : state_.UsesAdaUnlock() ? "Ada" : "Native", state_.requested);
 		if ((adapter == midpoint_fix::AdapterKind::Ampere || adapter == midpoint_fix::AdapterKind::Turing) && !state_.requested) {
-			Fail("RTX 20/30-series detected, but SourceDLSSGMFGUnlock=false disables its compatibility path. "
-				"Set it to true in the winning MO2 INI (including Overwrite) and restart. "
-				"Turning frame generation off does not remove the required NVIDIA host.");
+			return Refuse("RTX 20/30-series detected, but SourceDLSSGMFGUnlock=false disables its compatibility path. "
+				"Set it to true in the winning MO2 INI (including Overwrite) and restart");
 		}
-		if (state_.UsesProviderBackport()) { CheckBackportDriver(device); }
+		return !state_.UsesProviderBackport() || CheckBackportDriver(device);
 	}
-	void MFGUnlock::BeforeStreamline(ID3D12Device* device, const std::filesystem::path& directory)
+	bool MFGUnlock::BeforeStreamline(ID3D12Device* device, const std::filesystem::path& directory)
 	{
 		if (state_.route == MFGRoute::Unselected) { Fail("MFG adapter was not selected before Streamline loading"); }
 		if (state_.UsesProviderBackport()) {
@@ -123,10 +137,15 @@ namespace TheosRenderPipeline::SourceDLSSG
                         "Send TheosRenderPipeline.log to the developer. Skyrim will close after this message.",reason));
                 })) {
 				const auto snapshot = trp::ampere::Snapshot();
-				Fail(snapshot.error ? snapshot.error : "Ampere startup preparation failed");
+				const char* error = snapshot.error ? snapshot.error : "Ampere startup preparation failed";
+				// Refused before anything was published: only frame generation goes.
+				// A rollback or a later failure keeps the fatal dialog.
+				if (!CanContinueWithoutFrameGeneration(MFGStartupRefusal::PreparationFailed, snapshot.prepared || snapshot.bridgeInstalled, error)) { Fail(error); }
+				return Refuse(error);
 			}
 			spdlog::info("[SourceDLSSG Ampere] prepared {} fatbin containers before slInit", trp::ampere::Snapshot().fatbins);
 		}
+		return true;
 	}
 	void MFGUnlock::Prepare(ID3D12Device*, const std::filesystem::path& directory)
 	{
