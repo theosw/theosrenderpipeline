@@ -27,10 +27,13 @@ int main(int argc, char** argv)
     const bool ae640 = std::strcmp(argv[1], "1.6.640") == 0;
     const bool ae1170 = std::strcmp(argv[1], "1.6.1170") == 0;
     const bool ae17104 = std::strcmp(argv[1], "1.7.104") == 0;
-    Require(se || ae640 || ae1170 || ae17104, "known runtime");
+    // GOG: the executable reports 1.6.1179.0; only SKSE adds the distribution.
+    const bool gog1179 = std::strcmp(argv[1], "1.6.1179") == 0;
+    Require(se || ae640 || ae1170 || ae17104 || gog1179, "known runtime");
     const REL::Version version = se ? REL::Version{ 1, 5, 97, 0 }
         : ae640 ? REL::Version{ 1, 6, 640, 0 }
-        : ae1170 ? REL::Version{ 1, 6, 1170, 0 } : REL::Version{ 1, 7, 104, 0 };
+        : ae1170 ? REL::Version{ 1, 6, 1170, 0 }
+        : gog1179 ? REL::Version{ 1, 6, 1179, 0 } : REL::Version{ 1, 7, 104, 0 };
     Require(REL::Module::mock(version), "mock executable identity");
     Require(REL::Module::IsSE() == se && REL::Module::IsAE() == !se,
         "1.7 uses AE relocations while 1.5 keeps SE relocations");

@@ -20,7 +20,8 @@ namespace TheosRenderPipeline::NeuralObjects::DrawHook
     constexpr const Contract* ForVersion(REL::Version version)
     {
         if (version == REL::Version{1,5,97,0}) { return &kSE; }
-        if (version == REL::Version{1,6,1170,0}) { return &kAE; }
+        // GOG 1.6.1179's draw function is instruction-identical to 1.6.1170's.
+        if (version == REL::Version{1,6,1170,0} || version == REL::Version{1,6,1179,0}) { return &kAE; }
         return nullptr;
     }
 }

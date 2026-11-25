@@ -836,7 +836,7 @@ if(TRP_BUILD_COMPATIBILITY_TESTS)
     target_compile_definitions(TRPRuntimeLayoutTests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN ENABLE_COMMONLIBSSE_TESTING=1)
     target_include_directories(TRPRuntimeLayoutTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
     target_link_libraries(TRPRuntimeLayoutTests PRIVATE CommonLibSSE::CommonLibSSE)
-    foreach(runtime IN ITEMS 1.5.97 1.6.640 1.6.1170 1.7.104)
+    foreach(runtime IN ITEMS 1.5.97 1.6.640 1.6.1170 1.6.1179 1.7.104)
         add_test(NAME RuntimeLayout-${runtime} COMMAND TRPRuntimeLayoutTests ${runtime})
     endforeach()
 

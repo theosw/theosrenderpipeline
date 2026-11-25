@@ -214,12 +214,13 @@ int main()
         ResumeCase();
         namespace Contract = TheosRenderPipeline::NeuralObjects::DrawHook;
         Require(Contract::ForVersion({1,5,97,0})->relocationID == 100854 &&
-            Contract::ForVersion({1,6,1170,0})->relocationID == 107644, "draw hooks select the exact-version address ID");
-        for (const auto version : {REL::Version{1,6,640,0}, REL::Version{1,7,104,0}, REL::Version{1,5,97,1}}) {
+            Contract::ForVersion({1,6,1170,0})->relocationID == 107644 &&
+            Contract::ForVersion({1,6,1179,0}) == Contract::ForVersion({1,6,1170,0}), "draw hooks select the exact-version address ID");
+        for (const auto version : {REL::Version{1,6,640,0}, REL::Version{1,7,104,0}, REL::Version{1,5,97,1}, REL::Version{1,6,1179,1}}) {
             Require(!Contract::ForVersion(version), "unverified draw-hook versions remain unavailable");
         }
         for (int kind = 0; kind < 3; ++kind) {
-            ObjectDrawCase({1,5,97,0}, kind); ObjectDrawCase({1,6,1170,0}, kind);
+            ObjectDrawCase({1,5,97,0}, kind); ObjectDrawCase({1,6,1170,0}, kind); ObjectDrawCase({1,6,1179,0}, kind);
         }
         ImportCase();
         std::cout << "PASS: executable original/E9/FF25 detours, an Engine Fixes-style resuming predecessor, and replacement GetClientRect call chain\n";

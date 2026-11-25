@@ -36,6 +36,10 @@ namespace TheosRenderPipeline::SkyrimRuntime
         0xB, 0x102, 0x84, 0x17A, 0x2BC, 0x2D, 0x11, 0x1E7 };
     inline constexpr HookOffsets kAE17104Hooks{ 0x7B9, 0x1DC, 0x133, 0x1D6, 0x85E,
         0xB, 0x102, 0x84, 0x17A, 0x2BC, 0x2D, 0x11, 0x1E7 };
+    // GOG 1.6.1179 keeps the 1.6.1170 sites except Renderer::Begin, which has
+    // 1.7.104's shape: a window-resize GetClientRect at +0x40 moves both calls.
+    inline constexpr HookOffsets kGOG1179Hooks{ 0x7A4, 0x1DC, 0x133, 0x1D5, 0x841,
+        0xB, 0x102, 0x84, 0x17A, 0x2BC, 0x2D, 0x11, 0x1E7 };
 
     struct HookBytes
     {
@@ -54,7 +58,12 @@ namespace TheosRenderPipeline::SkyrimRuntime
 
     struct Profile
     {
+        // The executable's file version: selects hooks, layouts and Address Library.
         REL::Version version;
+        // What SKSE reports to Query/Load and checks against exported metadata. GOG
+        // SKSE sets the distribution in the fourth field (1.6.1179.1) while the
+        // executable and its Address Library file say 1.6.1179.0.
+        REL::Version skse;
         LoadingArtwork::TransitionCallers loadingArtwork;
         HookOffsets hooks;
         GraphicsLayout graphics;
@@ -64,12 +73,14 @@ namespace TheosRenderPipeline::SkyrimRuntime
     // Admit a runtime only after its hook instructions and engine layouts have
     // been verified. Address Library coverage alone is not sufficient.
     inline constexpr std::array kProfiles{
-        Profile{ REL::Version{ 1, 5, 97, 0 }, LoadingArtwork::kSECallers, kSEHooks, { 0x58, 0x4C }, kSEBytes },
-        Profile{ REL::Version{ 1, 6, 640, 0 }, LoadingArtwork::kAE640Callers, kAEHooks, { 0x60, 0x4C }, kAEBytes },
-        Profile{ REL::Version{ 1, 6, 1170, 0 }, LoadingArtwork::kAECallers, kAEHooks, { 0x60, 0x4C }, kAEBytes },
-        Profile{ REL::Version{ 1, 7, 104, 0 }, LoadingArtwork::kAE17104Callers, kAE17104Hooks, { 0x70, 0x54 }, kAE17104Bytes },
+        Profile{ REL::Version{ 1, 5, 97, 0 }, REL::Version{ 1, 5, 97, 0 }, LoadingArtwork::kSECallers, kSEHooks, { 0x58, 0x4C }, kSEBytes },
+        Profile{ REL::Version{ 1, 6, 640, 0 }, REL::Version{ 1, 6, 640, 0 }, LoadingArtwork::kAE640Callers, kAEHooks, { 0x60, 0x4C }, kAEBytes },
+        Profile{ REL::Version{ 1, 6, 1170, 0 }, REL::Version{ 1, 6, 1170, 0 }, LoadingArtwork::kAECallers, kAEHooks, { 0x60, 0x4C }, kAEBytes },
+        Profile{ REL::Version{ 1, 7, 104, 0 }, REL::Version{ 1, 7, 104, 0 }, LoadingArtwork::kAE17104Callers, kAE17104Hooks, { 0x70, 0x54 }, kAE17104Bytes },
+        Profile{ REL::Version{ 1, 6, 1179, 0 }, REL::Version{ 1, 6, 1179, 1 }, LoadingArtwork::kGOG1179Callers, kGOG1179Hooks, { 0x60, 0x4C }, kAEBytes },
     };
 
+    // By executable file version (REL::Module::get().version()).
     [[nodiscard]] constexpr const Profile* Find(REL::Version version) noexcept
     {
         for (const auto& profile : kProfiles) {
@@ -79,4 +90,17 @@ namespace TheosRenderPipeline::SkyrimRuntime
         }
         return nullptr;
     }
+
+    // By the version SKSE passes to Query/Load. Exact: no field is masked.
+    [[nodiscard]] constexpr const Profile* FindSkse(REL::Version version) noexcept
+    {
+        for (const auto& profile : kProfiles) {
+            if (profile.skse == version) {
+                return &profile;
+            }
+        }
+        return nullptr;
+    }
+
+    [[nodiscard]] constexpr bool IsGOG(const Profile& profile) noexcept { return profile.skse != profile.version; }
 }
