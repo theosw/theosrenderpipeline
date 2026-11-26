@@ -70,7 +70,16 @@ namespace TheosRenderPipeline::LoadingArtwork
             return false;
         };
         const auto* profile = SkyrimRuntime::Find(REL::Module::get().version());
-        const auto target = profile ? REL::RelocationID(13214, 13363).address() : 0;
+        std::uintptr_t target = 0;
+        if (profile) {
+            try {
+                target = REL::RelocationID(13214, 13363).address();
+            } catch (const std::exception& e) {
+                return unavailable(e.what());
+            } catch (...) {
+                return unavailable("Could not resolve loading artwork transition sender address");
+            }
+        }
         const bool matches = target && std::memcmp(reinterpret_cast<const void*>(target), kTransitionPrologue.data(), kTransitionPrologue.size()) == 0;
         if (const auto* refusal = InstallRefusal(profile != nullptr, matches)) { return unavailable(refusal); }
         // Select before publishing the detour. Other AE versions must not inherit

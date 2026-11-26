@@ -1,12 +1,38 @@
 #pragma once
 #include <Windows.h>
 #include <Psapi.h>
+#include <concepts>
 #include <filesystem>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace TheosRenderPipeline::PluginPaths
 {
+	// Non-throwing UTF-8 conversion for logs and support text: path::string()
+	// converts through CP_ACP on MSVC and throws on non-ANSI Windows paths.
+	inline std::string ToUtf8(std::wstring_view a_wide)
+	{
+		if (a_wide.empty()) {
+			return {};
+		}
+		const int size = ::WideCharToMultiByte(CP_UTF8, 0, a_wide.data(),
+			static_cast<int>(a_wide.size()), nullptr, 0, nullptr, nullptr);
+		if (size <= 0) {
+			return {};
+		}
+		std::string utf8(static_cast<std::size_t>(size), '\0');
+		::WideCharToMultiByte(CP_UTF8, 0, a_wide.data(), static_cast<int>(a_wide.size()),
+			utf8.data(), size, nullptr, nullptr);
+		return utf8;
+	}
+
+	template <std::same_as<std::filesystem::path> Path>
+	inline std::string ToUtf8(const Path& a_path)
+	{
+		return ToUtf8(std::wstring_view(a_path.native()));
+	}
+
 	inline std::filesystem::path Normalize(const std::filesystem::path& a_path)
 	{
 		std::error_code error;
@@ -27,6 +53,14 @@ namespace TheosRenderPipeline::PluginPaths
 		if (!a_module) {
 			return {};
 		}
+		wchar_t stack[1024];
+		const auto smallWritten = ::GetModuleFileNameW(a_module, stack, static_cast<DWORD>(std::size(stack)));
+		if (smallWritten > 0 && smallWritten < std::size(stack)) {
+			return std::filesystem::path(std::wstring_view(stack, smallWritten));
+		}
+		if (smallWritten == 0) {
+			return {};
+		}
 		std::wstring path(32768, L'\0');
 		const auto written = ::GetModuleFileNameW(a_module, path.data(), static_cast<DWORD>(path.size()));
 		if (written == 0 || written >= path.size()) {
@@ -42,9 +76,14 @@ namespace TheosRenderPipeline::PluginPaths
 		return path.empty() ? path : Normalize(path);
 	}
 
+	inline bool EqualNormalizedPath(const std::filesystem::path& a_left, const std::filesystem::path& a_right)
+	{
+		return _wcsicmp(a_left.c_str(), a_right.c_str()) == 0;
+	}
+
 	inline bool EqualPath(const std::filesystem::path& a_left, const std::filesystem::path& a_right)
 	{
-		return _wcsicmp(Normalize(a_left).c_str(), Normalize(a_right).c_str()) == 0;
+		return EqualNormalizedPath(Normalize(a_left), Normalize(a_right));
 	}
 
 	// A snapshot of the loaded modules, grown until it is complete.
@@ -131,11 +170,11 @@ namespace TheosRenderPipeline::PluginPaths
     {
         // Use the game's virtual Data tree. MO2 may load our replacement DLL
         // from a different physical mod than the settings, shaders and runtimes.
-        std::wstring executable(32768, L'\0');
-        const auto size = ::GetModuleFileNameW(nullptr, executable.data(), static_cast<DWORD>(executable.size()));
-        if (size == 0 || size >= executable.size()) { return {}; }
-        executable.resize(size);
-        return std::filesystem::path(executable).parent_path() / L"Data" / L"SKSE" / L"Plugins";
+        static const std::filesystem::path directory = []() -> std::filesystem::path {
+            const auto executable = RawModulePath(nullptr);
+            return executable.empty() ? std::filesystem::path{} : executable.parent_path() / L"Data" / L"SKSE" / L"Plugins";
+        }();
+        return directory;
     }
 
     inline std::filesystem::path AMDDirectory() { return Directory() / L"TheosRenderPipeline" / L"AMD"; }

@@ -17,9 +17,11 @@ static_assert(SLOT(DrawIndexed) == Slots::kDrawIndexed);
 static_assert(SLOT(Draw) == Slots::kDraw);
 static_assert(SLOT(OMSetRenderTargets) == Slots::kOMSetRenderTargets);
 static_assert(SLOT(OMSetBlendState) == Slots::kOMSetBlendState);
+static_assert(SLOT(Dispatch) == Slots::kDispatch);
 static_assert(SLOT(RSSetViewports) == Slots::kRSSetViewports);
 static_assert(SLOT(RSSetScissorRects) == Slots::kRSSetScissorRects);
 static_assert(SLOT(CopySubresourceRegion) == Slots::kCopySubresourceRegion);
+static_assert(SLOT(CopyResource) == Slots::kCopyResource);
 static_assert(SLOT(ClearView) == Slots::kClearView);
 static_assert(offsetof(ID3D11DeviceContext1Vtbl, CopySubresourceRegion) ==
     offsetof(ID3D11DeviceContextVtbl, CopySubresourceRegion));

@@ -309,7 +309,7 @@ std::optional<PreviewImage> DrawMenu(ID3D11Device* device, ID3D11DeviceContext* 
     ImGui_ImplDX11_Init(device, context);
     ImRect window;
     {
-        OverlayPreview menu(scenario, layout, page);
+        OverlayPreview menu(scenario, layout, page, language);
         for (int frame = 0; frame < kFrames; ++frame)
         {
             ImGui_ImplDX11_NewFrame();
@@ -426,6 +426,7 @@ int main(int argc, char** argv)
     {
         if (!options->scenarios.empty() && !options->scenarios.contains(scenario.name))
             continue;
+        bool supportWritten = false;
         for (const auto& tab : kTabs)
         {
             if (!options->tabs.empty() && !options->tabs.contains(tab.name))
@@ -438,11 +439,13 @@ int main(int argc, char** argv)
                 const auto path = std::filesystem::absolute(options->out / (name + ".png"));
                 auto sized = AtOutputSize(scenario, size.width, size.height);
                 std::string support;
+                const bool wantSupport = options->support && !supportWritten;
                 const auto image = DrawMenu(device.Get(), context.Get(), sized, layout, tab.page, size, !options->full,
-                    options->language, options->support ? &support : nullptr);
+                    options->language, wantSupport ? &support : nullptr);
                 // What Copy details would put on the clipboard for this scenario.
-                if (options->support)
+                if (wantSupport)
                 {
+                    supportWritten = true;
                     const auto text = std::filesystem::absolute(options->out / (scenario.name + "-support.txt"));
                     if (FILE* file = nullptr; _wfopen_s(&file, text.c_str(), L"wb") == 0 && file)
                     {

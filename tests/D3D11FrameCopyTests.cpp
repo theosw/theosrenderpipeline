@@ -212,6 +212,17 @@ int main(int argc, char** argv)
         }
         depthCopy.ResetViews();
     }
+    {
+        // ResetAfterRetirement drops cached shader/device so a new device can reuse the helper.
+        depthCopy.ResetAfterRetirement();
+        auto otherSource = Texture(otherDevice.Get(), width, height, DXGI_FORMAT_R32_FLOAT,
+            D3D11_BIND_SHADER_RESOURCE, scene.data());
+        auto otherTarget = Texture(otherDevice.Get(), 4, 3, DXGI_FORMAT_R32_FLOAT,
+            D3D11_BIND_UNORDERED_ACCESS | D3D11_BIND_SHADER_RESOURCE);
+        Check(depthCopy.Copy(otherContext.Get(), otherSource.Get(), otherTarget.Get(), {4, 3}),
+            "depth copy succeeds on a new device after ResetAfterRetirement");
+        otherContext->ClearState();
+    }
     context->ClearState();
     std::puts("Frame copies: cropped/full color, bounded return, source overwrite, four depth formats including float/stencil reverse Z, resize, state restoration and invalid inputs passed.");
 }

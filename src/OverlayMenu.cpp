@@ -3,7 +3,6 @@
 #include "OverlayUI.h"
 #include "OverlayFrameView.h"
 #include "OverlayUIStyle.h"
-#include "RenderPipeline.h"
 #include "RendererSettingsAction.h"
 
 #include <imgui_internal.h>
@@ -150,7 +149,7 @@ void OverlayUI::DrawPipelineSummary(const FrameView& view)
 #endif
     const auto upscaleTooltip = withAlert(view.upscaleAlertText,
         view.communityShaders ? TR("Upscaling is controlled in the Community Shaders menu.\nClick to open Image status.") :
-        TR("DLSS or XeSS reconstruction, or native-resolution DLAA.\nClick to open Image settings."));
+        TR("DLSS, XeSS, or FSR reconstruction, or native-resolution DLAA.\nClick to open Image settings."));
     const auto generationTooltip = withAlert(view.generationAlertText,
         TR("Adds generated frames between game-rendered frames.\nClick to open Frame generation settings."));
     const bool appOverride = view.upscaleAlert != 0 || view.generationAlert != 0 || view.neuralAlert != 0 || view.sessionDegraded;
@@ -325,7 +324,7 @@ void OverlayUI::DrawLanguageControl(float a_right, float a_top)
             const bool current = _stricmp(languageDraft.c_str(), a_value.c_str()) == 0;
             if (ImGui::Selectable(a_label, current) && !current) {
                 languageDraft = a_value;
-                RenderPipeline::GetSingleton()->mLanguage = languageDraft;
+                SetLanguage(languageDraft);
                 ActivateLanguageFromSettings(languageDraft);
                 // The atlas cannot be rebuilt inside a frame: the labels drawn
                 // later in this one already reference the old glyphs.

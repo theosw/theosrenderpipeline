@@ -235,7 +235,7 @@ void OverlayUI::DrawImagePanel(float tabCardHeight, const FrameView& view)
                     ? TR("FSR and XeSS can switch on Apply at the current render size. DLSS also requires initialized NVIDIA services.\nDLAA needs Save as default and a restart.")
                     : TR("Changing the mode needs Save as default and a restart."));
                 SettingRow(TR("Mode"), nullptr, true, false, [&] {
-                    const char* missing = TR("AMD's FSR runtime is missing from TheosRenderPipeline\\AMD. Reinstall TRP Standard, then restart.");
+                    const char* missing = TR("AMD's FSR runtime is missing from TheosRenderPipeline\\AMD. Reinstall Theo's Render Pipeline, then restart.");
                     const bool fsr4Available = view.fsrRuntimePresent && !view.fsr4Reason;
                     const std::string fsr4Help = !view.fsrRuntimePresent ? std::string(missing)
                         : view.fsr4Reason ? std::string(TR(view.fsr4Reason))

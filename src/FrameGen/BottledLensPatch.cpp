@@ -29,24 +29,59 @@ namespace TheosRenderPipeline::BottledLens
 
         struct Section { std::size_t offset; std::span<const std::uint8_t> code; };
 
+        bool ReadMemory(const void* address, void* destination, std::size_t size)
+        {
+            SIZE_T read{};
+            return ReadProcessMemory(GetCurrentProcess(), address, destination, size, &read) && read == size;
+        }
+
+        bool ReadableRange(const std::uint8_t* base, std::size_t offset, std::size_t size)
+        {
+            std::size_t cursor = 0;
+            while (cursor < size) {
+                MEMORY_BASIC_INFORMATION mbi{};
+                const auto* address = base + offset + cursor;
+                if (!VirtualQuery(address, &mbi, sizeof(mbi)) || mbi.AllocationBase != base ||
+                    mbi.State != MEM_COMMIT || (mbi.Protect & (PAGE_GUARD | PAGE_NOACCESS))) { return false; }
+                const auto regionEnd = reinterpret_cast<std::uintptr_t>(mbi.BaseAddress) + mbi.RegionSize;
+                const auto current = reinterpret_cast<std::uintptr_t>(address);
+                if (regionEnd <= current) { return false; }
+                const auto step = regionEnd - current;
+                cursor += step < (size - cursor) ? step : (size - cursor);
+            }
+            return true;
+        }
+
         // Each executable section of a mapped image, bounded by its headers.
         bool ExecutableSections(HMODULE module, std::vector<Section>& sections, Build& identity)
         {
             const auto* base = reinterpret_cast<const std::uint8_t*>(module);
-            const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
-            if (dos->e_magic != IMAGE_DOS_SIGNATURE || dos->e_lfanew <= 0) { return false; }
-            const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(base + dos->e_lfanew);
-            if (nt->Signature != IMAGE_NT_SIGNATURE || nt->OptionalHeader.Magic != IMAGE_NT_OPTIONAL_HDR64_MAGIC) { return false; }
-            identity.timestamp = nt->FileHeader.TimeDateStamp;
-            identity.imageSize = nt->OptionalHeader.SizeOfImage;
+            IMAGE_DOS_HEADER dos{};
+            if (!ReadMemory(base, &dos, sizeof(dos)) || dos.e_magic != IMAGE_DOS_SIGNATURE ||
+                dos.e_lfanew < static_cast<LONG>(sizeof(dos)) || dos.e_lfanew > 0x100000) { return false; }
+            IMAGE_NT_HEADERS64 nt{};
+            if (!ReadMemory(base + dos.e_lfanew, &nt, sizeof(nt)) || nt.Signature != IMAGE_NT_SIGNATURE ||
+                nt.FileHeader.Machine != IMAGE_FILE_MACHINE_AMD64 ||
+                nt.OptionalHeader.Magic != IMAGE_NT_OPTIONAL_HDR64_MAGIC ||
+                nt.FileHeader.SizeOfOptionalHeader != sizeof(IMAGE_OPTIONAL_HEADER64) ||
+                nt.FileHeader.NumberOfSections == 0 || nt.FileHeader.NumberOfSections > 96) { return false; }
+            const std::size_t tableOffset = static_cast<std::size_t>(dos.e_lfanew) + sizeof(nt);
+            const std::size_t tableBytes = static_cast<std::size_t>(nt.FileHeader.NumberOfSections) * sizeof(IMAGE_SECTION_HEADER);
+            const std::size_t headerLimit = nt.OptionalHeader.SizeOfHeaders ? nt.OptionalHeader.SizeOfHeaders : nt.OptionalHeader.SizeOfImage;
+            if (tableOffset >= headerLimit || tableBytes > headerLimit - tableOffset) { return false; }
+            std::vector<IMAGE_SECTION_HEADER> headers(nt.FileHeader.NumberOfSections);
+            if (!ReadMemory(base + tableOffset, headers.data(), tableBytes)) { return false; }
+            identity.timestamp = nt.FileHeader.TimeDateStamp;
+            identity.imageSize = nt.OptionalHeader.SizeOfImage;
             identity.checked = identity.timestamp == 0x6AFF0971 && identity.imageSize == 0x2AF6000;
-            const auto* section = IMAGE_FIRST_SECTION(nt);
-            for (unsigned i = 0; i < nt->FileHeader.NumberOfSections; ++i, ++section) {
-                if (!(section->Characteristics & IMAGE_SCN_MEM_EXECUTE)) { continue; }
-                const std::size_t size = section->Misc.VirtualSize;
-                if (!size || section->VirtualAddress > nt->OptionalHeader.SizeOfImage ||
-                    size > nt->OptionalHeader.SizeOfImage - section->VirtualAddress) { return false; }
-                sections.push_back({section->VirtualAddress, std::span<const std::uint8_t>(base + section->VirtualAddress, size)});
+            for (const auto& section : headers) {
+                if (!(section.Characteristics & IMAGE_SCN_MEM_EXECUTE) ||
+                    !(section.Characteristics & IMAGE_SCN_MEM_READ)) { continue; }
+                const std::size_t size = section.Misc.VirtualSize;
+                if (!size || section.VirtualAddress > nt.OptionalHeader.SizeOfImage ||
+                    size > nt.OptionalHeader.SizeOfImage - section.VirtualAddress ||
+                    !ReadableRange(base, section.VirtualAddress, size)) { return false; }
+                sections.push_back({section.VirtualAddress, std::span<const std::uint8_t>(base + section.VirtualAddress, size)});
             }
             return true;
         }
@@ -55,7 +90,10 @@ namespace TheosRenderPipeline::BottledLens
     State Install(HMODULE module, Provider a_provider)
     {
         std::lock_guard lock(installMutex);
-        if (state.load() == State::Installed) { provider.store(a_provider, std::memory_order_release); return State::Installed; }
+        if (state.load() == State::Installed) {
+            if (a_provider) { provider.store(a_provider, std::memory_order_release); }
+            return State::Installed;
+        }
         if (!module || !a_provider) { return state = State::NoModule; }
         std::vector<Section> sections;
         Build identity;

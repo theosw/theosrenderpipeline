@@ -79,6 +79,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		value.vsync = SanitizeVSync(value.vsync);
 		value.xefg = SanitizeXeFG(value.xefg);
 		value.xefgSceneChangeThreshold = SanitizeXeFGSceneChange(value.xefgSceneChangeThreshold);
+		value.communityLens = SanitizeCommunityLens(static_cast<long>(value.communityLens));
 		// The multiplier is the only user choice: x3-x6 request the experimental unlock.
 		value.xefg.experimentalMFG = value.xefg.generatedFrames > 1;
 		if (value.reflexMode < 0 || value.reflexMode > 2) { value.reflexMode = 1; }

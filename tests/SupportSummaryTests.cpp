@@ -68,6 +68,8 @@ int main()
         "%USERPROFILE%/Documents/x.dll and %USERPROFILE%\\y", "case and slash variants");
     Require(RedactUserFolder("C:\\Users\\Players\\x.dll", "C:\\Users\\Player") == "C:\\Users\\Players\\x.dll", "another folder with the same start is kept");
     Require(RedactUserFolder("C:\\Users\\Player", "C:\\Users\\Player") == "%USERPROFILE%", "the folder itself");
+    Require(RedactUserFolder("(C:\\Users\\Player)\nC:\\Users\\Player,other;C:\\Users\\Player", "C:\\Users\\Player") ==
+        "(%USERPROFILE%)\n%USERPROFILE%,other;%USERPROFILE%", "punctuation and newline boundaries");
     Require(RedactUserFolder("C:\\Games\\x.dll", "") == "C:\\Games\\x.dll" && RedactUserFolder("C:\\Games\\x.dll", "C:\\") == "C:\\Games\\x.dll",
         "an unknown or implausibly short profile changes nothing");
     std::puts("SupportSummary tests passed");

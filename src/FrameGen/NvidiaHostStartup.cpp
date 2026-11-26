@@ -27,6 +27,16 @@ HRESULT NvidiaHost::CreateSwapChain(IDXGIFactory* a_factory, ID3D11Device* a_dev
     auto* upscalerSettings = RenderPipeline::GetSingleton();
     TheosRenderPipeline::Upscaler::Creation creation{upscalerSettings->mUpscaleType, upscalerSettings->mQualityLevel,
         upscalerSettings->mDLSSPreset, upscalerSettings->mSharpening, upscalerSettings->mAutoExposure};
+    // The device's adapter is the GPU the game renders on, also with an integrated GPU present.
+    DXGI_ADAPTER_DESC adapterDesc{};
+    bool hasAdapterDesc = false;
+    {
+        Microsoft::WRL::ComPtr<IDXGIDevice> dxgiDevice;
+        Microsoft::WRL::ComPtr<IDXGIAdapter> adapter;
+        hasAdapterDesc = SUCCEEDED(a_device->QueryInterface(IID_PPV_ARGS(&dxgiDevice))) &&
+            SUCCEEDED(dxgiDevice->GetAdapter(&adapter)) &&
+            SUCCEEDED(adapter->GetDesc(&adapterDesc));
+    }
     if (!TheosRenderPipeline::CommunityShaders::Active()) {
         if (IsFSR(creation.mode)) {
             const auto selected = TheosRenderPipeline::Upscaler::ForFSRRuntime(creation,
@@ -37,12 +47,7 @@ HRESULT NvidiaHost::CreateSwapChain(IDXGIFactory* a_factory, ID3D11Device* a_dev
                 creation = selected;
             }
         }
-        // The device's adapter is the GPU the game renders on, also with an integrated GPU present.
-        Microsoft::WRL::ComPtr<IDXGIDevice> dxgiDevice;
-        Microsoft::WRL::ComPtr<IDXGIAdapter> adapter;
-        DXGI_ADAPTER_DESC adapterDesc{};
-        if (SUCCEEDED(a_device->QueryInterface(IID_PPV_ARGS(&dxgiDevice))) && SUCCEEDED(dxgiDevice->GetAdapter(&adapter)) &&
-            SUCCEEDED(adapter->GetDesc(&adapterDesc))) {
+        if (hasAdapterDesc) {
             bool pascalResearch = false;
             bool nvidiaFeatures = adapterDesc.VendorId == 0x10DE;
 #if !defined(TRP_NO_NEURAL_RENDERING)
@@ -85,15 +90,11 @@ HRESULT NvidiaHost::CreateSwapChain(IDXGIFactory* a_factory, ID3D11Device* a_dev
     SetRuntimeEnabled(false);
 
     auto& settings = SourceFrameGeneration::GetSingleton()->settings;
-    Microsoft::WRL::ComPtr<IDXGIDevice> nrDevice;
-    Microsoft::WRL::ComPtr<IDXGIAdapter> nrAdapter;
-    DXGI_ADAPTER_DESC nrDesc{};
-    if (SUCCEEDED(a_device->QueryInterface(IID_PPV_ARGS(&nrDevice))) && SUCCEEDED(nrDevice->GetAdapter(&nrAdapter)) &&
-        SUCCEEDED(nrAdapter->GetDesc(&nrDesc))) {
-        logger::info("[NR backend] startup preference: vendor=0x{:04X} backendSource={} inputSource={}", nrDesc.VendorId,
-            settings.neuralBackendAutomatic ? (nrDesc.VendorId == 0x1002 ? "AMD hardware default: HIP/ZLUDA" : "hardware default: native NVIDIA") : "explicit INI NeuralBackend",
+    if (hasAdapterDesc) {
+        logger::info("[NR backend] startup preference: vendor=0x{:04X} backendSource={} inputSource={}", adapterDesc.VendorId,
+            settings.neuralBackendAutomatic ? (adapterDesc.VendorId == 0x1002 ? "AMD hardware default: HIP/ZLUDA" : "hardware default: native NVIDIA") : "explicit INI NeuralBackend",
             settings.neuralInputAutomatic ? "hardware default" : "explicit INI input scale");
-        TheosRenderPipeline::SourceDLSSG::ApplyNeuralHardwareDefaults(settings.sourceDLSSG, nrDesc.VendorId == 0x1002,
+        TheosRenderPipeline::SourceDLSSG::ApplyNeuralHardwareDefaults(settings.sourceDLSSG, adapterDesc.VendorId == 0x1002,
             settings.neuralBackendAutomatic, settings.neuralInputAutomatic);
         settings.neuralBackendAutomatic = settings.neuralInputAutomatic = false;
     }

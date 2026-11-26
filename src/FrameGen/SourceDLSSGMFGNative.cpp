@@ -3,7 +3,7 @@
 
 namespace TheosRenderPipeline::SourceDLSSG
 {
-    bool MFGUnlock::SelectAdapter(ID3D12Device*)
+    bool MFGUnlock::SelectAdapter(ID3D12Device*, LARGE_INTEGER)
     {
         state_.route = MFGRoute::Native;
         spdlog::info("[SourceDLSSG MFG] selected route=Native edition=Standard compatibilityAvailable=false; "

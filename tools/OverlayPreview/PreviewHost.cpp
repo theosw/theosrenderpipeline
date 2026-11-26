@@ -8,7 +8,7 @@
 
 using namespace TheosRenderPipeline::Overlay;
 
-OverlayPreview::OverlayPreview(PreviewScenario& scenario, const Layout& layout, SettingsPage page)
+OverlayPreview::OverlayPreview(PreviewScenario& scenario, const Layout& layout, SettingsPage page, std::string_view language)
     : menu_(new OverlayUI()), page_(page)
 {
     current_ = &scenario;
@@ -16,6 +16,7 @@ OverlayPreview::OverlayPreview(PreviewScenario& scenario, const Layout& layout, 
     menu.initialized = true;
     menu.visible = true;
     menu.layout = layout;
+    menu.languageDraft = std::string(language);
     menu.showDeveloperControls = scenario.labMode;
     menu.nrRuntimePresent = scenario.nrRuntimePresent;
     menu.settingsDraft = scenario.draft;
@@ -60,13 +61,16 @@ void OverlayPreview::UpdateScale()
 {
     const auto display = ImGui::GetIO().DisplaySize;
     const float scale = ResolveUIScale(menu_->layout.uiScale, display.x, display.y);
-    if (std::abs(scale - UIScale()) < 0.001f)
+    const bool scaleChanged = std::abs(scale - UIScale()) >= 0.001f;
+    if (!scaleChanged && !menu_->fontRebuildPending)
         return;
+    menu_->fontRebuildPending = false;
     ApplyRendererStyle(scale);
     BuildRendererFont(scale);
     ImGui_ImplDX11_InvalidateDeviceObjects();
     ImGui_ImplDX11_CreateDeviceObjects();
-    menu_->layoutPending = true;
+    if (scaleChanged)
+        menu_->layoutPending = true;
 }
 
 bool OverlayPreview::LabMode() const { return menu_->showDeveloperControls; }
@@ -146,6 +150,7 @@ TheosRenderPipeline::Support::Summary OverlayUI::CaptureSupportSystem()
     return summary;
 }
 void OverlayUI::ClearTimingWindow() {}
+void OverlayUI::SetLanguage(std::string_view) {}
 
 namespace
 {

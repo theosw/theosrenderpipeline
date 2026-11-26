@@ -56,7 +56,7 @@ endif()
 if(TRP_ENABLE_OPTIONAL_FEATURES)
     target_sources(TheosRenderPipeline PRIVATE src/FrameGen/FSR4Compatibility.cpp)
     target_compile_definitions(TheosRenderPipeline PRIVATE TRP_FSR4_FORCE_UNIVERSAL)
-    target_link_libraries(TheosRenderPipeline PRIVATE wintrust crypt32 bcrypt)
+    target_link_libraries(TheosRenderPipeline PRIVATE wintrust crypt32)
 endif()
 if(TRP_ENABLE_NEURAL_RENDERING)
     target_sources(TheosRenderPipeline PRIVATE ${ARP_NEURAL_SOURCES})
@@ -277,6 +277,7 @@ target_link_libraries(
 	dxguid.lib
 	version.lib
 	bcrypt.lib
+	gdi32.lib
 	windowscodecs.lib
 	"${TRP_NGX_LIB}"
 )
@@ -847,16 +848,24 @@ if(TRP_BUILD_COMPATIBILITY_TESTS)
     target_compile_definitions(TRPRenderLifecycleTests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
     target_include_directories(TRPRenderLifecycleTests PRIVATE src)
     add_test(NAME RenderLifecycle COMMAND TRPRenderLifecycleTests)
-endif()
 
-
-# Universal vendor-neutral NR engine and standalone checks.
-if(TRP_BUILD_COMPATIBILITY_TESTS)
     add_executable(TRPVulkanNRScheduleTests tests/VulkanNRScheduleTests.cpp)
     target_compile_features(TRPVulkanNRScheduleTests PRIVATE cxx_std_23)
     target_include_directories(TRPVulkanNRScheduleTests PRIVATE src)
     add_test(NAME VulkanNRSchedule COMMAND TRPVulkanNRScheduleTests)
+
+    add_executable(TRPAMDReleaseAdmissionTests tests/AMDReleaseAdmissionTests.cpp src/FrameGen/AmdNeuralPass.cpp)
+    target_compile_features(TRPAMDReleaseAdmissionTests PRIVATE cxx_std_23)
+    target_compile_definitions(TRPAMDReleaseAdmissionTests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    if(TRP_ENABLE_OPTIONAL_FEATURES)
+        target_compile_definitions(TRPAMDReleaseAdmissionTests PRIVATE TRP_VENDOR_NEUTRAL_NR)
+    endif()
+    target_include_directories(TRPAMDReleaseAdmissionTests PRIVATE src)
+    target_link_libraries(TRPAMDReleaseAdmissionTests PRIVATE d3d12 dxgi bcrypt gdi32)
+    add_test(NAME AMDReleaseAdmission COMMAND TRPAMDReleaseAdmissionTests)
 endif()
+
+# Universal vendor-neutral NR engine and standalone checks.
 if(TRP_ENABLE_NEURAL_RENDERING AND TRP_ENABLE_OPTIONAL_FEATURES)
     add_subdirectory(third_party/vknr)
     add_dependencies(ARPBaseline TRPVulkanNR)
@@ -870,7 +879,7 @@ if(TRP_ENABLE_NEURAL_RENDERING AND TRP_ENABLE_OPTIONAL_FEATURES)
         target_compile_features(TRPVulkanNRHostSmoke PRIVATE cxx_std_23)
         target_compile_definitions(TRPVulkanNRHostSmoke PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN TRP_NR_VENDOR_BENCHMARK TRP_VENDOR_NEUTRAL_NR)
         target_include_directories(TRPVulkanNRHostSmoke PRIVATE tests/nr-peripheral src "${TRP_NGX_SDK_DIR}/include")
-        target_link_libraries(TRPVulkanNRHostSmoke PRIVATE d3d11 d3d12 dxgi d3dcompiler bcrypt version "${TRP_NGX_SDK_DIR}/lib/Windows_x86_64/nvsdk_ngx_d.lib")
+        target_link_libraries(TRPVulkanNRHostSmoke PRIVATE d3d11 d3d12 dxgi d3dcompiler bcrypt version "${TRP_NGX_LIB}")
         trp_target_neural_shaders(TRPVulkanNRHostSmoke)
         add_dependencies(TRPVulkanNRHostSmoke TRPVulkanNR)
         add_test(NAME VulkanNRUnchecked COMMAND TRPVulkanNRHostSmoke --unchecked)
@@ -886,22 +895,8 @@ if(TRP_ENABLE_NEURAL_RENDERING AND TRP_ENABLE_OPTIONAL_FEATURES)
         target_compile_features(TRPVulkanNRBackgroundSmoke PRIVATE cxx_std_23)
         target_compile_definitions(TRPVulkanNRBackgroundSmoke PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN TRP_NR_VENDOR_BENCHMARK TRP_VENDOR_NEUTRAL_NR)
         target_include_directories(TRPVulkanNRBackgroundSmoke PRIVATE tests/nr-peripheral src "${TRP_NGX_SDK_DIR}/include")
-        target_link_libraries(TRPVulkanNRBackgroundSmoke PRIVATE d3d11 d3d12 dxgi d3dcompiler bcrypt gdi32 version
-            "${TRP_NGX_SDK_DIR}/lib/Windows_x86_64/nvsdk_ngx_d.lib")
+        target_link_libraries(TRPVulkanNRBackgroundSmoke PRIVATE d3d11 d3d12 dxgi d3dcompiler bcrypt gdi32 version "${TRP_NGX_LIB}")
         trp_target_neural_shaders(TRPVulkanNRBackgroundSmoke)
         add_dependencies(TRPVulkanNRBackgroundSmoke TRPVulkanNR)
     endif()
-endif()
-target_link_libraries(TheosRenderPipeline PRIVATE gdi32)
-
-if(TRP_BUILD_COMPATIBILITY_TESTS)
-    add_executable(TRPAMDReleaseAdmissionTests tests/AMDReleaseAdmissionTests.cpp src/FrameGen/AmdNeuralPass.cpp)
-    target_compile_features(TRPAMDReleaseAdmissionTests PRIVATE cxx_std_23)
-    target_compile_definitions(TRPAMDReleaseAdmissionTests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
-    if(TRP_ENABLE_OPTIONAL_FEATURES)
-        target_compile_definitions(TRPAMDReleaseAdmissionTests PRIVATE TRP_VENDOR_NEUTRAL_NR)
-    endif()
-    target_include_directories(TRPAMDReleaseAdmissionTests PRIVATE src)
-    target_link_libraries(TRPAMDReleaseAdmissionTests PRIVATE d3d12 dxgi bcrypt gdi32)
-    add_test(NAME AMDReleaseAdmission COMMAND TRPAMDReleaseAdmissionTests)
 endif()

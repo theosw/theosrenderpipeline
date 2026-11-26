@@ -338,7 +338,7 @@ private:
         const auto layout = lastLayout_ ? *lastLayout_ : options_.layout.value_or(Layout{});
         ImGui::SetCurrentContext(menu_);
         // The starting tab applies to the first load; reloads keep the user's tab.
-        preview_ = std::make_unique<OverlayPreview>(scenario_, layout, loaded_ ? SettingsPage::None : options_.page);
+        preview_ = std::make_unique<OverlayPreview>(scenario_, layout, loaded_ ? SettingsPage::None : options_.page, options_.language);
         loaded_ = true;
         preview_->SetLive(true);
         if (labOverride_)

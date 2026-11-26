@@ -219,7 +219,7 @@ namespace TheosRenderPipeline
             if (FAILED(hr)) { return hr; }
             context_ = nullptr;
         }
-        color_ = {}; motion_ = {}; depth_ = {}; output_ = {}; depthCopy_.ResetViews();
+        color_ = {}; motion_ = {}; depth_ = {}; output_ = {}; depthCopy_.ResetAfterRetirement();
         sharpened_.Reset(); outputSRV_.Reset(); sharpenUAV_.Reset(); sharpenShader_.Reset();
         device_.Reset(); initialized_ = false; transport_ = nullptr; frames_ = 0; return S_OK;
     }

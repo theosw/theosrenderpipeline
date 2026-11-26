@@ -38,13 +38,16 @@ namespace TheosRenderPipeline::Support
             const auto fold = [](char c) { return c == '/' ? '\\' : static_cast<char>(std::tolower(static_cast<unsigned char>(c))); };
             return fold(a) == fold(b);
         };
+        const auto isBoundary = [](char c) {
+            return c == '\\' || c == '/' || c == '\n' || c == '\r' || c == ' ' || c == '\t' || c == ')' || c == ',' || c == ';';
+        };
         constexpr std::string_view replacement = "%USERPROFILE%";
         for (std::size_t at = 0; at + profile.size() <= text.size();) {
             bool match = true;
             for (std::size_t i = 0; match && i < profile.size(); ++i) { match = same(text[at + i], profile[i]); }
             // Whole folder name only: C:\Users\Al must not match C:\Users\Alice.
             const auto end = at + profile.size();
-            if (match && (end == text.size() || text[end] == '\\' || text[end] == '/')) {
+            if (match && (end == text.size() || isBoundary(text[end]))) {
                 text.replace(at, profile.size(), replacement);
                 at += replacement.size();
             } else { ++at; }

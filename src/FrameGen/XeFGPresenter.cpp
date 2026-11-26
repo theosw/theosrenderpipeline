@@ -24,17 +24,8 @@ namespace TheosRenderPipeline
         // Modules with this base name in the process, whatever their folder.
         unsigned LoadedCount(const wchar_t* name)
         {
-            // Grow until the snapshot is complete: a truncated one undercounts.
-            std::vector<HMODULE> modules(1024);
-            DWORD needed = 0;
-            for (;;) {
-                if (!K32EnumProcessModules(GetCurrentProcess(), modules.data(), DWORD(modules.size() * sizeof(HMODULE)), &needed)) { return 0; }
-                if (needed <= modules.size() * sizeof(HMODULE)) { break; }
-                modules.resize(needed / sizeof(HMODULE));
-            }
-            modules.resize(needed / sizeof(HMODULE));
             unsigned count = 0;
-            for (const auto module : modules) {
+            for (const auto module : PluginPaths::LoadedModules()) {
                 // The loader's own name; normalize (slow under MO2) only an 8.3 short name.
                 auto file = PluginPaths::RawModulePath(module).filename();
                 if (file.native().find(L'~') != std::wstring::npos) { file = PluginPaths::ModulePath(module).filename(); }

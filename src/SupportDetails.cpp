@@ -36,30 +36,37 @@ namespace TheosRenderPipeline::Support
                 const auto& mfg = view.mfg;
                 summary.frameGeneration += std::format(" | path {}", mfg.UsesTuringUnlock() ? "RTX 20 compatibility" :
                     mfg.UsesAmpereUnlock() ? "RTX 30 compatibility" : mfg.UsesAdaUnlock() ? "RTX 40 unlock" : "native");
-                if (mfg.status && *mfg.status) { summary.frameGeneration += std::format(" ({})", mfg.status); }
+                if (!mfg.status.empty()) { summary.frameGeneration += std::format(" ({})", mfg.status); }
             }
             if (!view.providerStatus.empty()) { summary.frameGeneration += " | " + view.providerStatus; }
 
+#if defined(TRP_NO_NEURAL_RENDERING)
+            summary.neuralRendering = "not included in this build";
+#else
             const auto& neural = view.neuralApplied;
             const auto& state = view.sourceNeural;
             summary.neuralRendering = std::format("{} | {}", neural.enabled ? "on" : "off",
                 state.sessionDisabled ? "stopped this session" : state.failed ? "failed" : state.active ? "active" : "inactive");
+            const auto& runtimePath = !view.appliedNeuralRuntimePath.empty() ? view.appliedNeuralRuntimePath : view.neuralRuntimePath;
+            const auto& admissionReason = !view.appliedNeuralAdmissionReason.empty() ? view.appliedNeuralAdmissionReason : view.neuralAdmissionReason;
             if (neural.enabled) {
                 summary.neuralRendering += std::format(" | {} upscaling | {} {}", neural.beforeUpscaling ? "before" : "after",
                     neural.passes, neural.passes == 1 ? "pass" : "passes");
-                if (!view.neuralRuntimePath.empty()) { summary.neuralRendering += " | runtime " + view.neuralRuntimePath; }
+                if (!runtimePath.empty()) { summary.neuralRendering += " | runtime " + runtimePath; }
             }
             if (!state.status.empty()) { summary.neuralRendering += " | " + state.status; }
-            if (!view.neuralAdmissionReason.empty() && view.neuralAdmissionReason != state.status) {
-                summary.neuralRendering += " | " + view.neuralAdmissionReason;
+            if (!admissionReason.empty() && admissionReason != state.status) {
+                summary.neuralRendering += " | " + admissionReason;
             }
+#endif
         }
 
         const auto& app = view.nvidiaApp;
         summary.nvidiaApp.clear();
-        summary.nvidiaApp.push_back(!view.nvidiaAdapter ? "not an NVIDIA GPU; driver profile not read" :
+        summary.nvidiaApp.push_back(view.steppedAside ? "driver profile not read (TRP stepped aside)" :
+            !view.nvidiaAdapter ? "not an NVIDIA GPU; driver profile not read" :
             app.profileRead ? "Skyrim's driver profile was read" : "Skyrim's driver profile was not read (yet)");
-        if (view.nvidiaAdapter && app.profileRead) {
+        if (!view.steppedAside && view.nvidiaAdapter && app.profileRead) {
             summary.nvidiaApp.push_back(app.upscalingModelOverride ? "DLSS model override: " + app.upscalingModel : std::string("DLSS model override: none"));
             summary.nvidiaApp.push_back(std::string("DLSS Frame Generation override: ") + (app.frameGenerationOverride ? "yes" : "none") +
                 (app.forcedMultiplier ? std::format(" (forces x{})", app.forcedMultiplier) : std::string()));

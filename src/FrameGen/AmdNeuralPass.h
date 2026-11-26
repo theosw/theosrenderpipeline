@@ -5,6 +5,8 @@
 #include <chrono>
 #include <filesystem>
 #include <functional>
+#include <memory>
+#include <mutex>
 #include <string>
 #include "SourceDLSSGNeuralState.h"
 #include "RuntimeStateDiagnostics.h"
@@ -67,7 +69,19 @@ namespace TheosRenderPipeline::SourceDLSSG {
         void PinHipToRenderingGpu(LUID rendering);
         void Refresh();
         void CopyOriginal(ID3D12GraphicsCommandList* list, ID3D12Resource* color);
+        // Shared with the runtime log callback so a timed-out destroy worker
+        // cannot dereference a destroyed AmdNeuralPass.
+        struct LogSink {
+            std::mutex mutex;
+            std::function<void(int, const char*)> fn;
+            void Emit(int level, const char* text) {
+                std::function<void(int, const char*)> target;
+                { std::scoped_lock lock(mutex); target = fn; }
+                if (target) { target(level, text); }
+            }
+        };
         static void Log(void* self, int level, const char* text);
+        std::shared_ptr<LogSink> logSink_{std::make_shared<LogSink>()};
         HMODULE module_{}, hip_{};
         std::uint64_t adapterLUID_{};
         std::string adapterPCI_;

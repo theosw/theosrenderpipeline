@@ -142,7 +142,9 @@ HRESULT WINAPI hk_D3D11CreateDeviceAndSwapChain(IDXGIAdapter* pAdapter, D3D_DRIV
         util::report_and_fail("Theo's Render Pipeline already owns a game-device creation request. A second or reentrant request cannot replace the active NVIDIA host. Restart Skyrim and check TheosRenderPipeline.log.");
     }
     logger::info("Calling original D3D11CreateDeviceAndSwapChain");
-    TheosRenderPipeline::CommunityShaders::InstallEngineHooks();
+    if (!TheosRenderPipeline::NvidiaApp::SmoothMotionLoaded()) {
+        TheosRenderPipeline::CommunityShaders::InstallEngineHooks();
+    }
 
     // DLSS and native UI require the host's stable game-facing buffer, including
     // sessions that start with interpolation off. Install before device creation.
@@ -234,6 +236,9 @@ HRESULT WINAPI hk_D3D11CreateDeviceAndSwapChain(IDXGIAdapter* pAdapter, D3D_DRIV
         RenderPipeline::GetSingleton()->PreInit();
         OverlayUI::GetSingleton()->Init(swapChain, device, deviceContext);
         TheosRenderPipeline::InstallVTableHook(swapChain, 8, &hk_SteppedAsidePresent, ptrSteppedAsidePresent);
+        if (!ptrSteppedAsidePresent) {
+            logger::warn("[NvidiaHost] stepped aside: could not detour game swapchain Present; menu unavailable");
+        }
         logger::info("[NvidiaHost] stepped aside: menu only, on the game's own swapchain");
         return hr;
     }

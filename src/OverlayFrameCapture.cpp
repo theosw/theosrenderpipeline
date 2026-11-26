@@ -22,8 +22,10 @@
 #include "SessionDegradation.h"
 #include "StartupHints.h"
 #include "FrameGen/NvidiaDriverVersion.h"
+#include "FrameGen/D3D12Helpers.h"
 
 #include <chrono>
+#include <memory>
 #include <mutex>
 #include <thread>
 #include <unordered_map>
@@ -35,22 +37,26 @@ namespace
     // restart of the game anyway. Until it finishes the menu shows no override.
     TheosRenderPipeline::NvidiaApp::Overrides NvidiaAppOverrides()
     {
-        static std::mutex lock;
-        static TheosRenderPipeline::NvidiaApp::Overrides result;
+        struct SharedState
+        {
+            std::mutex lock;
+            TheosRenderPipeline::NvidiaApp::Overrides result;
+        };
+        static const auto state = std::make_shared<SharedState>();
         static std::once_flag started;
-        std::call_once(started, [] {
-            std::thread([] {
+        std::call_once(started, [shared = state] {
+            std::thread([shared] {
                 const auto values = TheosRenderPipeline::NvidiaApp::ReadProfile();
                 const auto overrides = TheosRenderPipeline::NvidiaApp::Interpret(values);
                 spdlog::info("[NvidiaApp] profile {}: upscaling {} ({}), frame generation {}, NR {} ({})",
                     overrides.read ? "read" : "unavailable", overrides.upscaling, overrides.upscalingModel,
                     overrides.frameGeneration, overrides.neural, overrides.neuralModel);
-                std::scoped_lock guard(lock);
-                result = overrides;
+                std::scoped_lock guard(shared->lock);
+                shared->result = overrides;
             }).detach();
         });
-        std::scoped_lock guard(lock);
-        return result;
+        std::scoped_lock guard(state->lock);
+        return state->result;
     }
 }
 
@@ -93,14 +99,17 @@ TheosRenderPipeline::Support::Summary OverlayUI::CaptureSupportSystem()
     if (summary.gpu.empty() && NvidiaHost::GetSingleton()->SteppedAside()) { summary.gpu = "not read (TRP stepped aside before starting its renderer)"; }  // not translated: support text is English, like the log
     wchar_t profile[MAX_PATH]{};
     if (const auto length = GetEnvironmentVariableW(L"USERPROFILE", profile, MAX_PATH); length && length < MAX_PATH) {
-        summary.userProfile = std::filesystem::path(profile).string();
+        summary.userProfile = TheosRenderPipeline::PluginPaths::ToUtf8(std::wstring_view(profile, length));
     }
     // Vendor runtimes, other renderers' files and TRP itself, by file name.
     static constexpr std::wstring_view prefixes[]{L"theosrenderpipeline", L"trp", L"nvngx", L"_nvngx", L"sl.", L"nvpresent", L"libxess", L"libxell",
         L"amd_fidelityfx", L"amdhip64", L"dlss5nr", L"communityshaders", L"reshade", L"pdperfplugin", L"skyrimupscaler", L"d3d11.dll", L"dxgi.dll",
         L"d3d12core", L"enbseries", L"optiscaler"};
     wchar_t system[MAX_PATH]{};
-    const std::wstring systemFolder(system, GetSystemDirectoryW(system, MAX_PATH));
+    std::wstring systemFolder(system, GetSystemDirectoryW(system, MAX_PATH));
+    if (!systemFolder.empty() && systemFolder.back() != L'\\' && systemFolder.back() != L'/') {
+        systemFolder.push_back(L'\\');
+    }
     for (const auto module : TheosRenderPipeline::PluginPaths::LoadedModules()) {
         const auto path = TheosRenderPipeline::PluginPaths::RawModulePath(module);
         auto name = path.filename().wstring();
@@ -111,7 +120,10 @@ TheosRenderPipeline::Support::Summary OverlayUI::CaptureSupportSystem()
         // Windows' own d3d11.dll and dxgi.dll say nothing; a copy elsewhere is ENB, ReShade or another wrapper.
         if (listed && (lower == L"d3d11.dll" || lower == L"dxgi.dll") && !systemFolder.empty() &&
             _wcsnicmp(path.c_str(), systemFolder.c_str(), systemFolder.size()) == 0) { listed = false; }
-        if (listed) { summary.modules.push_back({path.filename().string(), FileVersion(path), path.string()}); }
+        if (listed) {
+            summary.modules.push_back({TheosRenderPipeline::PluginPaths::ToUtf8(path.filename()),
+                FileVersion(path), TheosRenderPipeline::PluginPaths::ToUtf8(path)});
+        }
     }
     std::sort(summary.modules.begin(), summary.modules.end(), [](const auto& left, const auto& right) { return left.name < right.name; });
     return summary;
@@ -165,13 +177,17 @@ OverlayUI::FrameView OverlayUI::CaptureFrameView()
         view.fsrRunning = fsr.RunningLabel();
         view.fsrFallback = fsr.Ready() ? fsr.FallbackReason() : std::string();
         auto* device = TheosRenderPipeline::SourceDLSSG::Backend::Get().Device12();
-        static ID3D12Device* checked{}; static const char* reason{}; static bool needsForce{};
-        if (device && device != checked) {  // the device's capabilities do not change
-            checked = device; reason = TheosRenderPipeline::FSRUpscaler::FSR4Unavailable(device);
-            needsForce = TheosRenderPipeline::FSRUpscaler::FSR4NeedsForce(device);
+        static std::uint64_t checkedLuid{}; static bool hasChecked{}; static const char* reason{}; static bool needsForce{};
+        if (device) {
+            const auto luid = TheosRenderPipeline::D3D12Helpers::LuidToUInt64(device->GetAdapterLuid());
+            if (!hasChecked || luid != checkedLuid) {  // the adapter's capabilities do not change
+                checkedLuid = luid; hasChecked = true;
+                reason = TheosRenderPipeline::FSRUpscaler::FSR4Unavailable(device);
+                needsForce = TheosRenderPipeline::FSRUpscaler::FSR4NeedsForce(device);
+            }
         }
         view.fsr4Reason = device ? reason : TheosRenderPipeline::FSRUpscaler::FSR4Unavailable(nullptr);
-        view.fsr4NeedsRestart = needsForce && !fsr.Forced();
+        view.fsr4NeedsRestart = device && needsForce && !fsr.Forced();
         view.fsrWatermarkActive = GetEnvironmentVariableW(L"MLSR-WATERMARK", nullptr, 0) > 0;
     }
     const auto& upscalerSettings = nvidiaHost->SourceUpscalerSettings();
@@ -276,24 +292,20 @@ OverlayUI::FrameView OverlayUI::CaptureFrameView()
     }
     view.neuralRuntimeReasons = runtimeReasons;
     view.neuralHIPReason = hipReason;
-    if (const auto* reason = TheosRenderPipeline::NeuralRendering::runtimeSession.Refusal(TheosRenderPipeline::NeuralRendering::Backend::HIP)) view.neuralHIPReason=reason;
-    if (const auto* reason = TheosRenderPipeline::NeuralRendering::runtimeSession.Refusal(TheosRenderPipeline::NeuralRendering::Backend::Vulkan)) vulkanReason=reason;
-    view.neuralVulkanReason = vulkanReason;view.neuralVulkanPath = vulkanPath;
-    if (settingsDraft.sourceDLSSG.neuralBackend == TheosRenderPipeline::NeuralRendering::Backend::HIP)
-        view.neuralRuntimePath = TheosRenderPipeline::SourceDLSSG::AmdNeuralPass::RuntimePath().string();
-    else if (settingsDraft.sourceDLSSG.neuralBackend == TheosRenderPipeline::NeuralRendering::Backend::Vulkan)
-        view.neuralRuntimePath = TheosRenderPipeline::NeuralRendering::VulkanNRHost::Path().string();
+    if (const auto* reason = TheosRenderPipeline::NeuralRendering::runtimeSession.Refusal(TheosRenderPipeline::NeuralRendering::Backend::HIP)) { view.neuralHIPReason = reason; }
+    view.neuralVulkanReason = vulkanReason;
+    if (const auto* reason = TheosRenderPipeline::NeuralRendering::runtimeSession.Refusal(TheosRenderPipeline::NeuralRendering::Backend::Vulkan)) { view.neuralVulkanReason = reason; }
+    view.neuralVulkanPath = vulkanPath;
+    if (settingsDraft.sourceDLSSG.neuralBackend == TheosRenderPipeline::NeuralRendering::Backend::HIP) {
+        view.neuralRuntimePath = TheosRenderPipeline::PluginPaths::ToUtf8(TheosRenderPipeline::SourceDLSSG::AmdNeuralPass::RuntimePath());
+    } else if (settingsDraft.sourceDLSSG.neuralBackend == TheosRenderPipeline::NeuralRendering::Backend::Vulkan) {
+        view.neuralRuntimePath = TheosRenderPipeline::PluginPaths::ToUtf8(TheosRenderPipeline::NeuralRendering::VulkanNRHost::Path());
+    }
     view.neuralPascal = admission.Pascal();
     view.neuralAdmissionReason = admission.Refusal() ? admission.Refusal() : "";
 #endif
     view.nvidiaAdapter = backend.NvidiaAdapter();
     view.amdAdapter = backend.AmdAdapter();
-#if !defined(TRP_NO_NEURAL_RENDERING)
-    if (view.amdAdapter) {
-        const auto* reason = TheosRenderPipeline::SourceDLSSG::AmdNeuralPass::Availability(backend.AmdAdapter());
-        view.amdNeuralPrerequisite = reason ? reason : "";
-    }
-#endif
     view.nvidiaFeatures = backend.NvidiaFeaturesAvailable();
     view.nvidiaFrameGeneration = backend.NvidiaFrameGenerationAvailable();
     // Smooth Motion is the driver's own component in this process; it needs no adapter
@@ -360,6 +372,10 @@ OverlayUI::FrameView OverlayUI::CaptureFrameView()
     view.neuralApplied = backend.NeuralConfiguration();
     view.neuralState = backend.NeuralState();
 #if !defined(TRP_NO_NEURAL_RENDERING)
+    view.appliedNeuralRuntimePath = TheosRenderPipeline::PluginPaths::ToUtf8(view.neuralApplied.runtimePath);
+    if (view.neuralApplied.backend == settingsDraft.sourceDLSSG.neuralBackend) {
+        view.appliedNeuralAdmissionReason = view.neuralAdmissionReason;
+    }
     {
         // NR per frame for each runtime tried this session, for the runtime list.
         // Other settings change the cost, so a change there starts over.
@@ -377,8 +393,8 @@ OverlayUI::FrameView OverlayUI::CaptureFrameView()
         cost += std::format("|{}", static_cast<int>(applied.vulkanScheduling));
         if (cost != measuredWith) { measured.clear(); measuredWith = std::move(cost); }
         const auto& telemetry = view.neuralState.telemetry;
-        if (view.neuralState.active && telemetry.HasFrame() && !view.neuralApplied.runtimePath.empty()) {
-            measured[TheosRenderPipeline::SourceDLSSG::NeuralRuntimeKey(view.neuralApplied.runtimePath.string())] =
+        if (view.neuralState.active && telemetry.HasFrame() && !view.appliedNeuralRuntimePath.empty()) {
+            measured[TheosRenderPipeline::SourceDLSSG::NeuralRuntimeKey(view.appliedNeuralRuntimePath)] =
                 static_cast<float>(telemetry.AverageFrameGPUMicroseconds() / 1000.0);
         }
         view.neuralRuntimeMilliseconds.clear();
@@ -386,16 +402,16 @@ OverlayUI::FrameView OverlayUI::CaptureFrameView()
             const bool automatic = TheosRenderPipeline::SourceDLSSG::IsAutomaticNeuralRuntime(runtime);
             const bool nativeApplied = view.neuralApplied.backend == TheosRenderPipeline::NeuralRendering::Backend::Native;
             const auto key = automatic ? (view.neuralApplied.automaticRuntime && nativeApplied ?
-                TheosRenderPipeline::SourceDLSSG::NeuralRuntimeKey(view.neuralApplied.runtimePath.string()) : std::string()) :
+                TheosRenderPipeline::SourceDLSSG::NeuralRuntimeKey(view.appliedNeuralRuntimePath) : std::string()) :
                 TheosRenderPipeline::SourceDLSSG::NeuralRuntimeKey(runtime);
             const auto found = key.empty() ? measured.end() : measured.find(key);
             view.neuralRuntimeMilliseconds.push_back(found == measured.end() ? 0.0f : found->second);
         }
         const auto hip = measured.find(TheosRenderPipeline::SourceDLSSG::NeuralRuntimeKey(
-            TheosRenderPipeline::SourceDLSSG::AmdNeuralPass::RuntimePath().string()));
+            TheosRenderPipeline::PluginPaths::ToUtf8(TheosRenderPipeline::SourceDLSSG::AmdNeuralPass::RuntimePath())));
         view.neuralHIPMilliseconds = hip == measured.end() ? 0.0f : hip->second;
         const auto vulkan = measured.find(TheosRenderPipeline::SourceDLSSG::NeuralRuntimeKey(
-            TheosRenderPipeline::NeuralRendering::VulkanNRHost::Path().string()));
+            TheosRenderPipeline::PluginPaths::ToUtf8(TheosRenderPipeline::NeuralRendering::VulkanNRHost::Path())));
         view.neuralVulkanMilliseconds = vulkan == measured.end() ? 0.0f : vulkan->second;
         view.neuralComputeCapability = backend.NeuralComputeCapability();
         view.neuralRuntimeKernels = TheosRenderPipeline::NeuralRendering::RuntimeKernelsSupported();

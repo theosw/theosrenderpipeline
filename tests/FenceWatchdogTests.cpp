@@ -111,7 +111,13 @@ int main()
         Require(WaitFor(after.Get(), 1, 3000ms), "queue runs again after the release");
         Require(std::chrono::steady_clock::now() - started < 3s, "release does not wait for the timeout");
         Require(watchdog.Fired() && watchdog.FiredValue() == 4 && !watchdog.ReleaseNow(), "released once");
+        Require(!watchdog.Arm(6) && shared->GetCompletedValue() == 6, "arming after firing immediately releases the value");
         std::puts("released on reported failure");
+    }
+    {   // Starting with a null fence is ignored cleanly.
+        FenceWatchdog watchdog;
+        watchdog.Start(nullptr, 100ms);
+        Require(!watchdog.Arm(1) && !watchdog.Fired(), "null fence cannot arm or fire");
     }
     std::puts("PASS");
     return 0;

@@ -3,6 +3,7 @@
 #include "OverlayFrameView.h"
 #include "OverlayUI.h"
 #include "OverlayUIStyle.h"
+#include "OverlaySettingRows.h"
 #include "SupportDetails.h"
 #include <PCH.h>
 using namespace TheosRenderPipeline::Overlay;
@@ -56,36 +57,46 @@ void OverlayUI::DrawMemoryMeasurements(const FrameView& view)
 {
     ImGui::Separator();
     constexpr double gib = 1024.0 * 1024.0 * 1024.0;
-    if (const auto& memory = view.memorySnapshot; memory.kernelAvailable && memory.adapterLimit > 0)
-    {
-        // Whole card, as in Task Manager. DXGI's per-process usage is only what the
-        // budget charges Skyrim and can sit gigabytes below a nearly full card.
-        const auto free = memory.adapterResident < memory.adapterLimit ? memory.adapterLimit - memory.adapterResident : 0;
-        const float pressure = static_cast<float>(static_cast<double>(memory.adapterResident) / memory.adapterLimit);
+    const auto drawBar = [](float pressure, const char* usedText, const char* helpText, const char* barFormat, auto&& drawTooltip) {
         const UIHealth health = pressure >= 0.92f   ? UIHealth::kError
                                 : pressure >= 0.80f ? UIHealth::kWarning
                                                     : UIHealth::kHealthy;
-        DrawSettingsValue(TR("GPU memory"),
-                          TRF("{:.2f} / {:.2f} GiB", memory.adapterResident / gib, memory.adapterLimit / gib).c_str());
-        DrawSettingsHelp(TR("Whole graphics card, as in Task Manager: Skyrim plus the desktop and other apps. "
-                            "When it is full, Windows moves game memory to system RAM, which slows rendering."));
+        DrawSettingsValue(TR("GPU memory"), usedText);
+        DrawSettingsHelp(helpText);
         char label[32]{};
-        std::snprintf(label, sizeof(label), TR("%.1f%% used"), pressure * 100);
+        std::snprintf(label, sizeof(label), barFormat, pressure * 100);
         ImGui::PushStyleColor(ImGuiCol_PlotHistogram, HealthColor(health));
         ImGui::ProgressBar(std::clamp(pressure, 0.0f, 1.0f), ImVec2(-1, 0), label);
         ImGui::PopStyleColor();
         if (ImGui::IsItemHovered())
         {
             ImGui::BeginTooltip();
-            ImGui::Text(TR("Free: %.2f GiB"), free / gib);
-            if (memory.processKnown)
-                ImGui::Text(TR("Skyrim: %.2f GiB"), memory.processCommitted / gib);
-            if (memory.available && memory.budget > 0)
-                ImGui::Text(TR("Windows budget for Skyrim: %.2f GiB"), memory.budget / gib);
-            if (memory.processDemoted > 0)
-                ImGui::Text(TR("Moved to system RAM: %.2f GiB"), memory.processDemoted / gib);
+            drawTooltip();
             ImGui::EndTooltip();
         }
+        return health;
+    };
+    if (const auto& memory = view.memorySnapshot; memory.kernelAvailable && memory.adapterLimit > 0)
+    {
+        // Whole card, as in Task Manager. DXGI's per-process usage is only what the
+        // budget charges Skyrim and can sit gigabytes below a nearly full card.
+        const auto free = memory.adapterResident < memory.adapterLimit ? memory.adapterLimit - memory.adapterResident : 0;
+        const float pressure = static_cast<float>(static_cast<double>(memory.adapterResident) / memory.adapterLimit);
+        const auto health = drawBar(
+            pressure,
+            TRF("{:.2f} / {:.2f} GiB", memory.adapterResident / gib, memory.adapterLimit / gib).c_str(),
+            TR("Whole graphics card, as in Task Manager: Skyrim plus the desktop and other apps. "
+               "When it is full, Windows moves game memory to system RAM, which slows rendering."),
+            TR("%.1f%% used"),
+            [&] {
+                ImGui::Text(TR("Free: %.2f GiB"), free / gib);
+                if (memory.processKnown)
+                    ImGui::Text(TR("Skyrim: %.2f GiB"), memory.processCommitted / gib);
+                if (memory.available && memory.budget > 0)
+                    ImGui::Text(TR("Windows budget for Skyrim: %.2f GiB"), memory.budget / gib);
+                if (memory.processDemoted > 0)
+                    ImGui::Text(TR("Moved to system RAM: %.2f GiB"), memory.processDemoted / gib);
+            });
         if (memory.processDemoted >= (64ull << 20))
             DrawStatusLabel(TRF("{:.2f} GiB of Skyrim's GPU memory is in system RAM", memory.processDemoted / gib).c_str(), UIHealth::kError);
         else if (pressure >= 0.80f)
@@ -100,25 +111,16 @@ void OverlayUI::DrawMemoryMeasurements(const FrameView& view)
     const auto& memory = view.memorySnapshot;
     const auto headroom = memory.currentUsage < memory.budget ? memory.budget - memory.currentUsage : 0;
     const float pressure = static_cast<float>(static_cast<double>(memory.currentUsage) / memory.budget);
-    const UIHealth health = pressure >= 0.92f   ? UIHealth::kError
-                            : pressure >= 0.80f ? UIHealth::kWarning
-                                                : UIHealth::kHealthy;
-    DrawSettingsValue(TR("GPU memory"),
-                      TRF("{:.2f} / {:.2f} GiB", memory.currentUsage / gib, memory.budget / gib).c_str());
-    DrawSettingsHelp(TR("Current usage / Windows GPU memory budget. The budget can be lower than physical VRAM."));
-    char label[32]{};
-    std::snprintf(label, sizeof(label), TR("%.1f%% of budget"), pressure * 100);
-    ImGui::PushStyleColor(ImGuiCol_PlotHistogram, HealthColor(health));
-    ImGui::ProgressBar(std::clamp(pressure, 0.0f, 1.0f), ImVec2(-1, 0), label);
-    ImGui::PopStyleColor();
-    if (ImGui::IsItemHovered())
-    {
-        ImGui::BeginTooltip();
-        ImGui::Text(TR("Budget headroom: %.2f GiB"), headroom / gib);
-        if (memory.dedicatedCapacity > 0)
-            ImGui::Text(TR("Physical dedicated memory: %.2f GiB"), memory.dedicatedCapacity / gib);
-        ImGui::EndTooltip();
-    }
+    const auto health = drawBar(
+        pressure,
+        TRF("{:.2f} / {:.2f} GiB", memory.currentUsage / gib, memory.budget / gib).c_str(),
+        TR("Current usage / Windows GPU memory budget. The budget can be lower than physical VRAM."),
+        TR("%.1f%% of budget"),
+        [&] {
+            ImGui::Text(TR("Budget headroom: %.2f GiB"), headroom / gib);
+            if (memory.dedicatedCapacity > 0)
+                ImGui::Text(TR("Physical dedicated memory: %.2f GiB"), memory.dedicatedCapacity / gib);
+        });
     if (pressure >= 0.80f)
         DrawStatusLabel(pressure >= 0.92f ? TR("GPU memory budget critical") : TR("GPU memory budget pressure"), health);
 }
@@ -229,7 +231,6 @@ void OverlayUI::DrawAdvancedPanel(float height, const FrameView& view)
         ImGui::Separator();
         DrawMenuSizeControl();
         DrawMenuKeyControl(view);
-        ImGui::TextUnformatted(TR("HDR unsupported"));
         if (cs)
             ImGui::TextWrapped("%s", TR("Keep CS HDR, frame generation and Reflex off."));
         if (showDeveloperControls && !cs && ImGui::CollapsingHeader(TRID("Menu diagnostics (Lab)").c_str()))
@@ -286,16 +287,18 @@ void OverlayUI::DrawReportingDetails(const FrameView& view)
         }
         ImGui::Text(TR("Frame generation: %s | active x%u"), view.frameGenerationRuntimeActive ? TR("active") : TR("inactive"),
                     view.activeDisplayMultiplier);
+#if !defined(TRP_NO_NEURAL_RENDERING)
         ImGui::Text(TR("NR session request: %s | %s upscaling | %d %s"), neural.enabled ? TRC("on", "OverlayAdvancedPanel") : TRC("off", "OverlayAdvancedPanel"),
                     neural.beforeUpscaling ? TR("before") : TR("after"), neural.passes, neural.passes == 1 ? TR("pass") : TR("passes"));
         ImGui::Text(TR("NR Pass 1: %.1f%% | network %s"), neural.reconstruction.inputScale * 100,
-                    neural.reconstruction.preset == 1 ? TR("Shipping") : TR("Default"));
+                    NeuralNetworkName(neural.reconstruction.preset));
         for (int pass = 2; pass <= neural.passes; ++pass)
         {
             const auto extra = neural.EffectiveExtra(static_cast<std::size_t>(pass - 2));
             ImGui::Text(TR("NR Pass %d: %s | %.1f%% | network %s"), pass, extra.linked ? TR("linked") : TR("custom"),
-                        extra.inputScale * 100, extra.preset == 1 ? TR("Shipping") : TR("Default"));
+                        extra.inputScale * 100, NeuralNetworkName(extra.preset));
         }
+#endif
         ImGui::TextWrapped("%s", TR("Include your GPU, driver, game and TRP versions, the active renderer, settings and reproduction steps."));
         ImGui::TextWrapped("%s", TR("Attach TheosRenderPipeline.log from Documents / My Games / Skyrim Special Edition / SKSE."));
     }

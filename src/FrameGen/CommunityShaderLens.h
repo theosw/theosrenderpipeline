@@ -112,6 +112,22 @@ namespace TheosRenderPipeline
             composed_ = true;
             if (!context || context->GetType() != D3D11_DEVICE_CONTEXT_IMMEDIATE || !scene_) { return E_INVALIDARG; }
             context->CopyResource(background_.Get(), scene_.Get());
+            // If the producer left layerRTV_ bound on the OM, unbind it while
+            // layerSRV_ is read in CS so D3D11 does not force-null the SRV.
+            ID3D11RenderTargetView* savedRTVs[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT]{};
+            ID3D11DepthStencilView* savedDSV{};
+            context->OMGetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, savedRTVs, &savedDSV);
+            bool unbindLayerRTV = false;
+            for (auto* rtv : savedRTVs) {
+                if (!rtv) { continue; }
+                Microsoft::WRL::ComPtr<ID3D11Resource> resource;
+                rtv->GetResource(&resource);
+                if (D3D11FrameCopy::SameObject(resource.Get(), layer_.Get())) { unbindLayerRTV = true; break; }
+            }
+            if (unbindLayerRTV) {
+                ID3D11RenderTargetView* noRTVs[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT]{};
+                context->OMSetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, noRTVs, savedDSV);
+            }
             {
                 D3D11ComputeBindings saved{context, 0, 2, 1};
                 ID3D11ShaderResourceView* inputs[]{backgroundSRV_.Get(), layerSRV_.Get()};
@@ -121,6 +137,11 @@ namespace TheosRenderPipeline
                 context->CSSetUnorderedAccessViews(0, 1, outputs, nullptr);
                 context->Dispatch((width_ + 7) / 8, (height_ + 7) / 8, 1);
             }
+            if (unbindLayerRTV) {
+                context->OMSetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, savedRTVs, savedDSV);
+            }
+            for (auto* rtv : savedRTVs) { if (rtv) { rtv->Release(); } }
+            if (savedDSV) { savedDSV->Release(); }
             context->CopyResource(scene_.Get(), result_.Get());
             return S_OK;
         }

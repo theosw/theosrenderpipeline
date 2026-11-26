@@ -80,7 +80,7 @@ const char* NeuralUnavailableReason(const OverlayUI::FrameView& view, int upscal
     }
     if (!TheosRenderPipeline::SupportsNeuralRenderingMode(upscaleType, view.communityShaders))
     {
-        return TR("NR requires DLSS or DLAA mode. Select either in Image and restart Skyrim.");
+        return TR("NR requires a supported upscaler mode. Select DLSS, DLAA, XeSS, or FSR in Image and restart Skyrim.");
     }
     if (!view.communityShaders && !view.dedicatedUITexture)
     {
@@ -592,20 +592,50 @@ void EndPassPanel(const PassPanel& panel)
 bool DrawNeuralRuntimeCombo(const OverlayUI::FrameView& view, TheosRenderPipeline::SourceDLSSG::Preferences& draft,
                             float width);
 
+const char* BackendUnavailableReason(const OverlayUI::FrameView& view, NR::Backend backend, int upscaleType, bool nrRuntimePresent)
+{
+    if (!NR::TestBackend(backend)) { return NeuralUnavailableReason(view, upscaleType, nrRuntimePresent); }
+    const auto& reason = backend == NR::Backend::Vulkan ? view.neuralVulkanReason : view.neuralHIPReason;
+    if (!reason.empty()) { return TR(reason.c_str()); }
+    if (!view.sourceReady) { return TR("The NVIDIA host is not ready. Check runtime status and restart Skyrim."); }
+    if (backend == NR::Backend::HIP && !view.xessActive && !view.communityShaders) { return TR(NR::kHIPUpscalerReason); }
+    if (!view.communityShaders && !view.xessActive && !view.fsrActive) { return TR(NR::kVendorUpscalerReason); }
+    return nullptr;
+}
+
+void DrawNeuralSharpeningRow(bool cs, bool& sharpening, float& sharpness, float label)
+{
+    ImGui::Spacing();
+    if (BeginSettingRows("sharpening", label))
+    {
+        SettingRowFor(TR("Sharpening"), {"SharpeningEnabled", "Sharpness"}, false, cs, [&] {
+            bool changed = ImGui::Checkbox("##enabled", &sharpening);
+            DrawSettingsHelp(cs ? TR("Community Shaders controls sharpening.") : TR("Applies with or without NR."));
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            ImGui::BeginDisabled(!sharpening);
+            changed |= ImGui::SliderFloat("##strength", &sharpness, 0, 1, "%.2f");
+            ImGui::EndDisabled();
+            DrawSettingsHelp(cs ? TR("Community Shaders controls sharpening.") : TR("Sharpening strength."));
+            return changed;
+        });
+        ImGui::EndTable();
+    }
+}
+
 // Base and presets share these controls. Presets add each row's state column.
 void DrawNeuralSettings(const OverlayUI::FrameView& view, TheosRenderPipeline::SourceDLSSG::Preferences& draft,
                         bool& sharpening, float& sharpness, bool unavailable)
 {
     namespace NR = TheosRenderPipeline::NeuralRendering;
     if (NR::TestBackend(draft.neuralBackend)) {
-        const auto& reason = draft.neuralBackend == NR::Backend::Vulkan ? view.neuralVulkanReason : view.neuralHIPReason;
-        unavailable = !view.sourceReady || (!view.communityShaders && !view.xessActive && !view.fsrActive) || !reason.empty();
+        unavailable = BackendUnavailableReason(view, draft.neuralBackend, view.upscaler.mode, true) != nullptr;
     }
+    const bool cs = view.communityShaders;
     if (draft.neuralBackend == NR::Backend::HIP) {
-        unavailable = unavailable || (!view.xessActive && !view.communityShaders);
         if (!ActivePresetDecor()) DrawNeuralRuntimeCombo(view,draft,ImGui::GetContentRegionAvail().x);
-        ImGui::TextWrapped(TR("AMD HIP/ZLUDA NR: one world pass before XeSS."));
-        ImGui::TextWrapped(TR("A compatible Windows AMD HIP runtime/driver is required. NR starts off; enable it after checking XeSS alone."));
+        ImGui::TextWrapped("%s", TR("AMD HIP/ZLUDA NR: one world pass before XeSS."));
+        ImGui::TextWrapped("%s", TR("A compatible Windows AMD HIP runtime/driver is required. NR starts off; enable it after checking XeSS alone."));
         const float label = LabelWidth({TR("NR input resolution"), TR("Local structure")});
         if (BeginSettingRows("amdNR", label)) {
             SettingRow(TR("Neural Rendering"), "NeuralRendering", false,
@@ -639,7 +669,7 @@ void DrawNeuralSettings(const OverlayUI::FrameView& view, TheosRenderPipeline::S
                 return changed;
             });
             SettingRow(TR("Network"), "Preset", false, unavailable, [&] {
-                const char* networks[]{TR("Default (smaller)"), TR("Previous (larger)")};
+                const char* networks[]{NeuralNetworkName(0), NeuralNetworkName(1)};
                 return ImGui::Combo("##v", &draft.neuralReconstruction.preset, networks, 2);
             });
             const char* styles[]{TR("Default"), TR("Natural"), TR("Cinematic")};
@@ -657,13 +687,13 @@ void DrawNeuralSettings(const OverlayUI::FrameView& view, TheosRenderPipeline::S
             slider(TR("Max ratio"), "MaxRatio", draft.neuralReconstruction.maxRatio, 1.f, 8.f);
             ImGui::EndTable();
         }
+        DrawNeuralSharpeningRow(cs, sharpening, sharpness, label);
         return;
     }
     auto& reconstruction = draft.neuralReconstruction;
     // While NR is off, let a budget-limited request reduce its demand before
     // enabling again. Hardware/edition/driver/asset refusals keep these rows grey.
     const bool editDemand = !draft.neuralEnabled && view.neuralAdmissionReason == NR::kPascalBudgetReason;
-    const bool cs = view.communityShaders;
     // Vendor-neutral NR runs one small-model pass before upscaling; the rows
     // it cannot use stay visible, greyed. The port ignores Intensity.
     const bool alternate = NR::TestBackend(draft.neuralBackend);
@@ -675,10 +705,8 @@ void DrawNeuralSettings(const OverlayUI::FrameView& view, TheosRenderPipeline::S
     const auto width = sceneBefore ? view.renderWidth : view.outputWidth;
     const auto height = sceneBefore ? view.renderHeight : view.outputHeight;
     if (alternate) {
-        ImGui::TextWrapped("%s", draft.neuralBackend == NR::Backend::Vulkan ?
-            TR("Experimental Vulkan: one small-model pass before upscaling. Greyed rows are fixed or unsupported. First use compiles shaders.") :
-            TR("HIP/ZLUDA: one small-model pass before upscaling. Greyed rows do not apply to HIP/ZLUDA."));
-        if(draft.neuralBackend == NR::Backend::Vulkan && !view.neuralVulkanPath.empty()) {
+        ImGui::TextWrapped("%s", TR("Experimental Vulkan: one small-model pass before upscaling. Greyed rows are fixed or unsupported. First use compiles shaders."));
+        if (!view.neuralVulkanPath.empty()) {
             ImGui::TextDisabled("%s", TR(view.neuralVulkanPath.c_str()));
         }
     }
@@ -709,7 +737,7 @@ void DrawNeuralSettings(const OverlayUI::FrameView& view, TheosRenderPipeline::S
         SettingRow(TR("Placement"), "BeforeUpscaling", true, (unavailable && !editDemand) || alternate, [&] {
             int placement = draft.neuralBeforeUpscaling ? 0 : 1;
             const bool changed = Segmented("placement", placement, {
-                {TR("Before upscaling"), true, TR("NR runs on the render-resolution scene, before DLSS or XeSS.")},
+                {TR("Before upscaling"), true, TR("NR runs on the render-resolution scene, before upscaling.")},
                 {TR("After upscaling"), true, TR("NR runs on the output-resolution image, after upscaling.")}});
             if (changed) { draft.neuralBeforeUpscaling = placement == 0; }
             DrawSettingsHelp(TR("Every pass uses the selected side of upscaling. UI is composed afterwards."));
@@ -1096,22 +1124,7 @@ void DrawNeuralSettings(const OverlayUI::FrameView& view, TheosRenderPipeline::S
     // Reset to Pass 1 relinks only the pass whose tab offered it.
     if (action == PassAction::FollowPass1 && extraIndex >= 0) { draft.neuralExtraPasses[extraIndex].linked = true; }
 
-    ImGui::Spacing();
-    if (BeginSettingRows("sharpening", label))
-    {
-        SettingRowFor(TR("Sharpening"), {"SharpeningEnabled", "Sharpness"}, false, cs, [&] {
-            bool changed = ImGui::Checkbox("##enabled", &sharpening);
-            DrawSettingsHelp(cs ? TR("Community Shaders controls sharpening.") : TR("Applies with or without NR."));
-            ImGui::SameLine();
-            ImGui::SetNextItemWidth(-FLT_MIN);
-            ImGui::BeginDisabled(!sharpening);
-            changed |= ImGui::SliderFloat("##strength", &sharpness, 0, 1, "%.2f");
-            ImGui::EndDisabled();
-            DrawSettingsHelp(cs ? TR("Community Shaders controls sharpening.") : TR("Sharpening strength."));
-            return changed;
-        });
-        ImGui::EndTable();
-    }
+    DrawNeuralSharpeningRow(cs, sharpening, sharpness, label);
 
     ImGui::Spacing();
     if (BeginSettingRows("reconstruction", label))
@@ -1400,13 +1413,7 @@ void DrawSourceNeuralControls(const OverlayUI::FrameView& view, TheosRenderPipel
 {
     const auto& state = view.neuralState;
     if (view.neuralPascal) { ImGui::TextWrapped("%s", TR("GTX 10 compatibility kernels (experimental)")); }
-    const char* unavailableReason = NeuralUnavailableReason(view, upscaleType, nrRuntimePresent);
-    if (NR::TestBackend(draft.neuralBackend)) {
-        const auto& reason = draft.neuralBackend == NR::Backend::Vulkan ? view.neuralVulkanReason : view.neuralHIPReason;
-        unavailableReason = !reason.empty() ? TR(reason.c_str()) :
-            draft.neuralBackend == NR::Backend::HIP && !view.xessActive && !view.communityShaders ? TR(NR::kHIPUpscalerReason) :
-            !view.communityShaders && !view.xessActive && !view.fsrActive ? TR(NR::kVendorUpscalerReason) : nullptr;
-    }
+    const char* unavailableReason = BackendUnavailableReason(view, draft.neuralBackend, upscaleType, nrRuntimePresent);
     const bool unavailable = unavailableReason != nullptr;
     const auto& applied = view.neuralApplied;
     if (unavailable)

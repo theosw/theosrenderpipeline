@@ -356,8 +356,21 @@ static void Layer()
 
     lens.NextFrame();
     Require(!lens.Layer() && !lens.Pending(), "a new frame starts without a lens");
+    // Even if the producer leaves the lens layer bound as an OM RTV, Compose unbinds it for CS read and restores it.
     scene.Fill(context.Get(), 0.5f, 0.25f, 1.0f, 1.0f);
-    Require(lens.Begin(context.Get(), scene.texture.Get()) == target, "the layer is reused for the same scene");
+    auto* boundTarget = lens.Begin(context.Get(), scene.texture.Get());
+    Require(boundTarget == target, "the layer is reused for the same scene");
+    pass.Draw(context.Get(), boundTarget, true, 8, 4, 0.2f, 0.1f, 0.0f, 0.4f);
+    context->OMSetRenderTargets(1, &boundTarget, nullptr);
+    Check(lens.Compose(context.Get()), "compose succeeds with layer RTV still bound");
+    ComPtr<ID3D11RenderTargetView> restoredLayerRTV;
+    context->OMGetRenderTargets(1, &restoredLayerRTV, nullptr);
+    Require(restoredLayerRTV.Get() == boundTarget, "layer RTV is restored after compose");
+    context->OMSetRenderTargets(0, nullptr, nullptr);
+    Require(Near(Read(context.Get(), scene.texture.Get()), 0.5f, 0.25f, 0.6f, 1.0f, 0.008f), "lens reached the scene despite bound RTV");
+    lens.NextFrame();
+    scene.Fill(context.Get(), 0.5f, 0.25f, 1.0f, 1.0f);
+    Require(lens.Begin(context.Get(), scene.texture.Get()) == target, "the layer is reused again");
     lens.NextFrame();
     Require(lens.Compose(context.Get()) == S_FALSE && Near(Read(context.Get(), scene.texture.Get()), 0.5f, 0.25f, 1.0f, 1.0f, 0.004f),
         "a lens from a finished frame is never laid over a later scene");

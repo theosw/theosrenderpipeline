@@ -134,7 +134,7 @@ void OverlayUI::DrawLabGenerationControls(const FrameView& view)
         const char* lensReason = !view.communityShaders ? TR("Community Shaders is not the renderer here.")
             : Lens::Installed() != Lens::State::Installed ? TR("This Community Shaders build has no Camera FX lens function TRP recognises.")
             : nullptr;
-        static const char* lensModes[] = {TR("On the scene"), TR("With the HUD")};
+        const char* lensModes[] = {TR("On the scene"), TR("With the HUD")};
         int lensMode = static_cast<int>(settingsDraft.sourceDLSSG.communityLens);
         ImGui::BeginDisabled(lensReason != nullptr);
         if (ImGui::Combo(TR("Bottled lens effects (Lab)"), &lensMode, lensModes, static_cast<int>(std::size(lensModes))))
@@ -216,7 +216,7 @@ void OverlayUI::DrawLabGenerationDetails(const FrameView& view)
     {
         ImGui::Text(TR("Configured multiplier: x%u"), sourceState.options.numFramesToGenerate + 1);
         ImGui::Text(TR("Output limit submitted interval: %u us"), sourceState.frameLimitSubmittedUs);
-        ImGui::TextWrapped(TR("MFG: %s"), unlock.status);
+        ImGui::TextWrapped(TR("MFG: %s"), unlock.status.c_str());
     }
 
     ImGui::Text(TR("Dynamic multiplier: %s"), supportsDynamic ? TR("supported") : TR("unavailable"));
@@ -235,9 +235,9 @@ void OverlayUI::DrawLabMenuDiagnostics()
     }
     ImGui::Spacing();
     ImGui::SeparatorText(TR("MAGIC PREVIEW DRAW ISOLATION"));
-    static const char* drawIsolationModes[] = {"Normal",      TR("Only draw 1"), TR("Only draw 2"),
-                                               TR("Only draw 3"), TR("Only draw 4"), TR("Hide draw 1"),
-                                               TR("Hide draw 2"), TR("Hide draw 3"), TR("Hide draw 4")};
+    const char* drawIsolationModes[] = {TR("Normal"),  TR("Only draw 1"), TR("Only draw 2"),
+                                        TR("Only draw 3"), TR("Only draw 4"), TR("Hide draw 1"),
+                                        TR("Hide draw 2"), TR("Hide draw 3"), TR("Hide draw 4")};
     if (ImGui::Combo(TR("Inventory3D draw view"), &upscaler->mInventory3DDrawIsolationMode, drawIsolationModes,
                      static_cast<int>(std::size(drawIsolationModes))))
     {

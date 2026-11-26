@@ -20,7 +20,6 @@
 #include "PerformanceTuning.h"
 #include "VideoMemoryTelemetry.h"
 #include "FrameGen/NvidiaHost.h"
-#include "FrameGen/SourceDLSSGBackend.h"
 
 #include <imgui.h>
 #include <imgui_impl_dx11.h>
@@ -415,6 +414,11 @@ void OverlayUI::ResetSessionFallbacks()
 void OverlayUI::ClearTimingWindow()
 {
     PerformanceTuning::GetSingleton()->ResetTimingWindow();
+}
+
+void OverlayUI::SetLanguage(std::string_view a_language)
+{
+    RenderPipeline::GetSingleton()->mLanguage = a_language;
 }
 
 void OverlayUI::UpdateUIScale()

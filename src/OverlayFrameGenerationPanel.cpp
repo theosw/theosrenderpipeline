@@ -122,7 +122,7 @@ void OverlayUI::DrawFrameGenerationPanel(float tabCardHeight, const FrameView& v
         if (showDeveloperControls)
             DrawLabGenerationControls(view);
         if (!intel && unlock.UsesCompatibilityUnlock() && !unlock.Ready())
-            ImGui::TextWrapped("%s", unlock.status);
+            ImGui::TextWrapped("%s", unlock.status.c_str());
         if (view.videoMemoryFull)
         {
             // Frame generation needs video memory of its own; Skyrim cannot shrink its textures to make room.

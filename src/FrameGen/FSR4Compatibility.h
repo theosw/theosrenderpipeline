@@ -26,6 +26,7 @@ namespace TheosRenderPipeline::FSR4Compatibility
         const std::string& Reason() const { return reason_; }
         const std::string& Audit() const { return audit_; }
     private:
+        void CloseFiles();
         bool Refuse(const std::string& reason);
         State state_{State::Fresh};
         HMODULE loader_{}, upscaler_{}; // Deliberately resident, including failures.
@@ -35,4 +36,6 @@ namespace TheosRenderPipeline::FSR4Compatibility
     std::string Sha256(const void* data, size_t size);
     // Bounded, read-only inspection for the exact-build standalone observer.
     bool ReadMemory(const void* address, void* destination, size_t size);
+    // Empty when the exact-build forced INT8 model is confirmed built behind ffxContext.
+    std::string VerifyForcedModel(const void* ffxContext, HMODULE upscaler);
 }

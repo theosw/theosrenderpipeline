@@ -18,7 +18,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		midpoint_fix::AdapterKind adapter{ midpoint_fix::AdapterKind::Unavailable };
 		bool failed{}, unsafeMemory{};
 		std::uint32_t attempts{}, temporalFailure{};
-		const char* status{ "waiting for MFG startup selection" };
+		std::string status{ "waiting for MFG startup selection" };
 		bool SelectRoute(midpoint_fix::AdapterKind observed)
 		{
 			adapter = observed;
@@ -49,7 +49,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// Both return false when frame generation cannot start but nothing was
 		// patched (see MFGStartupPolicy.h): Snapshot().status holds the reason and
 		// the backend continues on its startup transport instead of closing Skyrim.
-		[[nodiscard]] bool SelectAdapter(ID3D12Device* device);
+		[[nodiscard]] bool SelectAdapter(ID3D12Device* device, LARGE_INTEGER userModeDriver = {});
 		// Developer test (Universal): treat an RTX 40 adapter as RTX 30 and run the SM86 path.
 		void ConfigureEmulation(bool emulateRTX30) { emulateRTX30_ = emulateRTX30; }
 		[[nodiscard]] bool BeforeStreamline(ID3D12Device* device, const std::filesystem::path& directory);
@@ -71,14 +71,12 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// Fail with this guidance instead of the route's general advice.
 		[[noreturn]] void Fail(const char* reason, const std::string& guidance);
 		// RTX 20/30 only: refuses a driver too old to compile DLSS-G's kernels.
-		bool CheckBackportDriver(ID3D12Device* device);
+		bool CheckBackportDriver(ID3D12Device* device, LARGE_INTEGER userModeDriver);
 		// Frame generation refused before any patch: logs, keeps the reason, returns false.
 		bool Refuse(std::string reason);
-		std::string refusal_;
 		// Ada only, while no patch is in an uncertain state: MFG stays off for the
 		// session and DLSS-G continues at x2. Anything else is fatal, as before.
 		void StandDown(const char* reason);
-		std::string standDownStatus_;
 		bool nvidiaOverride_{}, emulateRTX30_{};
 		MFGSnapshot state_;
 		bool started_{};

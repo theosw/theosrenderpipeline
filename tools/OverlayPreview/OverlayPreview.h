@@ -89,7 +89,7 @@ class OverlayPreview
 public:
     // The scenario must outlive the preview; the live window edits it while drawing.
     OverlayPreview(PreviewScenario& scenario, const TheosRenderPipeline::Overlay::Layout& layout,
-        TheosRenderPipeline::Overlay::SettingsPage page);
+        TheosRenderPipeline::Overlay::SettingsPage page, std::string_view language = "auto");
     ~OverlayPreview();
     OverlayPreview(const OverlayPreview&) = delete;
     OverlayPreview& operator=(const OverlayPreview&) = delete;

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "D3D11ComputeBindings.h"
 #include <d3d11.h>
 #include <d3dcompiler.h>
 #include <wrl/client.h>
@@ -116,6 +117,7 @@ namespace TheosRenderPipeline
             Step Refused() const { return refused_; }
 
             void ResetViews() { source_.Reset(); destination_.Reset(); srv_.Reset(); uav_.Reset(); }
+            void ResetAfterRetirement() { ResetViews(); shader_.Reset(); shaderDevice_.Reset(); refused_ = Step::None; }
 
             HRESULT Copy(ID3D11DeviceContext* context, ID3D11Texture2D* source,
                 ID3D11Texture2D* destination, FrameExtent extent)
@@ -142,48 +144,53 @@ namespace TheosRenderPipeline
                     // never infer ownership from an incoming resource.
                     if (!SameObject(device.Get(), shaderDevice_.Get())) { return refuse(Step::ShaderDevice, E_INVALIDARG); }
                 } else {
-                    constexpr char program[] = "Texture2D<float> s:register(t0); RWTexture2D<float> d:register(u0); [numthreads(8,8,1)] void main(uint3 p:SV_DispatchThreadID){uint w,h; d.GetDimensions(w,h); if(p.x<w && p.y<h) d[p.xy]=s.Load(int3(p.xy,0));}";
-                    ComPtr<ID3DBlob> code;
-                    auto hr = D3DCompile(program, sizeof(program) - 1, "FrameDepthCopy", nullptr, nullptr,
-                        "main", "cs_5_0", 0, 0, &code, nullptr);
-                    if (FAILED(hr)) { return refuse(Step::ShaderCompile, hr); }
-                    hr = device->CreateComputeShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, &shader_);
+                    const auto& compiled = CompiledShader();
+                    if (FAILED(compiled.hr) || !compiled.code) { return refuse(Step::ShaderCompile, compiled.hr); }
+                    const auto hr = device->CreateComputeShader(compiled.code->GetBufferPointer(), compiled.code->GetBufferSize(), nullptr, &shader_);
                     if (FAILED(hr)) { return refuse(Step::ShaderCreate, hr); }
                     shaderDevice_ = device;
                 }
-                if (source_.Get() != source) {
+                if (!SameObject(source_.Get(), source)) {
                     ComPtr<ID3D11ShaderResourceView> srv;
                     const auto hr = device->CreateShaderResourceView(source, &view, &srv);
                     if (FAILED(hr)) { return refuse(Step::SourceView, hr); }
                     srv_ = std::move(srv); source_ = source;
                 }
-                if (destination_.Get() != destination) {
+                if (!SameObject(destination_.Get(), destination)) {
                     ComPtr<ID3D11UnorderedAccessView> uav;
                     const auto hr = device->CreateUnorderedAccessView(destination, nullptr, &uav);
                     if (FAILED(hr)) { return refuse(Step::DestinationView, hr); }
                     uav_ = std::move(uav); destination_ = destination;
                 }
                 refused_ = Step::None;
-                ComPtr<ID3D11ComputeShader> shader;
-                ComPtr<ID3D11ShaderResourceView> srv;
-                ComPtr<ID3D11UnorderedAccessView> uav;
-                std::array<ID3D11ClassInstance*, 256> classes{}; UINT count = static_cast<UINT>(classes.size());
-                context->CSGetShader(&shader, classes.data(), &count);
-                context->CSGetShaderResources(0, 1, &srv); context->CSGetUnorderedAccessViews(0, 1, &uav);
-                ID3D11ShaderResourceView* noSRV = nullptr; ID3D11UnorderedAccessView* noUAV = nullptr;
-                context->CSSetShaderResources(0, 1, &noSRV); context->CSSetUnorderedAccessViews(0, 1, &noUAV, nullptr);
-                context->CSSetShader(shader_.Get(), nullptr, 0);
-                context->CSSetShaderResources(0, 1, srv_.GetAddressOf());
-                context->CSSetUnorderedAccessViews(0, 1, uav_.GetAddressOf(), nullptr);
-                context->Dispatch((extent.width + 7) / 8, (extent.height + 7) / 8, 1);
-                context->CSSetShaderResources(0, 1, &noSRV); context->CSSetUnorderedAccessViews(0, 1, &noUAV, nullptr);
-                context->CSSetShader(shader.Get(), classes.data(), count);
-                context->CSSetShaderResources(0, 1, srv.GetAddressOf()); context->CSSetUnorderedAccessViews(0, 1, uav.GetAddressOf(), nullptr);
-                for (UINT i = 0; i < count; ++i) { if (classes[i]) { classes[i]->Release(); } }
+                {
+                    D3D11ComputeBindings saved{context, 0, 1, 1};
+                    ID3D11ShaderResourceView* noSRV = nullptr;
+                    ID3D11UnorderedAccessView* noUAV = nullptr;
+                    context->CSSetShaderResources(0, 1, &noSRV);
+                    context->CSSetUnorderedAccessViews(0, 1, &noUAV, nullptr);
+                    context->CSSetShader(shader_.Get(), nullptr, 0);
+                    context->CSSetShaderResources(0, 1, srv_.GetAddressOf());
+                    context->CSSetUnorderedAccessViews(0, 1, uav_.GetAddressOf(), nullptr);
+                    context->Dispatch((extent.width + 7) / 8, (extent.height + 7) / 8, 1);
+                }
                 return S_OK;
             }
 
         private:
+            struct ShaderBytecode { ComPtr<ID3DBlob> code; HRESULT hr{E_FAIL}; };
+            static const ShaderBytecode& CompiledShader()
+            {
+                static const ShaderBytecode cached = [] {
+                    constexpr char program[] = "Texture2D<float> s:register(t0); RWTexture2D<float> d:register(u0); [numthreads(8,8,1)] void main(uint3 p:SV_DispatchThreadID){uint w,h; d.GetDimensions(w,h); if(p.x<w && p.y<h) d[p.xy]=s.Load(int3(p.xy,0));}";
+                    ShaderBytecode out;
+                    out.hr = D3DCompile(program, sizeof(program) - 1, "FrameDepthCopy", nullptr, nullptr,
+                        "main", "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &out.code, nullptr);
+                    if (FAILED(out.hr)) { out.code.Reset(); }
+                    return out;
+                }();
+                return cached;
+            }
             ComPtr<ID3D11Texture2D> source_, destination_;
             ComPtr<ID3D11ShaderResourceView> srv_;
             ComPtr<ID3D11UnorderedAccessView> uav_;

@@ -20,7 +20,6 @@
 
 #include <array>
 #include <chrono>
-#include <atomic>
 #include <cmath>
 #include <format>
 #include <limits>
@@ -180,21 +179,20 @@ namespace TheosRenderPipeline::NeuralRendering
 			return ::GetModuleHandleW(L"_nvngx.dll");
 		}
 
+		struct VulkanPreparation
+		{
+			std::unique_ptr<VulkanNRHost> host{ std::make_unique<VulkanNRHost>() };
+			std::atomic_bool done{};
+			std::atomic_bool cancelled{};
+			bool success{};
+			~VulkanPreparation()
+			{
+				if (host && !host->ReleaseAfterRetirement()) {
+					(void)host.release(); // Uncertain owners remain quarantined.
+				}
+			}
+		};
 	}
-
-    namespace
-    {
-        struct VulkanPreparation {
-            std::unique_ptr<VulkanNRHost> host{std::make_unique<VulkanNRHost>()};
-            std::atomic_bool done{};
-            std::atomic_bool cancelled{};
-            bool success{};
-            ~VulkanPreparation() {
-                if (host && !host->ReleaseAfterRetirement()) { host.release(); } // uncertain owners remain quarantined
-            }
-        };
-
-    }
 
 	struct FeatureSession::State
 	{
@@ -314,36 +312,68 @@ namespace TheosRenderPipeline::NeuralRendering
                 state.preparingInfo = a_info;
                 state.preparation = std::make_shared<VulkanPreparation>();
                 Microsoft::WRL::ComPtr<ID3D12Device> device = a_info.device;
-                try { std::thread([job = state.preparation, info = a_info, device] {
-                    // Limit pipeline construction to one job; cancellation releases only
-                    // the caller's reference. No renderer mutex is held by this worker.
-                    static std::mutex workerMutex;
-                    std::scoped_lock lock(workerMutex);
-                    try { if (!job->cancelled.load(std::memory_order_acquire)) job->success = job->host->Initialize(info); }
-                    catch (...) { job->success = false; }
-                    job->done.store(true, std::memory_order_release);
-                }).detach(); } catch (...) { state.preparation.reset(); state.status="Vulkan NR preparation worker could not start"; return false; }
-                state.status = kPreparingVulkan; return false;
+                try {
+                    std::thread([job = state.preparation, info = a_info, device] {
+                        // Limit pipeline construction and cancelled teardown to one job at a time.
+                        // No renderer mutex is held by this worker.
+                        static std::mutex workerMutex;
+                        std::scoped_lock lock(workerMutex);
+                        try {
+                            if (!job->cancelled.load(std::memory_order_acquire)) {
+                                job->success = job->host->Initialize(info);
+                            }
+                        } catch (...) {
+                            job->success = false;
+                        }
+                        if (job->cancelled.load(std::memory_order_acquire)) {
+                            // Release inside workerMutex so teardown cannot overlap the next worker's Initialize.
+                            if (job->host && !job->host->ReleaseAfterRetirement()) { (void)job->host.release(); }
+                            job->host.reset();
+                            job->success = false;
+                        }
+                        job->done.store(true, std::memory_order_release);
+                    }).detach();
+                } catch (...) {
+                    state.preparation.reset();
+                    state.status = "Vulkan NR preparation worker could not start";
+                    return false;
+                }
+                state.status = kPreparingVulkan;
+                return false;
             }
-            if (!state.preparation->done.load(std::memory_order_acquire)) { state.status = kPreparingVulkan; return false; }
+            if (!state.preparation->done.load(std::memory_order_acquire)) {
+                state.status = kPreparingVulkan;
+                return false;
+            }
             const auto info = state.preparingInfo;
             const bool compatible = info.device == a_info.device && info.displayWidth == a_info.displayWidth &&
                 info.displayHeight == a_info.displayHeight && info.renderWidth == a_info.renderWidth &&
                 info.renderHeight == a_info.renderHeight && info.runtimePath == a_info.runtimePath;
             if (!compatible) {
-                state.preparation.reset(); state.attempted = false;
-                state.status = kPreparingVulkan; return EnsureInitialized(a_info);
+                state.preparation.reset();
+                state.attempted = false;
+                state.status = kPreparingVulkan;
+                return EnsureInitialized(a_info);
             }
             const bool success = state.preparation->success;
-            state.vulkan = std::move(state.preparation->host); state.preparation.reset();
-            state.status = state.vulkan->Status(); state.unsafe = !state.vulkan->Safe();
-            if (!success) { if (state.status.empty()) state.status = "Vulkan NR preparation failed"; return false; }
-            state.device=a_info.device;state.runtimePath=state.boundRuntimeRequest=a_info.runtimePath;
-            state.displayWidth=a_info.displayWidth;state.displayHeight=a_info.displayHeight;
-            state.renderWidth=a_info.renderWidth;state.renderHeight=a_info.renderHeight;
-            state.contract=MakeFeatureContract(RuntimeBuild::Version310,a_info.displayWidth,a_info.displayHeight,
-                a_info.renderWidth,a_info.renderHeight,a_info.networkPreset);
-            state.initialized=true;return true;
+            state.vulkan = std::move(state.preparation->host);
+            state.preparation.reset();
+            state.status = state.vulkan ? state.vulkan->Status() : std::string("Vulkan NR preparation cancelled");
+            state.unsafe = state.vulkan && !state.vulkan->Safe();
+            if (!success || !state.vulkan) {
+                if (state.status.empty()) { state.status = "Vulkan NR preparation failed"; }
+                return false;
+            }
+            state.device = a_info.device;
+            state.runtimePath = state.boundRuntimeRequest = a_info.runtimePath;
+            state.displayWidth = a_info.displayWidth;
+            state.displayHeight = a_info.displayHeight;
+            state.renderWidth = a_info.renderWidth;
+            state.renderHeight = a_info.renderHeight;
+            state.contract = MakeFeatureContract(RuntimeBuild::Version310, a_info.displayWidth, a_info.displayHeight,
+                a_info.renderWidth, a_info.renderHeight, a_info.networkPreset);
+            state.initialized = true;
+            return true;
 #endif
         }
         if (state.attempted) return false;

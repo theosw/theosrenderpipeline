@@ -1,6 +1,7 @@
 #include "AmdNeuralPass.h"
 #include "AmdAdapterSelection.h"
 #include "AdapterInventory.h"
+#include "D3D12Helpers.h"
 #include "HipDevicePin.h"
 #include "NeuralRuntimeSession.h"
 #include "../../third_party/amd-nr/trp_diagnostics.h"
@@ -26,8 +27,11 @@
 namespace TheosRenderPipeline::SourceDLSSG {
     namespace {
         using Microsoft::WRL::ComPtr;
-        constexpr std::string_view modelHash = "2BC19BC09A7B89DD44F73E2AC0108FCC586E2154BDD0830F242F4F040E28789F";
+        constexpr std::uint64_t kOriginalModelBytes = 266'424'944ull;
+        constexpr std::string_view kOriginalModelSha256 = "2BC19BC09A7B89DD44F73E2AC0108FCC586E2154BDD0830F242F4F040E28789F";
         bool OriginalModel(const std::filesystem::path& path) {
+            std::error_code sizeError;
+            if (std::filesystem::file_size(path, sizeError) != kOriginalModelBytes || sizeError) { return false; }
             BCRYPT_ALG_HANDLE algorithm{}; BCRYPT_HASH_HANDLE hash{};
             if (BCryptOpenAlgorithmProvider(&algorithm, BCRYPT_SHA256_ALGORITHM, nullptr, 0) < 0) return false;
             std::array<unsigned char,32> digest{};
@@ -45,15 +49,9 @@ namespace TheosRenderPipeline::SourceDLSSG {
             if (hash) BCryptDestroyHash(hash);
             BCryptCloseAlgorithmProvider(algorithm, 0);
             std::string actual;
+            actual.reserve(64);
             for (auto byte : digest) actual += std::format("{:02X}", byte);
-            return ok && actual == modelHash;
-        }
-        void Barrier(ID3D12GraphicsCommandList* list, ID3D12Resource* resource,
-                     D3D12_RESOURCE_STATES from, D3D12_RESOURCE_STATES to) {
-            D3D12_RESOURCE_BARRIER b{};
-            b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-            b.Transition = {resource, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES, from, to};
-            list->ResourceBarrier(1, &b);
+            return ok && actual == kOriginalModelSha256;
         }
         float FiniteClamp(float value, float lo, float hi, float fallback) {
             return std::isfinite(value) ? std::clamp(value, lo, hi) : fallback;
@@ -87,8 +85,8 @@ namespace TheosRenderPipeline::SourceDLSSG {
             if (!std::filesystem::is_regular_file(ModelPath(), ec)) return "HIP/ZLUDA needs Standard's NVIDIA/nvngx_dlssnr_310.9.16.dll. Install Standard below Universal.";
             wchar_t hipPath[32768]{};
             bool found = false;
-            for (const auto* name : {L"amdhip64_7.dll", L"amdhip64_6.dll", L"amdhip64.dll"}) {
-                if (GetModuleHandleW(name) || SearchPathW(nullptr,name,nullptr,32768,hipPath,nullptr)) { found=true; break; }
+            for (const auto* name : HipDevicePin::kHipRuntimeDllNames) {
+                if (GetModuleHandleW(name) || SearchPathW(nullptr, name, nullptr, 32768, hipPath, nullptr)) { found = true; break; }
             }
             if (!found) return "HIP/ZLUDA needs a compatible Windows AMD HIP runtime/driver on PATH. Install it and restart Skyrim.";
             return {};
@@ -137,10 +135,10 @@ namespace TheosRenderPipeline::SourceDLSSG {
     bool AmdNeuralPass::VerifyHipAdapter(ID3D12Device* device) {
         namespace Match = TheosRenderPipeline::AMDAdapter;
         const auto luid = device->GetAdapterLuid();
-        std::memcpy(&adapterLUID_, &luid, sizeof(adapterLUID_));
+        adapterLUID_ = D3D12Helpers::LuidToUInt64(luid);
         auto emit = [&](int level, const std::string& text) { if (log) log(level, text.c_str()); };
         PinHipToRenderingGpu(luid);
-        for (const auto* name : {L"amdhip64_7.dll", L"amdhip64_6.dll", L"amdhip64.dll"}) {
+        for (const auto* name : HipDevicePin::kHipRuntimeDllNames) {
             hip_ = GetModuleHandleW(name);
             if (!hip_) hip_ = LoadLibraryW(name);
             if (hip_) break;
@@ -157,7 +155,7 @@ namespace TheosRenderPipeline::SourceDLSSG {
         int n{};
         const int countResult = count ? count(&n) : -1;
         emit(2, std::format("AMD NR adapter selection: HIP={} count={} result={} Skyrim LUID={:016X}",
-            PluginPaths::ModulePath(hip_).string(), n, countResult, adapterLUID_));
+            PluginPaths::ToUtf8(PluginPaths::ModulePath(hip_)), n, countResult, adapterLUID_));
         if (countResult != 0 || n < 1 || n > 64) {
             message_ = std::format("AMD NR HIP enumeration failed (result={}, devices={}); see plugin log", countResult, n);
             return false;
@@ -216,11 +214,11 @@ namespace TheosRenderPipeline::SourceDLSSG {
         wchar_t existing[256]{};
         const bool userSetting = GetEnvironmentVariableW(L"HIP_VISIBLE_DEVICES", existing, 256) > 0;
         bool hipLoaded{};
-        for (const auto* name : {L"amdhip64_7.dll", L"amdhip64_6.dll", L"amdhip64.dll"}) { hipLoaded |= GetModuleHandleW(name) != nullptr; }
+        for (const auto* name : Pin::kHipRuntimeDllNames) { hipLoaded |= GetModuleHandleW(name) != nullptr; }
         auto decision = Pin::Precheck(amd, userSetting, hipLoaded);
         if (decision.outcome != Pin::Outcome::ProbeFailed) {
             emit(decision.outcome == Pin::Outcome::NotNeeded ? 2 : 1, std::format("AMD NR GPU pin: {} AMD GPUs; {}{}", amd,
-                Pin::Describe(decision.outcome), userSetting ? std::format(" (HIP_VISIBLE_DEVICES={})", std::filesystem::path(existing).string()) : ""));
+                Pin::Describe(decision.outcome), userSetting ? std::format(" (HIP_VISIBLE_DEVICES={})", PluginPaths::ToUtf8(existing)) : ""));
             return;
         }
         // The probe is exported from this DLL (Universal) and run by Windows' rundll32.
@@ -258,8 +256,7 @@ namespace TheosRenderPipeline::SourceDLSSG {
             exitCode, ms, failure.empty() ? "" : "; " + failure));
     }
     void AmdNeuralPass::Log(void* self, int level, const char* text) {
-        auto& owner = *static_cast<AmdNeuralPass*>(self);
-        if (owner.log) owner.log(level, text);
+        if (auto* sink = static_cast<LogSink*>(self)) { sink->Emit(level, text); }
     }
     bool AmdNeuralPass::Initialize(ID3D12Device* device) {
         if (initialized_) return !failed_;
@@ -277,8 +274,8 @@ namespace TheosRenderPipeline::SourceDLSSG {
                 const auto loaded = GetModuleHandleW(name);
                 const auto expected = (std::wstring_view(name) == L"nvngx_dlssnr_310.9.16.dll") ? ModelPath() : Directory()/L"zluda"/name;
                 if (loaded && !PluginPaths::EqualPath(PluginPaths::ModulePath(loaded), expected)) {
-                    message_ = "AMD NR module conflict: " + std::filesystem::path(name).string() +
-                        " loaded from " + PluginPaths::ModulePath(loaded).string();
+                    message_ = "AMD NR module conflict: " + PluginPaths::ToUtf8(name) +
+                        " loaded from " + PluginPaths::ToUtf8(PluginPaths::ModulePath(loaded));
                     return false;
                 }
             }
@@ -342,8 +339,12 @@ namespace TheosRenderPipeline::SourceDLSSG {
         extended.adapter_pci_bus_id=adapterPCI_.empty() ? nullptr : adapterPCI_.c_str();
         extended.adapter_luid=adapterLUID_;
         const auto model = ModelPath();
+        {
+            std::scoped_lock lock(logSink_->mutex);
+            logSink_->fn = log;
+        }
         info.snippet_path = model.c_str();
-        info.runtime_dir = root.c_str(); info.data_dir = data.c_str(); info.log = &Log; info.log_user = this;
+        info.runtime_dir = root.c_str(); info.data_dir = data.c_str(); info.log = &Log; info.log_user = logSink_.get();
         const auto result = api_.create(&info, &context_);
         if (result != 0 || !context_) {
             message_ = std::format("AMD NR creation failed ({})", result); return false;
@@ -351,13 +352,20 @@ namespace TheosRenderPipeline::SourceDLSSG {
         return true;
     }
     AmdNeuralPass::~AmdNeuralPass() {
+        // Detach the log callback before tearing down so a stuck worker that
+        // outlives destroyTimeout cannot dereference a destroyed AmdNeuralPass.
+        {
+            std::scoped_lock lock(logSink_->mutex);
+            logSink_->fn = nullptr;
+        }
         // Host retirement is a required precondition. The destroy call runs on its own
         // thread; if it does not return in time the context is leaked, never freed
         // under a live worker, and HIP stays off for the session.
         if (context_) {
             struct Done { std::mutex mutex; std::condition_variable wake; bool value{}; };
             const auto done = std::make_shared<Done>();
-            std::thread([destroy = api_.destroy, context = context_, done] {
+            // Keep logSink_ alive for the entire lifetime of the destroy call.
+            std::thread([destroy = api_.destroy, context = context_, done, sink = logSink_] {
                 destroy(context);
                 { std::lock_guard lock(done->mutex); done->value = true; }
                 done->wake.notify_all();
@@ -394,11 +402,15 @@ namespace TheosRenderPipeline::SourceDLSSG {
         }
     }
     void AmdNeuralPass::CopyOriginal(ID3D12GraphicsCommandList* list, ID3D12Resource* color) {
-        Barrier(list, color, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_SOURCE);
-        Barrier(list, output_.Get(), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_DEST);
+        D3D12Helpers::BarrierBatch before{ list };
+        before.Add(color, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_SOURCE)
+            .Add(output_.Get(), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_DEST)
+            .Flush();
         list->CopyResource(output_.Get(), color);
-        Barrier(list, output_.Get(), D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COMMON);
-        Barrier(list, color, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COMMON);
+        D3D12Helpers::BarrierBatch after{ list };
+        after.Add(output_.Get(), D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COMMON)
+            .Add(color, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COMMON)
+            .Flush();
     }
     bool AmdNeuralPass::NeedsRecreation(const NeuralOptions& options, UINT w, UINT h, ID3D12Resource* color) const {
         if (!output_) return false;
@@ -429,10 +441,8 @@ namespace TheosRenderPipeline::SourceDLSSG {
             message_ = "AMD NR resource change requires host retirement before recreation"; return false;
         }
         if (!output_) {
-            auto out = d; out.Flags = supportedColor ? D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS : D3D12_RESOURCE_FLAG_NONE;
-            D3D12_HEAP_PROPERTIES heap{}; heap.Type = D3D12_HEAP_TYPE_DEFAULT;
-            if (FAILED(device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &out,
-                D3D12_RESOURCE_STATE_COMMON, nullptr, IID_PPV_ARGS(&output_)))) return false;
+            const auto flags = supportedColor ? D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS : D3D12_RESOURCE_FLAG_NONE;
+            if (FAILED(D3D12Helpers::CreateDefaultTexture2D(device, d.Width, d.Height, d.Format, flags, &output_))) { return false; }
             guideWidth_ = static_cast<UINT>(m.Width); guideHeight_ = m.Height;
             reconstruction_ = options.reconstruction;
         }

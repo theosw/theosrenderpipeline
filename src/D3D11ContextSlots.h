@@ -12,8 +12,10 @@ namespace TheosRenderPipeline::D3D11ContextSlots
     inline constexpr std::size_t kDraw = 13;
     inline constexpr std::size_t kOMSetRenderTargets = 33;
     inline constexpr std::size_t kOMSetBlendState = 35;
+    inline constexpr std::size_t kDispatch = 41;
     inline constexpr std::size_t kRSSetViewports = 44;
     inline constexpr std::size_t kRSSetScissorRects = 45;
     inline constexpr std::size_t kCopySubresourceRegion = 46;
+    inline constexpr std::size_t kCopyResource = 47;
     inline constexpr std::size_t kClearView = 132;
 }

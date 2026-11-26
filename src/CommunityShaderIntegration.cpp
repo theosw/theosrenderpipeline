@@ -10,6 +10,8 @@
 #include "OverlayUI.h"
 #include "PerformanceTuning.h"
 #include "HookInstallation.h"
+#include "D3D11ContextSlots.h"
+#include "PluginPaths.h"
 #include "SkyrimRuntime.h"
 #include <Psapi.h>
 
@@ -55,10 +57,15 @@ namespace TheosRenderPipeline::CommunityShaders
         }
         void EnginePostProcessing(RE::ImageSpaceManager* manager, std::uint32_t effect, RE::RENDER_TARGET target, void* arg, bool flag)
         {
+            auto* host = NvidiaHost::GetSingleton();
+            if (host->SteppedAside()) {
+                engineOriginal(manager, effect, target, arg, flag);
+                return;
+            }
             const bool capture = worldBoundary;
             // Do not mistake nested imagespace calls for another frame boundary.
             worldBoundary = false;
-            auto& adapter = NvidiaHost::GetSingleton()->CommunityFrame();
+            auto& adapter = host->CommunityFrame();
             const bool ready = capture && adapter.AfterUpscaling();
             engineOriginal(manager, effect, target, arg, flag);
             if (ready) { adapter.CompleteWorld(Framebuffer().Get()); }
@@ -67,6 +74,10 @@ namespace TheosRenderPipeline::CommunityShaders
         void ProducerPostProcessing(RE::ImageSpaceManager* manager, std::uint32_t effect, RE::RENDER_TARGET target, void* arg, bool flag)
         {
             auto* host = NvidiaHost::GetSingleton();
+            if (host->SteppedAside()) {
+                producerOriginal(manager, effect, target, arg, flag);
+                return;
+            }
             auto* renderer = RE::BSGraphics::Renderer::GetSingleton();
             auto* state = reinterpret_cast<BSGraphics::State*>(RE::BSGraphics::State::GetSingleton());
             auto* pipeline = RenderPipeline::GetSingleton();
@@ -134,7 +145,7 @@ namespace TheosRenderPipeline::CommunityShaders
             std::array<wchar_t, MAX_PATH> path{};
             if (address && GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
                 reinterpret_cast<LPCWSTR>(address), &owner)) { GetModuleFileNameW(owner, path.data(), static_cast<DWORD>(path.size())); }
-            return path[0] ? std::filesystem::path(path.data()).filename().string() : "unknown";
+            return path[0] ? PluginPaths::ToUtf8(std::filesystem::path(path.data()).filename()) : "unknown";
         }
         // Discover renderer/proxy entries at an engine boundary. Entries already
         // installed survive runtime table rewrites; there is no per-frame repair.
@@ -148,7 +159,7 @@ namespace TheosRenderPipeline::CommunityShaders
                 logger::info("[CS Adapter] renderer context=0x{:X} device=0x{:X} host=0x{:X}; entry observers={} Dispatch={} CopyResource={}",
                     reinterpret_cast<std::uintptr_t>(producerContext), reinterpret_cast<std::uintptr_t>(deviceContext),
                     reinterpret_cast<std::uintptr_t>(RenderPipeline::GetSingleton()->mContext),
-                    observed ? "installed" : "FAILED", Owner(table[41]), Owner(table[47]));
+                    observed ? "installed" : "FAILED", Owner(table[D3D11ContextSlots::kDispatch]), Owner(table[D3D11ContextSlots::kCopyResource]));
                 reported = true; failed = !observed;
             }
         }
@@ -173,10 +184,12 @@ namespace TheosRenderPipeline::CommunityShaders
         // ours, so the interface call is open and no menu has been drawn.
         ID3D11RenderTargetView* LensTarget(ID3D11RenderTargetView* scene)
         {
+            auto* host = NvidiaHost::GetSingleton();
+            if (host->SteppedAside()) { return nullptr; }
             auto* renderer = RE::BSGraphics::Renderer::GetSingleton();
             auto* framebuffer = renderer ? reinterpret_cast<ID3D11RenderTargetView*>(
                 renderer->GetRuntimeData().renderTargets[RE::RENDER_TARGETS::kFRAMEBUFFER].RTV) : nullptr;
-            return NvidiaHost::GetSingleton()->CommunityFrame().LensTarget(scene, framebuffer, uiBoundary.BeforeMenus());
+            return host->CommunityFrame().LensTarget(scene, framebuffer, uiBoundary.BeforeMenus());
         }
         // The engine's last renderer call before it draws the menus. It is
         // inside the interface function, so every hook on that function's
@@ -186,10 +199,16 @@ namespace TheosRenderPipeline::CommunityShaders
         void WorldCompleted(std::uint64_t state, std::uint32_t flags)
         {
             worldCompletionOriginal(state, flags);
-            uiBoundary.WorldCompleted(RefreshScene);
+            if (!NvidiaHost::GetSingleton()->SteppedAside()) {
+                uiBoundary.WorldCompleted(RefreshScene);
+            }
         }
         void Interface(std::int64_t arg)
         {
+            if (NvidiaHost::GetSingleton()->SteppedAside()) {
+                interfaceOriginal(arg);
+                return;
+            }
             // Chain all producer UI redirection and game drawing first. CS HDR
             // retains its UI target until its later display composite, which can
             // run before our Present hook is reached.

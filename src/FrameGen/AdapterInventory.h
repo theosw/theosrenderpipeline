@@ -1,9 +1,9 @@
 #pragma once
+#include "../PluginPaths.h"
 #include <Windows.h>
 #include <dxgi1_6.h>
 #include <wrl/client.h>
 #include <cstdint>
-#include <filesystem>
 #include <format>
 #include <string>
 #include <vector>
@@ -32,7 +32,7 @@ namespace TheosRenderPipeline::AdapterInventory
 			DXGI_ADAPTER_DESC1 desc{};
 			if (FAILED(adapter->GetDesc1(&desc))) { continue; }
 			Entry e;
-			e.name = std::filesystem::path(desc.Description).string();
+			e.name = PluginPaths::ToUtf8(desc.Description);
 			e.vendor = desc.VendorId; e.device = desc.DeviceId; e.revision = desc.Revision;
 			e.luid = desc.AdapterLuid;
 			e.dedicatedMiB = desc.DedicatedVideoMemory >> 20; e.sharedMiB = desc.SharedSystemMemory >> 20;

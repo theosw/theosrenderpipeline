@@ -142,7 +142,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		// An RTX 20/30 refusal decided before anything is loaded or patched (driver too old,
 		// compatibility switched off, adapter not identified) costs frame generation only:
 		// Streamline is never loaded and CreateSwapChain continues on the startup transport.
-		if (!mfgUnlock_.SelectAdapter(device12_.Get())) { return Check(DXGI_ERROR_UNSUPPORTED, mfgUnlock_.Snapshot().status); }
+		if (!mfgUnlock_.SelectAdapter(device12_.Get(), adapterDriver_)) { return Check(DXGI_ERROR_UNSUPPORTED, mfgUnlock_.Snapshot().status.c_str()); }
 		// RTX 20 needs the 310.9.1 set; RTX 30 also runs the newer DLSS-G unless kept on it.
 		if (UsesBackportStreamline(mfgUnlock_.Snapshot().UsesTuringUnlock(), mfgUnlock_.Snapshot().UsesAmpereUnlock(), rtx30LegacyDLSSG_)) {
 			const auto backport = BackportStreamlineDirectory(directory_);
@@ -163,7 +163,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 				return Check(E_UNEXPECTED, std::format("{} already loaded by another owner", std::filesystem::path(name).string()).c_str());
 			}
 		}
-		if (!mfgUnlock_.BeforeStreamline(device12_.Get(), directory_)) { return Check(DXGI_ERROR_UNSUPPORTED, mfgUnlock_.Snapshot().status); }
+		if (!mfgUnlock_.BeforeStreamline(device12_.Get(), directory_)) { return Check(DXGI_ERROR_UNSUPPORTED, mfgUnlock_.Snapshot().status.c_str()); }
 		logger::info("[SourceDLSSG] startup stage=load-interposer");
 		interposer_ = ::LoadLibraryExW((directory_ / L"sl.interposer.dll").c_str(), nullptr,
 			LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
@@ -352,9 +352,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 			!Check(ReShadeIntegration::Get().CreateSourceDevice(adapter.Get(), D3D_FEATURE_LEVEL_12_0, &device12_), "D3D12 device")) { return fault_; }
 		DXGI_ADAPTER_DESC adapterDesc{};
 		if (SUCCEEDED(adapter->GetDesc(&adapterDesc))) {
-			adapterName_ = std::filesystem::path(adapterDesc.Description).string();
+			adapterName_ = PluginPaths::ToUtf8(adapterDesc.Description);
 			logger::info("[SourceDLSSG] rendering adapter={} vendor=0x{:04X} device=0x{:04X} LUID={:08X}:{:08X}",
-				std::filesystem::path(adapterDesc.Description).string(), adapterDesc.VendorId, adapterDesc.DeviceId,
+				adapterName_, adapterDesc.VendorId, adapterDesc.DeviceId,
 				static_cast<std::uint32_t>(adapterDesc.AdapterLuid.HighPart), adapterDesc.AdapterLuid.LowPart);
 			const auto adapters = AdapterInventory::List(adapterDesc.AdapterLuid);
 			logger::info("[SourceDLSSG] {} adapter(s) reported by Windows; {} other hardware GPU(s) besides the rendering one",
