@@ -16,6 +16,7 @@ using namespace TheosRenderPipeline::Overlay;
 namespace NR = TheosRenderPipeline::NeuralRendering;
 
 #include "NeuralRenderingMode.h"
+#include "PluginPaths.h"
 #include "FrameGen/NeuralObjectMask.h"
 #include "FrameGen/NeuralRuntimeFiles.h"
 #include "FrameGen/NeuralAdmission.h"
@@ -96,7 +97,8 @@ bool LegacyNeuralRuntime(const OverlayUI::FrameView& view)
 {
     const auto& applied = view.neuralApplied;
     if (!applied.enabled || applied.runtimePath.empty()) { return false; }
-    const auto name = TheosRenderPipeline::SourceDLSSG::FoldRuntimePath(applied.runtimePath.filename().string());
+    const auto name = TheosRenderPipeline::SourceDLSSG::FoldRuntimePath(
+        TheosRenderPipeline::PluginPaths::ToUtf8(applied.runtimePath.filename()));
     return name == "nvngx_dlssnr.dll" || name.starts_with("nvngx_dlssnr_int8");
 }
 
@@ -1286,7 +1288,7 @@ bool DrawNeuralRuntimeCombo(const OverlayUI::FrameView& view, TheosRenderPipelin
     const auto& applied = view.neuralApplied;
     const bool automatic = IsAutomaticNeuralRuntime(draft.neuralRuntime);
     const auto chosen = automatic && applied.automaticRuntime && applied.enabled && (applied.backend == TheosRenderPipeline::NeuralRendering::Backend::Native) && view.nvidiaAdapter
-                            ? describe(applied.runtimePath.string()).name
+                            ? describe(TheosRenderPipeline::PluginPaths::ToUtf8(applied.runtimePath)).name
                             : std::string();
     bool changed = false;
     const auto& style = ImGui::GetStyle();

@@ -232,7 +232,9 @@ namespace TheosRenderPipeline::HipDevicePin
 				}
 			}
 		});
+		bool timedOut = false;
 		if (WaitForSingleObject(process.hProcess, timeoutMs) != WAIT_OBJECT_0) {
+			timedOut = true;
 			TerminateProcess(process.hProcess, 1);
 			WaitForSingleObject(process.hProcess, 2000);
 			failure = std::format("timed out after {} ms", timeoutMs);
@@ -240,6 +242,10 @@ namespace TheosRenderPipeline::HipDevicePin
 		GetExitCodeProcess(process.hProcess, &exitCode);
 		CloseHandle(process.hThread);
 		CloseHandle(process.hProcess);
+		if (timedOut) {
+			// Unblock ReadFile even if a hung child/grandchild still holds the write end open.
+			CancelSynchronousIo(reader.native_handle());
+		}
 		reader.join();
 		CloseHandle(read);
 		return output;

@@ -1,3 +1,16 @@
+# 0.7.5
+
+- Experimental GOG Skyrim 1.6.1179 runtime support (file version 1.6.1179.0 /
+  SKSE 1.6.1179.1), including object-mask draw hooks and loading artwork caller
+  matching.
+- Non-ASCII / non-ANSI install path fixes: runtime path resolution and menu
+  Apply/Save now preserve UTF-8 paths end-to-end without corrupting NR runtime
+  paths or throwing when opening the Neural Rendering tab.
+- Internal refactor and hardening across startup, FSR 4, Community Shaders lens
+  coordination, AMD/Vulkan NR, HIP device pinning, and overlay capture
+  (including bounded HIP probe pipe cancellation and synchronized Vulkan
+  preparation teardown).
+
 # 0.7.4 Beta 1
 
 - NVIDIA Smooth Motion no longer stops Skyrim. With Smooth Motion on for Skyrim

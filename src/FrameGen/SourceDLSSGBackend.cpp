@@ -1645,7 +1645,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		std::unique_ptr<MFGUnlock::StartupScope> nvidiaStartup;
 		if (provider == FrameGenerationProvider::NVIDIA) {
 			nvidiaStartup = std::make_unique<MFGUnlock::StartupScope>(mfgUnlock_);
-			if (!InitializeNvidia(SourceFrameGeneration::GetSingleton()->settings.sourceDLSSGStreamlineDirectory) ||
+			if (!InitializeNvidia(PluginPaths::FromUtf8(SourceFrameGeneration::GetSingleton()->settings.sourceDLSSGStreamlineDirectory)) ||
 				!UpgradeNvidiaFactory()) { return fault_; }
 		}
 		return provider == FrameGenerationProvider::XeFG ?

@@ -33,6 +33,22 @@ namespace TheosRenderPipeline::PluginPaths
 		return ToUtf8(std::wstring_view(a_path.native()));
 	}
 
+	inline std::filesystem::path FromUtf8(std::string_view a_utf8)
+	{
+		if (a_utf8.empty()) {
+			return {};
+		}
+		const int size = ::MultiByteToWideChar(CP_UTF8, 0, a_utf8.data(),
+			static_cast<int>(a_utf8.size()), nullptr, 0);
+		if (size <= 0) {
+			return {};
+		}
+		std::wstring wide(static_cast<std::size_t>(size), L'\0');
+		::MultiByteToWideChar(CP_UTF8, 0, a_utf8.data(), static_cast<int>(a_utf8.size()),
+			wide.data(), size);
+		return std::filesystem::path(std::move(wide));
+	}
+
 	inline std::filesystem::path Normalize(const std::filesystem::path& a_path)
 	{
 		std::error_code error;
@@ -44,30 +60,38 @@ namespace TheosRenderPipeline::PluginPaths
 		return error ? absolute.lexically_normal() : canonical;
 	}
 
+	namespace detail
+	{
+		// Raw GetModuleFileNameW query; accepts nullptr to query the current process executable.
+		inline std::filesystem::path QueryModuleFileName(HMODULE a_module)
+		{
+			wchar_t stack[1024];
+			const auto smallWritten = ::GetModuleFileNameW(a_module, stack, static_cast<DWORD>(std::size(stack)));
+			if (smallWritten > 0 && smallWritten < std::size(stack)) {
+				return std::filesystem::path(std::wstring_view(stack, smallWritten));
+			}
+			if (smallWritten == 0) {
+				return {};
+			}
+			std::wstring path(32768, L'\0');
+			const auto written = ::GetModuleFileNameW(a_module, path.data(), static_cast<DWORD>(path.size()));
+			if (written == 0 || written >= path.size()) {
+				return {};
+			}
+			path.resize(written);
+			return path;
+		}
+	}
+
 	// The loader's path for a module, as GetModuleFileNameW reports it, not
 	// normalized. It needs no file access. Normalize opens the file, and under
 	// MO2 every open goes through its virtual file system, so a walk over all
 	// loaded modules (about 500 in a large modlist) must not normalize each one.
+	// Returns empty for nullptr so callers passing GetModuleHandleW(...) do not
+	// mistake an unloaded DLL for the host executable.
 	inline std::filesystem::path RawModulePath(HMODULE a_module)
 	{
-		if (!a_module) {
-			return {};
-		}
-		wchar_t stack[1024];
-		const auto smallWritten = ::GetModuleFileNameW(a_module, stack, static_cast<DWORD>(std::size(stack)));
-		if (smallWritten > 0 && smallWritten < std::size(stack)) {
-			return std::filesystem::path(std::wstring_view(stack, smallWritten));
-		}
-		if (smallWritten == 0) {
-			return {};
-		}
-		std::wstring path(32768, L'\0');
-		const auto written = ::GetModuleFileNameW(a_module, path.data(), static_cast<DWORD>(path.size()));
-		if (written == 0 || written >= path.size()) {
-			return {};
-		}
-		path.resize(written);
-		return path;
+		return a_module ? detail::QueryModuleFileName(a_module) : std::filesystem::path{};
 	}
 
 	inline std::filesystem::path ModulePath(HMODULE a_module)
@@ -171,7 +195,7 @@ namespace TheosRenderPipeline::PluginPaths
         // Use the game's virtual Data tree. MO2 may load our replacement DLL
         // from a different physical mod than the settings, shaders and runtimes.
         static const std::filesystem::path directory = []() -> std::filesystem::path {
-            const auto executable = RawModulePath(nullptr);
+            const auto executable = detail::QueryModuleFileName(nullptr);
             return executable.empty() ? std::filesystem::path{} : executable.parent_path() / L"Data" / L"SKSE" / L"Plugins";
         }();
         return directory;

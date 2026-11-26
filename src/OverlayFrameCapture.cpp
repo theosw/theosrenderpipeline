@@ -106,7 +106,10 @@ TheosRenderPipeline::Support::Summary OverlayUI::CaptureSupportSystem()
         L"amd_fidelityfx", L"amdhip64", L"dlss5nr", L"communityshaders", L"reshade", L"pdperfplugin", L"skyrimupscaler", L"d3d11.dll", L"dxgi.dll",
         L"d3d12core", L"enbseries", L"optiscaler"};
     wchar_t system[MAX_PATH]{};
-    std::wstring systemFolder(system, GetSystemDirectoryW(system, MAX_PATH));
+    std::wstring systemFolder;
+    if (const auto sysLen = GetSystemDirectoryW(system, MAX_PATH); sysLen && sysLen < MAX_PATH) {
+        systemFolder.assign(system, sysLen);
+    }
     if (!systemFolder.empty() && systemFolder.back() != L'\\' && systemFolder.back() != L'/') {
         systemFolder.push_back(L'\\');
     }
@@ -176,18 +179,18 @@ OverlayUI::FrameView OverlayUI::CaptureFrameView()
         const auto& fsr = TheosRenderPipeline::SourceDLSSG::Backend::Get().FSR();
         view.fsrRunning = fsr.RunningLabel();
         view.fsrFallback = fsr.Ready() ? fsr.FallbackReason() : std::string();
-        auto* device = TheosRenderPipeline::SourceDLSSG::Backend::Get().Device12();
+        auto* device12 = TheosRenderPipeline::SourceDLSSG::Backend::Get().Device12();
         static std::uint64_t checkedLuid{}; static bool hasChecked{}; static const char* reason{}; static bool needsForce{};
-        if (device) {
-            const auto luid = TheosRenderPipeline::D3D12Helpers::LuidToUInt64(device->GetAdapterLuid());
+        if (device12) {
+            const auto luid = TheosRenderPipeline::D3D12Helpers::LuidToUInt64(device12->GetAdapterLuid());
             if (!hasChecked || luid != checkedLuid) {  // the adapter's capabilities do not change
                 checkedLuid = luid; hasChecked = true;
-                reason = TheosRenderPipeline::FSRUpscaler::FSR4Unavailable(device);
-                needsForce = TheosRenderPipeline::FSRUpscaler::FSR4NeedsForce(device);
+                reason = TheosRenderPipeline::FSRUpscaler::FSR4Unavailable(device12);
+                needsForce = TheosRenderPipeline::FSRUpscaler::FSR4NeedsForce(device12);
             }
         }
-        view.fsr4Reason = device ? reason : TheosRenderPipeline::FSRUpscaler::FSR4Unavailable(nullptr);
-        view.fsr4NeedsRestart = device && needsForce && !fsr.Forced();
+        view.fsr4Reason = device12 ? reason : TheosRenderPipeline::FSRUpscaler::FSR4Unavailable(nullptr);
+        view.fsr4NeedsRestart = device12 && needsForce && !fsr.Forced();
         view.fsrWatermarkActive = GetEnvironmentVariableW(L"MLSR-WATERMARK", nullptr, 0) > 0;
     }
     const auto& upscalerSettings = nvidiaHost->SourceUpscalerSettings();
@@ -373,8 +376,16 @@ OverlayUI::FrameView OverlayUI::CaptureFrameView()
     view.neuralState = backend.NeuralState();
 #if !defined(TRP_NO_NEURAL_RENDERING)
     view.appliedNeuralRuntimePath = TheosRenderPipeline::PluginPaths::ToUtf8(view.neuralApplied.runtimePath);
-    if (view.neuralApplied.backend == settingsDraft.sourceDLSSG.neuralBackend) {
+    if (view.neuralApplied.backend == settingsDraft.sourceDLSSG.neuralBackend &&
+        view.neuralApplied.beforeUpscaling == settingsDraft.sourceDLSSG.neuralBeforeUpscaling &&
+        view.neuralApplied.EffectivePasses() == settingsDraft.sourceDLSSG.neuralPasses &&
+        view.appliedNeuralRuntimePath == view.neuralRuntimePath) {
         view.appliedNeuralAdmissionReason = view.neuralAdmissionReason;
+    } else if (view.neuralApplied.enabled) {
+        const auto appliedAdmission = backend.CheckNeuralAdmission(view.neuralApplied,
+            view.neuralApplied.beforeUpscaling ? view.renderWidth : view.outputWidth,
+            view.neuralApplied.beforeUpscaling ? view.renderHeight : view.outputHeight, false, true);
+        view.appliedNeuralAdmissionReason = appliedAdmission.Refusal() ? appliedAdmission.Refusal() : "";
     }
     {
         // NR per frame for each runtime tried this session, for the runtime list.

@@ -21,8 +21,12 @@ namespace TheosRenderPipeline
 
         [[nodiscard]] RuntimePathSettings Resolve(const std::filesystem::path& pluginDirectory) const
         {
-            return {ResolveRuntimePath(streamline, pluginDirectory).string(),
-                SourceDLSSG::ResolveNeuralRuntimeSetting(neural, pluginDirectory).string()};
+            const auto toUtf8 = [](const std::filesystem::path& path) {
+                const auto u8 = path.u8string();
+                return std::string(reinterpret_cast<const char*>(u8.data()), u8.size());
+            };
+            return {toUtf8(ResolveRuntimePath(streamline, pluginDirectory)),
+                toUtf8(SourceDLSSG::ResolveNeuralRuntimeSetting(neural, pluginDirectory))};
         }
 
         template<class Ini> void Store(Ini& ini) const

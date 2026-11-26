@@ -120,7 +120,7 @@ HRESULT NvidiaHost::CreateSwapChain(IDXGIFactory* a_factory, ID3D11Device* a_dev
     backend.ConfigureRTX30(settings.rtx30LegacyDLSSG, settings.emulateRTX30OnRTX40);
     backend.ConfigureHDROutput(settings.sourceDLSSG.hdrOutput);
     TheosRenderPipeline::SourceDLSSG::NeuralOptions options;
-    options.runtimePath = settings.neuralRenderingRuntimePath;
+    options.runtimePath = TheosRenderPipeline::PluginPaths::FromUtf8(settings.neuralRenderingRuntimePath);
     options.automaticRuntime = TheosRenderPipeline::SourceDLSSG::IsAutomaticNeuralRuntime(settings.configuredRuntimePaths.neural);
     options.enabled = settings.sourceDLSSG.neuralEnabled &&
         (TheosRenderPipeline::NeuralRendering::TestBackend(settings.sourceDLSSG.neuralBackend) || !options.runtimePath.empty()) &&
@@ -139,7 +139,9 @@ HRESULT NvidiaHost::CreateSwapChain(IDXGIFactory* a_factory, ID3D11Device* a_dev
     backend.ConfigureNeuralRendering(std::move(options), "startup configuration");
 
     const auto result = TheosRenderPipeline::SourceDLSSG::Backend::Get().CreateSwapChain(
-        a_factory, a_device, *a_desc, SourceFrameGeneration::GetSingleton()->settings.sourceDLSSGStreamlineDirectory, a_swapChain);
+        a_factory, a_device, *a_desc,
+        TheosRenderPipeline::PluginPaths::FromUtf8(SourceFrameGeneration::GetSingleton()->settings.sourceDLSSGStreamlineDirectory),
+        a_swapChain);
     if (FAILED(result) || !*a_swapChain)
     {
         status_ = TheosRenderPipeline::SourceDLSSG::Backend::Get().Status();

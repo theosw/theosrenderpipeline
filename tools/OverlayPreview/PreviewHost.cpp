@@ -146,7 +146,7 @@ TheosRenderPipeline::Support::Summary OverlayUI::CaptureSupportSystem()
     summary.gpu = nvidia ? "NVIDIA GeForce RTX 4080 SUPER" : "AMD Radeon RX 7800 XT";
     summary.driver = nvidia ? "621.01 (32.0.16.2101)" : "32.0.21030.2001";
     summary.userProfile = "C:\\Users\\Player";
-    summary.modules = {{"TheosRenderPipeline.dll", "0.7.4.0", "C:\\Users\\Player\\MO2\\mods\\TRP\\SKSE\\Plugins\\TheosRenderPipeline.dll"}};
+    summary.modules = {{"TheosRenderPipeline.dll", "0.7.5.0", "C:\\Users\\Player\\MO2\\mods\\TRP\\SKSE\\Plugins\\TheosRenderPipeline.dll"}};
     return summary;
 }
 void OverlayUI::ClearTimingWindow() {}

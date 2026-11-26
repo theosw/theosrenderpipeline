@@ -179,6 +179,10 @@ namespace TheosRenderPipeline::NeuralRendering
 			return ::GetModuleHandleW(L"_nvngx.dll");
 		}
 
+		// Serializes Vulkan pipeline construction and cancelled teardown across
+		// background workers and render-thread abandonment.
+		std::mutex vulkanWorkerMutex;
+
 		struct VulkanPreparation
 		{
 			std::unique_ptr<VulkanNRHost> host{ std::make_unique<VulkanNRHost>() };
@@ -187,8 +191,11 @@ namespace TheosRenderPipeline::NeuralRendering
 			bool success{};
 			~VulkanPreparation()
 			{
-				if (host && !host->ReleaseAfterRetirement()) {
-					(void)host.release(); // Uncertain owners remain quarantined.
+				if (host) {
+					std::scoped_lock lock(vulkanWorkerMutex);
+					if (!host->ReleaseAfterRetirement()) {
+						(void)host.release(); // Uncertain owners remain quarantined.
+					}
 				}
 			}
 		};
@@ -232,8 +239,23 @@ namespace TheosRenderPipeline::NeuralRendering
 
         bool Release()
         {
-            if (preparation) preparation->cancelled.store(true, std::memory_order_release);
-            preparation.reset(); // a pending worker owns its resources until completion; never join the render thread
+            if (preparation) {
+                preparation->cancelled.store(true, std::memory_order_release);
+                if (preparation->done.load(std::memory_order_acquire) && preparation->host) {
+                    auto abandoned = std::move(preparation->host);
+                    preparation.reset();
+                    std::scoped_lock workerLock(vulkanWorkerMutex);
+                    if (!abandoned->ReleaseAfterRetirement()) {
+                        status = abandoned->Status();
+                        (void)abandoned.release();
+                        unsafe = true;
+                        teardownFailed = true;
+                        return false;
+                    }
+                } else {
+                    preparation.reset(); // a pending worker owns its resources until completion; never join the render thread
+                }
+            }
             std::scoped_lock lock(initializationMutex);
             if (teardownFailed) { return false; }
             if (vulkan && !vulkan->ReleaseAfterRetirement()) { status=vulkan->Status();teardownFailed=true;return false; }
@@ -316,8 +338,7 @@ namespace TheosRenderPipeline::NeuralRendering
                     std::thread([job = state.preparation, info = a_info, device] {
                         // Limit pipeline construction and cancelled teardown to one job at a time.
                         // No renderer mutex is held by this worker.
-                        static std::mutex workerMutex;
-                        std::scoped_lock lock(workerMutex);
+                        std::scoped_lock lock(vulkanWorkerMutex);
                         try {
                             if (!job->cancelled.load(std::memory_order_acquire)) {
                                 job->success = job->host->Initialize(info);
@@ -326,7 +347,7 @@ namespace TheosRenderPipeline::NeuralRendering
                             job->success = false;
                         }
                         if (job->cancelled.load(std::memory_order_acquire)) {
-                            // Release inside workerMutex so teardown cannot overlap the next worker's Initialize.
+                            // Release inside vulkanWorkerMutex so teardown cannot overlap the next worker's Initialize.
                             if (job->host && !job->host->ReleaseAfterRetirement()) { (void)job->host.release(); }
                             job->host.reset();
                             job->success = false;
@@ -350,7 +371,20 @@ namespace TheosRenderPipeline::NeuralRendering
                 info.displayHeight == a_info.displayHeight && info.renderWidth == a_info.renderWidth &&
                 info.renderHeight == a_info.renderHeight && info.runtimePath == a_info.runtimePath;
             if (!compatible) {
-                state.preparation.reset();
+                if (state.preparation->host) {
+                    auto abandoned = std::move(state.preparation->host);
+                    state.preparation.reset();
+                    std::scoped_lock workerLock(vulkanWorkerMutex);
+                    if (!abandoned->ReleaseAfterRetirement()) {
+                        state.status = abandoned->Status();
+                        (void)abandoned.release();
+                        state.unsafe = true;
+                        state.teardownFailed = true;
+                        return false;
+                    }
+                } else {
+                    state.preparation.reset();
+                }
                 state.attempted = false;
                 state.status = kPreparingVulkan;
                 return EnsureInitialized(a_info);
