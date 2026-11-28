@@ -17,6 +17,9 @@ void NvidiaHost::AdoptEffectiveSourceUpscalerSettings() const
     settings->mDLSSPreset = effective.preset;
     settings->mAutoExposure = effective.autoExposure;
     settings->mSharpening = effective.sharpening;
+    if (settings->mUseOptimalMipLodBias && UpscalerReady()) {
+        settings->mMipLodBias = OptimalMipmapBias();
+    }
 }
 
 void NvidiaHost::RequestSourceUpscalerSettings(TheosRenderPipeline::Upscaler::Creation request)
@@ -63,13 +66,20 @@ void NvidiaHost::ApplySourceUpscalerSettingsAfterPresent()
     }
     // Only a switch INTO FSR 4 is refused: a session already in FSR 4 (running it,
     // or FSR 3.1 after a fallback) applies its other live changes normally.
-    if (candidate.mode == FSR4 && sourceUpscalerSettings_.Effective().mode != FSR4 &&
-        TheosRenderPipeline::FSRUpscaler::FSR4NeedsForce(backend.Device12()) && !backend.FSR().Forced()) {
-        // The force must precede AMD's first query in this process.
-        sourceUpscalerSettings_.RejectLiveMode();
-        status_ = "FSR 4 on this GPU needs Save as default and a restart; current method retained.";
-        logger::warn("[SourceUpscaler] {}", status_);
-        AdoptEffectiveSourceUpscalerSettings(); return;
+    if (candidate.mode == FSR4 && sourceUpscalerSettings_.Effective().mode != FSR4) {
+        if (const auto* unavailable = TheosRenderPipeline::FSRUpscaler::FSR4Unavailable(backend.Device12())) {
+            sourceUpscalerSettings_.RejectLiveMode();
+            status_ = std::format("{}; current method retained.", unavailable);
+            logger::warn("[SourceUpscaler] {}", status_);
+            AdoptEffectiveSourceUpscalerSettings(); return;
+        }
+        if (TheosRenderPipeline::FSRUpscaler::FSR4NeedsForce(backend.Device12()) && !backend.FSR().Forced()) {
+            // The force must precede AMD's first query in this process.
+            sourceUpscalerSettings_.RejectLiveMode();
+            status_ = "FSR 4 on this GPU needs Save as default and a restart; current method retained.";
+            logger::warn("[SourceUpscaler] {}", status_);
+            AdoptEffectiveSourceUpscalerSettings(); return;
+        }
     }
     if (IsFSR(candidate.mode) && !fsrActive_) {
         auto& sr = backend.FSR();
@@ -81,7 +91,7 @@ void NvidiaHost::ApplySourceUpscalerSettingsAfterPresent()
             AdoptEffectiveSourceUpscalerSettings(); return;
         }
     }
-    if (candidate.mode == 0 && (xeSSActive_ || fsrActive_) && sourceUpscalerSettings_.Startup().mode != 0) {
+    if (candidate.mode == DLSS && (xeSSActive_ || fsrActive_) && sourceUpscalerSettings_.Startup().mode != DLSS) {
         dlss->SetupDevice(device_.Get(), context_.Get());
         TheosRenderPipeline::UpscalerInputResolution range;
         const auto hr=measure("dlss-preflight-range", [&] { return dlss->QueryInputRange(outputWidth_,outputHeight_,candidate.AllocationQuality(),range); });

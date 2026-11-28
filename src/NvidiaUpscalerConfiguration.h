@@ -1,6 +1,7 @@
 #pragma once
 
 #include "DLSSPreset.h"
+#include "UpscaleType.h"
 #include <algorithm>
 
 namespace TheosRenderPipeline::Upscaler
@@ -8,15 +9,17 @@ namespace TheosRenderPipeline::Upscaler
     // Preserve existing TheosRenderPipeline INI mode values: 0 = DLSS, 3 = DLAA.
     struct Creation
     {
-        int mode{0}, quality{2}, preset{11};
+        int mode{::UpscaleType::DLSS}, quality{2}, preset{11};
         bool sharpening{true}, autoExposure{true};
         bool operator==(const Creation&) const = default;
-        int AllocationQuality() const { return mode == 3 ? 5 : quality; }
+        int AllocationQuality() const { return mode == ::UpscaleType::DLAA ? 5 : quality; }
     };
 
     inline Creation Sanitize(Creation value)
     {
-        value.mode = value.mode == 3 || value.mode == 4 || value.mode == 5 || value.mode == 6 ? value.mode : 0;
+        value.mode = value.mode == ::UpscaleType::DLAA || value.mode == ::UpscaleType::XeSS || IsFSR(value.mode)
+                         ? value.mode
+                         : static_cast<int>(::UpscaleType::DLSS);
         value.quality = std::clamp(value.quality, 0, 4);
         value.preset = TheosRenderPipeline::DLSSPreset::Sanitize(value.preset);
         return value;
@@ -27,9 +30,9 @@ namespace TheosRenderPipeline::Upscaler
     inline Creation ForAdapter(Creation value, bool nvidiaAdapter)
     {
         value = Sanitize(value);
-        if (nvidiaAdapter || value.mode == 4 || value.mode == 5 || value.mode == 6) { return value; }
-        if (value.mode == 3) { value.quality = 4; }
-        value.mode = 4;
+        if (nvidiaAdapter || value.mode == ::UpscaleType::XeSS || IsFSR(value.mode)) { return value; }
+        if (value.mode == ::UpscaleType::DLAA) { value.quality = 4; }
+        value.mode = ::UpscaleType::XeSS;
         return value;
     }
 
@@ -38,7 +41,7 @@ namespace TheosRenderPipeline::Upscaler
     inline Creation ForFSRRuntime(Creation value, bool runtimePresent)
     {
         value = Sanitize(value);
-        if ((value.mode == 5 || value.mode == 6) && !runtimePresent) { value.mode = 4; }
+        if (IsFSR(value.mode) && !runtimePresent) { value.mode = ::UpscaleType::XeSS; }
         return value;
     }
 
@@ -77,16 +80,16 @@ namespace TheosRenderPipeline::Upscaler
         bool NeedsRestart() const
         {
             return requested_.mode != LiveCandidate().mode ||
-                (requested_.mode != 3 && requested_.quality != startup_.quality);
+                (requested_.mode != ::UpscaleType::DLAA && requested_.quality != startup_.quality);
         }
         Creation LiveCandidate() const
         {
             auto value = requested_;
-            const bool fixedAlgorithm = startup_.mode == 0 || startup_.mode == 4 || startup_.mode == 5 || startup_.mode == 6;
+            const bool fixedAlgorithm = startup_.mode == ::UpscaleType::DLSS || startup_.mode == ::UpscaleType::XeSS || IsFSR(startup_.mode);
             // Vendor-neutral methods can switch without initializing NVIDIA.
             // Entry to DLSS from either still requires services + SDK preflight.
-            if (!fixedAlgorithm || value.mode == 3 ||
-                (value.mode == 0 && startup_.mode != 0 && !nvidiaServicesReady_)) { value.mode = effective_.mode; }
+            if (!fixedAlgorithm || value.mode == ::UpscaleType::DLAA ||
+                (value.mode == ::UpscaleType::DLSS && startup_.mode != ::UpscaleType::DLSS && !nvidiaServicesReady_)) { value.mode = effective_.mode; }
             if (requested_.mode == rejectedMode_) { value.mode = effective_.mode; }
             value.quality = startup_.quality;
             return value;

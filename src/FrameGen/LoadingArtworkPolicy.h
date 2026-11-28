@@ -15,6 +15,7 @@ namespace TheosRenderPipeline::LoadingArtwork
     inline constexpr TransitionCallers kAE640Callers{ 0x6D6AE0, 0x6D6B19 };
     inline constexpr TransitionCallers kAECallers{ 0x7309F0, 0x730A29 };
     inline constexpr TransitionCallers kAE17104Callers{ 0x743590, 0x7435C9 };
+    inline constexpr TransitionCallers kGOG1179Callers{ 0x732C20, 0x732C59 };
 
     // The engine's transition sender as this hook expects to find it.
     inline constexpr std::array<std::uint8_t, 19> kTransitionPrologue{

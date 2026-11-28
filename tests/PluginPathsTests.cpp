@@ -155,6 +155,15 @@ int wmain(int argc, wchar_t** argv)
 		Require(!Paths::RetainLoadedModule(pathA.parent_path() / L"missing" / pathA.filename()), "missing path must not fall back to same-named DLL");
 		Require(!Paths::RetainLoadedModule(pathA.filename()), "relative name must not select a runtime");
 		Require(!Paths::RetainLoadedModule({}), "empty path must not select the executable");
+		Require(Paths::RawModulePath(nullptr).empty(), "RawModulePath(nullptr) must stay empty for unloaded module handles");
+		Require(Paths::ModulePath(nullptr).empty(), "ModulePath(nullptr) must stay empty for unloaded module handles");
+		const auto pluginDir = Paths::Directory();
+		Require(!pluginDir.empty() && pluginDir.is_absolute(), "Directory() must resolve to an absolute path");
+		Require(pluginDir == Paths::RawModulePath(::GetModuleHandleW(nullptr)).parent_path() / L"Data" / L"SKSE" / L"Plugins",
+			"Directory() must resolve to <exe dir>/Data/SKSE/Plugins");
+		const std::filesystem::path unicodePath(L"C:\\Users\\J\u00F6rg\\\u6E38\u620F\\nvngx_dlssnr.dll");
+		Require(Paths::FromUtf8(Paths::ToUtf8(unicodePath)) == unicodePath,
+			"ToUtf8/FromUtf8 must round-trip non-ASCII Windows paths losslessly");
 		Module normalized{Paths::RetainLoadedModule(pathB.parent_path() / L"." / pathB.filename())};
 		Require(normalized.handle == b.handle, "normalized configured path");
 		normalized.Release();

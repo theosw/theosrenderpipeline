@@ -35,7 +35,7 @@ void OverlayUI::DescribeFrameView(FrameView& view) const
 
     view.upscaleHealth = UIHealth::kIdle;
 
-    if (!view.nvidiaHostActive || !view.upscalerReady || view.sourceNeural.failed)
+    if (!view.nvidiaHostActive || !view.upscalerReady)
     {
         view.upscaleHealth = UIHealth::kError;
     }
@@ -85,6 +85,10 @@ void OverlayUI::DescribeFrameView(FrameView& view) const
     }
     if (view.upscaler.mode == XeSS || IsFSR(view.upscaler.mode)) { std::snprintf(view.upscaleDetail, sizeof(view.upscaleDetail), "%.0f%%", view.proxyScale * 100.0f); }
     std::snprintf(view.nativeDetail, sizeof(view.nativeDetail), "%d x %d", view.nativeWidth, view.nativeHeight);
+    if (cs) {
+        view.upscaleTitle = TR("CS upscaling");
+        std::snprintf(view.upscaleDetail, sizeof(view.upscaleDetail), "%.0f%%", view.proxyScale * 100.0f);
+    }
     if (view.steppedAside) {
         // The game renders and presents itself at its own size; TRP does not upscale.
         if (view.renderWidth == 0 || view.renderHeight == 0) {
@@ -93,10 +97,6 @@ void OverlayUI::DescribeFrameView(FrameView& view) const
         }
         std::snprintf(view.renderDetail, sizeof(view.renderDetail), "%d x %d", view.displaySizeX, view.displaySizeY);
         std::snprintf(view.upscaleDetail, sizeof(view.upscaleDetail), "%s", TR("Off this session"));
-    }
-    if (cs) {
-        view.upscaleTitle = TR("CS upscaling");
-        std::snprintf(view.upscaleDetail, sizeof(view.upscaleDetail), "%.0f%%", view.proxyScale * 100.0f);
     }
     const auto& neural = view.neuralApplied;
     view.neuralEnabled = neural.enabled;
@@ -157,6 +157,7 @@ void OverlayUI::DescribeFrameView(FrameView& view) const
         view.session.options.mode != sl::DLSSGMode::eDynamic && presented > 1 && presented != requestedMultiplier)
     {
         forcedMultiplier = presented;
+        view.nvidiaApp.forcedMultiplier = forcedMultiplier;
     }
     if (app.smoothMotion == 1 && trpGenerating)
     {
@@ -165,7 +166,7 @@ void OverlayUI::DescribeFrameView(FrameView& view) const
                                       "which causes stutter, smearing and extra input lag.\nTurn Smooth Motion off for "
                                       "Skyrim in NVIDIA App > Graphics, or turn TRP frame generation off.");
     }
-    else if (app.smoothMotion == 1)
+    else if (app.smoothMotion == 1 && !view.steppedAside)
     {
         view.generationAlert = 1;
         std::snprintf(view.generationTitle, sizeof(view.generationTitle), "%s", TR("Smooth Motion (driver)"));

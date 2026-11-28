@@ -31,7 +31,7 @@ namespace TheosRenderPipeline::StartupHints
             const std::filesystem::path name(status.substr(begin == std::string_view::npos ? 0 : begin + 1,
                 end - (begin == std::string_view::npos ? 0 : begin + 1)));
             const auto module = GetModuleHandleW(name.c_str());
-            return module ? PluginPaths::ModulePath(module).string() : std::string{};
+            return module ? PluginPaths::ToUtf8(PluginPaths::ModulePath(module)) : std::string{};
         }
     }
 
@@ -53,18 +53,20 @@ namespace TheosRenderPipeline::StartupHints
     {
         // Device creation can fail before OverlayUI activates the dictionary.
         // Do not initialize rendering/UI or read/write CS settings to show help.
-        if (facts.communityShaders && Classify(status) == Failure::SwapchainNotAcquired) {
-            try {
-                CSimpleIniA ini;
-                ini.SetUnicode();
-                UserSettings::Load(ini);
-                Localization::Activate(ini.GetValue("Overlay", "Language", "auto"));
-                return Hint(Failure::SwapchainNotAcquired, facts,
-                    [](const char* text) { return Localization::Translate(text); });
-            } catch (...) {
-                // An unavailable dictionary must never hide the recovery steps.
-            }
+        const auto failure = Classify(status);
+        if (!failure && !facts.smoothMotion) {
+            return {};
         }
-        return HintFor(status, facts);
+        try {
+            CSimpleIniA ini;
+            ini.SetUnicode();
+            UserSettings::Load(ini);
+            Localization::Activate(ini.GetValue("Overlay", "Language", "auto"));
+            return Hint(failure, facts,
+                [](const char* text) { return Localization::Translate(text); });
+        } catch (...) {
+            // An unavailable dictionary must never hide the recovery steps.
+        }
+        return Hint(failure, facts);
     }
 }

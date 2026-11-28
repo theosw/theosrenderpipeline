@@ -1,5 +1,7 @@
 #pragma once
+#include "../PluginPaths.h"
 #include <Windows.h>
+#include <array>
 #include <charconv>
 #include <cstddef>
 #include <cstring>
@@ -8,6 +10,7 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 // HIP/ZLUDA has crashed inside AMD's HIP runtime on PCs with a second AMD GPU
@@ -18,6 +21,9 @@
 // the NR runtime then see only that GPU.
 namespace TheosRenderPipeline::HipDevicePin
 {
+	inline constexpr std::array<const wchar_t*, 3> kHipRuntimeDllNames{
+		L"amdhip64_7.dll", L"amdhip64_6.dll", L"amdhip64.dll"
+	};
 	struct ProbeDevice
 	{
 		int ordinal{ -1 };
@@ -73,7 +79,9 @@ namespace TheosRenderPipeline::HipDevicePin
 				Detail::Number(Detail::Value(line, "result="), probe.countResult);
 			} else if (line.starts_with("device ")) {
 				ProbeDevice device;
-				const auto ordinal = line.substr(7, line.find(' ', 7) - 7);
+				const auto rest = line.substr(7);
+				const auto space = rest.find(' ');
+				const auto ordinal = space == std::string_view::npos ? rest : rest.substr(0, space);
 				if (!Detail::Number(ordinal, device.ordinal)) { continue; }
 				int luidResult{ -1 };
 				Detail::Number(Detail::Value(line, "luid-result="), luidResult);
@@ -130,14 +138,12 @@ namespace TheosRenderPipeline::HipDevicePin
 	inline int Enumerate(std::string& out)
 	{
 		HMODULE hip{};
-		for (const auto* name : { L"amdhip64_7.dll", L"amdhip64_6.dll", L"amdhip64.dll" }) {
+		for (const auto* name : kHipRuntimeDllNames) {
 			hip = LoadLibraryW(name);  // the same search TRP uses in Skyrim
 			if (hip) { break; }
 		}
 		if (!hip) { out += "error=no AMD HIP runtime found\n"; return 2; }
-		wchar_t path[MAX_PATH]{};
-		GetModuleFileNameW(hip, path, MAX_PATH);
-		out += "hip=" + std::filesystem::path(path).string() + "\n";
+		out += "hip=" + PluginPaths::ToUtf8(PluginPaths::RawModulePath(hip)) + "\n";
 		using Count = int (*)(int*);
 		using Luid = int (*)(char*, unsigned*, int);
 		using Name = int (*)(char*, int, int);
@@ -152,7 +158,7 @@ namespace TheosRenderPipeline::HipDevicePin
 			char bytes[8]{}, gpu[256]{};
 			unsigned mask{};
 			const int luidResult = luid ? luid(bytes, &mask, i) : -1;
-			if (name) { name(gpu, sizeof(gpu), i); }
+			if (name) { name(gpu, static_cast<int>(sizeof(gpu)), i); gpu[sizeof(gpu) - 1] = '\0'; }
 			std::uint64_t value{};
 			static_assert(sizeof(value) == sizeof(bytes));
 			std::memcpy(&value, bytes, sizeof(value));
@@ -178,39 +184,71 @@ namespace TheosRenderPipeline::HipDevicePin
 
 	// Runs the probe without a window and returns its standard output.
 	// Only the pipe's write end is inherited; the probe is killed at the timeout.
+	// The pipe is drained concurrently so verbose driver output cannot fill the
+	// buffer and deadlock the child while waiting for exit.
 	inline std::string Run(const std::filesystem::path& application, std::wstring command, DWORD timeoutMs,
-		DWORD& exitCode, std::string& failure) {
-	    SECURITY_ATTRIBUTES security{ sizeof(security), nullptr, TRUE };
-	    HANDLE read{}, write{};
-	    if (!CreatePipe(&read, &write, &security, 1 << 16)) { failure = std::format("pipe failed ({})", GetLastError()); return {}; }
-	    SetHandleInformation(read, HANDLE_FLAG_INHERIT, 0);
-	    SIZE_T attributeSize{};
-	    InitializeProcThreadAttributeList(nullptr, 1, 0, &attributeSize);
-	    std::vector<std::byte> attributeStorage(attributeSize);
-	    auto* attributes = reinterpret_cast<LPPROC_THREAD_ATTRIBUTE_LIST>(attributeStorage.data());
-	    bool listed = InitializeProcThreadAttributeList(attributes, 1, 0, &attributeSize) &&
-			UpdateProcThreadAttribute(attributes, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, &write, sizeof(write), nullptr, nullptr);
-	    STARTUPINFOEXW startup{};
-	    startup.StartupInfo.cb = sizeof(startup);
-	    startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
-	    startup.StartupInfo.hStdOutput = write; startup.StartupInfo.hStdError = write;
-	    startup.lpAttributeList = listed ? attributes : nullptr;
-	    PROCESS_INFORMATION process{};
-	    const BOOL started = listed && CreateProcessW(application.c_str(), command.data(), nullptr, nullptr, TRUE,
+		DWORD& exitCode, std::string& failure)
+	{
+		SECURITY_ATTRIBUTES security{ sizeof(security), nullptr, TRUE };
+		HANDLE read{}, write{};
+		if (!CreatePipe(&read, &write, &security, 1 << 16)) {
+			failure = std::format("pipe failed ({})", GetLastError());
+			return {};
+		}
+		SetHandleInformation(read, HANDLE_FLAG_INHERIT, 0);
+		SIZE_T attributeSize{};
+		InitializeProcThreadAttributeList(nullptr, 1, 0, &attributeSize);
+		std::vector<std::byte> attributeStorage(attributeSize);
+		auto* attributes = reinterpret_cast<LPPROC_THREAD_ATTRIBUTE_LIST>(attributeStorage.data());
+		const bool initializedAttributes = InitializeProcThreadAttributeList(attributes, 1, 0, &attributeSize) != FALSE;
+		const bool listed = initializedAttributes &&
+			UpdateProcThreadAttribute(attributes, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, &write, sizeof(write), nullptr, nullptr) != FALSE;
+		STARTUPINFOEXW startup{};
+		startup.StartupInfo.cb = sizeof(startup);
+		startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+		startup.StartupInfo.hStdOutput = write;
+		startup.StartupInfo.hStdError = write;
+		startup.lpAttributeList = listed ? attributes : nullptr;
+		PROCESS_INFORMATION process{};
+		const BOOL started = listed && CreateProcessW(application.c_str(), command.data(), nullptr, nullptr, TRUE,
 			CREATE_NO_WINDOW | EXTENDED_STARTUPINFO_PRESENT, nullptr, application.parent_path().c_str(), &startup.StartupInfo, &process);
-	    const DWORD startError = started ? 0 : GetLastError();
-	    if (listed) { DeleteProcThreadAttributeList(attributes); }
-	    CloseHandle(write);
-	    if (!started) { CloseHandle(read); failure = std::format("could not start ({})", startError); return {}; }
-	    if (WaitForSingleObject(process.hProcess, timeoutMs) != WAIT_OBJECT_0) {
-			TerminateProcess(process.hProcess, 1); WaitForSingleObject(process.hProcess, 2000);
+		const DWORD startError = started ? 0 : GetLastError();
+		if (initializedAttributes) { DeleteProcThreadAttributeList(attributes); }
+		CloseHandle(write);
+		if (!started) {
+			CloseHandle(read);
+			failure = std::format("could not start ({})", startError);
+			return {};
+		}
+		std::string output;
+		constexpr std::size_t kMaxOutputBytes = 1024 * 1024;
+		std::thread reader([&] {
+			char buffer[4096];
+			DWORD got{};
+			while (ReadFile(read, buffer, sizeof(buffer), &got, nullptr) && got) {
+				if (output.size() < kMaxOutputBytes) {
+					const auto keep = (std::min)(static_cast<std::size_t>(got), kMaxOutputBytes - output.size());
+					output.append(buffer, keep);
+				}
+			}
+		});
+		bool timedOut = false;
+		if (WaitForSingleObject(process.hProcess, timeoutMs) != WAIT_OBJECT_0) {
+			timedOut = true;
+			TerminateProcess(process.hProcess, 1);
+			WaitForSingleObject(process.hProcess, 2000);
 			failure = std::format("timed out after {} ms", timeoutMs);
-	    }
-	    GetExitCodeProcess(process.hProcess, &exitCode);
-	    std::string output; char buffer[4096]; DWORD got{};
-	    while (ReadFile(read, buffer, sizeof(buffer), &got, nullptr) && got) { output.append(buffer, got); }
-	    CloseHandle(read); CloseHandle(process.hThread); CloseHandle(process.hProcess);
-	    return output;
+		}
+		GetExitCodeProcess(process.hProcess, &exitCode);
+		CloseHandle(process.hThread);
+		CloseHandle(process.hProcess);
+		if (timedOut) {
+			// Unblock ReadFile even if a hung child/grandchild still holds the write end open.
+			CancelSynchronousIo(reader.native_handle());
+		}
+		reader.join();
+		CloseHandle(read);
+		return output;
 	}
 
 	inline const char* Describe(Outcome outcome)

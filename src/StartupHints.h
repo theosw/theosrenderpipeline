@@ -51,7 +51,8 @@ namespace TheosRenderPipeline::StartupHints
         if (Contains(status, "direct DLSS feature initialization failed")) { return Failure::DLSSUnavailable; }
         if (Contains(status, "SourceDLSSGMFGUnlock=false disables")) { return Failure::CompatibilityDisabled; }
         if (Contains(status, "Intel XeFG startup")) { return Failure::XeFGUnavailable; }
-        if (Contains(status, "NVAPI") || Contains(status, "rendering adapter could not be identified")) {
+        if (Contains(status, "NVAPI could not be loaded") || Contains(status, "NVAPI does not match") ||
+            Contains(status, "rendering adapter could not be identified")) {
             return Failure::CompatibilityAdapterUnidentified;
         }
         if (Contains(status, "publication changed") || Contains(status, "publication verification failed") ||
@@ -85,8 +86,13 @@ namespace TheosRenderPipeline::StartupHints
             line("PureDark's Upscaler or frame generation is loaded. Disable it in this profile; TRP replaces it.");
             break;
         case Failure::StreamlineOwnedElsewhere:
-            hint += facts.otherOwner.empty() ? std::string("- Another mod loaded NVIDIA Streamline first.\n") :
-                "- Another mod loaded NVIDIA Streamline first, from:\n  " + facts.otherOwner + '\n';
+            if (facts.otherOwner.empty()) {
+                line("Another mod loaded NVIDIA Streamline first.");
+            } else {
+                hint += "- ";
+                hint += translate ? translate("Another mod loaded NVIDIA Streamline first, from:") : "Another mod loaded NVIDIA Streamline first, from:";
+                hint += "\n  " + facts.otherOwner + '\n';
+            }
             line("Usually ENB Anti-Aliasing (DLAA/FSR), another upscaler or frame-generation mod, or a DLSS injector. "
                  "Disable it; TRP replaces ENB anti-aliasing.");
             break;

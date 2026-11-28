@@ -1,4 +1,5 @@
 #include "D3D11EntryObservers.h"
+#include "../D3D11ContextSlots.h"
 #include <MinHook.h>
 #include <array>
 #include <atomic>
@@ -88,8 +89,8 @@ namespace TheosRenderPipeline::D3D11EntryObservers
         const auto* table = *reinterpret_cast<void***>(context);
         static const auto dispatchHooks = DispatchHooks(std::make_index_sequence<Capacity>{});
         static const auto copyHooks = CopyHooks(std::make_index_sequence<Capacity>{});
-        const bool dispatchOK = Install(table[41], dispatch, dispatchEntries, dispatchHooks, dispatchCount);
-        const bool copyOK = Install(table[47], copy, copyEntries, copyHooks, copyCount);
+        const bool dispatchOK = Install(table[D3D11ContextSlots::kDispatch], dispatch, dispatchEntries, dispatchHooks, dispatchCount);
+        const bool copyOK = Install(table[D3D11ContextSlots::kCopyResource], copy, copyEntries, copyHooks, copyCount);
         return dispatchOK && copyOK;
     }
     std::size_t DispatchEntries() { return dispatchCount.load(std::memory_order_relaxed); }

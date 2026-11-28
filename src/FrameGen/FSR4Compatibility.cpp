@@ -2,6 +2,7 @@
 #if !defined(TRP_FSR4_FORCE_UNIVERSAL)
 #error FSR4 compatibility must only be compiled in the Universal experiment
 #endif
+#include "../PluginPaths.h"
 #include <bcrypt.h>
 #include <wintrust.h>
 #include <softpub.h>
@@ -10,6 +11,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
+#include <format>
 #include <stdexcept>
 #include <vector>
 
@@ -18,6 +20,8 @@ namespace TheosRenderPipeline::FSR4Compatibility
     namespace
     {
         constexpr DWORD functionRva = 0x9960, functionEnd = 0x9a65, patchRva = 0x99b5;
+        constexpr DWORD providerVtableRva = 0x3635260, modelVtableRva = 0x36352a8;
+        constexpr std::uintptr_t modelOffset = 0x28, builtFlagOffset = 0x214;
         constexpr unsigned char original[]{0x48, 0x8d, 0x54, 0x24, 0x20};
         constexpr unsigned char replacement[]{0xe9, 0x96, 0, 0, 0};
         constexpr char functionHash[] = "b1dcfd59cfa43265fb7e6984f7499755a2f9cbb5147e0480200ec27090ff5c44";
@@ -25,6 +29,17 @@ namespace TheosRenderPipeline::FSR4Compatibility
         constexpr const char* hashes[]{
             "e2191d3c0828be45eb8affd4e3ec0378f2293adc345b772a7170edcf3b021ecb",
             "aad4fccccb29084a655f9a4f9f613bd22c8c03fb4a0f8840148cc6543b4ccace"};
+
+        struct ScopedHandle
+        {
+            HANDLE value{INVALID_HANDLE_VALUE};
+            explicit ScopedHandle(HANDLE h) : value(h) {}
+            ~ScopedHandle() { if (value && value != INVALID_HANDLE_VALUE) { CloseHandle(value); } }
+            ScopedHandle(const ScopedHandle&) = delete;
+            ScopedHandle& operator=(const ScopedHandle&) = delete;
+            bool Valid() const { return value && value != INVALID_HANDLE_VALUE; }
+        };
+
         void Require(bool ok, const char* message) { if (!ok) throw std::runtime_error(message); }
         std::wstring FinalPath(HANDLE file)
         {
@@ -33,15 +48,6 @@ namespace TheosRenderPipeline::FSR4Compatibility
             Require(n && n < path.size(), "cannot resolve runtime file path"); path.resize(n); return path;
         }
         bool EqualPath(const std::wstring& a, const std::wstring& b) { return _wcsicmp(a.c_str(), b.c_str()) == 0; }
-        // UTF-8 for the audit log: path::string() throws outside the ANSI code page.
-        std::string Utf8(const std::filesystem::path& path)
-        {
-            const auto& wide = path.native();
-            const int size = WideCharToMultiByte(CP_UTF8, 0, wide.c_str(), static_cast<int>(wide.size()), nullptr, 0, nullptr, nullptr);
-            std::string text(size > 0 ? size : 0, '\0');
-            if (size > 0) { WideCharToMultiByte(CP_UTF8, 0, wide.c_str(), static_cast<int>(wide.size()), text.data(), size, nullptr, nullptr); }
-            return text;
-        }
         void Signature(HANDLE file, const std::filesystem::path& path)
         {
             WINTRUST_FILE_INFO info{sizeof(info)}; info.pcwszFilePath = path.c_str(); info.hFile = file;
@@ -67,17 +73,17 @@ namespace TheosRenderPipeline::FSR4Compatibility
         }
         void Modules(HMODULE loader = nullptr, HMODULE upscaler = nullptr)
         {
-            const HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, GetCurrentProcessId());
-            Require(snapshot != INVALID_HANDLE_VALUE, "cannot enumerate process modules");
+            ScopedHandle snapshot(CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, GetCurrentProcessId()));
+            Require(snapshot.Valid(), "cannot enumerate process modules");
             MODULEENTRY32W entry{sizeof(entry)}; bool competing = false;
-            const BOOL first = Module32FirstW(snapshot, &entry);
+            const BOOL first = Module32FirstW(snapshot.value, &entry);
             if (first) do {
                 std::wstring name(entry.szModule);
                 std::transform(name.begin(), name.end(), name.begin(), towlower);
                 if ((name.starts_with(L"amd_fidelityfx") || name == L"amdxcffx64.dll") &&
                     entry.hModule != loader && entry.hModule != upscaler) competing = true;
-            } while (Module32NextW(snapshot, &entry));
-            const DWORD error = GetLastError(); CloseHandle(snapshot);
+            } while (Module32NextW(snapshot.value, &entry));
+            const DWORD error = GetLastError();
             Require(first && error == ERROR_NO_MORE_FILES, "incomplete module enumeration");
             Require(!competing, "competing preloaded AMD module; require a fresh process");
         }
@@ -112,10 +118,18 @@ namespace TheosRenderPipeline::FSR4Compatibility
                     count <= s.Misc.VirtualSize - (rva - s.VirtualAddress) && (s.Characteristics & IMAGE_SCN_MEM_READ) &&
                     (!executable || (s.Characteristics & IMAGE_SCN_MEM_EXECUTE))) valid = true;
                 Require(valid, "RVA not contained in required PE section");
-                MEMORY_BASIC_INFORMATION memory{};
-                Require(VirtualQuery(base + rva, &memory, sizeof(memory)) && memory.AllocationBase == base &&
-                    memory.Type == MEM_IMAGE && memory.State == MEM_COMMIT && !(memory.Protect & (PAGE_GUARD | PAGE_NOACCESS)),
-                    "RVA not owned by loaded PE image");
+                size_t cursor = 0;
+                while (cursor < count) {
+                    MEMORY_BASIC_INFORMATION memory{};
+                    const auto* address = base + rva + cursor;
+                    Require(VirtualQuery(address, &memory, sizeof(memory)) && memory.AllocationBase == base &&
+                        memory.Type == MEM_IMAGE && memory.State == MEM_COMMIT && !(memory.Protect & (PAGE_GUARD | PAGE_NOACCESS)),
+                        "RVA not owned by loaded PE image");
+                    const auto regionEnd = reinterpret_cast<uintptr_t>(memory.BaseAddress) + memory.RegionSize;
+                    const auto current = reinterpret_cast<uintptr_t>(address);
+                    Require(regionEnd > current, "RVA virtual memory region invalid");
+                    cursor += (std::min)(count - cursor, static_cast<size_t>(regionEnd - current));
+                }
             }
             template<class T> T At(DWORD rva) const
             {
@@ -134,14 +148,45 @@ namespace TheosRenderPipeline::FSR4Compatibility
                 const DWORD locator = Rva(At<uintptr_t>(vtable - 8)); Check(locator, 24);
                 Require(At<DWORD>(locator) == 1 && At<DWORD>(locator + 4) == 0 && At<DWORD>(locator + 20) == locator,
                     "unexpected RTTI complete object locator");
-                const DWORD type = At<DWORD>(locator + 12); Check(type, 16 + strlen(name) + 1);
-                Require(memcmp(base + type + 16, name, strlen(name) + 1) == 0, "unexpected RTTI type identity");
+                const DWORD type = At<DWORD>(locator + 12);
+                const size_t nameBytes = strlen(name) + 1;
+                Check(type, 16 + nameBytes);
+                std::vector<char> actual(nameBytes);
+                Require(ReadMemory(base + type + 16, actual.data(), nameBytes) &&
+                    memcmp(actual.data(), name, nameBytes) == 0, "unexpected RTTI type identity");
             }
         };
     }
     bool ReadMemory(const void* address, void* destination, size_t size)
     {
         SIZE_T read{}; return ReadProcessMemory(GetCurrentProcess(), address, destination, size, &read) && read == size;
+    }
+    std::string VerifyForcedModel(const void* ffxContext, HMODULE upscaler)
+    {
+        // Exact-build identity (pinned hash only): AMD's internal context holds
+        // ffxProvider_FSR4_Int8 first, the provider holds Fsr4Int8UpscalerModel
+        // at +0x28, and the context byte at +0x214 is set once a dispatch builds
+        // the model. Read-only; never touches weights.
+        const auto base = reinterpret_cast<std::uintptr_t>(upscaler);
+        if (!base || !ffxContext) { return "no runtime or context"; }
+        auto read = [](std::uintptr_t address, auto& value) {
+            return address && ReadMemory(reinterpret_cast<const void*>(address), &value, sizeof(value));
+        };
+        const auto handle = reinterpret_cast<std::uintptr_t>(ffxContext);
+        for (std::uintptr_t offset = 0; offset < 0x40; offset += sizeof(std::uintptr_t)) {
+            std::uintptr_t candidate{}, provider{}, providerVtable{}, model{}, modelVtable{};
+            unsigned char built{};
+            if (!read(handle + offset, candidate) || !read(candidate, provider) || !read(provider, providerVtable) ||
+                providerVtable != base + providerVtableRva) { continue; }
+            if (!read(provider + modelOffset, model) || !read(model, modelVtable) || modelVtable != base + modelVtableRva) {
+                return std::format("wrapper+{:#x}: INT8 provider without the INT8 model", offset);
+            }
+            if (!read(candidate + builtFlagOffset, built) || !built) {
+                return std::format("wrapper+{:#x}: INT8 model not built yet", offset);
+            }
+            return {};
+        }
+        return "no ffxProvider_FSR4_Int8 context behind the handle";
     }
     std::string Sha256(const void* data, size_t size)
     {
@@ -160,8 +205,14 @@ namespace TheosRenderPipeline::FSR4Compatibility
         std::string result; constexpr char hex[] = "0123456789abcdef";
         for (auto b : digest) { result += hex[b >> 4]; result += hex[b & 15]; } return result;
     }
-    Session::~Session() { for (auto f : files_) if (f != INVALID_HANDLE_VALUE) CloseHandle(f); }
-    bool Session::Refuse(const std::string& reason) { reason_ = reason; state_ = State::Refused; return false; }
+    void Session::CloseFiles()
+    {
+        for (auto& f : files_) {
+            if (f != INVALID_HANDLE_VALUE) { CloseHandle(f); f = INVALID_HANDLE_VALUE; }
+        }
+    }
+    Session::~Session() { CloseFiles(); }
+    bool Session::Refuse(const std::string& reason) { CloseFiles(); reason_ = reason; state_ = State::Refused; return false; }
     bool Session::LoadVerified(const std::filesystem::path& directory)
     {
         if (state_ != State::Fresh) return Refuse("session already used; require a fresh process");
@@ -178,7 +229,7 @@ namespace TheosRenderPipeline::FSR4Compatibility
                 std::vector<unsigned char> data(static_cast<size_t>(length.QuadPart)); DWORD read{};
                 Require(ReadFile(files_[i], data.data(), static_cast<DWORD>(data.size()), &read, nullptr) && read == data.size(), "runtime read failed");
                 const auto hash = Sha256(data.data(), data.size());
-                audit_ += Utf8(path) + " sha256=" + hash + "\n";
+                audit_ += PluginPaths::ToUtf8(path) + " sha256=" + hash + "\n";
                 Require(hash == hashes[i], "runtime SHA-256 mismatch; force supports exact SDK 2.4 files only");
                 Signature(files_[i], path); audit_ += "AMD Authenticode valid (cached trust; online revocation not requested)\n";
             }
@@ -191,14 +242,14 @@ namespace TheosRenderPipeline::FSR4Compatibility
                 const HMODULE module = i ? upscaler_ : loader_; wchar_t loaded[32768]{};
                 const auto n = GetModuleFileNameW(module, loaded, 32768);
                 Require(n && n < 32768, "cannot resolve loaded module path");
-                const HANDLE file = CreateFileW(loaded, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-                Require(file != INVALID_HANDLE_VALUE, "cannot verify loaded module file");
-                const auto actual = FinalPath(file); CloseHandle(file);
+                ScopedHandle file(CreateFileW(loaded, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
+                Require(file.Valid(), "cannot verify loaded module file");
+                const auto actual = FinalPath(file.value);
                 Require(EqualPath(actual, paths[i]), "loaded module path differs from verified input");
                 HMODULE resident{};
                 Require(GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN,
                     reinterpret_cast<LPCWSTR>(module), &resident) && resident == module, "cannot retain verified module");
-                audit_ += Utf8(std::filesystem::path(loaded)) + " loaded and pinned\n";
+                audit_ += PluginPaths::ToUtf8(std::filesystem::path(loaded)) + " loaded and pinned\n";
             }
             Modules(loader_, upscaler_); state_ = State::Loaded; reason_ = "verified runtime loaded; no query made"; return true;
         } catch (const std::exception& e) { return Refuse(e.what()); }
@@ -221,10 +272,12 @@ namespace TheosRenderPipeline::FSR4Compatibility
             Require(ReadMemory(image.base + functionRva, bytes.data(), bytes.size()), "cannot read full admission function");
             const auto hash = Sha256(bytes.data(), bytes.size()); audit_ += "function preimage sha256=" + hash + "\n";
             Require(hash == functionHash, "full admission function preimage mismatch; no patch written");
-            image.RTTI(0x3635260, ".?AVffxProvider_FSR4_Int8@@", functionRva);
-            image.RTTI(0x36352a8, ".?AVFsr4Int8UpscalerModel@@", 0x98b0);
+            image.RTTI(providerVtableRva, ".?AVffxProvider_FSR4_Int8@@", functionRva);
+            image.RTTI(modelVtableRva, ".?AVFsr4Int8UpscalerModel@@", 0x98b0);
             auto* target = image.base + patchRva;
-            Require(memcmp(target, original, sizeof(original)) == 0, "patch instruction preimage mismatch");
+            unsigned char before[sizeof(original)]{};
+            Require(ReadMemory(target, before, sizeof(before)) && memcmp(before, original, sizeof(original)) == 0,
+                "patch instruction preimage mismatch");
             image.Check(0x9a50, 21, true);
             DWORD old{}; Require(VirtualProtect(target, sizeof(original), PAGE_EXECUTE_READWRITE, &old), "patch VirtualProtect failed; no write");
             // No SDK calls/threads exist in this session. No trampoline, query spoof,
@@ -240,6 +293,7 @@ namespace TheosRenderPipeline::FSR4Compatibility
                     memcpy(target, original, sizeof(original)); VirtualProtect(target, sizeof(original), old, &ignored);
                     FlushInstructionCache(GetCurrentProcess(), target, sizeof(original));
                 }
+                CloseFiles();
                 state_ = State::Poisoned; reason_ = "patch transaction uncertain; rollback attempted; SDK use prohibited until process exit"; return false;
             }
             audit_ += "RTTI/vtables/PE validated; 0x99b5: 488d542420 -> e996000000; protection restored, cache flushed, readback exact\n";

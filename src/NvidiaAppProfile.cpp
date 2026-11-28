@@ -24,7 +24,10 @@ namespace TheosRenderPipeline::NvidiaApp
             wchar_t commandLine[2048];
         };
         Values values;
-        const auto nvapi = GetModuleHandleW(L"nvapi64.dll") ? GetModuleHandleW(L"nvapi64.dll") : LoadLibraryW(L"nvapi64.dll");
+        HMODULE nvapi = GetModuleHandleW(L"nvapi64.dll");
+        if (!nvapi) {
+            nvapi = LoadLibraryExW(L"nvapi64.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+        }
         const auto query = nvapi ? reinterpret_cast<void* (*)(std::uint32_t)>(GetProcAddress(nvapi, "nvapi_QueryInterface")) : nullptr;
         if (!query) { return values; }
         using Init = int (*)();
@@ -49,7 +52,7 @@ namespace TheosRenderPipeline::NvidiaApp
             auto application = std::make_unique<Application>();
             void* game{};
             void* global{};
-            const std::wstring exe = exeName.empty() ? PluginPaths::ModulePath(GetModuleHandleW(nullptr)).filename().wstring() : exeName;
+            const std::wstring exe = exeName.empty() ? PluginPaths::RawModulePath(GetModuleHandleW(nullptr)).filename().wstring() : exeName;
             application->version = sizeof(Application) | (4u << 16);
             if (findApp(session, exe.c_str(), &game, application.get()) != 0) { game = nullptr; }
             if (base(session, &global) != 0) { global = nullptr; }

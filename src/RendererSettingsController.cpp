@@ -69,20 +69,11 @@ int RendererSettingsController::CountChanges(const RendererSettingsDraft& draft,
     {
         return 0;
     }
-    auto current = Capture(nrRuntimePresent, draft.textureProviderConnected);
-    if (host_.StartupConfigured())
-    {
-        const auto& requested = host_.SourceUpscalerSettings().Requested();
-        current.upscaleType = requested.mode;
-        current.qualityLevel = requested.quality;
-        current.dlssPreset = requested.preset;
-        current.autoExposure = requested.autoExposure;
-        current.sharpening = requested.sharpening;
-    }
+    const auto current = Capture(nrRuntimePresent, draft.textureProviderConnected);
     return CountRendererSettingsChanges(draft, current);
 }
 
-RendererSettingsCapabilities RendererSettingsController::Capabilities() const
+RendererSettingsCapabilities RendererSettingsController::Capabilities(const RendererSettingsDraft* targetDraft) const
 {
     auto& backend = SourceDLSSG::Backend::Get();
     RendererSettingsCapabilities capabilities{host_.StartupConfigured(), false,
@@ -92,10 +83,10 @@ RendererSettingsCapabilities RendererSettingsController::Capabilities() const
     capabilities.amdAdapter = backend.AmdAdapter();
     capabilities.xeSSReady = backend.XeSS().Ready();
     capabilities.fsrReady = backend.FSR().Ready();
-    capabilities.backend = frameGen_.settings.sourceDLSSG.neuralBackend;
+    capabilities.backend = targetDraft ? targetDraft->sourceDLSSG.neuralBackend : frameGen_.settings.sourceDLSSG.neuralBackend;
 #if !defined(TRP_NO_NEURAL_RENDERING)
     capabilities.neuralRuntime = SourceDLSSG::NeuralRuntimePresent(capabilities.backend == NeuralRendering::Backend::HIP ? SourceDLSSG::AmdNeuralPass::RuntimePath() :
-        capabilities.backend == NeuralRendering::Backend::Vulkan ? NeuralRendering::VulkanNRHost::Path() : std::filesystem::path(frameGen_.settings.neuralRenderingRuntimePath));
+        capabilities.backend == NeuralRendering::Backend::Vulkan ? NeuralRendering::VulkanNRHost::Path() : PluginPaths::FromUtf8(frameGen_.settings.neuralRenderingRuntimePath));
     capabilities.neuralOperational = backend.Ready() && (!backend.NeuralState().failed || backend.NeuralState().retryable);
     if (capabilities.backend == NeuralRendering::Backend::HIP) {
         capabilities.amdNeuralPrerequisite = SourceDLSSG::AmdNeuralPass::Availability(capabilities.amdAdapter);
@@ -115,23 +106,18 @@ RendererSettingsResult RendererSettingsController::Apply(const RendererSettingsD
     std::string actionMessage;
     bool actionMessageIsError = false;
     const bool sourceUpscaler = host_.StartupConfigured();
-    auto capabilities = Capabilities();
-    capabilities.nvidiaAdapter = SourceDLSSG::Backend::Get().NvidiaAdapter();
-    capabilities.nvidiaFeatures = SourceDLSSG::Backend::Get().NvidiaFeaturesAvailable();
-    capabilities.backend = settingsDraft.sourceDLSSG.neuralBackend;
-    capabilities.amdNeuralPrerequisite = nullptr;
-    capabilities.xeSSReady = SourceDLSSG::Backend::Get().XeSS().Ready();
-    capabilities.fsrReady = SourceDLSSG::Backend::Get().FSR().Ready();
+    auto capabilities = Capabilities(&settingsDraft);
 #if !defined(TRP_NO_NEURAL_RENDERING)
     // The draft may select a different runtime file; check the one it selects.
-    const auto draftRuntime = capabilities.backend == NeuralRendering::Backend::Vulkan ? NeuralRendering::VulkanNRHost::Path().string() :
-        capabilities.backend == NeuralRendering::Backend::HIP ? SourceDLSSG::AmdNeuralPass::RuntimePath().string() :
+    const auto draftRuntimePath = capabilities.backend == NeuralRendering::Backend::Vulkan ? NeuralRendering::VulkanNRHost::Path() :
+        capabilities.backend == NeuralRendering::Backend::HIP ? SourceDLSSG::AmdNeuralPass::RuntimePath() :
         TheosRenderPipeline::SourceDLSSG::ResolveNeuralRuntimeSetting(
         settingsDraft.sourceDLSSG.neuralRuntime, PluginPaths::Directory(),
-        SourceDLSSG::Backend::Get().NeuralComputeCapability(), NeuralRendering::RuntimeKernelsSupported()).string();
-    capabilities.neuralRuntime = TheosRenderPipeline::SourceDLSSG::NeuralRuntimePresent(draftRuntime);
+        SourceDLSSG::Backend::Get().NeuralComputeCapability(), NeuralRendering::RuntimeKernelsSupported());
+    const auto draftRuntime = PluginPaths::ToUtf8(draftRuntimePath);
+    capabilities.neuralRuntime = TheosRenderPipeline::SourceDLSSG::NeuralRuntimePresent(draftRuntimePath);
     auto admissionOptions = SourceDLSSG::Backend::Get().NeuralConfiguration();
-    admissionOptions.runtimePath = draftRuntime;
+    admissionOptions.runtimePath = draftRuntimePath;
     admissionOptions.backend = capabilities.backend;
     admissionOptions.passes = settingsDraft.sourceDLSSG.neuralPasses;
     admissionOptions.beforeUpscaling = settingsDraft.sourceDLSSG.neuralBeforeUpscaling;
@@ -145,7 +131,6 @@ RendererSettingsResult RendererSettingsController::Apply(const RendererSettingsD
         admissionOptions.beforeUpscaling ? host_.RenderWidth() : host_.OutputWidth(),
         admissionOptions.beforeUpscaling ? host_.RenderHeight() : host_.OutputHeight(), neuralRequested, !neuralRequested);
     capabilities.neuralAdmissionReason = admission.Refusal();
-    capabilities.neuralOperational = SourceDLSSG::Backend::Get().Ready() && (!SourceDLSSG::Backend::Get().NeuralState().failed || SourceDLSSG::Backend::Get().NeuralState().retryable);
 #endif
     const auto current = Capture(capabilities.neuralRuntime, false);
     if (const char* error = ValidateRendererSettings(settingsDraft, capabilities, &current))
@@ -220,7 +205,11 @@ RendererSettingsResult RendererSettingsController::Apply(const RendererSettingsD
         TheosRenderPipeline::SourceDLSSG::NeuralOptions options;
         options.enabled = frameGen_.settings.sourceDLSSG.neuralEnabled &&
             NeuralSettingsUnavailable(upscaler_.mUpscaleType, capabilities) == nullptr;
-        options.runtimePath = frameGen_.settings.neuralRenderingRuntimePath;
+#if !defined(TRP_NO_NEURAL_RENDERING)
+        options.runtimePath = draftRuntimePath;
+#else
+        options.runtimePath = PluginPaths::FromUtf8(frameGen_.settings.neuralRenderingRuntimePath);
+#endif
         options.automaticRuntime =
             TheosRenderPipeline::SourceDLSSG::IsAutomaticNeuralRuntime(frameGen_.settings.configuredRuntimePaths.neural);
         options.tuning = frameGen_.settings.sourceDLSSG.neuralTuning;
@@ -326,7 +315,7 @@ RendererSettingsResult RendererSettingsController::SetNeuralRenderingEnabled(boo
             !SupportsNeuralRenderingMode(upscaler_.mUpscaleType, CommunityShaders::Active()) ||
             (!CommunityShaders::Active() && !host_.DedicatedUITextureMode())))
         {
-            actionMessage = "Source NR requires DLSS or DLAA, dedicated UI Texture mode, and a configured NR runtime.";
+            actionMessage = "Source NR requires a supported upscaler, dedicated UI Texture mode, and a configured NR runtime.";
             actionMessageIsError = true;
             return {actionMessage, actionMessageIsError};
         }

@@ -188,8 +188,14 @@ extern "C" DLLEXPORT const SolFGLateOverlayAPI::BridgeV1* __cdecl SolFG_GetLateO
 
 extern "C" DLLEXPORT bool __cdecl SKSEPlugin_Load(const SKSE::LoadInterface* a_skse)
 {
-	if (a_skse->IsEditor() || !TheosRenderPipeline::SkyrimRuntime::Find(a_skse->RuntimeVersion())) {
-		util::report_and_fail("Theo's Render Pipeline requires Steam Skyrim 1.5.97, 1.6.640, 1.6.1170 or 1.7.104.");
+	const auto* runtimeProfile = a_skse->IsEditor() ? nullptr : TheosRenderPipeline::SkyrimRuntime::FindSkse(a_skse->RuntimeVersion());
+	if (!runtimeProfile) {
+		util::report_and_fail("Theo's Render Pipeline requires Steam Skyrim 1.5.97, 1.6.640, 1.6.1170 or 1.7.104, or GOG Skyrim 1.6.1179.");
+	}
+	// Hooks and layouts select by the executable's own version; it must name the same profile.
+	if (TheosRenderPipeline::SkyrimRuntime::Find(REL::Module::get().version()) != runtimeProfile) {
+		util::report_and_fail(std::format("Theo's Render Pipeline: SKSE reports Skyrim {} but SkyrimSE.exe is {}. "
+			"Install the SKSE build that matches this game.", a_skse->RuntimeVersion().string(), REL::Module::get().version().string()));
 	}
 	InitializeLog();
 	logger::info("{} v{} loading", Plugin::NAME, Plugin::VERSION_STRING);
@@ -198,7 +204,8 @@ extern "C" DLLEXPORT bool __cdecl SKSEPlugin_Load(const SKSE::LoadInterface* a_s
 		reinterpret_cast<LPCWSTR>(&InitializeLog), &renderer);
 	logger::info("[Renderer] edition={} source={} module={}", Plugin::EDITION, Plugin::SOURCE_REVISION,
 		TheosRenderPipeline::PluginPaths::ModulePath(renderer).string());
-	logger::info("[Runtime] Skyrim {}", a_skse->RuntimeVersion().string());
+	logger::info("[Runtime] Skyrim {} ({}, executable {})", a_skse->RuntimeVersion().string(),
+		TheosRenderPipeline::SkyrimRuntime::IsGOG(*runtimeProfile) ? "GOG" : "Steam", REL::Module::get().version().string());
 	// ReShade loads its add-ons when Skyrim creates its device, after plugins load.
 	logger::info("[ReShade] {}", TheosRenderPipeline::ReShadeIntegration::Get().PrepareAddonBridge());
 	SKSE::Init(a_skse);
@@ -282,7 +289,7 @@ extern "C" DLLEXPORT constinit auto SKSEPlugin_Version = []() noexcept {
 	// The admission check, metadata and artwork hook use the same exact profiles.
 	static_assert(TheosRenderPipeline::SkyrimRuntime::kProfiles.size() < std::size(v.compatibleVersions));
 	for (std::size_t i = 0; i < TheosRenderPipeline::SkyrimRuntime::kProfiles.size(); ++i) {
-		v.compatibleVersions[i] = TheosRenderPipeline::SkyrimRuntime::kProfiles[i].version.pack();
+		v.compatibleVersions[i] = TheosRenderPipeline::SkyrimRuntime::kProfiles[i].skse.pack();
 	}
 	// CommonLib and our graphics wrapper select the engine layout at runtime.
 	v.UsesNoStructs();
@@ -294,5 +301,5 @@ extern "C" DLLEXPORT bool __cdecl SKSEPlugin_Query(const SKSE::QueryInterface* a
 	pluginInfo->name = SKSEPlugin_Version.pluginName;
 	pluginInfo->infoVersion = SKSE::PluginInfo::kVersion;
 	pluginInfo->version = SKSEPlugin_Version.pluginVersion;
-	return !a_skse->IsEditor() && TheosRenderPipeline::SkyrimRuntime::Find(a_skse->RuntimeVersion());
+	return !a_skse->IsEditor() && TheosRenderPipeline::SkyrimRuntime::FindSkse(a_skse->RuntimeVersion());
 }

@@ -33,6 +33,7 @@ int wmain(int argc, wchar_t** argv)
 		Require(Pin::Select(Pin::Parse("error=no AMD HIP runtime found\n"), 0x161AC).outcome == Pin::Outcome::ProbeFailed, "no HIP pins nothing");
 		Require(Pin::Select(Pin::Parse(""), 0x161AC).outcome == Pin::Outcome::ProbeFailed, "empty output pins nothing");
 		Require(Pin::Parse("device x luid=1 luid-result=0 name=a\n").devices.empty(), "a malformed record is skipped");
+		Require(Pin::Parse("device\n").devices.empty(), "a truncated device record does not underflow");
 		Require(Pin::Precheck(1, false, false).outcome == Pin::Outcome::NotNeeded, "one AMD GPU needs no probe");
 		Require(Pin::Precheck(2, true, false).outcome == Pin::Outcome::UserSetting, "the user's HIP_VISIBLE_DEVICES wins");
 		Require(Pin::Precheck(2, false, true).outcome == Pin::Outcome::HipAlreadyLoaded, "a loaded HIP cannot be restricted");

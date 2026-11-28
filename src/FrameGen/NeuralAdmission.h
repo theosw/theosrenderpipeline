@@ -53,7 +53,7 @@ namespace TheosRenderPipeline::NeuralRendering
         bool budgetPendingRetirement{};
         bool extentPending{};
         bool vendorBackend{};
-        const char* vendorRefusal{};
+        std::string vendorRefusal;
         bool Pascal() const { return nvidia && architecture == 61; }
         // RTX features (DLSS, DLAA, DLSS-G) need Turing or newer. When CUDA cannot
         // report the architecture (0.6.0 greyed out DLSS-G on such an RTX system),
@@ -61,7 +61,7 @@ namespace TheosRenderPipeline::NeuralRendering
         bool NvidiaFeatures() const { return nvidia && (architecture ? architecture >= 75 : deviceId >= 0x1E00); }
         const char* Refusal() const
         {
-            if (vendorBackend) { return vendorRefusal; }
+            if (vendorBackend) { return vendorRefusal.empty() ? nullptr : vendorRefusal.c_str(); }
             if (!nvidia || !architecture) { return "NR hardware capability is unknown or unsupported. Check the rendering adapter and its driver."; }
             if (!Pascal()) { return NvidiaFeatures() ? nullptr : "Neural Rendering requires NVIDIA RTX hardware or experimental sm_61 hardware in Universal."; }
             if (!universal) { return kPascalEditionReason; }

@@ -54,6 +54,7 @@ struct OverlayUI::FrameView
     bool frameGenerationRequested{};
     double refreshRate{};
     std::string neuralRuntimePath;
+    std::string appliedNeuralRuntimePath;
     // nvngx_dlssnr*.dll files NR can switch to, refreshed every few seconds.
     std::vector<std::string> neuralRuntimes;
     std::vector<std::string> neuralRuntimeReasons;
@@ -69,11 +70,11 @@ struct OverlayUI::FrameView
     bool neuralRuntimeKernels{};
     bool sourceReady{};
     std::string neuralAdmissionReason;
+    std::string appliedNeuralAdmissionReason;
     bool neuralPascal{};
     bool nvidiaServicesReady{};
     bool nvidiaAdapter{true};
     bool amdAdapter{};
-    std::string amdNeuralPrerequisite;
     bool nvidiaFeatures{true};
     bool nvidiaFrameGeneration{true};
     // NVIDIA App and driver settings for Skyrim that change what TRP asked for,

@@ -1,4 +1,5 @@
 #include "FSRUpscaler.h"
+#include "D3D12Helpers.h"
 #include "../PluginPaths.h"
 #if defined(TRP_FSR4_FORCE_UNIVERSAL)
 #include "FSR4Compatibility.h"
@@ -33,9 +34,16 @@ namespace TheosRenderPipeline
 
     bool FSRUpscaler::FSR4NeedsForce(ID3D12Device* device)
     {
-        // Cached per device: the menu and live-settings paths ask every frame.
-        static ID3D12Device* checked{}; static bool needsForce{};
-        if (device != checked) { checked = device; needsForce = AdapterVendor(device) != 0x1002; }
+        if (!device) { return false; }
+        // Cached per adapter LUID: the menu and live-settings paths ask every frame.
+        const auto luid = D3D12Helpers::LuidToUInt64(device->GetAdapterLuid());
+        static std::uint64_t cachedLuid{};
+        static bool hasCached{}, needsForce{};
+        if (!hasCached || luid != cachedLuid) {
+            cachedLuid = luid;
+            hasCached = true;
+            needsForce = AdapterVendor(device) != 0x1002;
+        }
         return needsForce;
     }
 
@@ -63,11 +71,14 @@ namespace TheosRenderPipeline
             if (!PluginPaths::EqualPath(directory_, directory) || !create_ || !destroy_ || !dispatch_ || !query_) { return E_UNEXPECTED; }
             if (context_ && device12_.Get() != device) { return E_UNEXPECTED; }
             // A retired context may be recreated on a new device in this process.
-            device12_ = device; return S_OK;
+            const bool deviceChanged = device12_.Get() != device;
+            device12_ = device;
+            if (deviceChanged) { QueryVersions(); }
+            return S_OK;
         }
         directory_ = PluginPaths::Normalize(directory);
         for (const auto* name : {L"amd_fidelityfx_loader_dx12.dll", L"amd_fidelityfx_upscaler_dx12.dll", L"amd_fidelityfx_dx12.dll"}) {
-            if (GetModuleHandleW(name)) { status_ = "another owner loaded " + std::filesystem::path(name).string(); return E_UNEXPECTED; }
+            if (GetModuleHandleW(name)) { status_ = "another owner loaded " + PluginPaths::ToUtf8(name); return E_UNEXPECTED; }
         }
 #if defined(TRP_FSR4_FORCE_UNIVERSAL)
         if (forceFSR4) {
@@ -79,7 +90,7 @@ namespace TheosRenderPipeline
             if (force_->Status() == FSR4Compatibility::Session::State::Poisoned) {
                 status_ = "FSR 4 force left AMD's runtime in an uncertain state: " + forceReason_; return E_FAIL;
             }
-            module_ = GetModuleHandleW(L"amd_fidelityfx_loader_dx12.dll"); // loaded by a verified session, if any
+            module_ = force_->Loader(); // only adopt a verified session's loader
         }
 #else
         if (forceFSR4) { forceReason_ = "FSR 4 on this GPU is Universal only"; }
@@ -89,7 +100,7 @@ namespace TheosRenderPipeline
             module_ = LoadLibraryExW((directory_ / L"amd_fidelityfx_loader_dx12.dll").c_str(), nullptr,
                 LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
         }
-        if (!module_) { status_ = "AMD/amd_fidelityfx_loader_dx12.dll missing or not loadable; reinstall TRP Standard"; return HRESULT_FROM_WIN32(GetLastError()); }
+        if (!module_) { status_ = "AMD/amd_fidelityfx_loader_dx12.dll missing or not loadable; reinstall Theo's Render Pipeline"; return HRESULT_FROM_WIN32(GetLastError()); }
         device12_ = device;
         create_ = reinterpret_cast<PfnFfxCreateContext>(GetProcAddress(module_, "ffxCreateContext"));
         destroy_ = reinterpret_cast<PfnFfxDestroyContext>(GetProcAddress(module_, "ffxDestroyContext"));
@@ -132,33 +143,9 @@ namespace TheosRenderPipeline
     std::string FSRUpscaler::ForcedModelCheck() const
     {
 #if defined(TRP_FSR4_FORCE_UNIVERSAL)
-        // Exact-build identity (pinned hash only): AMD's internal context holds the
-        // ffxProvider_FSR4_Int8 provider first, the provider holds its
-        // Fsr4Int8UpscalerModel at +0x28, and the context's byte at +0x214 is set
-        // once a dispatch has built the model. Read-only; never touches weights.
-        // The public ffxContext handle may point at that context or at a pointer to it.
-        const auto base = reinterpret_cast<std::uintptr_t>(GetModuleHandleW(L"amd_fidelityfx_upscaler_dx12.dll"));
-        if (!base || !context_) { return "no runtime or context"; }
-        auto read = [](std::uintptr_t address, auto& value) {
-            return address && FSR4Compatibility::ReadMemory(reinterpret_cast<const void*>(address), &value, sizeof(value));
-        };
-        // The loader wraps AMD's context: scan the wrapper's first fields for the
-        // pointer to the upscaler's internal context, then check that context.
-        const auto handle = reinterpret_cast<std::uintptr_t>(context_);
-        std::string trace;
-        for (std::uintptr_t offset = 0; offset < 0x40; offset += sizeof(std::uintptr_t)) {
-            std::uintptr_t candidate{}, provider{}, providerVtable{}, model{}, modelVtable{};
-            unsigned char built{};
-            if (!read(handle + offset, candidate) || !read(candidate, provider) || !read(provider, providerVtable) ||
-                providerVtable != base + 0x3635260) { continue; }
-            if (!read(provider + 0x28, model) || !read(model, modelVtable) || modelVtable != base + 0x36352a8) {
-                return std::format("wrapper+{:#x}: INT8 provider without the INT8 model", offset);
-            }
-            if (!read(candidate + 0x214, built) || !built) { return std::format("wrapper+{:#x}: INT8 model not built yet", offset); }
-            return {};
-        }
-        trace = "no ffxProvider_FSR4_Int8 context behind the handle";
-        return trace;
+        HMODULE upscaler = force_ ? force_->Upscaler() : nullptr;
+        if (!upscaler) { upscaler = GetModuleHandleW(L"amd_fidelityfx_upscaler_dx12.dll"); }
+        return FSR4Compatibility::VerifyForcedModel(context_, upscaler);
 #else
         return "Universal only";
 #endif
@@ -248,7 +235,11 @@ namespace TheosRenderPipeline
         invertedDepth_ = invertedDepth;
         ffxQueryGetProviderVersion version{}; version.header.type = FFX_API_QUERY_DESC_TYPE_GET_PROVIDER_VERSION;
         const auto queried = Result(query_(&context_, &version.header), "query provider version");
-        if (FAILED(queried) || !version.versionName) { return FAILED(queried) ? queried : E_UNEXPECTED; }
+        if (FAILED(queried) || !version.versionName) {
+            destroy_(&context_, nullptr);
+            context_ = nullptr;
+            return FAILED(queried) ? queried : E_UNEXPECTED;
+        }
         version_ = version.versionName;
         return S_OK;
     }
@@ -277,7 +268,10 @@ namespace TheosRenderPipeline
             FAILED(hr = make(motion_, input, DXGI_FORMAT_R16G16_FLOAT, D3D11_BIND_SHADER_RESOURCE)) ||
             FAILED(hr = make(depth_, input, DXGI_FORMAT_R32_FLOAT, D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS)) ||
             FAILED(hr = make(output_, output, format, D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS)) ||
-            FAILED(hr = CreateContext(invertedDepth))) { return hr; }
+            FAILED(hr = CreateContext(invertedDepth))) {
+            color_ = {}; motion_ = {}; depth_ = {}; output_ = {}; depthCopy_.ResetViews(); transport_ = nullptr;
+            return hr;
+        }
         initialized_ = true; frames_ = 0; status_ = "FSR " + version_ + " DX12 ready"; return S_OK;
     }
 
@@ -367,7 +361,7 @@ namespace TheosRenderPipeline
             if (FAILED(hr)) { return hr; }
             context_ = nullptr;
         }
-        color_ = {}; motion_ = {}; depth_ = {}; output_ = {}; depthCopy_.ResetViews();
+        color_ = {}; motion_ = {}; depth_ = {}; output_ = {}; depthCopy_.ResetAfterRetirement();
         description_ = {}; backend_ = {}; // Keep the opened device for same-device reinitialization.
         initialized_ = false; transport_ = nullptr; frames_ = 0; lastFrame_ = {}; return S_OK;
     }

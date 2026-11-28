@@ -152,6 +152,7 @@ struct NvidiaHost::SourceNvidiaEvaluationOperations
                 ScopedD3D11PerformanceStage timer{host.context_.Get(), PerformanceTuning::D3D11Stage::kDLSS};
                 auto& backend = TheosRenderPipeline::SourceDLSSG::Backend::Get();
                 TheosRenderPipeline::FSRCamera parameters;
+                parameters.invertedDepth = backend.FSR().InvertedDepth();
                 if (previewValid) {
                     parameters.nearPlane = preview.cameraNear; parameters.farPlane = preview.cameraFar;
                     parameters.verticalFov = preview.cameraFOV; parameters.invertedDepth = preview.depthInverted == sl::eTrue;
@@ -161,12 +162,19 @@ struct NvidiaHost::SourceNvidiaEvaluationOperations
                     frame.output, frame.jitterX, frame.jitterY, frame.reset || (previewValid && preview.reset == sl::eTrue), frame.sharpness, parameters);
                 evaluated = SUCCEEDED(hr);
                 if (!evaluated) { logger::error("[FSR] evaluation failed {} hr=0x{:08X}", backend.FSR().Status(), static_cast<unsigned>(hr)); }
+                if (evaluated && backend.FSR().Frames() == 2 && backend.FSR().Forced() &&
+                    backend.FSR().ActiveVersion() == TheosRenderPipeline::FSRVersion::FSR4) {
+                    if (const auto check = backend.FSR().ForcedModelCheck(); !check.empty()) {
+                        logger::warn("[FSR] forced FSR 4 model check: {}", check);
+                    }
+                }
                 if (evaluated && backend.FSR().Frames() % 600 == 0) { logger::info("[FSR] evaluatedFrames={} historyReset={} render={}x{} running=\"{}\"", backend.FSR().Frames(), frame.reset, frame.renderWidth, frame.renderHeight, backend.FSR().RunningLabel()); }
             } else if (host.XeSSActive()) {
                 ScopedD3D11PerformanceStage timer{host.context_.Get(), PerformanceTuning::D3D11Stage::kDLSS};
                 auto& backend = TheosRenderPipeline::SourceDLSSG::Backend::Get();
+                const bool invertedDepth = previewValid ? (preview.depthInverted == sl::eTrue) : backend.XeSS().InvertedDepth();
                 const auto hr = backend.XeSS().Evaluate(host.context_.Get(), frame.input, frame.motion, frame.depth,
-                    frame.output, frame.jitterX, frame.jitterY, frame.reset, previewValid ? preview.depthInverted == sl::eTrue : true, frame.sharpness);
+                    frame.output, frame.jitterX, frame.jitterY, frame.reset, invertedDepth, frame.sharpness);
                 evaluated = SUCCEEDED(hr);
                 if (!evaluated) { logger::error("[XeSS] evaluation failed {} hr=0x{:08X}", backend.XeSS().Status(), static_cast<unsigned>(hr)); }
                 if (evaluated && backend.XeSS().Frames() % 600 == 0) { logger::info("[XeSS] evaluatedFrames={} historyReset={} render={}x{}", backend.XeSS().Frames(), frame.reset, frame.renderWidth, frame.renderHeight); }

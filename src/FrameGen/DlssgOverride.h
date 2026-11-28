@@ -32,7 +32,8 @@ namespace TheosRenderPipeline::SourceDLSSG
         return PluginPaths::RetainLoadedModuleIf(candidate, [](const std::filesystem::path& path, HMODULE module) {
             auto text = path.generic_wstring();
             std::transform(text.begin(), text.end(), text.begin(), [](wchar_t c) { return static_cast<wchar_t>(std::towlower(c)); });
-            return IsNvidiaModelStorePath(path) && text.find(L"/models/dlssg/") != std::wstring::npos &&
+            return text.find(L"/nvidia/ngx/models/") != std::wstring::npos &&
+                text.find(L"/models/dlssg/") != std::wstring::npos &&
                 ::GetProcAddress(module, "NVSDK_NGX_D3D12_CreateFeature") != nullptr;
         });
     }

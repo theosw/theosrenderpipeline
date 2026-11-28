@@ -127,7 +127,7 @@ namespace TheosRenderPipeline
 
     void CommunityShaderAdapter::RouteLens(const char* route)
     {
-        if (lensRoute_ == route) { return; }
+        if (lensRoute_ == route || (lensRoute_ && route && std::string_view(lensRoute_) == route)) { return; }
         lensRoute_ = route;
         // Routes alternate with menus and weather; the first changes tell the story.
         if (lensRoutesLogged_ < 24) { ++lensRoutesLogged_; logger::info("[CS Adapter] Camera FX lens overlay: {}", route); }

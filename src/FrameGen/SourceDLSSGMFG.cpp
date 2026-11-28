@@ -55,30 +55,31 @@ namespace TheosRenderPipeline::SourceDLSSG
 	bool MFGUnlock::Refuse(std::string reason)
 	{
 		state_.failed = true;
-		refusal_ = std::move(reason);
-		state_.status = refusal_.c_str();
-		spdlog::warn("[SourceDLSSG MFG] frame generation cannot start: {}; nothing was patched, continuing without it", refusal_);
+		state_.status = std::move(reason);
+		spdlog::warn("[SourceDLSSG MFG] frame generation cannot start: {}; nothing was patched, continuing without it", state_.status);
 		return false;
 	}
 	void MFGUnlock::StandDown(const char* reason)
 	{
 		if (!state_.UsesAdaUnlock() || state_.unsafeMemory) { Fail(reason); }
 		state_.failed = true;
-		standDownStatus_ = std::format("MFG unavailable this session: {}. x2 frame generation continues.{}", reason,
+		state_.status = std::format("MFG unavailable this session: {}. x2 frame generation continues.{}", reason,
 			nvidiaOverride_ ? " NVIDIA app is overriding DLSS Frame Generation for Skyrim; set its Frame Generation overrides to "
 				"Use the 3D application setting to restore MFG." : "");
-		state_.status = standDownStatus_.c_str();
-		spdlog::warn("[SourceDLSSG MFG] {}", standDownStatus_);
-		Degradation::Note(Degradation::Reason::MultiFrameGeneration, standDownStatus_);
+		spdlog::warn("[SourceDLSSG MFG] {}", state_.status);
+		Degradation::Note(Degradation::Reason::MultiFrameGeneration, state_.status);
 	}
-	bool MFGUnlock::CheckBackportDriver(ID3D12Device* device)
+	bool MFGUnlock::CheckBackportDriver(ID3D12Device* device, LARGE_INTEGER userModeDriver)
 	{
-		Microsoft::WRL::ComPtr<IDXGIFactory4> factory;
-		Microsoft::WRL::ComPtr<IDXGIAdapter> adapter;
-		LARGE_INTEGER userMode{};
-		const bool read = device && SUCCEEDED(CreateDXGIFactory1(IID_PPV_ARGS(&factory))) &&
-			SUCCEEDED(factory->EnumAdapterByLuid(device->GetAdapterLuid(), IID_PPV_ARGS(&adapter))) &&
-			SUCCEEDED(adapter->CheckInterfaceSupport(__uuidof(IDXGIDevice), &userMode));
+		LARGE_INTEGER userMode = userModeDriver;
+		bool read = userMode.QuadPart != 0;
+		if (!read) {
+			Microsoft::WRL::ComPtr<IDXGIFactory4> factory;
+			Microsoft::WRL::ComPtr<IDXGIAdapter> adapter;
+			read = device && SUCCEEDED(CreateDXGIFactory1(IID_PPV_ARGS(&factory))) &&
+				SUCCEEDED(factory->EnumAdapterByLuid(device->GetAdapterLuid(), IID_PPV_ARGS(&adapter))) &&
+				SUCCEEDED(adapter->CheckInterfaceSupport(__uuidof(IDXGIDevice), &userMode));
+		}
 		const auto version = read ? NvidiaDriverVersion(userMode.LowPart) : 0u;
 		if (!version) {
 			spdlog::warn("[SourceDLSSG MFG] NVIDIA driver version unavailable; RTX 20/30 frame generation needs {} or newer",
@@ -93,14 +94,14 @@ namespace TheosRenderPipeline::SourceDLSSG
 	}
 	void MFGUnlock::EnterStartupScope() noexcept { trp::ampere::EnterStartupScope(); }
 	void MFGUnlock::LeaveStartupScope() noexcept { trp::ampere::LeaveStartupScope(); }
-	bool MFGUnlock::SelectAdapter(ID3D12Device* device)
+	bool MFGUnlock::SelectAdapter(ID3D12Device* device, LARGE_INTEGER userModeDriver)
 	{
 		if (state_.route != MFGRoute::Unselected) { Fail("MFG startup adapter selection was repeated"); }
 		state_.status = "selecting NVIDIA MFG path";
 		spdlog::info("[SourceDLSSG MFG] stage=adapter-selection compatibilityRequested={}", state_.requested);
 		midpoint_fix::SetLogCallback([](const wchar_t* text) {
 			// Upstream callback is noexcept; diagnostics must not terminate the game.
-			try { spdlog::info("[SourceDLSSG MFG] {}", std::filesystem::path(text).string()); } catch (...) {}
+			try { spdlog::info("[SourceDLSSG MFG] {}", text ? PluginPaths::ToUtf8(text) : std::string{}); } catch (...) {}
 		});
 		auto adapter = midpoint_fix::ObserveD3D12Adapter(device);
 		if (emulateRTX30_ && adapter == midpoint_fix::AdapterKind::Ada) {
@@ -111,10 +112,10 @@ namespace TheosRenderPipeline::SourceDLSSG
 		state_.SelectRoute(adapter);
 		if (state_.requested && adapter == midpoint_fix::AdapterKind::Unavailable) {
 			state_.temporalFailure = midpoint_fix::FailureCode();
-			const auto reason = std::format("the rendering GPU could not be identified (code {}); no patches applied, "
+			state_.status = std::format("the rendering GPU could not be identified (code {}); no patches applied, "
 				"NVIDIA's own frame generation runs where the GPU supports it", state_.temporalFailure);
-			spdlog::warn("[SourceDLSSG MFG] {}", reason);
-			Degradation::Note(Degradation::Reason::AdapterUnidentified, reason);
+			spdlog::warn("[SourceDLSSG MFG] {}", state_.status);
+			Degradation::Note(Degradation::Reason::AdapterUnidentified, state_.status);
 		}
 		spdlog::info("[SourceDLSSG MFG] selected route={} compatibilityRequested={}",
 			state_.UsesTuringUnlock() ? "Turing" : state_.UsesAmpereUnlock() ? "Ampere" : state_.UsesAdaUnlock() ? "Ada" : "Native", state_.requested);
@@ -122,7 +123,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			return Refuse("RTX 20/30-series detected, but SourceDLSSGMFGUnlock=false disables its compatibility path. "
 				"Set it to true in the winning MO2 INI (including Overwrite) and restart");
 		}
-		return !state_.UsesProviderBackport() || CheckBackportDriver(device);
+		return !state_.UsesProviderBackport() || CheckBackportDriver(device, userModeDriver);
 	}
 	bool MFGUnlock::BeforeStreamline(ID3D12Device* device, const std::filesystem::path& directory)
 	{
@@ -131,10 +132,13 @@ namespace TheosRenderPipeline::SourceDLSSG
 			spdlog::info("[SourceDLSSG Ampere] separate runtime bundles permitted={}", CommunityShaders::Active());
             if (!trp::ampere::Start(device, directory, [](const char* message) { spdlog::info("[SourceDLSSG Ampere] {}", message); }, CommunityShaders::Active(),
                 [](const char* reason) {
-                    spdlog::critical("[SourceDLSSG Turing] {}", reason);
+                    const char* detail = reason ? reason : "Turing compatibility abort";
+                    spdlog::critical("[SourceDLSSG Turing] {}", detail);
                     spdlog::default_logger()->flush();
-                    util::report_and_fail(std::format("Theo's Render Pipeline: RTX20 test stopped.\n\n{}\n\n"
-                        "Send TheosRenderPipeline.log to the developer. Skyrim will close after this message.",reason));
+                    const auto hint = StartupHints::DialogHintFor(detail, StartupHints::CurrentFacts(detail));
+                    util::report_and_fail(std::format("Theo's Render Pipeline: RTX 20 frame-generation compatibility stopped.\n\n{}\n\n{}{}"
+                        "See TheosRenderPipeline.log for details. Skyrim will close after this message.",
+                        detail, hint, hint.empty() ? "" : "\n"));
                 })) {
 				const auto snapshot = trp::ampere::Snapshot();
 				const char* error = snapshot.error ? snapshot.error : "Ampere startup preparation failed";
@@ -163,7 +167,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 			return;
 		}
 		if (!state_.UsesAdaUnlock()) {
-			state_.status = state_.requested ? "native NVIDIA runtime; compatibility not applicable" : "native NVIDIA runtime; compatibility disabled by configuration";
+			if (!(state_.requested && state_.adapter == midpoint_fix::AdapterKind::Unavailable)) {
+				state_.status = state_.requested ? "native NVIDIA runtime; compatibility not applicable" : "native NVIDIA runtime; compatibility disabled by configuration";
+			}
 			spdlog::info("[SourceDLSSG MFG] startup path: {}; runtime capabilities remain authoritative", state_.status);
 			return;
 		}
@@ -176,7 +182,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			// NVIDIA app's override replaced TRP's DLSS-G; try the unlock on that build.
 			nvidiaOverride_ = true;
 			providerPath_ = PluginPaths::ModulePath(provider_);
-			spdlog::warn("[SourceDLSSG MFG] NVIDIA app frame generation override active: DLSS-G loaded from {}", providerPath_.string());
+			spdlog::warn("[SourceDLSSG MFG] NVIDIA app frame generation override active: DLSS-G loaded from {}", PluginPaths::ToUtf8(providerPath_));
 		}
 		if (!wrapper_ || !provider_ || !GetProcAddress(wrapper_, "slGetPluginFunction") ||
 			!dlssg_provider_policy::IsDlssgImplementationModule(provider_) ||
@@ -193,7 +199,10 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (!state_.wrapperPatched) { StandDown("wrapper patch failed"); return; }
 		state_.providerPatched = MFGPatch::WriteCode(provider + 2, MFGContract::providerOriginal, MFGContract::providerReplacement, state_.unsafeMemory);
 		if (!state_.providerPatched) {
-			MFGPatch::WriteCode(wrapper + 7, nops3, wrapperOriginal, state_.unsafeMemory);
+			if (!MFGPatch::WriteCode(wrapper + 7, nops3, wrapperOriginal, state_.unsafeMemory)) {
+				state_.unsafeMemory = true;
+				Fail("provider patch failed and wrapper patch revert failed; restart required");
+			}
 			state_.wrapperPatched = false; StandDown("provider patch failed; wrapper patch reverted"); return;
 		}
 		spdlog::info("[SourceDLSSG MFG] capability patches wrapperRVA=0x{:X} providerRVA=0x{:X}; host ceiling=x6 after full readiness",
@@ -239,10 +248,11 @@ namespace TheosRenderPipeline::SourceDLSSG
 		state_.temporalFailure = midpoint_fix::FailureCode();
 		state_.unsafeMemory |= MFGContract::PublicationUncertain(state_.temporalFailure);
 		if (state_.unsafeMemory) { Fail("temporal publication is unsafe; restart required"); }
+		constexpr std::uint32_t kTemporalDescriptorPending = 12;
 		if (state_.temporalReady) {
 			state_.status = "temporal patch ready; x2 through x6 and runtime-reported dynamic mode gated by wrapper binding";
 			spdlog::info("[SourceDLSSG MFG] temporalReady=true wrapperBound={} attempts={}", state_.wrapperBound, state_.attempts);
-		} else if (state_.temporalFailure != 12 || state_.attempts >= 8) {
+		} else if (state_.temporalFailure != kTemporalDescriptorPending || state_.attempts >= 8) {
 			StandDown("the Ada temporal program is unsupported or could not be prepared (see temporal error code)");
 		} else { state_.status = "waiting for temporal descriptor; x2 fixed only"; }
 	}

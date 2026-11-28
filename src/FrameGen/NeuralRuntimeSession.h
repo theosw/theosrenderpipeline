@@ -25,22 +25,30 @@ public:
     bool BeginVulkanProbe() {
         return Claim(Backend::Vulkan) == nullptr;
     }
+    // Only when LoadLibrary failed completely before any Vulkan module loaded.
+    void ReleaseUnloadedVulkanProbe() {
+        std::scoped_lock lock(mutex_);
+        if (owner_ == Backend::Vulkan && !vulkanFailed_) { owner_ = Backend::Native; }
+    }
     // A runtime that stopped responding stays refused until the process restarts.
     void Fail(Backend backend, const char* reason) {
         std::scoped_lock lock(mutex_);
-        if (backend != Backend::Native) { failed_ = backend; failedReason_ = reason; }
+        if (backend == Backend::HIP) { hipFailed_ = true; hipFailedReason_ = reason; }
+        else if (backend == Backend::Vulkan) { vulkanFailed_ = true; vulkanFailedReason_ = reason; }
     }
 private:
     const char* RefusalLocked(Backend requested) const {
         if (requested == Backend::Native) return nullptr;
-        if (requested == failed_) return failedReason_;
+        if (requested == Backend::HIP && hipFailed_) return hipFailedReason_;
+        if (requested == Backend::Vulkan && vulkanFailed_) return vulkanFailedReason_;
         if (owner_ != Backend::Native && owner_ != requested) return kRuntimeRestart;
         return nullptr;
     }
     mutable std::mutex mutex_;
     Backend owner_{};
-    Backend failed_{};
-    const char* failedReason_{};
+    bool hipFailed_{}, vulkanFailed_{};
+    const char* hipFailedReason_{};
+    const char* vulkanFailedReason_{};
 };
 inline RuntimeSession runtimeSession;
 }

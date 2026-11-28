@@ -39,6 +39,7 @@ public:
     // pipelined queue that keeps completing work never fires.
     void Start(ID3D12Fence* fence, std::chrono::milliseconds timeout) {
         Stop();
+        if (!fence) { return; }
         fence_ = fence; timeout_ = timeout; fired_ = false; stop_ = false;
         armed_ = 0; firedValue_ = 0; completed_ = fence->GetCompletedValue();
         thread_ = std::thread([this] { Run(); });
@@ -53,14 +54,28 @@ public:
         fence_.Reset();
     }
     // Call after queueing a GPU wait for `value` that only the external producer signals.
-    void Arm(std::uint64_t value) {
+    // Returns false if the watchdog has already fired (in which case `value` is signalled
+    // immediately so the newly queued GPU wait cannot hang forever).
+    bool Arm(std::uint64_t value) {
         {
             std::lock_guard lock(mutex_);
-            if (value <= armed_) return;
-            if (armed_ <= completed_) progress_ = Clock::now();  // idle -> armed
+            if (!fence_) { return false; }
+            if (fired_.load(std::memory_order_acquire)) {
+                if (value > armed_) {
+                    armed_ = value;
+                    ReleaseLocked();
+                }
+                return false;
+            }
+            if (value <= armed_) { return true; }
+            const auto completed = fence_->GetCompletedValue();
+            const bool progressed = completed != UINT64_MAX && completed > completed_;
+            if (progressed) { completed_ = completed; }
+            if (progressed || armed_ <= completed_) { progress_ = Clock::now(); }  // progress or idle -> armed
             armed_ = value;
         }
         wake_.notify_all();
+        return true;
     }
     // The producer has reported a failure (e.g. Vulkan device lost): release
     // any held queue now instead of waiting out the timeout. True if a wait was released.

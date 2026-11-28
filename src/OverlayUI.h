@@ -66,6 +66,7 @@ private:
     void RefreshWeatherList();
     void ResetSessionFallbacks();
     void ClearTimingWindow();
+    void SetLanguage(std::string_view a_language);
     // The part of Copy details only the running game knows: versions, GPU, driver, loaded runtime files.
     TheosRenderPipeline::Support::Summary CaptureSupportSystem();
     void DrawLabImageDetails(const FrameView& view);

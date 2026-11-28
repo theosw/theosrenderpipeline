@@ -312,6 +312,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		bool FailNeuralRecording(std::string failure = {});
 		void ApplyNeuralRetry(const NeuralOptions& options, FrameExtent sceneExtent = {});
 		const char* NeuralUnavailableReason(const NeuralOptions& options, FrameExtent sceneExtent = {});
+		std::string VendorNeuralRefusal(const NeuralOptions& options, bool requestVulkanProbe) const;
 		void RecordPresentationFeedback(std::uint32_t a_presentCount,
 			std::int64_t a_observedQpc, std::int64_t a_syncQpc);
 		void ResetPresentationFeedback();

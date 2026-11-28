@@ -64,6 +64,7 @@ set(ARP_BASELINE_SOURCES
     src/FrameGen/SourceCameraSelection.h
     src/FrameGen/D3D11FrameCopy.h
     src/FrameGen/D3D11ContextIsolation.h
+    src/FrameGen/D3D12Helpers.h
     src/FrameGen/FinalFrameCapture.h
     src/FrameGen/CommunityShaderFrame.h
     src/FrameGen/CommunityShaderLens.h

@@ -123,11 +123,6 @@ namespace TheosRenderPipeline::SourceDLSSG
 				swprintf_s(name, L"TRP work %u slot %u command list", workIndex, static_cast<unsigned>(slot));
 				(void)work.lists[slot]->SetName(name);
 				if (FAILED(hr = work.lists[slot]->Close())) { return Check(hr); }
-                if (FAILED(hr = device12_->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
-                    IID_PPV_ARGS(&work.continuationAllocators[slot])))) { return Check(hr); }
-                if (FAILED(hr = device12_->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT,
-                    work.continuationAllocators[slot].Get(), nullptr, IID_PPV_ARGS(&work.continuations[slot])))) { return Check(hr); }
-                if (FAILED(hr = work.continuations[slot]->Close())) { return Check(hr); }
 			}
 		}
 		// ReShade exposes a proxy device/queue but forwards fence creation to the
@@ -409,10 +404,30 @@ namespace TheosRenderPipeline::SourceDLSSG
 		work->splitEnabled = a_splitNonblocking;
         work->continued = false;
         if (a_splitNonblocking) {
-            if (FAILED(hr=work->continuationAllocators[work->slot]->Reset()) ||
-                FAILED(hr=work->continuations[work->slot]->Reset(work->continuationAllocators[work->slot].Get(),nullptr))) {
-                work->lists[work->slot]->Close(); return Check(hr);
+            // Allocate continuation lists lazily: only Vulkan NR uses split submission.
+            if (!work->continuationAllocators[work->slot]) {
+                if (FAILED(hr = device12_->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
+                        IID_PPV_ARGS(&work->continuationAllocators[work->slot]))) ||
+                    FAILED(hr = device12_->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+                        work->continuationAllocators[work->slot].Get(), nullptr, IID_PPV_ARGS(&work->continuations[work->slot]))) ||
+                    FAILED(hr = work->continuations[work->slot]->Close())) {
+                    work->lists[work->slot]->Close();
+                    return Check(hr);
+                }
+                wchar_t name[64]{};
+                swprintf_s(name, L"TRP work %u slot %u continuation allocator",
+                    static_cast<unsigned>(a_work), static_cast<unsigned>(work->slot));
+                (void)work->continuationAllocators[work->slot]->SetName(name);
+                swprintf_s(name, L"TRP work %u slot %u continuation list",
+                    static_cast<unsigned>(a_work), static_cast<unsigned>(work->slot));
+                (void)work->continuations[work->slot]->SetName(name);
             }
+            if (FAILED(hr = work->continuationAllocators[work->slot]->Reset()) ||
+                FAILED(hr = work->continuations[work->slot]->Reset(work->continuationAllocators[work->slot].Get(), nullptr))) {
+                work->lists[work->slot]->Close();
+                return Check(hr);
+            }
+            NeuralRendering::RejectedNeuralLists::Get().Discard(work->continuations[work->slot].Get());
         }
         work->recording = true;
         *a_list = work->lists[work->slot].Get();

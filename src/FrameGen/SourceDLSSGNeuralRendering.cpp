@@ -10,41 +10,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 {
 	namespace
 	{
-		void Transition(ID3D12GraphicsCommandList* list, ID3D12Resource* resource,
-			D3D12_RESOURCE_STATES before, D3D12_RESOURCE_STATES after)
-		{
-			if (!resource) { return; } // The early world-only stage has no UI/composed inputs.
-			D3D12_RESOURCE_BARRIER b{};
-			b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-			b.Transition = { resource, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES, before, after };
-			list->ResourceBarrier(1, &b);
-		}
-		// Issues transitions recorded together as one ResourceBarrier call. Null
-		// resources are skipped; a resource must appear at most once per flush.
-		class Barriers
-		{
-		public:
-			explicit Barriers(ID3D12GraphicsCommandList* list) : list_(list) {}
-			Barriers& Add(ID3D12Resource* resource, D3D12_RESOURCE_STATES before, D3D12_RESOURCE_STATES after)
-			{
-				if (!resource) { return *this; }
-				if (count_ == barriers_.size()) { Flush(); }
-				auto& b = barriers_[count_++];
-				b = {};
-				b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-				b.Transition = { resource, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES, before, after };
-				return *this;
-			}
-			void Flush()
-			{
-				if (count_) { list_->ResourceBarrier(count_, barriers_.data()); }
-				count_ = 0;
-			}
-		private:
-			ID3D12GraphicsCommandList* list_;
-			std::array<D3D12_RESOURCE_BARRIER, 8> barriers_{};
-			UINT count_{};
-		};
+		using D3D12Helpers::Transition;
+		using Barriers = D3D12Helpers::BarrierBatch;
 		bool Texture(ID3D12Resource* resource)
 		{
 			if (!resource) { return false; }
@@ -59,14 +26,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 		}
 	}
 
-	NeuralPass::~NeuralPass()
-	{
-		if (timestampReadback_ && mappedTimestamps_) {
-			D3D12_RANGE written{ 0, 0 };
-			timestampReadback_->Unmap(0, &written);
-			mappedTimestamps_ = nullptr;
-		}
-	}
+	NeuralPass::~NeuralPass() = default;
 
 	bool NeuralPass::RetireChangedModels(const NeuralOptions& options)
 	{
@@ -120,51 +80,128 @@ namespace TheosRenderPipeline::SourceDLSSG
 		if (telemetryAttempted_ || !device || !timestampFrequency) { return; }
 		telemetryAttempted_ = true;
 		timestampFrequency_ = timestampFrequency;
-		D3D12_QUERY_HEAP_DESC query{};
-		query.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
-		query.Count = static_cast<UINT>(kCommandSlots * 4);
-		if (FAILED(device->CreateQueryHeap(&query, IID_PPV_ARGS(&timestampHeap_)))) {
+		if (!timestamps_.Initialize(device, static_cast<UINT>(kCommandSlots * 4))) {
 			timestampFrequency_ = 0;
-			logger::warn("[DLSSNR Source] GPU boundary timing unavailable: timestamp heap creation failed");
-			return;
-		}
-		D3D12_HEAP_PROPERTIES heap{};
-		heap.Type = D3D12_HEAP_TYPE_READBACK;
-		D3D12_RESOURCE_DESC buffer{};
-		buffer.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-		buffer.Width = sizeof(std::uint64_t) * kCommandSlots * 4;
-		buffer.Height = 1;
-		buffer.DepthOrArraySize = 1;
-		buffer.MipLevels = 1;
-		buffer.SampleDesc.Count = 1;
-		buffer.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-		if (FAILED(device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &buffer,
-			D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&timestampReadback_)))) {
-			timestampHeap_.Reset();
-			timestampFrequency_ = 0;
-			logger::warn("[DLSSNR Source] GPU boundary timing unavailable: readback allocation failed");
-			return;
-		}
-		D3D12_RANGE read{ 0, static_cast<SIZE_T>(buffer.Width) };
-		if (FAILED(timestampReadback_->Map(0, &read, reinterpret_cast<void**>(&mappedTimestamps_)))) {
-			timestampReadback_.Reset();
-			timestampHeap_.Reset();
-			timestampFrequency_ = 0;
-			logger::warn("[DLSSNR Source] GPU boundary timing unavailable: readback mapping failed");
+			logger::warn("[DLSSNR Source] GPU boundary timing unavailable: timestamp pool initialization failed");
 		}
 	}
 
 	void NeuralPass::HarvestTelemetry(std::size_t slot)
 	{
-		if (slot >= pendingTiming_.size() || !pendingTiming_[slot].pending || !mappedTimestamps_) { return; }
+		if (slot >= pendingTiming_.size() || !pendingTiming_[slot].pending || !timestamps_) { return; }
 		const auto& pending = pendingTiming_[slot];
 		const auto query = slot * 4;
+		const auto* values = timestamps_.Values();
 		if (pending.modelRan) {
-			telemetry_.Record(pending.evaluation, mappedTimestamps_[query],
-				mappedTimestamps_[query + 1], timestampFrequency_, pending.cpuRecordNanoseconds);
+			telemetry_.Record(pending.evaluation, values[query],
+				values[query + 1], timestampFrequency_, pending.cpuRecordNanoseconds);
 		}
-		telemetry_.RecordFrame(mappedTimestamps_[query + 2], mappedTimestamps_[query + 3], timestampFrequency_);
+		telemetry_.RecordFrame(values[query + 2], values[query + 3], timestampFrequency_);
 		pendingTiming_[slot] = {};
+	}
+
+	bool NeuralPass::RecordAdaptiveExposure(ID3D12Device* device, ID3D12GraphicsCommandList* list, std::size_t slot,
+		unsigned stage, bool resolving, const NeuralRendering::Reconstruction& reconstruction, bool reset,
+		ID3D12Resource* hudless, ResolveConstants& constants)
+	{
+		const bool adaptive = resolving && reconstruction.adaptiveExposure && reconstruction.colorIsHDR &&
+			!reconstruction.producerColor;
+		constants.adaptiveExposure = adaptive;
+		constants.exposureBias = reconstruction.exposureBias;
+		if (!adaptive) {
+			resolve_.SetExposure(nullptr);
+			exposureValid_ = false;
+			return true;
+		}
+		if (!exposure_) {
+			if (FAILED(D3D12Helpers::CreateDefaultTexture2D(device, 1, 1, DXGI_FORMAT_R32_FLOAT,
+					D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, &exposure_))) {
+				status_ = "NR exposure allocation failed";
+				return false;
+			}
+		}
+		// Half the remaining difference every quarter second: about a second to settle.
+		const auto now = std::chrono::steady_clock::now();
+		const float seconds = std::clamp(std::chrono::duration<float>(now - exposureTime_).count(), 0.0f, 0.25f);
+		constants.exposureRate = 1.0f - std::exp2(-seconds / 0.25f);
+		constants.exposureReset = reset || !exposureValid_;
+		resolve_.SetExposure(exposure_.Get());
+		if (const auto hr = resolve_.Record(device, list, slot, stage, ResolveKernel::MeasureExposure,
+				constants, hudless, nullptr, nullptr, exposure_.Get()); FAILED(hr)) {
+			status_ = std::format("NR exposure recording failed 0x{:08X}", static_cast<UINT>(hr));
+			return false;
+		}
+		exposureTime_ = now;
+		exposureValid_ = true;
+		constants.exposureReset = false;
+		return true;
+	}
+
+	bool NeuralPass::RecordResolveOutput(ID3D12Device* device, ID3D12GraphicsCommandList* list, std::size_t slot,
+		const NeuralRendering::Reconstruction& reconstruction, NeuralRendering::ResolveMethod method,
+		ID3D12Resource* modelInput, ID3D12Resource* modelOutput, ID3D12Resource* originalScene,
+		ResolveConstants& constants, std::array<float, 2> steadyJitter, bool steady,
+		unsigned residualStage0, unsigned residualStage1, unsigned toneStageBase, unsigned ratioStage)
+	{
+		auto dispatch = [&](unsigned stage, ResolveKernel kernel, ID3D12Resource* a, ID3D12Resource* b,
+			ID3D12Resource* original, ID3D12Resource* output) {
+			const auto hr = resolve_.Record(device, list, slot, stage, kernel, constants, a, b, original, output);
+			if (FAILED(hr)) { status_ = std::format("NR reconstruction recording failed 0x{:08X}", static_cast<UINT>(hr)); }
+			return SUCCEEDED(hr);
+		};
+		if (method == NeuralRendering::ResolveMethod::Residual) {
+			constants.targetWidth = constants.workWidth;
+			constants.targetHeight = constants.workHeight;
+			if (!reconstruction.peripheralCompression && constants.workWidth < constants.sourceWidth &&
+				constants.workHeight < constants.sourceHeight) {
+				// Reduced input: enlarge NR's change edge-aware, in one pass.
+				constants.mode = 2;
+				return dispatch(residualStage1, ResolveKernel::Residual, modelInput, modelOutput, originalScene, corrected_.Get());
+			}
+			constants.mode = 0;
+			if (!dispatch(residualStage0, ResolveKernel::Residual, modelInput, modelOutput, nullptr, residual_.Get())) { return false; }
+			constants.mode = 1;
+			return dispatch(residualStage1, ResolveKernel::Residual, originalScene, residual_.Get(), nullptr, corrected_.Get());
+		}
+		// Broad and Detail: NR's change in stops at its grid, blurred across
+		// regions but not across the proxy's own edges, for the resolve to split.
+		const bool bands = !reconstruction.producerColor && reconstruction.ToneBands();
+		constants.broad = reconstruction.broadStrength;
+		constants.detail = reconstruction.detailStrength;
+		constants.toneBands = bands;
+		if (bands) {
+			const auto work = modelInput->GetDesc();
+			for (auto* tone : { std::addressof(toneData_), std::addressof(toneScratch_) }) {
+				if (*tone) { continue; }
+				if (FAILED(D3D12Helpers::CreateDefaultTexture2D(device, work.Width, work.Height,
+						DXGI_FORMAT_R16G16_FLOAT, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
+						tone->ReleaseAndGetAddressOf()))) {
+					status_ = "NR broad/detail allocation failed";
+					return false;
+				}
+			}
+			constants.targetWidth = static_cast<UINT>(work.Width);
+			constants.targetHeight = work.Height;
+			constants.mode = 0;
+			if (!dispatch(toneStageBase, ResolveKernel::PrepareTone, modelInput, modelOutput, nullptr, toneData_.Get()) ||
+				!dispatch(toneStageBase + 1, ResolveKernel::FilterTone, toneData_.Get(), nullptr, nullptr, toneScratch_.Get())) {
+				return false;
+			}
+			constants.mode = 1;
+			if (!dispatch(toneStageBase + 2, ResolveKernel::FilterTone, toneScratch_.Get(), nullptr, nullptr, toneData_.Get())) {
+				return false;
+			}
+			resolve_.SetTone(toneData_.Get());
+		}
+		constants.mode = 1;
+		constants.targetWidth = constants.sourceWidth;
+		constants.targetHeight = constants.sourceHeight;
+		constants.jitterX = steady ? steadyJitter[0] : 0.0f;
+		constants.jitterY = steady ? steadyJitter[1] : 0.0f;
+		const bool ok = dispatch(ratioStage, ResolveKernel::Ratio, modelInput, modelOutput, originalScene, corrected_.Get());
+		constants.jitterX = constants.jitterY = 0.0f;
+		resolve_.SetTone(nullptr);
+		return ok;
 	}
 
 	void NeuralPass::RetireTelemetry()
@@ -456,10 +493,13 @@ namespace TheosRenderPipeline::SourceDLSSG
 		std::array<float,2> colorJitter, std::optional<std::uint32_t> applicationFrame, Interop* splitInterop, ID3D12CommandQueue* queue)
 	{
 		modelActivity_ = NRModelActivity::Unknown;
-        backend_ = options.backend;
-        if (!feature_.IsInitialized()) vulkanScheduling_ = options.vulkanScheduling;
-        if (device && !adapterChecked_) { adapterChecked_ = true; amdAdapter_ = AmdNeuralPass::IsAMD(device); }
-        if (options.backend == NeuralRendering::Backend::HIP) {
+		if (!feature_.IsInitialized() && !amd_) {
+			backend_ = options.backend;
+			vulkanScheduling_ = options.vulkanScheduling;
+		}
+		if (device && !adapterChecked_) { adapterChecked_ = true; amdAdapter_ = AmdNeuralPass::IsAMD(device); }
+		if (options.backend == NeuralRendering::Backend::HIP) {
+			backend_ = options.backend;
             if (!amdAdapter_) { status_ = "HIP/ZLUDA NR requires an AMD Radeon GPU."; return false; }
             if (!amd_) {
                 amd_ = std::make_unique<AmdNeuralPass>();
@@ -502,19 +542,19 @@ namespace TheosRenderPipeline::SourceDLSSG
             bool ready{};
             if(!feature_.PollVulkan(slot,queue,ready)){status_=feature_.Status();return false;}
         }
-		const bool gpuTiming = timestampHeap_ && timestampReadback_ && mappedTimestamps_ && timestampFrequency_;
+		const bool gpuTiming = timestamps_ && timestampFrequency_;
 		const auto query = static_cast<UINT>(slot * 4);
-		if (gpuTiming) { list->EndQuery(timestampHeap_.Get(), D3D12_QUERY_TYPE_TIMESTAMP, query + 2); }
+		if (gpuTiming) { list->EndQuery(timestamps_.Heap(), D3D12_QUERY_TYPE_TIMESTAMP, query + 2); }
 		std::uint64_t modelCPUTime{};
 		bool modelRecorded{};
 		auto finishTiming = [&] {
 			modelActivity_ = modelRecorded ? NRModelActivity::Ran : NRModelActivity::Skipped;
 			if (!gpuTiming) { return; }
-			list->EndQuery(timestampHeap_.Get(), D3D12_QUERY_TYPE_TIMESTAMP, query + 3);
+			list->EndQuery(timestamps_.Heap(), D3D12_QUERY_TYPE_TIMESTAMP, query + 3);
 			// Skipped frames never wrote the inference pair; do not resolve/read it.
 			const bool ran = modelRecorded;
-			list->ResolveQueryData(timestampHeap_.Get(), D3D12_QUERY_TYPE_TIMESTAMP, query + (ran ? 0 : 2), ran ? 4 : 2,
-				timestampReadback_.Get(), sizeof(std::uint64_t) * (query + (ran ? 0 : 2)));
+			list->ResolveQueryData(timestamps_.Heap(), D3D12_QUERY_TYPE_TIMESTAMP, query + (ran ? 0 : 2), ran ? 4 : 2,
+				timestamps_.Readback(), sizeof(std::uint64_t) * (query + (ran ? 0 : 2)));
 			pendingTiming_[slot] = { feature_.EvaluationsRecorded(), modelCPUTime, true, ran };
 		};
 		// Marks left open by a failed recording are dropped with the list.
@@ -640,34 +680,8 @@ namespace TheosRenderPipeline::SourceDLSSG
 			}
 		} else {
 			// Adaptive exposure measures the original scene before anything encodes it.
-			const bool adaptive = resolving && reconstruction.adaptiveExposure && reconstruction.colorIsHDR &&
-				!reconstruction.producerColor;
-			constants.adaptiveExposure = adaptive;
-			constants.exposureBias = reconstruction.exposureBias;
-			if (adaptive) {
-				if (!exposure_) {
-					D3D12_RESOURCE_DESC desc{};
-					desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D; desc.Width = desc.Height = 1;
-					desc.DepthOrArraySize = desc.MipLevels = 1; desc.SampleDesc.Count = 1;
-					desc.Format = DXGI_FORMAT_R32_FLOAT; desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
-					D3D12_HEAP_PROPERTIES heap{}; heap.Type = D3D12_HEAP_TYPE_DEFAULT;
-					if (FAILED(device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc,
-						D3D12_RESOURCE_STATE_COMMON, nullptr, IID_PPV_ARGS(&exposure_)))) {
-						status_ = "NR exposure allocation failed"; return false;
-					}
-				}
-				// Half the remaining difference every quarter second: about a second to settle.
-				const auto now = std::chrono::steady_clock::now();
-				const float seconds = std::clamp(std::chrono::duration<float>(now - exposureTime_).count(), 0.0f, 0.25f);
-				constants.exposureRate = 1.0f - std::exp2(-seconds / 0.25f);
-				constants.exposureReset = reset || !exposureValid_;
-				resolve_.SetExposure(exposure_.Get());
-				if (!dispatch(12, ResolveKernel::MeasureExposure, hudless, nullptr, nullptr, exposure_.Get())) { return false; }
-				exposureTime_ = now; exposureValid_ = true;
-				constants.exposureReset = false;
-			} else {
-				resolve_.SetExposure(nullptr);
-				exposureValid_ = false;
+			if (!RecordAdaptiveExposure(device, list, slot, 12, resolving, reconstruction, reset, hudless, constants)) {
+				return false;
 			}
 			// Before upscaling, Ratio shows NR the frame on the steady grid and moves its
 			// change back to the jittered one; DLSS still receives the jittered pixels.
@@ -759,7 +773,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			}
 			marks.End(D3D12Stage::kNeuralPrepare);
 			marks.Begin(D3D12Stage::kNeuralInference);
-			if (gpuTiming) { list->EndQuery(timestampHeap_.Get(), D3D12_QUERY_TYPE_TIMESTAMP, query); }
+			if (gpuTiming) { list->EndQuery(timestamps_.Heap(), D3D12_QUERY_TYPE_TIMESTAMP, query); }
 			auto ensurePassScratch = [&](unsigned pass, ID3D12Resource* output) {
 				auto& result = passScratch_[pass];
 				if (!result) {
@@ -838,15 +852,29 @@ namespace TheosRenderPipeline::SourceDLSSG
 			// The previous pass's result on Pass 1's grid, which the next pass reads.
 			ID3D12Resource* previous = featureOutput;
 			bool evaluated{};
-            if (backend_ == NeuralRendering::Backend::Vulkan) {
-                // A submitted producer must leave EVERY borrowed resource COMMON,
-                // so a later refusal can discard the continuation without repair work.
-                Barriers before{list};transitionInputs(before,read,common);before.Add(featureOutput,write,common).Flush();
-                evaluated=splitInterop && feature_.EvaluateVulkan(input,*splitInterop,queue,slot,list);
-                input.commandList=list;
-                if(evaluated) { Barriers after{list};transitionInputs(after,common,read);after.Add(featureOutput,common,write).Flush(); }
-            } else { evaluated=feature_.RecordEvaluation(input); }
-			if (!evaluated) { status_ = feature_.Status(); }
+			if (backend_ == NeuralRendering::Backend::Vulkan) {
+				if (!splitInterop) {
+					status_ = "Vulkan NR submission context missing";
+				} else {
+					// A submitted producer must leave EVERY borrowed resource COMMON,
+					// so a later refusal can discard the continuation without repair work.
+					Barriers before{list};
+					transitionInputs(before, read, common);
+					before.Add(featureOutput, write, common).Flush();
+					evaluated = feature_.EvaluateVulkan(input, *splitInterop, queue, slot, list);
+					input.commandList = list;
+					if (evaluated) {
+						Barriers after{list};
+						transitionInputs(after, common, read);
+						after.Add(featureOutput, common, write).Flush();
+					} else {
+						status_ = feature_.Status();
+					}
+				}
+			} else {
+				evaluated = feature_.RecordEvaluation(input);
+				if (!evaluated) { status_ = feature_.Status(); }
+			}
 			if (evaluated) { evaluated = finishEvaluation(0, input); }
 			for (int pass = 1; evaluated && pass < effectivePasses; ++pass) {
 				auto& evaluation = extras[pass - 1];
@@ -866,7 +894,7 @@ namespace TheosRenderPipeline::SourceDLSSG
 			}
 			modelRecorded = true;
 			if (gpuTiming) {
-				list->EndQuery(timestampHeap_.Get(), D3D12_QUERY_TYPE_TIMESTAMP, query + 1);
+				list->EndQuery(timestamps_.Heap(), D3D12_QUERY_TYPE_TIMESTAMP, query + 1);
 			} else {
 				telemetry_.RecordCPUOnly(cpuRecordNanoseconds);
 			}
@@ -886,51 +914,9 @@ namespace TheosRenderPipeline::SourceDLSSG
 				// A direct extra-pass result and featureOutput are already COMMON.
 				if (modelResult == featureOutput) { barriers.Add(featureOutput, write, common); }
 				barriers.Flush();
-				if (method == NeuralRendering::ResolveMethod::Residual) {
-					constants.targetWidth = constants.workWidth; constants.targetHeight = constants.workHeight;
-					if (!reconstruction.peripheralCompression && constants.workWidth < constants.sourceWidth &&
-						constants.workHeight < constants.sourceHeight) {
-						// Reduced input: enlarge NR's change edge-aware, in one pass.
-						constants.mode = 2;
-						if (!dispatch(3, ResolveKernel::Residual, featureColor, modelResult, hudless, corrected_.Get())) { return false; }
-					} else {
-						if (!dispatch(2, ResolveKernel::Residual, featureColor, modelResult, nullptr, residual_.Get())) { return false; }
-						constants.mode = 1;
-						if (!dispatch(3, ResolveKernel::Residual, hudless, residual_.Get(), nullptr, corrected_.Get())) { return false; }
-					}
-				} else {
-					// Broad and Detail: NR's change in stops at its grid, blurred across
-					// regions but not across the proxy's own edges, for the resolve to split.
-					const bool bands = !reconstruction.producerColor && reconstruction.ToneBands();
-					constants.broad = reconstruction.broadStrength; constants.detail = reconstruction.detailStrength;
-					constants.toneBands = bands;
-					if (bands) {
-						const auto work = featureColor->GetDesc();
-						for (auto* tone : { std::addressof(toneData_), std::addressof(toneScratch_) }) {
-							if (*tone) { continue; }
-							D3D12_RESOURCE_DESC desc{};
-							desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D; desc.Width = work.Width; desc.Height = work.Height;
-							desc.DepthOrArraySize = desc.MipLevels = 1; desc.SampleDesc.Count = 1;
-							desc.Format = DXGI_FORMAT_R16G16_FLOAT; desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
-							D3D12_HEAP_PROPERTIES heap{}; heap.Type = D3D12_HEAP_TYPE_DEFAULT;
-							if (FAILED(device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc,
-								D3D12_RESOURCE_STATE_COMMON, nullptr, IID_PPV_ARGS(tone->ReleaseAndGetAddressOf())))) {
-								status_ = "NR broad/detail allocation failed"; return false;
-							}
-						}
-						constants.targetWidth = static_cast<UINT>(work.Width); constants.targetHeight = work.Height;
-						if (!dispatch(13, ResolveKernel::PrepareTone, featureColor, modelResult, nullptr, toneData_.Get())) { return false; }
-						constants.mode = 0;
-						if (!dispatch(14, ResolveKernel::FilterTone, toneData_.Get(), nullptr, nullptr, toneScratch_.Get())) { return false; }
-						constants.mode = 1;
-						if (!dispatch(15, ResolveKernel::FilterTone, toneScratch_.Get(), nullptr, nullptr, toneData_.Get())) { return false; }
-						resolve_.SetTone(toneData_.Get());
-					}
-					constants.mode = 1; constants.targetWidth = constants.sourceWidth; constants.targetHeight = constants.sourceHeight;
-					setJitter(steady);
-					if (!dispatch(3, ResolveKernel::Ratio, featureColor, modelResult, hudless, corrected_.Get())) { return false; }
-					setJitter(false);
-					resolve_.SetTone(nullptr);
+				if (!RecordResolveOutput(device, list, slot, reconstruction, method, featureColor, modelResult,
+						hudless, constants, colorJitter, steady, 2, 3, 13, 3)) {
+					return false;
 				}
 			}
 			if (rate.storeChange) {

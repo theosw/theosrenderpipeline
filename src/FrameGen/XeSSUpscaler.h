@@ -29,6 +29,7 @@ namespace TheosRenderPipeline
         HRESULT ReleaseAfterRetirement();
         FrameExtent InputSize() const { return input_; }
         bool Ready() const { return initialized_; }
+        bool InvertedDepth() const { return invertedDepth_; }
         HMODULE Module() const { return module_; }
         const std::string& Status() const { return status_; }
         std::uint64_t Frames() const { return frames_; }

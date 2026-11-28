@@ -24,7 +24,7 @@ class RendererSettingsController
     RendererSettingsResult SetNeuralRenderingEnabled(bool enabled);
 
   private:
-    RendererSettingsCapabilities Capabilities() const;
+    RendererSettingsCapabilities Capabilities(const RendererSettingsDraft* targetDraft = nullptr) const;
     RendererSettingsController(RenderPipeline& upscaler, SourceFrameGeneration& frameGen, NvidiaHost& host,
                                PerformanceTuning& performance, TextureProviderBridge& textures)
         : upscaler_(upscaler), frameGen_(frameGen), host_(host), performance_(performance), textures_(textures)

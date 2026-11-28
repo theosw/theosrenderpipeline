@@ -1,5 +1,6 @@
 #pragma once
 
+#include "D3D12Helpers.h"
 #include "NeuralRenderingFeatureSession.h"
 #include "SourceDLSSGInterop.h"
 #include "SourceDLSSGNeuralState.h"
@@ -264,13 +265,19 @@ namespace TheosRenderPipeline::SourceDLSSG
 		bool beforeUpscaling_{};
 		bool worldOnly_{};
 		int passes_{1};
+		bool RecordAdaptiveExposure(ID3D12Device* device, ID3D12GraphicsCommandList* list, std::size_t slot,
+			unsigned stage, bool resolving, const NeuralRendering::Reconstruction& reconstruction, bool reset,
+			ID3D12Resource* hudless, ResolveConstants& constants);
+		bool RecordResolveOutput(ID3D12Device* device, ID3D12GraphicsCommandList* list, std::size_t slot,
+			const NeuralRendering::Reconstruction& reconstruction, NeuralRendering::ResolveMethod method,
+			ID3D12Resource* modelInput, ID3D12Resource* modelOutput, ID3D12Resource* originalScene,
+			ResolveConstants& constants, std::array<float, 2> steadyJitter, bool steady,
+			unsigned residualStage0, unsigned residualStage1, unsigned toneStageBase, unsigned ratioStage);
 		Microsoft::WRL::ComPtr<ID3D12RootSignature> root_;
 		Microsoft::WRL::ComPtr<ID3D12PipelineState> pipeline_;
 		std::array<Microsoft::WRL::ComPtr<ID3D12DescriptorHeap>, kCommandSlots> heaps_;
-		Microsoft::WRL::ComPtr<ID3D12QueryHeap> timestampHeap_;
-		Microsoft::WRL::ComPtr<ID3D12Resource> timestampReadback_;
+		D3D12Helpers::GpuTimestampPool timestamps_;
 		std::array<PendingTiming, kCommandSlots> pendingTiming_{};
-		std::uint64_t* mappedTimestamps_{};
 		std::uint64_t timestampFrequency_{};
 		bool telemetryAttempted_{};
 		NeuralTelemetryTracker telemetry_;

@@ -8,7 +8,7 @@
 
 using namespace TheosRenderPipeline::Overlay;
 
-OverlayPreview::OverlayPreview(PreviewScenario& scenario, const Layout& layout, SettingsPage page)
+OverlayPreview::OverlayPreview(PreviewScenario& scenario, const Layout& layout, SettingsPage page, std::string_view language)
     : menu_(new OverlayUI()), page_(page)
 {
     current_ = &scenario;
@@ -16,6 +16,7 @@ OverlayPreview::OverlayPreview(PreviewScenario& scenario, const Layout& layout, 
     menu.initialized = true;
     menu.visible = true;
     menu.layout = layout;
+    menu.languageDraft = std::string(language);
     menu.showDeveloperControls = scenario.labMode;
     menu.nrRuntimePresent = scenario.nrRuntimePresent;
     menu.settingsDraft = scenario.draft;
@@ -60,13 +61,16 @@ void OverlayPreview::UpdateScale()
 {
     const auto display = ImGui::GetIO().DisplaySize;
     const float scale = ResolveUIScale(menu_->layout.uiScale, display.x, display.y);
-    if (std::abs(scale - UIScale()) < 0.001f)
+    const bool scaleChanged = std::abs(scale - UIScale()) >= 0.001f;
+    if (!scaleChanged && !menu_->fontRebuildPending)
         return;
+    menu_->fontRebuildPending = false;
     ApplyRendererStyle(scale);
     BuildRendererFont(scale);
     ImGui_ImplDX11_InvalidateDeviceObjects();
     ImGui_ImplDX11_CreateDeviceObjects();
-    menu_->layoutPending = true;
+    if (scaleChanged)
+        menu_->layoutPending = true;
 }
 
 bool OverlayPreview::LabMode() const { return menu_->showDeveloperControls; }
@@ -142,10 +146,11 @@ TheosRenderPipeline::Support::Summary OverlayUI::CaptureSupportSystem()
     summary.gpu = nvidia ? "NVIDIA GeForce RTX 4080 SUPER" : "AMD Radeon RX 7800 XT";
     summary.driver = nvidia ? "621.01 (32.0.16.2101)" : "32.0.21030.2001";
     summary.userProfile = "C:\\Users\\Player";
-    summary.modules = {{"TheosRenderPipeline.dll", "0.7.4.0", "C:\\Users\\Player\\MO2\\mods\\TRP\\SKSE\\Plugins\\TheosRenderPipeline.dll"}};
+    summary.modules = {{"TheosRenderPipeline.dll", "0.7.5.0", "C:\\Users\\Player\\MO2\\mods\\TRP\\SKSE\\Plugins\\TheosRenderPipeline.dll"}};
     return summary;
 }
 void OverlayUI::ClearTimingWindow() {}
+void OverlayUI::SetLanguage(std::string_view) {}
 
 namespace
 {

@@ -29,8 +29,9 @@ namespace TheosRenderPipeline
             guidesReady_ = sceneReady_ = sceneFinal_ = encodedReady_ = consumed_ = false;
             sceneSource_.Reset(); encodedSource_.Reset(); uiSource_.Reset();
             render_ = renderExtent; output_ = outputExtent;
-            if (!output_.width || !output_.height || render_.width > output_.width ||
-                render_.height > output_.height || !context || !motion || !depth) {
+            if (!render_.width || !render_.height || !output_.width || !output_.height ||
+                render_.width > output_.width || render_.height > output_.height ||
+                !context || !motion || !depth) {
                 guideRefusal_ = std::format("inputs: render={}x{} output={}x{} context={} motion={} depth={}", render_.width,
                     render_.height, output_.width, output_.height, context != nullptr, motion != nullptr, depth != nullptr);
                 return E_INVALIDARG;
@@ -140,10 +141,14 @@ namespace TheosRenderPipeline
             auto result = Ensure(context, output.Get(), output_, DXGI_FORMAT_UNKNOWN,
                 D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS, encoded_);
             if (FAILED(result)) { return result; }
-            if (!encodedUAV_ || encodedUAVSource_.Get() != encoded_.Get()) {
-                result = device->CreateUnorderedAccessView(encoded_.Get(), nullptr, encodedUAV_.ReleaseAndGetAddressOf());
+            D3D11_UNORDERED_ACCESS_VIEW_DESC uavDesc{};
+            destination->GetDesc(&uavDesc);
+            if (!encodedUAV_ || encodedUAVSource_.Get() != encoded_.Get() || encodedUAVFormat_ != uavDesc.Format) {
+                const auto* descPtr = uavDesc.ViewDimension == D3D11_UAV_DIMENSION_TEXTURE2D ? &uavDesc : nullptr;
+                result = device->CreateUnorderedAccessView(encoded_.Get(), descPtr, encodedUAV_.ReleaseAndGetAddressOf());
                 if (FAILED(result)) { return result; }
                 encodedUAVSource_ = encoded_;
+                encodedUAVFormat_ = uavDesc.Format;
             }
             ID3D11ShaderResourceView* cleanViews[]{sceneSRV_.Get(), nullptr};
             auto* cleanOutput = encodedUAV_.Get();
@@ -151,7 +156,8 @@ namespace TheosRenderPipeline
             context->CSSetUnorderedAccessViews(0, 1, &cleanOutput, nullptr);
             dispatch(context, x, y, z);
             auto* originalOutput = destination.Get();
-            context->CSSetUnorderedAccessViews(0, 1, &originalOutput, nullptr);
+            UINT keepCounter = ~0u;
+            context->CSSetUnorderedAccessViews(0, 1, &originalOutput, &keepCounter);
             context->CSSetShaderResources(0, 2, views);
             encodedSource_ = output;
             return S_OK;
@@ -219,9 +225,10 @@ namespace TheosRenderPipeline
 
         void ResetAfterRetirement()
         {
-            isolation_.ResetAfterRetirement(); depthCopy_.ResetViews();
+            isolation_.ResetAfterRetirement(); depthCopy_.ResetAfterRetirement();
             motion_.Reset(); depth_.Reset(); scene_.Reset(); sceneSource_.Reset(); uiSource_.Reset(); uiSurface_.Reset();
             encoded_.Reset(); encodedSource_.Reset(); encodedUAV_.Reset(); encodedUAVSource_.Reset();
+            encodedUAVFormat_ = DXGI_FORMAT_UNKNOWN;
             sceneSRV_.Reset(); sceneSRVSource_.Reset();
             guidesReady_ = sceneReady_ = sceneFinal_ = encodedReady_ = consumed_ = false;
             frame_ = (std::numeric_limits<std::uint64_t>::max)(); render_ = output_ = {};
@@ -256,8 +263,11 @@ namespace TheosRenderPipeline
             desc.Usage = D3D11_USAGE_DEFAULT; desc.BindFlags = bindings;
             desc.CPUAccessFlags = desc.MiscFlags = 0;
             if (target) {
+                Microsoft::WRL::ComPtr<ID3D11Device> targetDevice;
+                target->GetDevice(&targetDevice);
                 D3D11_TEXTURE2D_DESC old{}; target->GetDesc(&old);
-                if (old.Width == desc.Width && old.Height == desc.Height && old.Format == desc.Format) { return S_OK; }
+                if (D3D11FrameCopy::SameObject(device.Get(), targetDevice.Get()) &&
+                    old.Width == desc.Width && old.Height == desc.Height && old.Format == desc.Format) { return S_OK; }
             }
             Microsoft::WRL::ComPtr<ID3D11Texture2D> next;
             const auto result = device->CreateTexture2D(&desc, nullptr, &next);
@@ -272,6 +282,7 @@ namespace TheosRenderPipeline
         Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> sceneSRV_;
         Microsoft::WRL::ComPtr<ID3D11Texture2D> sceneSRVSource_, encodedUAVSource_;
         Microsoft::WRL::ComPtr<ID3D11UnorderedAccessView> encodedUAV_;
+        DXGI_FORMAT encodedUAVFormat_{DXGI_FORMAT_UNKNOWN};
         FrameExtent render_{}, output_{};
         std::uint64_t frame_{(std::numeric_limits<std::uint64_t>::max)()};
         ID3D11DeviceContext* producerContext_{};
